@@ -381,7 +381,7 @@ function renderTab(tab){
   else if(tab==='inventory')c.innerHTML=renderInventory();
   else if(tab==='picking')c.innerHTML=renderPicking();
   else if(tab==='inbound')c.innerHTML=renderInbound(false);
-  else if(tab==='qc')c.innerHTML=renderInbound(true);
+  else if(tab==='qc')c.innerHTML=renderQCTab();
 }
 
 // ============================================================
@@ -809,18 +809,24 @@ function parsePIFile(input){
 }
 
 // ============================================================
-// 客戶代號比對
+// 客戶代號比對（支援部分比對）
 // ============================================================
 function matchCustomer(code){
-  if(!code){document.getElementById('custMatch').textContent='';return;}
-  const found=customers.find(c=>c.code&&c.code.toLowerCase()===code.toLowerCase());
   const info=document.getElementById('custMatch');
+  if(!code){info.textContent='';return;}
+  const q=code.toLowerCase().trim();
+  // 精確比對優先，再做部分比對
+  let found=customers.find(c=>c.code&&c.code.toLowerCase()===q);
+  if(!found) found=customers.find(c=>c.code&&c.code.toLowerCase().includes(q));
+  if(!found) found=customers.find(c=>c.name&&c.name.toLowerCase().includes(q));
   if(found){
     document.getElementById('m_cust').value=found.name;
-    info.textContent='✅ 找到：'+found.name;
+    info.textContent=`✅ 找到：${found.name}（代號：${found.code||'無'}）`;
     info.style.color='var(--green)';
   } else {
-    info.textContent='⚠ 客戶代號未比對到，請從下拉選擇';
+    // 顯示前5筆客戶代號供參考
+    const sample=customers.filter(c=>c.code).slice(0,5).map(c=>c.code).join('、');
+    info.textContent=`⚠ 找不到「${code}」，請確認代號或從下拉選擇（範例：${sample}）`;
     info.style.color='var(--yellow)';
   }
 }
@@ -850,6 +856,117 @@ function syncProdFromSelect(){
     const mat=mats.find(m=>m.id===sel.value);
     if(mat)document.getElementById('m_prodCode').value=mat.name;
   }
+}
+
+
+// ============================================================
+// 品管分頁：含子分頁「待品檢」和「已檢測記錄」
+// ============================================================
+let QC_SUB = 'pending'; // 'pending' | 'history'
+let QC_FILTER = 'all';  // 'all' | 'pass' | 'fail'
+
+function renderQCTab(){
+  const canQC=ROLE==='qc'||ROLE==='manager';
+  const pending=inbounds.filter(i=>i.qcStatus==='待品檢');
+  const history=inbounds.filter(i=>i.qcStatus!=='待品檢');
+
+  // 子分頁 tabs
+  const tabs=`<div style="display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+    <button onclick="QC_SUB='pending';renderTab('qc')" style="padding:8px 16px;font-size:12px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:2px solid ${QC_SUB==='pending'?'var(--blue)':'transparent'};color:${QC_SUB==='pending'?'var(--blue)':'var(--text2)'}">
+      ⏳ 待品檢 <span style="background:rgba(245,185,66,.15);color:var(--yellow);border-radius:10px;padding:1px 7px;font-size:10px;margin-left:4px">${pending.length}</span>
+    </button>
+    <button onclick="QC_SUB='history';renderTab('qc')" style="padding:8px 16px;font-size:12px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:2px solid ${QC_SUB==='history'?'var(--blue)':'transparent'};color:${QC_SUB==='history'?'var(--blue)':'var(--text2)'}">
+      📋 已檢測記錄 <span style="background:rgba(46,196,138,.1);color:var(--green);border-radius:10px;padding:1px 7px;font-size:10px;margin-left:4px">${history.length}</span>
+    </button>
+  </div>`;
+
+  if(QC_SUB==='pending'){
+    // 待品檢列表
+    if(pending.length===0) return tabs+`<div class="panel"><div style="padding:32px;text-align:center;color:var(--text3);font-size:12px">目前沒有待品檢項目 ✅</div></div>`;
+    return tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢入料單</span></div>
+    <table><tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管操作</th></tr>
+    ${pending.map(i=>{
+      const mat=mats.find(m=>m.id===i.matId);
+      return`<tr>
+        <td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td>
+        <td style="color:var(--text)">${mat?.name||'—'}</td>
+        <td style="font-family:monospace">${i.qty}</td>
+        <td>${i.supplier||'—'}</td>
+        <td style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
+        <td style="min-width:180px">
+          ${canQC?`<div style="display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過入庫</button>
+              <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗ 不合格</button>
+            </div>
+            <a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:10px;color:var(--blue);text-decoration:none">📷 上傳照片（Notion）</a>
+          </div>`:'—'}
+        </td>
+      </tr>`;
+    }).join('')}
+    </table></div>`;
+  }
+
+  // 已檢測記錄，按月份分組
+  // 篩選按鈕
+  const filterBar=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <span style="font-size:11px;color:var(--text2)">篩選：</span>
+    ${['all','pass','fail'].map(f=>{
+      const labels={all:'全部',pass:'✅ 通過',fail:'❌ 不合格'};
+      const active=QC_FILTER===f;
+      return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${active?'var(--blue)':'var(--border)'};background:${active?'rgba(77,142,245,.12)':'var(--bg3)'};color:${active?'var(--blue)':'var(--text2)'}">${labels[f]}</button>`;
+    }).join('')}
+  </div>`;
+
+  let filtered=history;
+  if(QC_FILTER==='pass') filtered=history.filter(i=>i.qcStatus==='品檢通過');
+  if(QC_FILTER==='fail') filtered=history.filter(i=>i.qcStatus==='品檢不合格');
+
+  if(filtered.length===0) return tabs+filterBar+`<div class="panel"><div style="padding:32px;text-align:center;color:var(--text3);font-size:12px">尚無記錄</div></div>`;
+
+  // 按月份分組
+  const byMonth={};
+  filtered.forEach(i=>{
+    const month=i.date?i.date.slice(0,7):'無日期';
+    if(!byMonth[month]) byMonth[month]=[];
+    byMonth[month].push(i);
+  });
+
+  const months=Object.keys(byMonth).sort().reverse();
+  const tables=months.map(month=>{
+    const rows=byMonth[month];
+    const passCount=rows.filter(i=>i.qcStatus==='品檢通過').length;
+    const failCount=rows.filter(i=>i.qcStatus==='品檢不合格').length;
+    return`<div class="panel" style="margin-bottom:12px">
+      <div class="panel-hdr" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <span class="panel-title">📅 ${month}</span>
+        <span style="font-size:11px;color:var(--text2)">共 ${rows.length} 筆
+          <span style="color:var(--green);margin-left:8px">✅ ${passCount}</span>
+          <span style="color:var(--red);margin-left:8px">❌ ${failCount}</span>
+          <span style="color:var(--text3);margin-left:8px">▼</span>
+        </span>
+      </div>
+      <div>
+        <table><tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管結果</th><th>照片</th></tr>
+        ${rows.map(i=>{
+          const mat=mats.find(m=>m.id===i.matId);
+          const isPass=i.qcStatus==='品檢通過';
+          return`<tr>
+            <td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td>
+            <td style="color:var(--text)">${mat?.name||'—'}</td>
+            <td style="font-family:monospace">${i.qty}</td>
+            <td>${i.supplier||'—'}</td>
+            <td style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
+            <td><span class="pill" style="background:${isPass?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${isPass?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td>
+            <td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:10px;color:var(--blue);text-decoration:none">📷 查看/上傳</a></td>
+          </tr>`;
+        }).join('')}
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  return tabs+filterBar+tables;
 }
 
 function showToast(msg,type){
