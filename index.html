@@ -200,8 +200,8 @@ let mats=[], boms=[], orders=[], customers=[], picks=[], inbounds=[];
 // ============================================================
 // ⚡ 填入你的 Cloudflare Worker 網址
 // 設定完 Cloudflare Worker 後，把下面這行換成你的網址
-// 例如：const PROXY = 'https://green-wave-c22f.vic-e93.workers.dev';
-const PROXY = 'https://YOUR_WORKER.workers.dev';
+// 例如：const PROXY = 'https://lematec-erp.你的帳號.workers.dev';
+const PROXY = 'https://green-wave-c22f.vic-e93.workers.dev';
 
 async function notionAPI(method, endpoint, body=null) {
   const res = await fetch(PROXY, {
@@ -264,7 +264,7 @@ async function login() {
 
     let data;
     try { data = JSON.parse(testText); }
-    catch { showLoginErr('Function 回應無法解析，可能 Netlify Function 未部署成功'); btn.disabled=false; btn.textContent='⚡ 進入系統'; return; }
+    catch(pe){ showLoginErr('回應解析失敗：'+pe.message); btn.disabled=false; btn.textContent='⚡ 進入系統'; return; }
 
     if (data.id || data.object === 'database') {
       localStorage.setItem('lematec_token', TOKEN);
@@ -278,7 +278,7 @@ async function login() {
       showLoginErr(`連接失敗：${data.message || data.code || JSON.stringify(data).slice(0,100)}`);
     }
   } catch(e) {
-    showLoginErr(`網路錯誤：${e.message}<br>請確認你是從 Netlify 網址開啟，不是本機或 GitHub Pages`);
+    showLoginErr(`網路錯誤：${e.message}<br>請確認 Cloudflare Worker 是否正常運作`);
   }
 
   btn.disabled=false; btn.textContent='⚡ 進入系統';
