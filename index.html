@@ -198,7 +198,10 @@ let mats=[], boms=[], orders=[], customers=[], picks=[], inbounds=[];
 // ============================================================
 // API
 // ============================================================
-const PROXY = '/.netlify/functions/notion';
+// ⚡ 填入你的 Cloudflare Worker 網址
+// 設定完 Cloudflare Worker 後，把下面這行換成你的網址
+// 例如：const PROXY = 'https://green-wave-c22f.vic-e93.workers.dev';
+const PROXY = 'https://YOUR_WORKER.workers.dev';
 
 async function notionAPI(method, endpoint, body=null) {
   const res = await fetch(PROXY, {
