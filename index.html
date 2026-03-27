@@ -112,8 +112,11 @@ tr:hover td{background:rgba(255,255,255,.01);}
     <h2>🔐 登入系統</h2>
     <div class="field">
       <label>Notion Integration Token</label>
-      <input class="inp" type="password" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx">
-      <div class="hint">前往 notion.so/profile/integrations 取得</div>
+      <div style="position:relative;">
+        <input class="inp" type="password" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" style="padding-right:60px;">
+        <button onclick="toggleToken()" id="toggleBtn" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text2);cursor:pointer;font-size:11px;padding:2px 6px;">顯示</button>
+      </div>
+      <div class="hint">前往 notion.so/profile/integrations 取得 · 確認以 ntn_ 開頭</div>
     </div>
     <div class="field">
       <label>角色</label>
@@ -208,8 +211,13 @@ let mats = [], boms = [], orders = [], customers = [], picks = [], inbounds = []
 // ============================================================
 // API — 透過 Netlify Function Proxy
 // ============================================================
+// Netlify Function URL
+const PROXY_URL = window.location.hostname.includes("netlify.app")
+  ? "/.netlify/functions/notion"
+  : "https://dainty-bonbon-ef98ff.netlify.app/.netlify/functions/notion";
+
 async function notionAPI(method, endpoint, body = null) {
-  const res = await fetch('/.netlify/functions/notion', {
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: TOKEN, method, endpoint, body }),
@@ -232,10 +240,29 @@ async function updatePage(pageId, props) {
 // ============================================================
 // LOGIN / LOGOUT
 // ============================================================
+function toggleToken() {
+  const inp = document.getElementById('tokenInput');
+  const btn = document.getElementById('toggleBtn');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.textContent = '隱藏';
+  } else {
+    inp.type = 'password';
+    btn.textContent = '顯示';
+  }
+}
+
 async function login() {
-  const t = document.getElementById('tokenInput').value.trim();
+  const raw = document.getElementById('tokenInput').value;
+  const t = raw.trim(); // 去除前後空格
   const r = document.getElementById('roleSelect').value;
+
   if (!t) { showLoginAlert('請填入 Token'); return; }
+  if (!t.startsWith('ntn_')) {
+    showLoginAlert(`Token 格式不對，應以 ntn_ 開頭，你輸入的開頭是：「${t.slice(0,6)}...」`);
+    return;
+  }
+
   TOKEN = t; ROLE = r;
   setLoginLoading(true);
   try {
@@ -245,11 +272,12 @@ async function login() {
       localStorage.setItem('lematec_role', ROLE);
       startApp();
     } else {
-      showLoginAlert('連接失敗，請確認 Token 是否正確，以及資料庫是否已連接此 Integration');
+      const errMsg = res.message || res.code || JSON.stringify(res);
+      showLoginAlert(`連接失敗：${errMsg}<br><br>請確認：<br>① Token 是否正確（目前：${t.slice(0,8)}...）<br>② 「工廠 ERP」主頁面是否已連接此 Integration`);
       setLoginLoading(false);
     }
   } catch(e) {
-    showLoginAlert('錯誤：' + e.message);
+    showLoginAlert('網路錯誤：' + e.message + '<br>請確認 Netlify Function 是否正常運作');
     setLoginLoading(false);
   }
 }
