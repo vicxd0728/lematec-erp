@@ -166,7 +166,8 @@ const DB = {
   pickMaster: '55552dd1-eb31-4d68-8127-63cc062a93f8',
   pickDetail: '267f16cf-e88a-41ed-8049-d39d618a1275',
   inbound:    'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
-  customers:  'd7e6db27-5935-4aea-8dbf-ea48bca5a4b4',
+  customers:  'd7e6db27-5935-4aea-8dbf-ea48bca5a4b4',   // ERP 客戶主檔
+  custMaster: '19fff6f4-24bb-80fe-b265-c62fa39c814c',   // 國外業務客戶總檔
 };
 
 const ROLES = {
@@ -322,11 +323,29 @@ async function startApp() {
 // DATA
 // ============================================================
 async function refreshAll() {
-  const [mR,bR,oR,cR] = await Promise.all([dbQuery(DB.materials),dbQuery(DB.bom),dbQuery(DB.orders),dbQuery(DB.customers)]);
+  const [mR,bR,oR,cR,cmR] = await Promise.all([
+    dbQuery(DB.materials), dbQuery(DB.bom), dbQuery(DB.orders),
+    dbQuery(DB.customers), dbQuery(DB.custMaster)
+  ]);
   mats      = (mR.results||[]).map(p=>({id:p.id,name:p.properties?.['料件名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['料件編號']?.rich_text?.[0]?.plain_text||'',type:p.properties?.['類型']?.select?.name||'',unit:p.properties?.['單位']?.select?.name||'個',stock:p.properties?.['目前庫存']?.number??0,safe:p.properties?.['安全庫存']?.number??0}));
   boms      = (bR.results||[]).map(p=>({parentId:p.properties?.['母件']?.relation?.[0]?.id||'',childId:p.properties?.['子件']?.relation?.[0]?.id||'',qty:p.properties?.['每台用量']?.number??1}));
   orders    = (oR.results||[]).map(p=>({id:p.id,no:p.properties?.['訂單號']?.title?.[0]?.plain_text||'',customer:p.properties?.['客戶名稱']?.select?.name||'',productId:p.properties?.['成品']?.relation?.[0]?.id||'',qty:p.properties?.['訂購數量']?.number??0,deadline:p.properties?.['交期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||''}));
-  customers = (cR.results||[]).map(p=>({id:p.id,name:p.properties?.['客戶名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['客戶代號']?.rich_text?.[0]?.plain_text||'',region:p.properties?.['地區']?.select?.name||''}));
+  // ERP 客戶主檔
+  const erpCusts=(cR.results||[]).map(p=>({id:p.id,name:p.properties?.['客戶名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['客戶代號']?.rich_text?.[0]?.plain_text||'',region:p.properties?.['地區']?.select?.name||''}));
+  // 國外業務客戶總檔（欄位名稱不同：Name, 客戶編號）
+  const masterCusts=(cmR.results||[]).map(p=>({
+    id:p.id,
+    name:p.properties?.['Name']?.title?.[0]?.plain_text||'',
+    code:p.properties?.['客戶編號']?.rich_text?.[0]?.plain_text||'',
+    region:p.properties?.['國家']?.select?.name||'',
+  })).filter(c=>c.name);
+  // 合併兩份客戶清單，用 code 去重
+  const codeSet=new Set(erpCusts.map(c=>c.code).filter(Boolean));
+  customers=[...erpCusts];
+  masterCusts.forEach(c=>{
+    if(c.code&&!codeSet.has(c.code)){customers.push(c);codeSet.add(c.code);}
+    else if(!c.code){customers.push(c);}
+  });
   const low = mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
   const w=document.getElementById('lowWarn');
   if(low.length>0){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}else w.style.display='none';
@@ -446,7 +465,15 @@ function renderInbound(qcOnly){
   const list=qcOnly?inbounds.filter(i=>i.qcStatus==='待品檢'):inbounds;
   return`${canAdd?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">+ 新增入料單</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${qcOnly?'待品檢項目':'入料單記錄'}</span></div>
-  ${list.length===0?`<div class="loading-row">${qcOnly?'目前沒有待品檢項目 ✅':'尚無入料記錄'}</div>`:`<table><tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管</th><th>入庫</th>${canQC?'<th>操作</th>':''}</tr>${list.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td><td>${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td>${i.supplier||'—'}</td><td style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td>${pill(i.stStatus)}</td>${canQC?`<td>${i.qcStatus==='待品檢'?`<button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓通過</button> <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗不合格</button>`:'—'}</td>`:''}</tr>`;}).join('')}</table>`}
+  ${list.length===0?`<div class="loading-row">${qcOnly?'目前沒有待品檢項目 ✅':'尚無入料記錄'}</div>`:`<table><tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管</th><th>入庫</th>${canQC?'<th>操作</th>':''}</tr>${list.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td><td>${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td>${i.supplier||'—'}</td><td style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td>${pill(i.stStatus)}</td>${canQC?`<td style="min-width:160px">${i.qcStatus==='待品檢'?`
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;gap:4px">
+      <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓通過</button>
+      <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗不合格</button>
+    </div>
+    <a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:10px;color:var(--blue)">📷 上傳照片（開啟Notion）</a>
+  </div>
+`:i.qcStatus==='品檢通過'?`<span style="font-size:10px;color:var(--green)">✅ 已通過</span><br><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:10px;color:var(--blue)">📷 查看/補傳照片</a>`:`<span style="font-size:10px;color:var(--red)">❌ 不合格</span>`}</td>`:''}</tr>`;}).join('')}</table>`}
   </div>`;
 }
 
