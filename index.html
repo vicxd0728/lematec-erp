@@ -6,14 +6,10 @@
 <title>LEMATEC ERP 系統</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
-:root {
-  --bg:#0c0f18;--bg2:#121622;--bg3:#181d2e;--bg4:#1f2640;
-  --border:#242a40;--border2:#2e3857;
-  --blue:#4d8ef5;--green:#2ec48a;--yellow:#f5b942;--red:#f56565;--purple:#9b7ff5;--cyan:#42d4f5;
-  --text:#dde4f0;--text2:#6b7a9e;--text3:#313d5a;
-}
+:root{--bg:#0c0f18;--bg2:#121622;--bg3:#181d2e;--bg4:#1f2640;--border:#242a40;--border2:#2e3857;--blue:#4d8ef5;--green:#2ec48a;--yellow:#f5b942;--red:#f56565;--purple:#9b7ff5;--cyan:#42d4f5;--text:#dde4f0;--text2:#6b7a9e;--text3:#313d5a;}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;min-height:100vh;}
+/* LOGIN */
 .login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;z-index:100;padding:20px;}
 .brand{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:4px;text-align:center;}
 h1{font-size:28px;font-weight:900;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center;}
@@ -24,21 +20,16 @@ h1{font-size:28px;font-weight:900;background:linear-gradient(135deg,var(--blue),
 .inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;transition:border-color .2s;}
 .inp:focus{border-color:var(--blue);}
 select.inp{cursor:pointer;}
-.token-wrap{position:relative;}
-.token-wrap .inp{padding-right:70px;}
-.show-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:10px;padding:3px 8px;border-radius:5px;font-family:inherit;}
 .hint{font-size:10px;color:var(--text3);margin-top:5px;line-height:1.5;}
 .hint a{color:var(--blue);text-decoration:none;}
-.btn-login{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px;transition:background .15s;}
+.btn-login{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px;}
 .btn-login:hover{background:#6aa3ff;}
 .btn-login:disabled{background:var(--text3);cursor:not-allowed;}
 .alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-top:12px;line-height:1.7;display:none;}
 .alert.show{display:block;}
 .alert-err{background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);}
-.alert-ok{background:rgba(46,196,138,.08);border:1px solid rgba(46,196,138,.2);color:var(--green);}
-.debug-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px;font-size:11px;font-family:monospace;color:var(--text2);display:none;line-height:1.8;word-break:break-all;}
+.debug-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;font-size:10px;font-family:monospace;color:var(--text2);display:none;word-break:break-all;line-height:1.6;}
 .debug-box.show{display:block;}
-
 /* APP */
 .app{display:none;flex-direction:column;min-height:100vh;}
 .topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;position:sticky;top:0;z-index:50;}
@@ -47,7 +38,7 @@ select.inp{cursor:pointer;}
 .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);}
 .role-badge{padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;}
 .role-nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;padding:0 20px;overflow-x:auto;}
-.tab-btn{padding:10px 14px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;white-space:nowrap;}
+.tab-btn{padding:10px 14px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
 .tab-btn:hover{color:var(--text);}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
 .content{flex:1;padding:20px;overflow-y:auto;}
@@ -70,48 +61,42 @@ tr:hover td{background:rgba(255,255,255,.01);}
 .info-err{background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);}
 .bar{width:50px;height:4px;background:var(--bg4);border-radius:2px;display:inline-block;vertical-align:middle;margin-right:6px;overflow:hidden;}
 .bar-fill{height:100%;border-radius:2px;}
-.toast{position:fixed;top:64px;right:16px;z-index:300;padding:10px 16px;border-radius:8px;font-size:12px;min-width:260px;box-shadow:0 4px 20px rgba(0,0,0,.5);}
+.toast{position:fixed;top:64px;right:16px;z-index:300;padding:10px 16px;border-radius:8px;font-size:12px;min-width:260px;box-shadow:0 4px 20px rgba(0,0,0,.5);transition:opacity .3s;}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:center;justify-content:center;z-index:200;}
 .modal-bg.open{display:flex;}
-.modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;}
 .modal h3{font-size:15px;font-weight:700;margin-bottom:18px;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .form-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end;}
-.btn{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.btn{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit;display:inline-flex;align-items:center;gap:6px;}
 .btn-blue{background:var(--blue);color:#fff;}
 .btn-blue:hover{background:#6aa3ff;}
 .btn-blue:disabled{background:var(--text3);cursor:not-allowed;}
 .btn-green{background:rgba(46,196,138,.15);color:var(--green);border:1px solid rgba(46,196,138,.3);}
 .btn-red{background:rgba(245,101,101,.1);color:var(--red);border:1px solid rgba(245,101,101,.25);}
+.btn-yellow{background:rgba(245,185,66,.1);color:var(--yellow);border:1px solid rgba(245,185,66,.25);}
 .btn-ghost{background:var(--bg3);color:var(--text2);border:1px solid var(--border);}
 .btn-sm{padding:3px 10px;font-size:11px;border-radius:6px;}
 .loading-row{display:flex;align-items:center;justify-content:center;padding:32px;color:var(--text3);gap:8px;font-size:12px;}
 .spin{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
+.field-sm{margin-bottom:10px;}
+.field-sm label{display:block;font-size:10px;color:var(--text2);margin-bottom:4px;}
 @media(max-width:700px){.stats{grid-template-columns:1fr 1fr;}.form-row{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
 
-<!-- LOGIN -->
 <div class="login-screen" id="loginScreen">
   <div class="brand">LEMATEC · ERP</div>
   <h1>製造管理系統</h1>
   <div class="card">
-    <h2>🔐 輸入你的 Notion Token 登入</h2>
-
+    <h2>🔐 登入系統</h2>
     <div class="field">
       <label>Notion Integration Token</label>
-      <div class="token-wrap">
-        <input class="inp" type="text" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
-        <button class="show-btn" onclick="clearToken()">清除</button>
-      </div>
-      <div class="hint">
-        前往 <a href="https://notion.so/profile/integrations" target="_blank">notion.so/profile/integrations</a> 取得<br>
-        格式：<span style="color:var(--blue)">ntn_</span> 開頭的一串文字
-      </div>
+      <input class="inp" type="text" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+      <div class="hint">前往 <a href="https://notion.so/profile/integrations" target="_blank">notion.so/profile/integrations</a> 取得</div>
     </div>
-
     <div class="field">
       <label>角色</label>
       <select class="inp" id="roleSelect">
@@ -123,15 +108,12 @@ tr:hover td{background:rgba(255,255,255,.01);}
         <option value="purchase">🛒 採購</option>
       </select>
     </div>
-
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
-
     <div class="alert alert-err" id="loginAlert"></div>
     <div class="debug-box" id="debugBox"></div>
   </div>
 </div>
 
-<!-- APP -->
 <div class="app" id="app">
   <div class="topbar">
     <div class="topbar-brand">LEMATEC</div>
@@ -141,7 +123,7 @@ tr:hover td{background:rgba(255,255,255,.01);}
       <span id="lowWarn" style="font-size:11px;color:var(--yellow);display:none"></span>
       <span class="role-badge" id="roleBadge"></span>
       <span class="conn-dot"></span>
-      <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄</button>
+      <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄 同步</button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">登出</button>
     </div>
   </div>
@@ -155,16 +137,17 @@ tr:hover td{background:rgba(255,255,255,.01);}
 
 <script>
 // ============================================================
-// CONFIG
+// CONFIG — 使用 collection ID（Notion API 查詢用這個）
 // ============================================================
 const DB = {
-  materials:  '43d801b4-a787-4101-bd12-d8b8199385c7',
-  bom:        '6b67dc8d-bafb-49e8-9c39-bf66046a99fe',
-  orders:     '50b7ce68-437e-431f-9a4f-a0d0d65a7b25',
-  pickMaster: '55552dd1-eb31-4d68-8127-63cc062a93f8',
-  pickDetail: '267f16cf-e88a-41ed-8049-d39d618a1275',
-  inbound:    'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
-  customers:  'd7e6db27-5935-4aea-8dbf-ea48bca5a4b4',
+  materials:  '4c562d2c-24a5-44b4-8fd3-90948db7b74f',  // 料件主檔 collection
+  bom:        'd406ed90-785a-4835-a14e-319401742f62',  // BOM清單 collection
+  orders:     'bf774ae7-f7a8-4748-978f-2b3da11bd8b1',  // 客戶訂單 collection
+  pickMaster: 'dacb02a5-541a-4299-928f-919597c5b227',  // 領料主單 collection
+  pickDetail: '2e00aa39-5027-4a36-86ab-117002ce583d',  // 領料明細 collection
+  inbound:    '6168195f-c5d5-42ee-975d-2e4631a3c961',  // 入料單 collection
+  qc:         '764a1dac-616f-4377-b5fa-dc9cc3040d09',  // 品檢單 collection
+  customers:  'b36ba244-db3c-4fa5-bb8f-435719306521',  // 客戶主檔 collection
 };
 
 const ROLES = {
@@ -190,13 +173,15 @@ const PILL_MAP = {
   '品檢不合格':['rgba(245,101,101,.12)','#f56565'],'已入庫':['rgba(46,196,138,.12)','#2ec48a'],
   '待入庫':['#1f2640','#313d5a'],'退回供應商':['rgba(245,101,101,.12)','#f56565'],
   '零件':['#1f2640','#313d5a'],'半成品':['rgba(155,127,245,.12)','#9b7ff5'],'成品':['rgba(46,196,138,.12)','#2ec48a'],
+  '足夠':['rgba(46,196,138,.12)','#2ec48a'],'缺料':['rgba(245,101,101,.12)','#f56565'],
+  '待領料':['rgba(245,185,66,.12)','#f5b942'],'已領料':['rgba(46,196,138,.12)','#2ec48a'],
 };
 
 let TOKEN='', ROLE='', CURRENT_TAB='dashboard';
 let mats=[], boms=[], orders=[], customers=[], picks=[], inbounds=[];
 
 // ============================================================
-// API
+// API — Netlify Function Proxy
 // ============================================================
 const PROXY = '/.netlify/functions/notion';
 
@@ -208,15 +193,19 @@ async function notionAPI(method, endpoint, body=null) {
   });
   const text = await res.text();
   try { return JSON.parse(text); }
-  catch { throw new Error('無法解析回應：' + text.slice(0,200)); }
+  catch { throw new Error('回應解析失敗: '+text.slice(0,100)); }
 }
 
-async function dbQuery(dbId) {
-  return notionAPI('POST', `databases/${dbId}/query`, {page_size:100});
+async function dbQuery(collectionId, filter=null) {
+  const body = {page_size:100};
+  if(filter) body.filter = filter;
+  return notionAPI('POST', `databases/${collectionId}/query`, body);
 }
-async function createPage(dbId, props) {
-  return notionAPI('POST', 'pages', {parent:{database_id:dbId}, properties:props});
+
+async function createPage(collectionId, props) {
+  return notionAPI('POST', 'pages', {parent:{database_id:collectionId}, properties:props});
 }
+
 async function updatePage(pageId, props) {
   return notionAPI('PATCH', `pages/${pageId}`, {properties:props});
 }
@@ -224,134 +213,131 @@ async function updatePage(pageId, props) {
 // ============================================================
 // LOGIN
 // ============================================================
-function clearToken() {
-  document.getElementById('tokenInput').value = '';
-  document.getElementById('tokenInput').focus();
-}
-
 async function login() {
-  const raw = document.getElementById('tokenInput').value;
-  const t = raw.trim().replace(/\s+/g,''); // 移除所有空白
+  const t = document.getElementById('tokenInput').value.trim().replace(/\s+/g,'');
   const r = document.getElementById('roleSelect').value;
-
-  // 清除舊錯誤
   document.getElementById('loginAlert').classList.remove('show');
   document.getElementById('debugBox').classList.remove('show');
-
-  if (!t) { showLoginErr('請填入 Token'); return; }
-  if (!t.startsWith('ntn_')) {
-    showLoginErr(`Token 格式不對！<br>你輸入的前8個字元是：<b style="color:#fff">${t.slice(0,8)}</b><br>應該要是 <b>ntn_</b> 開頭`);
-    return;
-  }
-
-  TOKEN = t; ROLE = r;
-  const btn = document.getElementById('loginBtn');
-  btn.disabled = true; btn.textContent = '連接中...';
-
+  if(!t){showLoginErr('請填入 Token');return;}
+  if(!t.startsWith('ntn_')){showLoginErr(`格式不對，應為 ntn_ 開頭，你的是：${t.slice(0,8)}...`);return;}
+  TOKEN=t; ROLE=r;
+  const btn=document.getElementById('loginBtn');
+  btn.disabled=true; btn.textContent='連接中...';
   try {
-    // 先測試 Function 是否正常
-    const testRes = await fetch(PROXY, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({token:t, method:'GET', endpoint:`databases/${DB.materials}`}),
-    });
-
-    const testText = await testRes.text();
-    showDebug(`HTTP 狀態: ${testRes.status}\n回應前300字: ${testText.slice(0,300)}`);
-
-    let data;
-    try { data = JSON.parse(testText); }
-    catch { showLoginErr('Function 回應無法解析，可能 Netlify Function 未部署成功'); btn.disabled=false; btn.textContent='⚡ 進入系統'; return; }
-
-    if (data.id || data.object === 'database') {
-      localStorage.setItem('lematec_token', TOKEN);
-      localStorage.setItem('lematec_role', ROLE);
+    const res = await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t,method:'POST',endpoint:`databases/${DB.materials}/query`,body:{page_size:1}})});
+    const text = await res.text();
+    document.getElementById('debugBox').textContent = `HTTP:${res.status} | ${text.slice(0,200)}`;
+    document.getElementById('debugBox').classList.add('show');
+    let data; try{data=JSON.parse(text);}catch{showLoginErr('回應解析失敗');btn.disabled=false;btn.textContent='⚡ 進入系統';return;}
+    if(data.results !== undefined) {
+      localStorage.setItem('lematec_token',TOKEN); localStorage.setItem('lematec_role',ROLE);
       startApp();
-    } else if (data.status === 401 || data.code === 'unauthorized') {
-      showLoginErr(`Token 無效 (401 Unauthorized)<br>請確認複製的是「內部整合密鑰」那一欄的值`);
-    } else if (data.status === 404) {
-      showLoginErr(`找不到資料庫 (404)<br>請確認「工廠 ERP」頁面已連接此 Integration`);
+    } else if(data.status===401||data.code==='unauthorized') {
+      showLoginErr('Token 無效 (401)，請確認複製的是「內部整合密鑰」');
+    } else if(data.status===404) {
+      showLoginErr('找不到資料庫 (404)，請確認頁面已連接 Integration');
     } else {
-      showLoginErr(`連接失敗：${data.message || data.code || JSON.stringify(data).slice(0,100)}`);
+      showLoginErr(`失敗：${data.message||data.code||JSON.stringify(data).slice(0,100)}`);
     }
-  } catch(e) {
-    showLoginErr(`網路錯誤：${e.message}<br>請確認你是從 Netlify 網址開啟，不是本機或 GitHub Pages`);
-  }
-
+  } catch(e) { showLoginErr('網路錯誤：'+e.message); }
   btn.disabled=false; btn.textContent='⚡ 進入系統';
 }
 
-function showLoginErr(msg) {
-  const el = document.getElementById('loginAlert');
-  el.innerHTML = msg;
-  el.className = 'alert alert-err show';
-}
-
-function showDebug(msg) {
-  const el = document.getElementById('debugBox');
-  el.textContent = msg;
-  el.className = 'debug-box show';
-}
-
-function logout() {
-  localStorage.removeItem('lematec_token');
-  localStorage.removeItem('lematec_role');
-  TOKEN=''; ROLE='';
-  document.getElementById('loginScreen').style.display='flex';
-  document.getElementById('app').style.display='none';
-}
+function showLoginErr(msg){const e=document.getElementById('loginAlert');e.innerHTML=msg;e.classList.add('show');}
+function logout(){localStorage.removeItem('lematec_token');localStorage.removeItem('lematec_role');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ============================================================
 // APP START
 // ============================================================
-async function startApp() {
+async function startApp(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').style.display='flex';
-  const ri = ROLES[ROLE];
-  const badge = document.getElementById('roleBadge');
-  badge.textContent = ri.label;
-  badge.style.cssText = `padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
+  const ri=ROLES[ROLE];
+  const badge=document.getElementById('roleBadge');
+  badge.textContent=ri.label;
+  badge.style.cssText=`padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav();
   await refreshAll();
   showTab('dashboard');
 }
 
 // ============================================================
-// DATA
+// DATA LOADING
 // ============================================================
-async function refreshAll() {
-  const [mR,bR,oR,cR] = await Promise.all([dbQuery(DB.materials),dbQuery(DB.bom),dbQuery(DB.orders),dbQuery(DB.customers)]);
-  mats      = (mR.results||[]).map(p=>({id:p.id,name:p.properties?.['料件名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['料件編號']?.rich_text?.[0]?.plain_text||'',type:p.properties?.['類型']?.select?.name||'',unit:p.properties?.['單位']?.select?.name||'個',stock:p.properties?.['目前庫存']?.number??0,safe:p.properties?.['安全庫存']?.number??0}));
-  boms      = (bR.results||[]).map(p=>({parentId:p.properties?.['母件']?.relation?.[0]?.id||'',childId:p.properties?.['子件']?.relation?.[0]?.id||'',qty:p.properties?.['每台用量']?.number??1}));
-  orders    = (oR.results||[]).map(p=>({id:p.id,no:p.properties?.['訂單號']?.title?.[0]?.plain_text||'',customer:p.properties?.['客戶名稱']?.select?.name||'',productId:p.properties?.['成品']?.relation?.[0]?.id||'',qty:p.properties?.['訂購數量']?.number??0,deadline:p.properties?.['交期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||''}));
-  customers = (cR.results||[]).map(p=>({id:p.id,name:p.properties?.['客戶名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['客戶代號']?.rich_text?.[0]?.plain_text||'',region:p.properties?.['地區']?.select?.name||''}));
-  const low = mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+async function refreshAll(){
+  const [mR,bR,oR,cR]=await Promise.all([dbQuery(DB.materials),dbQuery(DB.bom),dbQuery(DB.orders),dbQuery(DB.customers)]);
+  mats=(mR.results||[]).map(parseMat);
+  boms=(bR.results||[]).map(parseBOM);
+  orders=(oR.results||[]).map(parseOrder);
+  customers=(cR.results||[]).map(parseCust);
+  const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
   const w=document.getElementById('lowWarn');
   if(low.length>0){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}else w.style.display='none';
-  if(CURRENT_TAB) renderTab(CURRENT_TAB);
+  if(CURRENT_TAB)renderTab(CURRENT_TAB);
 }
 
-async function loadPicks(){const r=await dbQuery(DB.pickMaster);picks=(r.results||[]).map(p=>({id:p.id,no:p.properties?.['領料主單號']?.title?.[0]?.plain_text||'',orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||''}));}
-async function loadInbounds(){const r=await dbQuery(DB.inbound);inbounds=(r.results||[]).map(p=>({id:p.id,no:p.properties?.['入料單號']?.title?.[0]?.plain_text||'',matId:p.properties?.['料件']?.relation?.[0]?.id||'',qty:p.properties?.['入料數量']?.number??0,date:p.properties?.['入料日期']?.date?.start||'',supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫'}));}
+function parseMat(p){return{id:p.id,name:p.properties?.['料件名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['料件編號']?.rich_text?.[0]?.plain_text||'',type:p.properties?.['類型']?.select?.name||'',unit:p.properties?.['單位']?.select?.name||'個',stock:p.properties?.['目前庫存']?.number??0,safe:p.properties?.['安全庫存']?.number??0};}
+function parseBOM(p){return{id:p.id,parentId:p.properties?.['母件']?.relation?.[0]?.id||'',childId:p.properties?.['子件']?.relation?.[0]?.id||'',qty:p.properties?.['每台用量']?.number??1};}
+function parseOrder(p){return{id:p.id,no:p.properties?.['訂單號']?.title?.[0]?.plain_text||'',customer:p.properties?.['客戶名稱']?.select?.name||'',productId:p.properties?.['成品']?.relation?.[0]?.id||'',qty:p.properties?.['訂購數量']?.number??0,deadline:p.properties?.['交期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||''};}
+function parseCust(p){return{id:p.id,name:p.properties?.['客戶名稱']?.title?.[0]?.plain_text||'',code:p.properties?.['客戶代號']?.rich_text?.[0]?.plain_text||'',region:p.properties?.['地區']?.select?.name||''};}
+
+async function loadPicks(){
+  const r=await dbQuery(DB.pickMaster);
+  picks=(r.results||[]).map(p=>({id:p.id,no:p.properties?.['領料主單號']?.title?.[0]?.plain_text||'',orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||''}));
+}
+
+async function loadInbounds(){
+  const r=await dbQuery(DB.inbound);
+  inbounds=(r.results||[]).map(p=>({id:p.id,no:p.properties?.['入料單號']?.title?.[0]?.plain_text||'',matId:p.properties?.['料件']?.relation?.[0]?.id||'',qty:p.properties?.['入料數量']?.number??0,date:p.properties?.['入料日期']?.date?.start||'',supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫'}));
+}
 
 // ============================================================
-// BOM
+// BOM EXPLOSION
 // ============================================================
-function explodeBOM(productId, qty) {
+function explodeBOM(productId, qty){
   const result={};const queue=[{pid:productId,mult:qty}];const visited=new Set();
-  while(queue.length){const{pid,mult}=queue.shift();boms.filter(b=>b.parentId===pid).forEach(b=>{const mat=mats.find(m=>m.id===b.childId);if(!mat)return;const need=b.qty*mult;if(!result[b.childId])result[b.childId]={...mat,needed:0};result[b.childId].needed+=need;if(mat.type==='半成品'&&!visited.has(b.childId)){visited.add(b.childId);queue.push({pid:b.childId,mult:need});}});}
+  while(queue.length){
+    const{pid,mult}=queue.shift();
+    boms.filter(b=>b.parentId===pid).forEach(b=>{
+      const mat=mats.find(m=>m.id===b.childId);if(!mat)return;
+      const need=b.qty*mult;
+      if(!result[b.childId])result[b.childId]={...mat,needed:0};
+      result[b.childId].needed+=need;
+      if(mat.type==='半成品'&&!visited.has(b.childId)){visited.add(b.childId);queue.push({pid:b.childId,mult:need});}
+    });
+  }
   return Object.values(result);
 }
 
 // ============================================================
 // NAV & TABS
 // ============================================================
-function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));}
+function buildNav(){
+  const nav=document.getElementById('roleNav');nav.innerHTML='';
+  ROLES[ROLE].tabs.forEach(tab=>{
+    const btn=document.createElement('button');
+    btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');
+    btn.textContent=TAB_LABELS[tab];
+    btn.onclick=()=>switchTab(tab);
+    nav.appendChild(btn);
+  });
+}
+
+function switchTab(tab){
+  CURRENT_TAB=tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));
+  renderTab(tab);
+  if(tab==='picking')loadPicks().then(()=>renderTab('picking'));
+  if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));
+}
+
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
-
 function pill(text){const[bg,color]=PILL_MAP[text]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${color}">${text||'—'}</span>`;}
+function fld(label,content){return`<div style="margin-bottom:10px"><label style="display:block;font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${label}</label>${content}</div>`;}
 
+// ============================================================
+// RENDER TABS
+// ============================================================
 function renderTab(tab){
   const c=document.getElementById('mainContent');
   if(tab==='dashboard')c.innerHTML=renderDashboard();
@@ -363,19 +349,16 @@ function renderTab(tab){
   else if(tab==='qc')c.innerHTML=renderInbound(true);
 }
 
-// ============================================================
-// RENDER FUNCTIONS
-// ============================================================
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
   return`<div class="stats">
     <div class="stat"><div class="stat-n" style="color:var(--blue)">${orders.length}</div><div class="stat-l">訂單總數</div></div>
-    <div class="stat"><div class="stat-n" style="color:var(--yellow)">${active.length}</div><div class="stat-l">進行中</div></div>
+    <div class="stat"><div class="stat-n" style="color:var(--yellow)">${active.length}</div><div class="stat-l">進行中訂單</div></div>
     <div class="stat"><div class="stat-n" style="color:var(--red)">${low.length}</div><div class="stat-l">庫存警示</div></div>
     <div class="stat"><div class="stat-n" style="color:var(--green)">${mats.length}</div><div class="stat-l">料件總數</div></div>
   </div>
-  ${low.length>0?`<div class="info-box info-warn">⚠️ 庫存不足：${low.map(m=>`<b>${m.name}</b>(${m.stock}${m.unit})`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有物料庫存正常</div>`}
+  ${low.length>0?`<div class="info-box info-warn">⚠️ 庫存不足：${low.map(m=>`<b>${m.name}</b>（${m.stock}${m.unit}）`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有物料庫存正常</div>`}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">最近訂單</span></div>
   <table><tr><th>訂單號</th><th>客戶</th><th>品號</th><th>數量</th><th>交期</th><th>狀態</th></tr>
   ${orders.slice(0,8).map(o=>{const prod=mats.find(m=>m.id===o.productId);return`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${o.no}</td><td>${o.customer}</td><td style="font-family:monospace;font-size:11px">${prod?.name||'—'}</td><td style="font-family:monospace">${o.qty}</td><td style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td><td>${pill(o.status)}</td></tr>`;}).join('')}
@@ -385,10 +368,29 @@ function renderDashboard(){
 function renderOrders(){
   const canAdd=ROLE==='sales'||ROLE==='manager';
   const canPick=ROLE==='production'||ROLE==='manager';
+  // 已有領料單的訂單 ID 集合（從 picks 取）
+  const pickedOrderIds=new Set(picks.map(p=>p.orderId));
   return`${canAdd?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">+ 新增訂單</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單</span></div>
   <table><tr><th>訂單號</th><th>客戶</th><th>品號</th><th>數量</th><th>交期</th><th>狀態</th><th>操作</th></tr>
-  ${orders.map(o=>{const prod=mats.find(m=>m.id===o.productId);const p=o.status==='待排程'||o.status==='生產中';return`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${o.no}</td><td>${o.customer}</td><td style="font-family:monospace;font-size:11px">${prod?.name||'—'}</td><td style="font-family:monospace">${o.qty}</td><td style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td><td>${pill(o.status)}</td><td>${canPick&&p?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">產出領料單</button>`:'—'}</td></tr>`;}).join('')}
+  ${orders.map(o=>{
+    const prod=mats.find(m=>m.id===o.productId);
+    const hasPick=pickedOrderIds.has(o.id);
+    const canPickThis=canPick&&(o.status==='待排程'||o.status==='生產中')&&!hasPick;
+    return`<tr>
+      <td style="font-family:monospace;color:var(--text);font-weight:600">${o.no}</td>
+      <td>${o.customer}</td>
+      <td style="font-family:monospace;font-size:11px">${prod?.name||'—'}</td>
+      <td style="font-family:monospace">${o.qty}</td>
+      <td style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
+      <td onclick="canUpdateStatus('${o.id}','${o.status}')" style="cursor:pointer" title="點擊更新狀態">${pill(o.status)}</td>
+      <td style="display:flex;gap:6px;align-items:center">
+        ${canPickThis?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">產出領料單</button>`:''}
+        ${hasPick?`<span style="font-size:10px;color:var(--green)">✓ 已領料</span>`:''}
+        ${canPick?`<button class="btn btn-ghost btn-sm" onclick="openUpdateStatus('${o.id}','${o.status}')">更新狀態</button>`:''}
+      </td>
+    </tr>`;
+  }).join('')}
   </table></div>`;
 }
 
@@ -403,12 +405,29 @@ function renderCustomers(){
 
 function renderInventory(){
   const low=mats.filter(m=>m.stock<=m.safe);
+  const canEdit=ROLE==='warehouse'||ROLE==='manager';
   return`${low.length>0?`<div class="info-box info-warn">⚠ 需補料：${low.map(m=>`<b>${m.name}</b>`).join('、')}</div>`:`<div class="info-box info-ok">✅ 物料全部正常</div>`}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">料件主檔</span>
-    <input class="inp" style="width:140px;padding:5px 10px;font-size:11px" placeholder="搜尋..." oninput="filterMats(this.value)">
+  <div class="panel"><div class="panel-hdr">
+    <span class="panel-title">料件主檔</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input class="inp" style="width:140px;padding:5px 10px;font-size:11px" placeholder="搜尋..." oninput="filterMats(this.value)">
+    </div>
   </div>
-  <table id="matsTable"><tr><th>料件名稱</th><th>類型</th><th>庫存</th><th>安全庫存</th><th>狀態</th></tr>
-  ${mats.map(m=>{const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';const st=m.stock<=0?'❌ 無庫存':m.stock<=m.safe?'⚠ 偏低':'✓ 正常';const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';return`<tr data-name="${m.name}"><td style="color:var(--text);font-weight:600">${m.name}</td><td>${pill(m.type)}</td><td><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div><span style="font-family:monospace;font-size:12px">${m.stock} ${m.unit}</span></td><td style="font-family:monospace;color:var(--text3)">${m.safe}</td><td style="color:${sc};font-size:11px;font-weight:700">${st}</td></tr>`;}).join('')}
+  <table id="matsTable"><tr><th>料件名稱</th><th>類型</th><th>庫存</th><th>安全庫存</th><th>狀態</th>${canEdit?'<th>操作</th>':''}</tr>
+  ${mats.map(m=>{
+    const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);
+    const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
+    const st=m.stock<=0?'❌ 無庫存':m.stock<=m.safe?'⚠ 偏低':'✓ 正常';
+    const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
+    return`<tr data-name="${m.name}">
+      <td style="color:var(--text);font-weight:600">${m.name}</td>
+      <td>${pill(m.type)}</td>
+      <td><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div><span style="font-family:monospace;font-size:12px">${m.stock} ${m.unit}</span></td>
+      <td style="font-family:monospace;color:var(--text3)">${m.safe}</td>
+      <td style="color:${sc};font-size:11px;font-weight:700">${st}</td>
+      ${canEdit?`<td><button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}','${m.name}',${m.stock})">✏ 修改庫存</button></td>`:''}
+    </tr>`;
+  }).join('')}
   </table></div>`;
 }
 function filterMats(q){document.querySelectorAll('#matsTable tr[data-name]').forEach(tr=>{tr.style.display=tr.dataset.name.includes(q)?'':'none';});}
@@ -416,7 +435,8 @@ function filterMats(q){document.querySelectorAll('#matsTable tr[data-name]').for
 function renderPicking(){
   const om={};orders.forEach(o=>om[o.id]=o.no);
   return`<div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單記錄</span></div>
-  ${picks.length===0?'<div class="loading-row">尚無領料記錄，請從訂單頁面產出</div>':`<table><tr><th>領料單號</th><th>對應訂單</th><th>成品品號</th><th>生產數量</th><th>日期</th><th>狀態</th></tr>${picks.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${p.no}</td><td style="font-family:monospace">${om[p.orderId]||'—'}</td><td style="font-family:monospace;font-size:11px">${p.product}</td><td style="font-family:monospace">${p.qty}</td><td style="font-family:monospace;font-size:11px">${p.date||'—'}</td><td>${pill(p.status)}</td></tr>`).join('')}</table>`}
+  ${picks.length===0?'<div class="loading-row">尚無領料記錄，請從訂單頁面產出</div>':`<table><tr><th>領料單號</th><th>對應訂單</th><th>成品品號</th><th>生產數量</th><th>日期</th><th>狀態</th></tr>
+  ${picks.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${p.no}</td><td style="font-family:monospace">${om[p.orderId]||'—'}</td><td style="font-family:monospace;font-size:11px">${p.product}</td><td style="font-family:monospace">${p.qty}</td><td style="font-family:monospace;font-size:11px">${p.date||'—'}</td><td>${pill(p.status)}</td></tr>`).join('')}</table>`}
   </div>`;
 }
 
@@ -426,12 +446,30 @@ function renderInbound(qcOnly){
   const list=qcOnly?inbounds.filter(i=>i.qcStatus==='待品檢'):inbounds;
   return`${canAdd?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">+ 新增入料單</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${qcOnly?'待品檢項目':'入料單記錄'}</span></div>
-  ${list.length===0?`<div class="loading-row">${qcOnly?'目前沒有待品檢項目 ✅':'尚無入料記錄'}</div>`:`<table><tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管</th><th>入庫</th>${canQC?'<th>操作</th>':''}</tr>${list.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td><td>${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td>${i.supplier||'—'}</td><td style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td>${pill(i.stStatus)}</td>${canQC?`<td>${i.qcStatus==='待品檢'?`<button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓通過</button> <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗不合格</button>`:'—'}</td>`:''}</tr>`;}).join('')}</table>`}
+  ${list.length===0?`<div class="loading-row">${qcOnly?'目前沒有待品檢項目 ✅':'尚無入料記錄'}</div>`:`<table>
+  <tr><th>入料單號</th><th>料件</th><th>數量</th><th>供應商</th><th>日期</th><th>品管狀態</th><th>入庫狀態</th>${canQC?'<th>品管操作</th>':''}</tr>
+  ${list.map(i=>{
+    const mat=mats.find(m=>m.id===i.matId);
+    return`<tr>
+      <td style="font-family:monospace;color:var(--text);font-weight:600">${i.no}</td>
+      <td>${mat?.name||'—'}</td>
+      <td style="font-family:monospace">${i.qty}</td>
+      <td>${i.supplier||'—'}</td>
+      <td style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
+      <td>${pill(i.qcStatus)}</td>
+      <td>${pill(i.stStatus)}</td>
+      ${canQC?`<td>${i.qcStatus==='待品檢'?`
+        <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過入庫</button>
+        <button class="btn btn-red btn-sm" style="margin-left:4px" onclick="rejectQC('${i.id}')">✗ 不合格</button>
+      `:'—'}</td>`:''}
+    </tr>`;
+  }).join('')}
+  </table>`}
   </div>`;
 }
 
 // ============================================================
-// ACTIONS
+// ACTIONS — 領料單
 // ============================================================
 function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);
@@ -441,12 +479,22 @@ function openPickPreview(orderId){
   document.getElementById('modalInner').innerHTML=`
     <h3>🗂️ 產出領料單 — ${o.no}</h3>
     <div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">
-      <div style="color:var(--text2)">客戶：<b style="color:var(--text)">${o.customer}</b></div>
-      <div style="color:var(--text2)">成品：<b style="color:var(--text)">${prod?.name}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
+      <div>客戶：<b style="color:var(--text)">${o.customer}</b></div>
+      <div>成品：<b style="color:var(--text)">${prod?.name}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
     </div>
-    ${short.length>0?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name} 差${s.needed-s.stock}個`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有料件庫存充足</div>`}
-    <table style="margin-bottom:14px"><tr><th>料件</th><th>類型</th><th>需求</th><th>現有</th></tr>
-    ${items.map(i=>`<tr><td style="color:var(--text)">${i.name}</td><td>${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
+    ${short.length>0?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name} 差${s.needed-s.stock}個`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有料件庫存充足，確認後將立即扣減庫存</div>`}
+    <table style="margin-bottom:14px"><tr><th>料件</th><th>類型</th><th>需求</th><th>現有庫存</th><th>扣後剩餘</th></tr>
+    ${items.map(i=>{
+      const after=i.type==='半成品'?'—':(i.stock-i.needed);
+      const afterColor=i.type!=='半成品'&&after<0?'var(--red)':'var(--green)';
+      return`<tr>
+        <td style="color:var(--text)">${i.name}</td>
+        <td>${pill(i.type)}</td>
+        <td style="font-family:monospace;color:var(--yellow)">${i.needed}</td>
+        <td style="font-family:monospace">${i.stock}</td>
+        <td style="font-family:monospace;color:${afterColor}">${after}</td>
+      </tr>`;
+    }).join('')}
     </table>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
@@ -460,36 +508,139 @@ async function doPick(orderId){
   const prod=mats.find(m=>m.id===o.productId);
   const items=explodeBOM(o.productId,o.qty);
   const ds=new Date().toISOString().slice(0,10);
-  const no=`PK-${ds.replace(/-/g,'').slice(2)}-${Math.floor(Math.random()*900+100)}`;
-  closeModal(); showToast('處理中，請稍候...','warn');
+  const no=`PK-${ds.replace(/-/g,'').slice(2)}-${String(Math.floor(Math.random()*900+100))}`;
+  closeModal();
+  showToast('處理中，請稍候...','warn');
   try{
-    const master=await createPage(DB.pickMaster,{'領料主單號':{title:[{text:{content:no}}]},'對應訂單':{relation:[{id:orderId}]},'成品品號':{rich_text:[{text:{content:prod?.name||''}}]},'生產數量':{number:o.qty},'狀態':{select:{name:'已確認扣料'}},'領料日期':{date:{start:ds}}});
+    // 1. 建立領料主單
+    const master=await createPage(DB.pickMaster,{
+      '領料主單號':{title:[{text:{content:no}}]},
+      '對應訂單':{relation:[{id:orderId}]},
+      '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
+      '生產數量':{number:o.qty},
+      '狀態':{select:{name:'已確認扣料'}},
+      '領料日期':{date:{start:ds}},
+    });
+    if(!master.id) throw new Error('建立領料主單失敗：'+JSON.stringify(master));
+
+    // 2. 建立明細 + 扣庫存（依序執行確保庫存正確）
     for(const item of items){
-      await createPage(DB.pickDetail,{'料件名稱':{title:[{text:{content:item.name}}]},'領料主單':{relation:[{id:master.id}]},'料件':{relation:[{id:item.id}]},'類型':{select:{name:item.type}},'需求數量':{number:item.needed},'實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},'狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}});
-      if(item.type!=='半成品')await updatePage(item.id,{'目前庫存':{number:Math.max(0,item.stock-item.needed)}});
+      await createPage(DB.pickDetail,{
+        '料件名稱':{title:[{text:{content:item.name}}]},
+        '領料主單':{relation:[{id:master.id}]},
+        '料件':{relation:[{id:item.id}]},
+        '類型':{select:{name:item.type}},
+        '需求數量':{number:item.needed},
+        '實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},
+        '狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}},
+      });
+      // 只扣零件庫存，半成品不扣
+      if(item.type!=='半成品'){
+        const newStock=Math.max(0, item.stock-item.needed);
+        const upRes=await updatePage(item.id,{'目前庫存':{number:newStock}});
+        if(upRes.id) {
+          // 更新本地快取讓後續計算正確
+          const m=mats.find(x=>x.id===item.id);
+          if(m) m.stock=newStock;
+        }
+      }
     }
+
+    // 3. 更新訂單狀態為生產中
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
-    await refreshAll(); await loadPicks();
+
+    await refreshAll();
+    await loadPicks();
     showToast(`✅ 領料單 ${no} 建立完成，庫存已扣減`,'ok');
+    switchTab('picking');
+  }catch(e){
+    showToast('❌ 錯誤：'+e.message,'err');
+    console.error(e);
+  }
+}
+
+// ============================================================
+// 訂單狀態更新
+// ============================================================
+function openUpdateStatus(orderId, currentStatus){
+  const statuses=['待排程','生產中','待出貨','已完成','取消'];
+  document.getElementById('modalInner').innerHTML=`
+    <h3>📋 更新訂單狀態</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+    ${statuses.map(s=>`<button class="btn ${s===currentStatus?'btn-blue':'btn-ghost'}" onclick="doUpdateStatus('${orderId}','${s}')" style="justify-content:center">${s}</button>`).join('')}
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  openModal();
+}
+
+async function doUpdateStatus(orderId, newStatus){
+  closeModal();
+  try{
+    await updatePage(orderId,{'狀態':{select:{name:newStatus}}});
+    await refreshAll();
+    showToast(`✅ 訂單狀態更新為「${newStatus}」`,'ok');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
-async function approveQC(id,matId,qty){
-  if(!confirm(`確認品檢通過？將增加 ${qty} 個庫存`))return;
+// ============================================================
+// 修改庫存
+// ============================================================
+function openEditStock(matId, matName, currentStock){
+  document.getElementById('modalInner').innerHTML=`
+    <h3>✏️ 修改庫存 — ${matName}</h3>
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">目前庫存：<b style="color:var(--text);font-size:16px">${currentStock}</b> 個</div>
+      ${fld('新庫存數量',`<input class="inp" type="number" id="newStockInput" value="${currentStock}" min="0">`)}
+      ${fld('異動原因（選填）',`<input class="inp" id="stockReason" placeholder="例：盤點調整、手動修正">`)}
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" onclick="doEditStock('${matId}')">確認修改</button>
+    </div>`;
+  openModal();
+}
+
+async function doEditStock(matId){
+  const newStock=parseInt(document.getElementById('newStockInput').value)||0;
+  closeModal();
   try{
-    await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
+    await updatePage(matId,{'目前庫存':{number:newStock}});
+    await refreshAll();
+    showToast(`✅ 庫存已更新為 ${newStock}`,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
+}
+
+// ============================================================
+// 品管操作
+// ============================================================
+async function approveQC(inboundId, matId, qty){
+  if(!confirm(`確認品檢通過？將自動新增 ${qty} 個到庫存`))return;
+  try{
+    // 1. 更新入料單狀態
+    await updatePage(inboundId,{
+      '品管狀態':{select:{name:'品檢通過'}},
+      '入庫狀態':{select:{name:'已入庫'}},
+    });
+    // 2. 增加庫存
     const mat=mats.find(m=>m.id===matId);
-    await updatePage(matId,{'目前庫存':{number:(mat?.stock||0)+parseInt(qty)}});
-    await refreshAll(); await loadInbounds(); renderTab(CURRENT_TAB);
-    showToast(`✅ 品檢通過！${mat?.name} 庫存更新`,'ok');
+    const newStock=(mat?.stock||0)+parseInt(qty);
+    await updatePage(matId,{'目前庫存':{number:newStock}});
+    await refreshAll();
+    await loadInbounds();
+    renderTab(CURRENT_TAB);
+    showToast(`✅ 品檢通過！${mat?.name} 庫存 ${mat?.stock} → ${newStock}`,'ok');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
-async function rejectQC(id){
-  if(!confirm('確認不合格？將標記退回'))return;
+async function rejectQC(inboundId){
+  if(!confirm('確認品檢不合格？將標記退回供應商'))return;
   try{
-    await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});
-    await loadInbounds(); renderTab(CURRENT_TAB);
+    await updatePage(inboundId,{
+      '品管狀態':{select:{name:'品檢不合格'}},
+      '入庫狀態':{select:{name:'退回供應商'}},
+    });
+    await loadInbounds();
+    renderTab(CURRENT_TAB);
     showToast('已標記不合格，退回供應商','warn');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
@@ -502,69 +653,107 @@ function openModal(type){
     const prods=mats.filter(m=>m.type==='成品');
     const parts=mats.filter(m=>m.type!=='成品');
     const mi=document.getElementById('modalInner');
-    if(type==='newOrder'){
-      mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
-      <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">客戶</label><select class="inp" id="m_cust">${customers.map(c=>`<option value="${c.name}">${c.name}（${c.code}）</option>`).join('')}</select></div>
-      <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">成品品號</label><select class="inp" id="m_prod">${prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select></div>
-      <div class="form-row" style="margin-bottom:12px">
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">訂購數量</label><input class="inp" type="number" id="m_qty" placeholder="數量" min="1"></div>
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">交期</label><input class="inp" type="date" id="m_date"></div>
+    if(type==='newOrder'){mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
+      ${fld('客戶',`<select class="inp" id="m_cust">${customers.map(c=>`<option value="${c.name}">${c.name}（${c.code}）</option>`).join('')}</select>`)}
+      ${fld('成品品號',`<select class="inp" id="m_prod">${prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>`)}
+      <div class="form-row">
+        ${fld('訂購數量',`<input class="inp" type="number" id="m_qty" placeholder="數量" min="1">`)}
+        ${fld('交期',`<input class="inp" type="date" id="m_date">`)}
       </div>
-      <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="選填"></div>
-      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitOrder()">建立訂單</button></div>`;
-    }
-    if(type==='newInbound'){
-      mi.innerHTML=`<h3>📥 新增入料單</h3>
-      <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">料件</label><select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（現有：${m.stock}${m.unit}）</option>`).join('')}</select></div>
-      <div class="form-row" style="margin-bottom:12px">
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">入料數量</label><input class="inp" type="number" id="m_iqty" placeholder="數量" min="1"></div>
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">入料日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
+      ${fld('備註',`<input class="inp" id="m_note" placeholder="選填">`)}
+      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitOrder()">建立訂單</button></div>`;}
+
+    if(type==='newInbound'){mi.innerHTML=`<h3>📥 新增入料單</h3>
+      ${fld('料件',`<select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（現有：${m.stock}${m.unit}）</option>`).join('')}</select>`)}
+      <div class="form-row">
+        ${fld('入料數量',`<input class="inp" type="number" id="m_iqty" placeholder="數量" min="1">`)}
+        ${fld('入料日期',`<input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}">`)}
       </div>
-      <div class="form-row" style="margin-bottom:12px">
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
+      <div class="form-row">
+        ${fld('供應商',`<input class="inp" id="m_sup" placeholder="選填">`)}
+        ${fld('驗收人員',`<input class="inp" id="m_rec" placeholder="選填">`)}
       </div>
-      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立入料單</button></div>`;
-    }
-    if(type==='newCustomer'){
-      mi.innerHTML=`<h3>🏢 新增客戶</h3>
-      <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">客戶名稱</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
-      <div class="form-row" style="margin-bottom:12px">
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">客戶代號</label><input class="inp" id="m_ccode" placeholder="例：D0108"></div>
-        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">地區</label><select class="inp" id="m_cregion"><option>台灣</option><option>海外</option><option>中國</option></select></div>
+      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立入料單</button></div>`;}
+
+    if(type==='newCustomer'){mi.innerHTML=`<h3>🏢 新增客戶</h3>
+      ${fld('客戶名稱',`<input class="inp" id="m_cname" placeholder="完整公司名稱">`)}
+      <div class="form-row">
+        ${fld('客戶代號',`<input class="inp" id="m_ccode" placeholder="例：D0108">`)}
+        ${fld('地區',`<select class="inp" id="m_cregion"><option>台灣</option><option>海外</option><option>中國</option></select>`)}
       </div>
-      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitCustomer()">新增</button></div>`;
-    }
+      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitCustomer()">新增</button></div>`;}
   }
   document.getElementById('modalBg').classList.add('open');
 }
-
 function closeModal(){document.getElementById('modalBg').classList.remove('open');}
 
 async function submitOrder(){
-  const cust=document.getElementById('m_cust').value;const prodId=document.getElementById('m_prod').value;const qty=parseInt(document.getElementById('m_qty').value)||0;const date=document.getElementById('m_date').value;const note=document.getElementById('m_note').value;
+  const cust=document.getElementById('m_cust').value;
+  const prodId=document.getElementById('m_prod').value;
+  const qty=parseInt(document.getElementById('m_qty').value)||0;
+  const date=document.getElementById('m_date').value;
+  const note=document.getElementById('m_note').value;
   if(!qty||!date){alert('請填入數量與交期');return;}
-  const d=new Date();const no=`ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+  const d=new Date();
+  const no=`ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
+  try{
+    await createPage(DB.orders,{
+      '訂單號':{title:[{text:{content:no}}]},
+      '客戶名稱':{select:{name:cust}},
+      '成品':{relation:[{id:prodId}]},
+      '訂購數量':{number:qty},
+      '交期':{date:{start:date}},
+      '狀態':{select:{name:'待排程'}},
+      '業務備註':{rich_text:[{text:{content:note}}]},
+    });
+    await refreshAll();
+    showToast(`✅ 訂單 ${no} 建立成功`,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 async function submitInbound(){
-  const matId=document.getElementById('m_mat').value;const qty=parseInt(document.getElementById('m_iqty').value)||0;const date=document.getElementById('m_idate').value;const sup=document.getElementById('m_sup').value;const rec=document.getElementById('m_rec').value;
+  const matId=document.getElementById('m_mat').value;
+  const qty=parseInt(document.getElementById('m_iqty').value)||0;
+  const date=document.getElementById('m_idate').value;
+  const sup=document.getElementById('m_sup').value;
+  const rec=document.getElementById('m_rec').value;
   if(!qty){alert('請填入數量');return;}
-  const d=new Date();const no=`IN-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+  const d=new Date();
+  const no=`IN-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{await createPage(DB.inbound,{'入料單號':{title:[{text:{content:no}}]},'料件':{relation:[{id:matId}]},'入料數量':{number:qty},'入料日期':{date:{start:date}},'供應商':{rich_text:[{text:{content:sup}}]},'驗收人員':{rich_text:[{text:{content:rec}}]},'品管狀態':{select:{name:'待品檢'}},'入庫狀態':{select:{name:'待入庫'}}});await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 入料單 ${no} 建立，待品管確認`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
+  try{
+    await createPage(DB.inbound,{
+      '入料單號':{title:[{text:{content:no}}]},
+      '料件':{relation:[{id:matId}]},
+      '入料數量':{number:qty},
+      '入料日期':{date:{start:date}},
+      '供應商':{rich_text:[{text:{content:sup}}]},
+      '驗收人員':{rich_text:[{text:{content:rec}}]},
+      '品管狀態':{select:{name:'待品檢'}},
+      '入庫狀態':{select:{name:'待入庫'}},
+    });
+    await loadInbounds();
+    renderTab(CURRENT_TAB);
+    showToast(`✅ 入料單 ${no} 建立，請至品管頁面確認`,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 async function submitCustomer(){
-  const name=document.getElementById('m_cname').value.trim();const code=document.getElementById('m_ccode').value.trim();const region=document.getElementById('m_cregion').value;
+  const name=document.getElementById('m_cname').value.trim();
+  const code=document.getElementById('m_ccode').value.trim();
+  const region=document.getElementById('m_cregion').value;
   if(!name){alert('請填入客戶名稱');return;}
   closeModal();
-  try{await createPage(DB.customers,{'客戶名稱':{title:[{text:{content:name}}]},'客戶代號':{rich_text:[{text:{content:code}}]},'地區':{select:{name:region}}});await refreshAll();showToast(`✅ 客戶 ${name} 新增成功`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
+  try{
+    await createPage(DB.customers,{
+      '客戶名稱':{title:[{text:{content:name}}]},
+      '客戶代號':{rich_text:[{text:{content:code}}]},
+      '地區':{select:{name:region}},
+    });
+    await refreshAll();
+    showToast(`✅ 客戶 ${name} 新增成功`,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 // ============================================================
@@ -576,11 +765,12 @@ function showToast(msg,type){
   const t=document.createElement('div');t.className='toast';
   t.style.cssText=`background:${bg};border:1px solid ${border};color:${color}`;
   t.textContent=msg;document.body.appendChild(t);
-  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},3500);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},4000);
 }
 
 window.onload=()=>{
-  const t=localStorage.getItem('lematec_token');const r=localStorage.getItem('lematec_role');
+  const t=localStorage.getItem('lematec_token');
+  const r=localStorage.getItem('lematec_role');
   if(t&&r){TOKEN=t;ROLE=r;document.getElementById('tokenInput').value=t;document.getElementById('roleSelect').value=r;startApp();}
 };
 </script>
