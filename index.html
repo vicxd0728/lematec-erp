@@ -1108,16 +1108,28 @@ function openModal(type){
 
   if(type==='newCustomer'){
     mi.innerHTML=`<h3>🏢 新增客戶</h3>
-    <div style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:11px;color:var(--cyan)">
-      💡 新增後會同步存入 ERP 客戶主檔。若要同步更新到客戶總檔，請另至 Notion 操作。
+  <div style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:11px;color:var(--cyan)">
+    💡 同時新增到 ERP 客戶主檔 及 國外業務客戶總檔（雙向同步）
+  </div>
+  <div class="field" style="margin-bottom:12px">
+    <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label>
+    <input class="inp" id="m_cname" placeholder="完整公司名稱">
+  </div>
+  <div class="form-row" style="margin-bottom:12px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label>
+      <input class="inp" id="m_ccode" placeholder="如 2602AU016">
     </div>
-    <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
-    <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label><input class="inp" id="m_ccode" placeholder="如 2602AU016"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">地區</label><select class="inp" id="m_cregion"><option>台灣</option><option>海外</option><option>中國</option></select></div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label>
+      <input class="inp" id="m_cregion" placeholder="如 AU、US、ID" maxlength="4">
     </div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitCustomer()">新增</button></div>`;
-  }
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+    <button class="btn btn-blue" onclick="submitCustomer()">新增（雙向同步）</button>
+  </div>`;
+}
 
   document.getElementById('modalBg').classList.add('open');
 }
@@ -1178,18 +1190,62 @@ async function submitInbound(){
 // 且業務客戶總檔是另一個部門在維護，不適合直接寫入
 // 目前設計：寫入 ERP 客戶主檔，系統會在讀取時合併兩份
 async function submitCustomer(){
-  const name=document.getElementById('m_cname').value.trim();
-  const code=document.getElementById('m_ccode').value.trim();
-  const region=document.getElementById('m_cregion').value;
-  if(!name){alert('請填入客戶名稱');return;}
-  // 檢查是否重複
-  const dup=customers.find(c=>c.code&&code&&c.code.toLowerCase()===code.toLowerCase());
-  if(dup){alert(`客戶代號 ${code} 已存在（${dup.name}），請確認`);return;}
+ const name = document.getElementById('m_cname').value.trim();
+  const code = document.getElementById('m_ccode').value.trim().toUpperCase();
+  const region = document.getElementById('m_cregion').value.trim().toUpperCase();
+
+  if(!name){ alert('請填入客戶名稱'); return; }
+  if(!code){ alert('請填入客戶代號'); return; }
+
+  // 重複檢查
+  const dup = customers.find(c => c.code && c.code.toUpperCase() === code);
+  if(dup){ alert(`客戶代號 ${code} 已存在（${dup.name}），請確認`); return; }
+
   closeModal();
-  try{
-    await createPage(DB.customers,{'客戶名稱':{title:[{text:{content:name}}]},'客戶代號':{rich_text:[{text:{content:code}}]},'地區':{select:{name:region}}});
-    await refreshAll();showToast(`✅ 客戶 ${name}（${code}）新增成功`,'ok');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+  showToast('新增中，同步兩個資料庫...', 'warn');
+
+  let erpOk = false, masterOk = false;
+
+  // 1. 寫入 ERP 客戶主檔（欄位：客戶名稱 title, 客戶代號 rich_text, 地區 select）
+  try {
+    await createPage(DB.customers, {
+      '客戶名稱': { title: [{ text: { content: name } }] },
+      '客戶代號': { rich_text: [{ text: { content: code } }] },
+      '地區': { select: { name: region || '海外' } },
+    });
+    erpOk = true;
+  } catch(e) {
+    console.error('ERP 主檔新增失敗:', e);
+  }
+
+  // 2. 同步寫入客戶總檔（欄位：Name title, 客戶編號 rich_text, 國家 select）
+  // 國家 select 需要是已有的選項（國碼），若不存在會失敗，用 try-catch 保護
+  try {
+    const masterProps = {
+      'Name': { title: [{ text: { content: name } }] },
+      '客戶編號': { rich_text: [{ text: { content: code } }] },
+    };
+    // 只在有國家代碼時才填入（避免不存在的選項報錯）
+    if(region) masterProps['國家'] = { select: { name: region } };
+
+    await notionAPI('POST', 'pages', {
+      parent: { database_id: DB.custMaster },
+      properties: masterProps,
+    });
+    masterOk = true;
+  } catch(e) {
+    console.error('客戶總檔新增失敗:', e);
+  }
+
+  await refreshAll();
+
+  if(erpOk && masterOk){
+    showToast(`✅ ${name}（${code}）已同步新增至兩個資料庫`, 'ok');
+  } else if(erpOk){
+    showToast(`⚠ ERP 主檔新增成功，但客戶總檔同步失敗（國家代碼可能無效）`, 'warn');
+  } else {
+    showToast(`❌ 新增失敗，請檢查欄位`, 'err');
+  }
 }
 
 function openStatusModal(orderId,currentStatus){
