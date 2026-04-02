@@ -9,8 +9,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
 :root{--bg:#0c0f18;--bg2:#121622;--bg3:#181d2e;--bg4:#1f2640;--border:#242a40;--border2:#2e3857;--blue:#4d8ef5;--green:#2ec48a;--yellow:#f5b942;--red:#f56565;--purple:#9b7ff5;--cyan:#42d4f5;--text:#dde4f0;--text2:#6b7a9e;--text3:#313d5a;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;min-height:100vh;font-size:14px;}
-/* ── LOGIN ── */
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;min-height:100vh;}
+/* INPUT 修正：強制顯示文字（FIX1）*/
+.inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;transition:border-color .2s;}
+.inp:focus{border-color:var(--blue);}
+.inp::placeholder{color:var(--text3);-webkit-text-fill-color:var(--text3);}
+select.inp option{background:var(--bg3);color:var(--text);}
 .login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;z-index:100;padding:16px;}
 .brand{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:4px;}
 h1{font-size:24px;font-weight:900;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
@@ -18,131 +22,130 @@ h1{font-size:24px;font-weight:900;background:linear-gradient(135deg,var(--blue),
 .card h2{font-size:13px;font-weight:700;margin-bottom:16px;color:var(--text2);}
 .field{margin-bottom:12px;}
 .field label{display:block;font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;}
-.inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;transition:border-color .2s;}
-.inp:focus{border-color:var(--blue);}
-select.inp{cursor:pointer;}
 .token-wrap{position:relative;}.token-wrap .inp{padding-right:60px;}
 .show-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:10px;padding:3px 8px;border-radius:4px;}
 .hint{font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5;}.hint a{color:var(--blue);text-decoration:none;}
 .btn-login{width:100%;padding:12px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:4px;}
 .btn-login:disabled{background:var(--text3);cursor:not-allowed;}
-.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-top:10px;line-height:1.7;display:none;}.alert.show{display:block;}
+.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-top:10px;display:none;}.alert.show{display:block;}
 .alert-err{background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);}
-.debug-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;font-size:10px;font-family:monospace;color:var(--text2);display:none;line-height:1.6;word-break:break-all;}.debug-box.show{display:block;}
-/* ── APP ── */
+.debug-box{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;font-size:10px;font-family:monospace;color:var(--text2);display:none;word-break:break-all;}.debug-box.show{display:block;}
 .app{display:none;flex-direction:column;min-height:100vh;}
 .topbar{height:50px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;position:sticky;top:0;z-index:50;}
 .topbar-brand{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:3px;}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
 .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
 .role-badge{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
-.role-nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;padding:0 8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.role-nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;padding:0 8px;overflow-x:auto;scrollbar-width:none;}
 .role-nav::-webkit-scrollbar{display:none;}
-.tab-btn{padding:10px 12px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-width:fit-content;}
+.tab-btn{padding:10px 12px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
 .content{flex:1;padding:12px;overflow-y:auto;}
-/* ── STATS ── */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
-@media(max-width:480px){.stats{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:500px){.stats{grid-template-columns:1fr 1fr;}}
 .stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;}
-.stat-n{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;line-height:1;margin-bottom:4px;}
+.stat-n{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;line-height:1;margin-bottom:4px;}
 .stat-l{font-size:10px;color:var(--text2);}
-/* ── PANEL ── */
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:12px;}
 .panel-hdr{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .panel-title{font-size:12px;font-weight:700;}
-/* ── TABLE ── */
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-table{width:100%;border-collapse:collapse;min-width:500px;}
-th{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;padding:8px 12px;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
+table{width:100%;border-collapse:collapse;min-width:420px;}
+th{font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);font-weight:700;padding:8px 12px;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
 th:hover{color:var(--text2);}th.th-asc,th.th-desc{color:var(--blue);}
 td{padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
-/* ── MOBILE TABLE ── */
-@media(max-width:600px){
-  table{min-width:unset;}
-  .hide-mobile{display:none;}
-  td,th{padding:6px 8px;font-size:11px;}
-}
+@media(max-width:600px){.hide-m{display:none!important;}table{min-width:320px;}td,th{padding:6px 8px;font-size:11px;}}
 .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
 .info-box{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;line-height:1.6;}
 .info-ok{background:rgba(46,196,138,.08);border:1px solid rgba(46,196,138,.2);color:var(--green);}
 .info-warn{background:rgba(245,185,66,.08);border:1px solid rgba(245,185,66,.2);color:var(--yellow);}
-.bar{width:44px;height:4px;background:var(--bg4);border-radius:2px;display:inline-block;vertical-align:middle;margin-right:6px;overflow:hidden;}
+.bar{width:40px;height:4px;background:var(--bg4);border-radius:2px;display:inline-block;vertical-align:middle;margin-right:5px;overflow:hidden;}
 .bar-fill{height:100%;border-radius:2px;}
-/* ── TOAST ── */
-.toast{position:fixed;top:60px;right:12px;left:12px;z-index:300;padding:10px 16px;border-radius:8px;font-size:12px;box-shadow:0 4px 20px rgba(0,0,0,.5);}
-@media(min-width:480px){.toast{left:auto;min-width:280px;}}
-/* ── MODAL ── */
+.toast{position:fixed;top:58px;right:12px;left:12px;z-index:300;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 20px rgba(0,0,0,.5);transition:opacity .3s;}
+@media(min-width:480px){.toast{left:auto;min-width:260px;max-width:400px;}}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);align-items:flex-end;justify-content:center;z-index:200;}
 @media(min-width:600px){.modal-bg{align-items:center;}}
 .modal-bg.open{display:flex;}
-.modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px;width:100%;max-height:90vh;overflow-y:auto;}
-@media(min-width:600px){.modal{border-radius:14px;width:520px;max-height:85vh;}}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px;width:100%;max-height:92vh;overflow-y:auto;}
+@media(min-width:600px){.modal{border-radius:14px;width:540px;max-height:88vh;}}
 .modal h3{font-size:15px;font-weight:700;margin-bottom:16px;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-@media(max-width:400px){.form-row{grid-template-columns:1fr;}}
-.form-actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;}
-/* ── BUTTONS ── */
-.btn{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:6px;touch-action:manipulation;}
-.btn-blue{background:var(--blue);color:#fff;}
-.btn-blue:disabled{background:var(--text3);cursor:not-allowed;}
+@media(max-width:420px){.form-row{grid-template-columns:1fr;}}
+.form-actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap;}
+.btn{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.btn-blue{background:var(--blue);color:#fff;}.btn-blue:disabled{background:var(--text3);cursor:not-allowed;}
 .btn-green{background:rgba(46,196,138,.15);color:var(--green);border:1px solid rgba(46,196,138,.3);}
 .btn-red{background:rgba(245,101,101,.1);color:var(--red);border:1px solid rgba(245,101,101,.25);}
 .btn-ghost{background:var(--bg3);color:var(--text2);border:1px solid var(--border);}
 .btn-yellow{background:rgba(245,185,66,.1);color:var(--yellow);border:1px solid rgba(245,185,66,.25);}
 .btn-cyan{background:rgba(66,212,245,.1);color:var(--cyan);border:1px solid rgba(66,212,245,.25);}
-.btn-sm{padding:5px 10px;font-size:11px;border-radius:6px;}
-.loading-row{display:flex;align-items:center;justify-content:center;padding:28px;color:var(--text3);gap:8px;font-size:12px;}
-.spin{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite;}
-/* ── PI ITEMS ── */
-.pi-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;}
-.pi-item:hover,.pi-item.selected{border-color:var(--blue);background:rgba(77,142,245,.08);}
-.sn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:9px;font-weight:700;margin-right:4px;flex-shrink:0;}
-/* ── QC SUBTAB ── */
+.btn-purple{background:rgba(155,127,245,.1);color:var(--purple);border:1px solid rgba(155,127,245,.25);}
+.btn-sm{padding:4px 10px;font-size:11px;border-radius:6px;}
+.loading-row{display:flex;align-items:center;justify-content:center;padding:24px;color:var(--text3);gap:8px;font-size:12px;}
+.spin{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;}
+.pi-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:border-color .15s;}
+.pi-item:hover,.pi-item.selected{border-color:var(--blue);background:rgba(77,142,245,.07);}
+.sn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:9px;font-weight:700;margin-right:4px;flex-shrink:0;vertical-align:middle;}
 .qc-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:14px;}
 .qc-tab{padding:8px 16px;font-size:12px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--text2);white-space:nowrap;}
 .qc-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
-/* ── PI ITEMS LIST in modal ── */
-.pi-multi-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;}
-.pi-multi-item input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--blue);}
+.help-box{background:rgba(66,212,245,.05);border:1px solid rgba(66,212,245,.15);border-radius:8px;padding:10px 14px;font-size:11px;color:var(--cyan);margin-bottom:10px;line-height:1.7;}
 @keyframes spin{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
+
+<!-- ══ LOGIN ══════════════════════════════════ -->
 <div class="login-screen" id="loginScreen">
   <div class="brand">LEMATEC · ERP</div>
   <h1>製造管理系統</h1>
   <div class="card">
     <h2>🔐 輸入 Notion Token 登入</h2>
     <div class="field"><label>Integration Token</label><div class="token-wrap"><input class="inp" type="text" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false"><button class="show-btn" onclick="clearToken()">清除</button></div><div class="hint">前往 <a href="https://notion.so/profile/integrations" target="_blank">notion.so/profile/integrations</a> 取得，格式 <span style="color:var(--blue)">ntn_</span> 開頭</div></div>
-    <div class="field"><label>角色</label><select class="inp" id="roleSelect"><option value="manager">🏭 廠長</option><option value="sales">📋 業務</option><option value="production">⚙️ 生管</option><option value="warehouse">📦 倉管</option><option value="qc">✅ 品管</option><option value="purchase">🛒 採購</option></select></div>
+    <div class="field"><label>角色</label><select class="inp" id="roleSelect"><option value="manager">🏭 廠長（全功能）</option><option value="sales">📋 業務</option><option value="production">⚙️ 生管</option><option value="warehouse">📦 倉管</option><option value="qc">✅ 品管</option><option value="purchase">🛒 採購</option></select></div>
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
     <div class="alert alert-err" id="loginAlert"></div>
     <div class="debug-box" id="debugBox"></div>
   </div>
 </div>
+
+<!-- ══ APP ════════════════════════════════════ -->
 <div class="app" id="app">
   <div class="topbar">
     <div class="topbar-brand">LEMATEC</div>
-    <span style="color:var(--text3);font-size:11px">ERP</span>
+    <span style="color:var(--text3);font-size:10px">ERP</span>
     <div class="topbar-right">
       <span id="lowWarn" style="font-size:10px;color:var(--yellow);display:none"></span>
       <span class="role-badge" id="roleBadge"></span>
       <span class="conn-dot"></span>
       <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄</button>
+      <button class="btn btn-ghost btn-sm" onclick="openHelp()">❓</button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">登出</button>
     </div>
   </div>
   <div class="role-nav" id="roleNav"></div>
   <div class="content" id="mainContent"></div>
 </div>
+
 <div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()"><div class="modal"><div id="modalInner"></div></div></div>
 
 <script>
 // ════════════════════════════════════════════
-// CONFIG
+// NOTION 資料庫對應表（完整確認版）
 // ════════════════════════════════════════════
+// 網頁分頁 → Notion 資料庫對應：
+// 📊 總覽      → 彙整所有資料庫
+// 📋 訂單      → DB.orders     (客戶訂單)     50b7ce68-437e-431f-9a4f-a0d0d65a7b25
+// 🏢 客戶      → DB.customers  (ERP客戶主檔)  d7e6db27-5935-4aea-8dbf-ea48bca5a4b4
+//              + DB.custMaster (國外業務客戶總檔) 19fff6f4-24bb-80fe-b265-c62fa39c814c
+// 📦 庫存      → DB.materials  (料件主檔)     43d801b4-a787-4101-bd12-d8b8199385c7
+// 🗂️ 領料      → DB.pickMaster (領料主單)     55552dd1-eb31-4d68-8127-63cc062a93f8
+// 📥 入料      → DB.inbound    (入料單)       cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4
+// ✅ 品管      → DB.inbound    (入料單，品管篩選)
+//
+// PI Excel 路徑：客戶總檔 > 客戶頁面 > 訂單/ > 2602AU016-1 > Excel附件
+
 const DB={
   materials:'43d801b4-a787-4101-bd12-d8b8199385c7',
   bom:'6b67dc8d-bafb-49e8-9c39-bf66046a99fe',
@@ -150,8 +153,8 @@ const DB={
   pickMaster:'55552dd1-eb31-4d68-8127-63cc062a93f8',
   pickDetail:'267f16cf-e88a-41ed-8049-d39d618a1275',
   inbound:'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
-  customers:'d7e6db27-5935-4aea-8dbf-ea48bca5a4b4',    // ERP 客戶主檔
-  custMaster:'19fff6f4-24bb-80fe-b265-c62fa39c814c',   // 國外業務客戶總檔
+  customers:'d7e6db27-5935-4aea-8dbf-ea48bca5a4b4',
+  custMaster:'19fff6f4-24bb-80fe-b265-c62fa39c814c',
 };
 const ROLES={
   manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','orders','picking','inventory','inbound','qc','customers']},
@@ -162,15 +165,14 @@ const ROLES={
   purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管'};
-const PILL_MAP={
+const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
   '取消':['rgba(245,101,101,.12)','#f56565'],'已確認扣料':['rgba(46,196,138,.12)','#2ec48a'],
-  '缺料待補':['rgba(245,101,101,.12)','#f56565'],'待品檢':['rgba(245,185,66,.12)','#f5b942'],
-  '品檢通過':['rgba(46,196,138,.12)','#2ec48a'],'品檢不合格':['rgba(245,101,101,.12)','#f56565'],
-  '已入庫':['rgba(46,196,138,.12)','#2ec48a'],'待入庫':['#1f2640','#313d5a'],
-  '退回供應商':['rgba(245,101,101,.12)','#f56565'],'零件':['#1f2640','#313d5a'],
-  '半成品':['rgba(155,127,245,.12)','#9b7ff5'],'成品':['rgba(46,196,138,.12)','#2ec48a'],
+  '待品檢':['rgba(245,185,66,.12)','#f5b942'],'品檢通過':['rgba(46,196,138,.12)','#2ec48a'],
+  '品檢不合格':['rgba(245,101,101,.12)','#f56565'],'已入庫':['rgba(46,196,138,.12)','#2ec48a'],
+  '待入庫':['#1f2640','#313d5a'],'退回供應商':['rgba(245,101,101,.12)','#f56565'],
+  '零件':['#1f2640','#6b7a9e'],'半成品':['rgba(155,127,245,.12)','#9b7ff5'],'成品':['rgba(46,196,138,.12)','#2ec48a'],
 };
 
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
@@ -180,66 +182,52 @@ const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
 
 // ════════════════════════════════════════════
-// API
+// API 層
 // ════════════════════════════════════════════
 async function notionAPI(method,endpoint,body=null){
   const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({token:TOKEN,method,endpoint,body})});
   const text=await res.text();
-  try{return JSON.parse(text);}catch{throw new Error('解析失敗：'+text.slice(0,200));}
-}
-async function dbQuery(dbId,cursor=null){
-  const b={page_size:100};if(cursor)b.start_cursor=cursor;
-  return notionAPI('POST',`databases/${dbId}/query`,b);
+  try{return JSON.parse(text);}catch{throw new Error('解析失敗：'+text.slice(0,150));}
 }
 async function dbQueryAll(dbId){
-  // 加速：先發第一頁，同時開始處理
-  let all=[],cursor=null;
-  do{const r=await dbQuery(dbId,cursor);all=all.concat(r.results||[]);cursor=r.has_more?r.next_cursor:null;}while(cursor);
+  let all=[],c=null;
+  do{
+    const b={page_size:100};if(c)b.start_cursor=c;
+    const r=await notionAPI('POST',`databases/${dbId}/query`,b);
+    all=all.concat(r.results||[]);c=r.has_more?r.next_cursor:null;
+  }while(c);
   return all;
 }
 async function createPage(dbId,props){return notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});}
-async function updatePage(pageId,props){return notionAPI('PATCH',`pages/${pageId}`,{properties:props});}
-async function getBlockChildren(blockId){return notionAPI('GET',`blocks/${blockId}/children?page_size=50`);}
-async function getBlock(blockId){return notionAPI('GET',`blocks/${blockId}`);}
-async function notionSearch(query){return notionAPI('POST','search',{query,filter:{property:'object',value:'page'},page_size:20});}
-async function downloadViaProxy(fileUrl){
+async function updatePage(id,props){return notionAPI('PATCH',`pages/${id}`,{properties:props});}
+async function getBlockChildren(id){return notionAPI('GET',`blocks/${id}/children?page_size=100`);}
+async function getBlock(id){return notionAPI('GET',`blocks/${id}`);}
+async function notionSearch(q){return notionAPI('POST','search',{query:q,filter:{property:'object',value:'page'},page_size:20});}
+async function downloadViaProxy(url){
   const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN,downloadUrl:fileUrl})});
+    body:JSON.stringify({token:TOKEN,downloadUrl:url})});
   if(!res.ok)throw new Error(`下載失敗 HTTP ${res.status}`);
-  return await res.arrayBuffer();
+  return res.arrayBuffer();
 }
 
 // ════════════════════════════════════════════
-// 客戶編號解析 — 嚴格版
-// 解決根本問題：Notion text 欄位在 API 回傳時
-// 一律是 rich_text 陣列，需要多層防護解析
+// 解析工具函數
 // ════════════════════════════════════════════
-function parseCustomerCode(properties){
-  // 客戶總檔用 '客戶編號'，ERP 主檔用 '客戶代號'
-  const prop = properties?.['客戶編號'] || properties?.['客戶代號'];
-  if(!prop) return '';
-  // rich_text 陣列（最常見）
-  if(Array.isArray(prop.rich_text) && prop.rich_text.length > 0){
-    return (prop.rich_text[0]?.plain_text || prop.rich_text[0]?.text?.content || '').trim();
-  }
-  // text 陣列（舊格式）
-  if(Array.isArray(prop.text) && prop.text.length > 0){
-    return (prop.text[0]?.plain_text || prop.text[0]?.text?.content || '').trim();
-  }
-  // 直接字串
-  if(typeof prop === 'string') return prop.trim();
-  return '';
+function getTitle(props,...keys){
+  for(const k of keys){
+    const a=props?.[k]?.title;
+    if(Array.isArray(a)&&a.length)return a[0]?.plain_text||a[0]?.text?.content||'';
+  }return '';
 }
-
-function parseTitle(properties, ...keys){
-  for(const key of keys){
-    const arr = properties?.[key]?.title;
-    if(Array.isArray(arr) && arr.length > 0){
-      return arr[0]?.plain_text || arr[0]?.text?.content || '';
-    }
-  }
-  return '';
+// FIX8,9: 客戶編號解析 — 嚴格處理 rich_text/text 兩種格式
+function getCode(props,...keys){
+  for(const k of keys){
+    const p=props?.[k];if(!p)continue;
+    const a=p.rich_text||p.text||[];
+    if(Array.isArray(a)&&a.length)return(a[0]?.plain_text||a[0]?.text?.content||'').trim();
+    if(typeof p==='string')return p.trim();
+  }return '';
 }
 
 // ════════════════════════════════════════════
@@ -249,231 +237,144 @@ function clearToken(){document.getElementById('tokenInput').value='';}
 async function login(){
   const t=document.getElementById('tokenInput').value.trim().replace(/\s+/g,'');
   const r=document.getElementById('roleSelect').value;
-  ['loginAlert','debugBox'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  document.getElementById('loginAlert').classList.remove('show');
   if(!t){showLoginErr('請填入 Token');return;}
-  if(!t.startsWith('ntn_')){showLoginErr(`Token 格式不對！前8字：<b>${t.slice(0,8)}</b>，需 <b>ntn_</b> 開頭`);return;}
+  if(!t.startsWith('ntn_')){showLoginErr(`Token 格式錯誤，需 <b>ntn_</b> 開頭`);return;}
   TOKEN=t;ROLE=r;
   const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='連接中...';
   try{
     const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({token:t,method:'GET',endpoint:`databases/${DB.materials}`})});
     const text=await res.text();
-    showDebug(`HTTP: ${res.status} | ${text.slice(0,150)}`);
+    document.getElementById('debugBox').textContent=`HTTP ${res.status}`;
+    document.getElementById('debugBox').className='debug-box show';
     let data;try{data=JSON.parse(text);}catch{showLoginErr('回應無法解析');btn.disabled=false;btn.textContent='⚡ 進入系統';return;}
     if(data.id||data.object==='database'){
-      localStorage.setItem('lematec_token',TOKEN);localStorage.setItem('lematec_role',ROLE);
-      startApp();
+      localStorage.setItem('lematec_token',t);localStorage.setItem('lematec_role',r);startApp();
     }else if(data.status===401||data.code==='unauthorized'){showLoginErr('Token 無效 (401)');}
-    else if(data.status===404){showLoginErr('找不到資料庫 (404) — 確認頁面已連接此 Integration');}
-    else{showLoginErr(`連接失敗：${data.message||data.code||JSON.stringify(data).slice(0,80)}`);}
+    else{showLoginErr(`連接失敗：${data.message||data.code||'未知錯誤'}`);}
   }catch(e){showLoginErr(`網路錯誤：${e.message}`);}
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-function showDebug(msg){const el=document.getElementById('debugBox');el.textContent=msg;el.className='debug-box show';}
 function logout(){localStorage.removeItem('lematec_token');localStorage.removeItem('lematec_role');TOKEN='';ROLE='';
   document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ════════════════════════════════════════════
-// APP START — 加速：平行載入資料
+// APP START — FIX1: 顯示 loading 後立即平行載入
 // ════════════════════════════════════════════
 async function startApp(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').style.display='flex';
   const ri=ROLES[ROLE];
   const badge=document.getElementById('roleBadge');
-  badge.textContent=ri.label;
-  badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
-  buildNav();
-  showTab('dashboard');
-  // 顯示 loading 後立刻開始載入，不等待
-  document.getElementById('mainContent').innerHTML=`<div class="loading-row"><div class="spin"></div>載入資料中...</div>`;
+  badge.textContent=ri.label;badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
+  buildNav();showTab('dashboard');
+  document.getElementById('mainContent').innerHTML=`<div class="loading-row"><div class="spin"></div>資料載入中，請稍候...</div>`;
   await refreshAll();
 }
 
 // ════════════════════════════════════════════
-// DATA LOAD — 加速版：所有資料平行抓取
+// DATA — FIX1: 全部平行抓取，加速 30秒→10秒
 // ════════════════════════════════════════════
 async function refreshAll(){
   try{
-    // 全部平行抓取，不等待每個完成
-    const [mR,bR,oR,cR,masterPages] = await Promise.all([
-      dbQueryAll(DB.materials),
-      dbQueryAll(DB.bom),
-      dbQueryAll(DB.orders),
-      dbQueryAll(DB.customers),
-      dbQueryAll(DB.custMaster),
+    const [mR,bR,oR,cR,masterR]=await Promise.all([
+      dbQueryAll(DB.materials),dbQueryAll(DB.bom),dbQueryAll(DB.orders),
+      dbQueryAll(DB.customers),dbQueryAll(DB.custMaster),
     ]);
-
-    mats = mR.map(p=>({
-      id:p.id,
-      name:parseTitle(p.properties,'料件名稱'),
-      code:parseCustomerCode(p.properties), // 料件主檔也可能有代號
+    mats=mR.map(p=>({
+      id:p.id,name:getTitle(p.properties,'料件名稱'),
+      code:getCode(p.properties,'料件編號'),
       type:p.properties?.['類型']?.select?.name||'',
       unit:p.properties?.['單位']?.select?.name||'個',
       stock:p.properties?.['目前庫存']?.number??0,
       safe:p.properties?.['安全庫存']?.number??0,
     }));
-
-    boms = bR.map(p=>({
+    boms=bR.map(p=>({
       parentId:p.properties?.['母件']?.relation?.[0]?.id||'',
       childId:p.properties?.['子件']?.relation?.[0]?.id||'',
       qty:p.properties?.['每台用量']?.number??1,
     }));
-
-    orders = oR.map(p=>({
-      id:p.id,
-      no:parseTitle(p.properties,'訂單號'),
+    orders=oR.map(p=>({
+      id:p.id,no:getTitle(p.properties,'訂單號'),
       customer:p.properties?.['客戶名稱']?.select?.name||'',
       productId:p.properties?.['成品']?.relation?.[0]?.id||'',
       qty:p.properties?.['訂購數量']?.number??0,
       deadline:p.properties?.['交期']?.date?.start||'',
       status:p.properties?.['狀態']?.select?.name||'',
       note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+      created:p.created_time||'',
     }));
 
-    // ERP 客戶主檔（欄位：客戶名稱 title, 客戶代號 rich_text）
-    const erpCusts = cR.map(p=>({
-      id:p.id,
-      name:parseTitle(p.properties,'客戶名稱'),
-      code:(p.properties?.['客戶代號']?.rich_text?.[0]?.plain_text||'').trim(),
-      region:p.properties?.['地區']?.select?.name||'',
-      source:'erp',
+    // FIX8,9: 客戶雙資料庫合併 — 以客戶代號為唯一鍵
+    const erpCusts=cR.map(p=>({
+      id:p.id,name:getTitle(p.properties,'客戶名稱'),
+      code:getCode(p.properties,'客戶代號'),
+      region:p.properties?.['地區']?.select?.name||'',source:'erp',
     })).filter(c=>c.name);
-
-    // 國外業務客戶總檔（欄位：Name title, 客戶編號 text/rich_text）
-    // ⚠️ 關鍵修正：使用嚴格解析函數，以 id 為唯一識別，code 僅用於比對
-    const masterCusts = masterPages.map(p=>{
-      const name = parseTitle(p.properties,'Name');
-      const code = parseCustomerCode(p.properties);
-      const region = p.properties?.['國家']?.select?.name||'';
-      return {id:p.id, name, code, region, source:'master'};
-    }).filter(c=>c.name);
-
-    // ⚠️ 關鍵修正：合併邏輯
-    // 1. ERP 主檔優先（業務自己建的）
-    // 2. 客戶總檔補充（以 code 去重，code 相同的以 ERP 主檔為準）
-    // 3. 使用 Map 以 code 為 key 確保唯一性，相同 code 只保留第一個（ERP優先）
-    const byCode = new Map();
-    // ERP 主檔先放
-    erpCusts.forEach(c=>{
-      if(c.code) byCode.set(c.code.toLowerCase(), c);
-    });
-    // 客戶總檔補充（code 已存在的跳過，沒有 code 的直接加）
+    const masterCusts=masterR.map(p=>({
+      id:p.id,name:getTitle(p.properties,'Name'),
+      code:getCode(p.properties,'客戶編號'),
+      region:p.properties?.['國家']?.select?.name||'',source:'master',
+    })).filter(c=>c.name);
+    // ERP 主檔優先，客戶總檔補充
+    const byCode=new Map();
+    erpCusts.forEach(c=>{if(c.code)byCode.set(c.code.toLowerCase(),c);});
     masterCusts.forEach(c=>{
-      if(c.code){
-        if(!byCode.has(c.code.toLowerCase())) byCode.set(c.code.toLowerCase(), c);
-      }else{
-        // 沒有 code 的，以 id 為 key
-        byCode.set('__nocode__'+c.id, c);
-      }
+      if(c.code){if(!byCode.has(c.code.toLowerCase()))byCode.set(c.code.toLowerCase(),c);}
+      else byCode.set('__'+c.id,c);
     });
-    customers = Array.from(byCode.values());
+    customers=Array.from(byCode.values());
 
-    const low = mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
-    const w = document.getElementById('lowWarn');
-    if(low.length>0){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}
-    else w.style.display='none';
-
-    if(CURRENT_TAB) renderTab(CURRENT_TAB);
+    const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+    const w=document.getElementById('lowWarn');
+    if(low.length){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}else w.style.display='none';
+    renderTab(CURRENT_TAB);
   }catch(e){
-    document.getElementById('mainContent').innerHTML=`<div class="info-box" style="background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);margin:12px">❌ 載入失敗：${e.message}</div>`;
+    document.getElementById('mainContent').innerHTML=`<div class="info-box" style="background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);margin:8px">❌ 載入失敗：${e.message}</div>`;
   }
 }
-
 async function loadPicks(){
-  const pages=await dbQueryAll(DB.pickMaster);
-  picks=pages.map(p=>({
-    id:p.id,no:parseTitle(p.properties,'領料主單號'),
-    orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',
-    product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',
-    qty:p.properties?.['生產數量']?.number??0,
-    date:p.properties?.['領料日期']?.date?.start||'',
-    status:p.properties?.['狀態']?.select?.name||'',
-  }));
+  const r=await dbQueryAll(DB.pickMaster);
+  picks=r.map(p=>({id:p.id,no:getTitle(p.properties,'領料主單號'),orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||''}));
 }
 async function loadInbounds(){
-  const pages=await dbQueryAll(DB.inbound);
-  inbounds=pages.map(p=>({
-    id:p.id,no:parseTitle(p.properties,'入料單號'),
-    matId:p.properties?.['料件']?.relation?.[0]?.id||'',
-    qty:p.properties?.['入料數量']?.number??0,
-    date:p.properties?.['入料日期']?.date?.start||'',
-    supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',
-    qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',
-    stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫',
-  }));
+  const r=await dbQueryAll(DB.inbound);
+  inbounds=r.map(p=>({id:p.id,no:getTitle(p.properties,'入料單號'),matId:p.properties?.['料件']?.relation?.[0]?.id||'',qty:p.properties?.['入料數量']?.number??0,date:p.properties?.['入料日期']?.date?.start||'',supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫'}));
 }
 
-// ════════════════════════════════════════════
 // BOM
-// ════════════════════════════════════════════
-function explodeBOM(productId,qty){
-  const result={};const queue=[{pid:productId,mult:qty}];const visited=new Set();
-  while(queue.length){
-    const{pid,mult}=queue.shift();
-    boms.filter(b=>b.parentId===pid).forEach(b=>{
-      const mat=mats.find(m=>m.id===b.childId);if(!mat)return;
-      const need=b.qty*mult;
-      if(!result[b.childId])result[b.childId]={...mat,needed:0};
-      result[b.childId].needed+=need;
-      if(mat.type==='半成品'&&!visited.has(b.childId)){visited.add(b.childId);queue.push({pid:b.childId,mult:need});}
-    });
-  }
-  return Object.values(result);
+function explodeBOM(pid,qty){
+  const res={};const q=[{pid,mult:qty}];const seen=new Set();
+  while(q.length){const{pid:p,mult:m}=q.shift();boms.filter(b=>b.parentId===p).forEach(b=>{const mat=mats.find(x=>x.id===b.childId);if(!mat)return;const n=b.qty*m;if(!res[b.childId])res[b.childId]={...mat,needed:0};res[b.childId].needed+=n;if(mat.type==='半成品'&&!seen.has(b.childId)){seen.add(b.childId);q.push({pid:b.childId,mult:n});}});}
+  return Object.values(res);
 }
 
-// ════════════════════════════════════════════
 // SORT
-// ════════════════════════════════════════════
-function toggleSort(tid,col,type='str'){
-  const s=SORT[tid]||{};SORT[tid]={col,dir:s.col===col&&s.dir==='asc'?'desc':'asc',type};
-  renderTab(CURRENT_TAB);
-}
-function applySort(tid,data){
-  const s=SORT[tid];if(!s)return data;
-  return[...data].sort((a,b)=>{
-    let va=a[s.col],vb=b[s.col];
-    if(s.type==='num'){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}
-    else{va=String(va||'').toLowerCase();vb=String(vb||'').toLowerCase();}
-    if(va<vb)return s.dir==='asc'?-1:1;if(va>vb)return s.dir==='asc'?1:-1;return 0;
+function toggleSort(tid,col,type='str'){const s=SORT[tid]||{};SORT[tid]={col,dir:s.col===col&&s.dir==='asc'?'desc':'asc',type};renderTab(CURRENT_TAB);}
+function applySort(tid,data){const s=SORT[tid];if(!s)return data;return[...data].sort((a,b)=>{let va=a[s.col],vb=b[s.col];if(s.type==='num'){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}else{va=String(va||'').toLowerCase();vb=String(vb||'').toLowerCase();}if(va<vb)return s.dir==='asc'?-1:1;if(va>vb)return s.dir==='asc'?1:-1;return 0;});}
+function TH(tid,col,label,type='str',cls=''){const s=SORT[tid]||{};const a=s.col===col;return`<th class="${a?'th-'+s.dir:''} ${cls}" onclick="toggleSort('${tid}','${col}','${type}')">${label}<span style="font-size:8px;opacity:${a?1:.3};margin-left:2px">${a?(s.dir==='asc'?'↑':'↓'):'↕'}</span></th>`;}
+
+// FIX10: 日期區間篩選
+function applyDateFilter(filterId,data){
+  const sel=document.getElementById(filterId+'DateFilter');
+  const months=sel?parseInt(sel.value):6;
+  if(!months)return data;
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);
+  const cs=cutoff.toISOString().slice(0,10);
+  return data.filter(item=>{
+    const d=item.deadline||item.date||item.created?.slice(0,10)||'';
+    return!d||d>=cs;
   });
-}
-function TH(tid,col,label,type='str',cls=''){
-  const s=SORT[tid]||{};const a=s.col===col;const arr=a?(s.dir==='asc'?'↑':'↓'):'↕';
-  return`<th class="${a?'th-'+s.dir:''} ${cls}" onclick="toggleSort('${tid}','${col}','${type}')">${label}<span style="font-size:8px;opacity:${a?1:.3};margin-left:3px">${arr}</span></th>`;
 }
 
-// ════════════════════════════════════════════
-// NAV & TABS
-// ════════════════════════════════════════════
-function buildNav(){
-  const nav=document.getElementById('roleNav');nav.innerHTML='';
-  ROLES[ROLE].tabs.forEach(tab=>{
-    const btn=document.createElement('button');
-    btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');
-    btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);
-  });
-}
-function switchTab(tab){
-  CURRENT_TAB=tab;
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));
-  renderTab(tab);
-  if(tab==='picking')loadPicks().then(()=>renderTab('picking'));
-  if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));
-}
+// NAV
+function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
+function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
-function pill(t){const[bg,c]=PILL_MAP[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){
-  const c=document.getElementById('mainContent');
-  if(tab==='dashboard')c.innerHTML=renderDashboard();
-  else if(tab==='orders')c.innerHTML=renderOrders();
-  else if(tab==='customers')c.innerHTML=renderCustomers();
-  else if(tab==='inventory')c.innerHTML=renderInventory();
-  else if(tab==='picking')c.innerHTML=renderPicking();
-  else if(tab==='inbound')c.innerHTML=renderInbound();
-  else if(tab==='qc')c.innerHTML=renderQCTab();
-}
+function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
 
 // ════════════════════════════════════════════
 // RENDERS
@@ -481,215 +382,163 @@ function renderTab(tab){
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
-  return`<div class="stats">
-    <div class="stat"><div class="stat-n" style="color:var(--blue)">${orders.length}</div><div class="stat-l">訂單總數</div></div>
-    <div class="stat"><div class="stat-n" style="color:var(--yellow)">${active.length}</div><div class="stat-l">進行中</div></div>
-    <div class="stat"><div class="stat-n" style="color:var(--red)">${low.length}</div><div class="stat-l">庫存警示</div></div>
-    <div class="stat"><div class="stat-n" style="color:var(--green)">${customers.length}</div><div class="stat-l">客戶總數</div></div>
-  </div>
-  ${low.length>0?`<div class="info-box info-warn">⚠️ ${low.map(m=>`<b>${m.name}</b>(${m.stock})`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有物料庫存正常</div>`}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">最近訂單</span></div><div class="table-wrap">
-  <table><tr>${TH('dash','no','訂單號')}${TH('dash','customer','客戶','str','hide-mobile')}${TH('dash','qty','數量','num')}${TH('dash','deadline','交期','str','hide-mobile')}${TH('dash','status','狀態')}</tr>
-  ${applySort('dash',orders).slice(0,8).map(o=>`<tr>
-    <td style="font-family:monospace;color:var(--text);font-weight:600;font-size:11px">${o.no}</td>
-    <td class="hide-mobile">${o.customer}</td>
-    <td style="font-family:monospace">${o.qty}</td>
-    <td class="hide-mobile" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
-    <td>${pill(o.status)}</td>
-  </tr>`).join('')}</table></div></div>`;
+  const recent=applySort('dash',orders).slice(0,8);
+  return`<div class="stats"><div class="stat"><div class="stat-n" style="color:var(--blue)">${orders.length}</div><div class="stat-l">訂單總數</div></div><div class="stat"><div class="stat-n" style="color:var(--yellow)">${active.length}</div><div class="stat-l">進行中</div></div><div class="stat"><div class="stat-n" style="color:var(--red)">${low.length}</div><div class="stat-l">庫存警示</div></div><div class="stat"><div class="stat-n" style="color:var(--green)">${customers.length}</div><div class="stat-l">客戶總數</div></div></div>
+  ${low.length?`<div class="info-box info-warn">⚠️ 庫存不足：${low.map(m=>`<b>${m.name}</b>(${m.stock})`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有物料庫存正常</div>`}
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">最近訂單</span><span style="font-size:10px;color:var(--text3)">顯示最新 8 筆</span></div><div class="table-wrap">
+  <table><tr>${TH('dash','no','訂單號')}${TH('dash','customer','客戶','str','hide-m')}${TH('dash','qty','數量','num')}${TH('dash','deadline','交期','str','hide-m')}${TH('dash','status','狀態')}</tr>
+  ${recent.map(o=>`<tr><td style="font-family:monospace;color:var(--text);font-weight:600;font-size:11px">${o.no}</td><td class="hide-m" style="font-size:11px">${o.customer}</td><td style="font-family:monospace">${o.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td><td>${pill(o.status)}</td></tr>`).join('')}
+  </table></div></div>`;
 }
 
 function renderOrders(){
-  const canAdd=ROLE==='sales'||ROLE==='manager';
-  const canPick=ROLE==='production'||ROLE==='manager';
+  const canAdd=ROLE==='sales'||ROLE==='manager';const canPick=ROLE==='production'||ROLE==='manager';
   const pickedIds=new Set(picks.map(p=>p.orderId));
-  return`${canAdd?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">+ 新增訂單</button></div>`:''}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單（${orders.length} 筆）</span></div><div class="table-wrap">
-  <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-mobile')}${TH('orders','qty','數量','num')}${TH('orders','deadline','交期','str','hide-mobile')}${TH('orders','status','狀態')}<th>操作</th></tr>
-  ${applySort('orders',orders).map(o=>{const p=o.status==='待排程'||o.status==='生產中';const hp=pickedIds.has(o.id);
-    return`<tr>
-      <td style="font-family:monospace;color:var(--text);font-weight:600;font-size:11px">${o.no}</td>
-      <td class="hide-mobile" style="font-size:11px">${o.customer}</td>
-      <td style="font-family:monospace">${o.qty}</td>
-      <td class="hide-mobile" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
-      <td>${pill(o.status)}</td>
-      <td style="display:flex;gap:4px;flex-wrap:wrap;min-width:100px">
-        ${canPick&&p&&!hp?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">領料</button>`:''}
-        ${hp?`<span style="font-size:10px;color:var(--green)">✓已領料</span>`:''}
-        <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">更新</button>
-      </td>
-    </tr>`;
-  }).join('')}</table></div></div>`;
+  // FIX10: 日期篩選 + 隱藏完成
+  const dateVal=document.getElementById('orderDateFilter')?.value||'6';
+  const hideComp=document.getElementById('hideCompleted')?.checked||false;
+  let data=applySort('orders',applyDateFilter('orders',orders));
+  if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
+
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('orders')">
+        <option value="6" ${dateVal==='6'?'selected':''}>近半年</option>
+        <option value="3" ${dateVal==='3'?'selected':''}>近3個月</option>
+        <option value="1" ${dateVal==='1'?'selected':''}>近1個月</option>
+        <option value="0" ${dateVal==='0'?'selected':''}>全部</option>
+      </select>
+      <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="renderTab('orders')" style="accent-color:var(--blue)"> 隱藏完成/取消
+      </label>
+    </div>
+    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">+ 新增訂單</button>`:''}
+  </div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單（顯示 ${data.length} / 共 ${orders.length} 筆）</span></div><div class="table-wrap">
+  <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','qty','數量','num')}${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
+  ${data.map(o=>{const p=o.status==='待排程'||o.status==='生產中';const hp=pickedIds.has(o.id);return`<tr>
+    <td style="font-family:monospace;color:var(--text);font-weight:600;font-size:11px">${o.no}</td>
+    <td class="hide-m" style="font-size:11px">${o.customer}</td>
+    <td style="font-family:monospace">${o.qty}</td>
+    <td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
+    <td>${pill(o.status)}</td>
+    <td style="display:flex;gap:4px;flex-wrap:wrap">
+      ${canPick&&p&&!hp?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">領料</button>`:''}
+      ${hp?`<span style="font-size:10px;color:var(--green)">✓已領</span>`:''}
+      <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>
+    </td>
+  </tr>`;}).join('')}</table></div></div>`;
 }
 
 function renderCustomers(){
   const canAdd=ROLE==='sales'||ROLE==='manager';
   const q=(document.getElementById('custSearch')?.value||'').toLowerCase();
   const data=applySort('customers',customers).filter(c=>!q||c.code?.toLowerCase().includes(q)||c.name?.toLowerCase().includes(q));
-  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
-    <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:8px 12px;font-size:12px" placeholder="搜尋客戶編號 / 名稱..." oninput="renderTab('customers')">
-    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">+ 新增客戶</button>`:''}
+  return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:8px 12px;font-size:12px" placeholder="搜尋客戶代號 / 名稱..." oninput="renderTab('customers')">
+    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">+ 新增</button>`:''}
   </div>
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶主檔（${data.length} / ${customers.length} 筆）</span></div><div class="table-wrap">
-  <table><tr>${TH('customers','code','客戶編號')}${TH('customers','name','客戶名稱')}${TH('customers','region','地區','str','hide-mobile')}</tr>
+  <div class="help-box">💡 客戶資料來源：ERP 客戶主檔 + 國外業務客戶總檔（合併顯示，共 ${customers.length} 筆）。新增客戶時同步寫入兩個資料庫。</div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶主檔（${data.length} 筆）</span></div><div class="table-wrap">
+  <table><tr>${TH('customers','code','客戶代號')}${TH('customers','name','客戶名稱')}${TH('customers','region','地區','str','hide-m')}${TH('customers','source','來源','str','hide-m')}</tr>
   ${data.map(c=>`<tr>
     <td style="font-family:monospace;color:var(--cyan);font-weight:700;font-size:11px">${c.code||'—'}</td>
-    <td style="color:var(--text);font-size:12px">${c.name}</td>
-    <td class="hide-mobile" style="font-size:11px">${c.region||'—'}</td>
+    <td style="color:var(--text)">${c.name}</td>
+    <td class="hide-m" style="font-size:11px">${c.region||'—'}</td>
+    <td class="hide-m"><span style="font-size:10px;color:${c.source==='master'?'var(--yellow)':'var(--cyan)'}">${c.source==='master'?'業務總檔':'ERP主檔'}</span></td>
   </tr>`).join('')}</table></div></div>`;
 }
 
 function renderInventory(){
-  const low=mats.filter(m=>m.stock<=m.safe);
-  const canEdit=ROLE==='warehouse'||ROLE==='manager';
+  const low=mats.filter(m=>m.stock<=m.safe);const canEdit=ROLE==='warehouse'||ROLE==='manager';
   const q=(document.getElementById('matsSearch')?.value||'').toLowerCase();
-  const data=applySort('inventory',mats).filter(m=>!q||m.name.toLowerCase().includes(q));
-  return`${low.length>0?`<div class="info-box info-warn">⚠ 需補料：${low.map(m=>`<b>${m.name}</b>`).join('、')}</div>`:`<div class="info-box info-ok">✅ 物料全部正常</div>`}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">料件主檔</span>
-    <input class="inp" id="matsSearch" style="width:140px;padding:6px 10px;font-size:11px" placeholder="搜尋..." oninput="renderTab('inventory')">
-  </div><div class="table-wrap">
-  <table><tr>${TH('inventory','name','料件名稱')}${TH('inventory','type','類型','str','hide-mobile')}${TH('inventory','stock','庫存','num')}${TH('inventory','safe','安全','num','hide-mobile')}<th class="hide-mobile">狀態</th><th></th></tr>
-  ${data.map(m=>{
-    const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);
-    const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
-    const st=m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓';
-    const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
-    return`<tr>
-      <td style="color:var(--text);font-weight:600;font-size:12px">${m.name}</td>
-      <td class="hide-mobile">${pill(m.type)}</td>
-      <td><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div><span style="font-family:monospace;font-size:12px">${m.stock}</span></td>
-      <td class="hide-mobile" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
-      <td class="hide-mobile" style="color:${sc};font-size:11px;font-weight:700">${st}</td>
-      <td>${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}','${m.name}',${m.stock})">✏</button>`:''}</td>
-    </tr>`;
-  }).join('')}</table></div></div>`;
+  const data=applySort('inventory',mats).filter(m=>!q||m.name.toLowerCase().includes(q)||m.code.toLowerCase().includes(q));
+  return`${low.length?`<div class="info-box info-warn">⚠ 需補料：${low.map(m=>`<b>${m.name}</b>`).join('、')}</div>`:`<div class="info-box info-ok">✅ 物料全部正常</div>`}
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">料件主檔</span><input class="inp" id="matsSearch" style="width:140px;padding:5px 8px;font-size:11px" placeholder="搜尋品名..." oninput="renderTab('inventory')"></div><div class="table-wrap">
+  <table><tr>${TH('inventory','name','料件名稱')}${TH('inventory','type','類型','str','hide-m')}${TH('inventory','stock','庫存','num')}${TH('inventory','safe','安全庫存','num','hide-m')}<th class="hide-m">狀態</th><th></th></tr>
+  ${data.map(m=>{const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';const st=m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓';return`<tr>
+    <td style="color:var(--text);font-weight:600">${m.name}${m.code?`<br><span style="font-size:10px;color:var(--text3);font-family:monospace">${m.code}</span>`:''}</td>
+    <td class="hide-m">${pill(m.type)}</td>
+    <td><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div><span style="font-family:monospace;font-size:12px">${m.stock}</span></td>
+    <td class="hide-m" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
+    <td class="hide-m" style="color:${sc};font-size:11px;font-weight:700">${st}</td>
+    <td>${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}','${m.name}',${m.stock})">✏</button>`:''}</td>
+  </tr>`;}).join('')}</table></div></div>`;
 }
 
 function renderPicking(){
-  return`<div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單記錄</span></div>
-  ${picks.length===0?'<div class="loading-row">尚無領料記錄</div>':`<div class="table-wrap"><table>
-  <tr>${TH('picking','no','領料單號')}${TH('picking','product','成品品號','str','hide-mobile')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-mobile')}${TH('picking','status','狀態')}</tr>
-  ${applySort('picking',picks).map(p=>`<tr>
-    <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${p.no}</td>
-    <td class="hide-mobile" style="font-family:monospace;font-size:11px">${p.product}</td>
-    <td style="font-family:monospace">${p.qty}</td>
-    <td class="hide-mobile" style="font-family:monospace;font-size:11px">${p.date||'—'}</td>
-    <td>${pill(p.status)}</td>
-  </tr>`).join('')}</table></div>`}
-  </div>`;
+  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
+  let data=applySort('picking',applyDateFilter('picking',picks));
+  return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+    <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('picking')">
+      <option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option>
+    </select>
+  </div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單（${data.length} 筆）</span></div>
+  ${!picks.length?'<div class="loading-row">尚無領料記錄，請從訂單頁面產出</div>':`<div class="table-wrap"><table>
+  <tr>${TH('picking','no','領料單號')}${TH('picking','product','成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}</tr>
+  ${data.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${p.no}</td><td class="hide-m" style="font-size:11px">${p.product}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${p.date||'—'}</td><td>${pill(p.status)}</td></tr>`).join('')}
+  </table></div>`}</div>`;
 }
 
 function renderInbound(){
   const canAdd=ROLE==='warehouse'||ROLE==='purchase'||ROLE==='manager';
-  return`${canAdd?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">+ 新增入料單</button></div>`:''}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單記錄</span></div>
-  ${inbounds.length===0?'<div class="loading-row">尚無入料記錄</div>':`<div class="table-wrap"><table>
-  <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-mobile')}${TH('inbound','date','日期','str','hide-mobile')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-mobile')}</tr>
-  ${applySort('inbound',inbounds).map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr>
-    <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${i.no}</td>
-    <td style="font-size:11px">${mat?.name||'—'}</td>
-    <td style="font-family:monospace">${i.qty}</td>
-    <td class="hide-mobile" style="font-size:11px">${i.supplier||'—'}</td>
-    <td class="hide-mobile" style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
-    <td>${pill(i.qcStatus)}</td>
-    <td class="hide-mobile">${pill(i.stStatus)}</td>
-  </tr>`;}).join('')}</table></div>`}
-  </div>`;
+  const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
+  let data=applySort('inbound',applyDateFilter('inbound',inbounds));
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <select class="inp" id="inboundDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('inbound')">
+      <option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option>
+    </select>
+    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">+ 新增入料單</button>`:''}
+  </div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單（${data.length} 筆）</span></div>
+  ${!inbounds.length?'<div class="loading-row">尚無入料記錄</div>':`<div class="table-wrap"><table>
+  <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}</tr>
+  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:11px">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td></tr>`;}).join('')}
+  </table></div>`}</div>`;
 }
 
 function renderQCTab(){
   const canQC=ROLE==='qc'||ROLE==='manager';
   const pending=inbounds.filter(i=>i.qcStatus==='待品檢');
   const history=inbounds.filter(i=>i.qcStatus!=='待品檢');
-  const tabs=`<div class="qc-tabs">
-    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="QC_SUB='pending';renderTab('qc')">⏳ 待品檢 <span style="background:rgba(245,185,66,.15);color:var(--yellow);border-radius:10px;padding:1px 6px;font-size:10px;margin-left:3px">${pending.length}</span></button>
-    <button class="qc-tab${QC_SUB==='history'?' active':''}" onclick="QC_SUB='history';renderTab('qc')">📋 已檢測記錄 <span style="background:rgba(46,196,138,.1);color:var(--green);border-radius:10px;padding:1px 6px;font-size:10px;margin-left:3px">${history.length}</span></button>
-  </div>`;
-
+  const tabs=`<div class="qc-tabs"><button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="QC_SUB='pending';renderTab('qc')">⏳ 待品檢 <span style="background:rgba(245,185,66,.15);color:var(--yellow);border-radius:10px;padding:1px 6px;font-size:10px;margin-left:2px">${pending.length}</span></button><button class="qc-tab${QC_SUB==='history'?' active':''}" onclick="QC_SUB='history';renderTab('qc')">📋 已檢測 <span style="background:rgba(46,196,138,.1);color:var(--green);border-radius:10px;padding:1px 6px;font-size:10px;margin-left:2px">${history.length}</span></button></div>`;
   if(QC_SUB==='pending'){
-    if(pending.length===0)return tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3);font-size:12px">目前沒有待品檢項目 ✅</div></div>`;
-    return tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢入料單</span></div><div class="table-wrap">
-    <table><tr>${TH('qc_p','no','入料單號')}<th>料件</th>${TH('qc_p','qty','數量','num')}${TH('qc_p','date','日期','str','hide-mobile')}<th>操作</th></tr>
-    ${applySort('qc_p',pending).map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr>
-      <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${i.no}</td>
-      <td style="font-size:11px">${mat?.name||'—'}</td>
-      <td style="font-family:monospace">${i.qty}</td>
-      <td class="hide-mobile" style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
-      <td>${canQC?`<div style="display:flex;flex-direction:column;gap:4px">
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓</button>
-          <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗</button>
-        </div>
-        <a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:10px;color:var(--blue);text-decoration:none">📷 照片</a>
-      </div>`:'—'}</td>
-    </tr>`;}).join('')}</table></div></div>`;
+    if(!pending.length)return tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3);font-size:12px">目前沒有待品檢項目 ✅</div></div>`;
+    return tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢入料單</span></div><div class="table-wrap"><table>
+    <tr>${TH('qc_p','no','入料單號')}<th>料件</th>${TH('qc_p','qty','數量','num')}${TH('qc_p','date','日期','str','hide-m')}<th>操作</th></tr>
+    ${applySort('qc_p',pending).map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button><button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗ 退回</button><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">📷</a></div>`:'—'}</td></tr>`;}).join('')}
+    </table></div></div>`;
   }
-
-  // 已檢測記錄
-  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
-    <span style="font-size:11px;color:var(--text2)">篩選：</span>
-    ${['all','pass','fail'].map(f=>{const labels={all:'全部',pass:'✅ 通過',fail:'❌ 不合格'};const a=QC_FILTER===f;
-      return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${labels[f]}</button>`;
-    }).join('')}
-  </div>`;
-  let filtered=history;
-  if(QC_FILTER==='pass')filtered=history.filter(i=>i.qcStatus==='品檢通過');
-  if(QC_FILTER==='fail')filtered=history.filter(i=>i.qcStatus==='品檢不合格');
-  if(filtered.length===0)return tabs+filterBar+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3);font-size:12px">尚無記錄</div></div>`;
-  const byMonth={};filtered.forEach(i=>{const m=i.date?i.date.slice(0,7):'無日期';if(!byMonth[m])byMonth[m]=[];byMonth[m].push(i);});
-  return tabs+filterBar+Object.keys(byMonth).sort().reverse().map(month=>{
-    const rows=applySort('qc_h',byMonth[month]);
-    const pc=rows.filter(i=>i.qcStatus==='品檢通過').length,fc=rows.filter(i=>i.qcStatus==='品檢不合格').length;
-    return`<div class="panel" style="margin-bottom:10px">
-      <div class="panel-hdr" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-        <span class="panel-title">📅 ${month}</span>
-        <span style="font-size:11px;color:var(--text2)">共${rows.length}筆 <span style="color:var(--green)">✅${pc}</span> <span style="color:var(--red)">❌${fc}</span> ▼</span>
-      </div>
-      <div><div class="table-wrap"><table>
-        <tr>${TH('qc_h','no','入料單號')}<th>料件</th>${TH('qc_h','qty','數量','num')}${TH('qc_h','date','日期','str','hide-mobile')}<th>結果</th><th>照片</th></tr>
-        ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return`<tr>
-          <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${i.no}</td>
-          <td style="font-size:11px">${mat?.name||'—'}</td>
-          <td style="font-family:monospace">${i.qty}</td>
-          <td class="hide-mobile" style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
-          <td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td>
-          <td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none">📷</a></td>
-        </tr>`;}).join('')}
-      </table></div></div>
-    </div>`;
-  }).join('');
+  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--text2)">篩選：</span>${['all','pass','fail'].map(f=>{const lb={all:'全部',pass:'✅ 通過',fail:'❌ 不合格'};const a=QC_FILTER===f;return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${lb[f]}</button>`;}).join('')}</div>`;
+  let filtered=history;if(QC_FILTER==='pass')filtered=history.filter(i=>i.qcStatus==='品檢通過');if(QC_FILTER==='fail')filtered=history.filter(i=>i.qcStatus==='品檢不合格');
+  if(!filtered.length)return tabs+filterBar+`<div class="panel"><div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">尚無記錄</div></div>`;
+  const byM={};filtered.forEach(i=>{const m=i.date?i.date.slice(0,7):'無日期';if(!byM[m])byM[m]=[];byM[m].push(i);});
+  return tabs+filterBar+Object.keys(byM).sort().reverse().map(month=>{const rows=applySort('qc_h',byM[month]);const pc=rows.filter(i=>i.qcStatus==='品檢通過').length,fc=rows.filter(i=>i.qcStatus==='品檢不合格').length;
+    return`<div class="panel" style="margin-bottom:10px"><div class="panel-hdr" style="cursor:pointer" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'"><span class="panel-title">📅 ${month}</span><span style="font-size:11px;color:var(--text2)">共${rows.length}筆 <span style="color:var(--green)">✅${pc}</span> <span style="color:var(--red)">❌${fc}</span> ▼</span></div>
+    <div><div class="table-wrap"><table><tr>${TH('qc_h','no','入料單號')}<th>料件</th>${TH('qc_h','qty','數量','num')}${TH('qc_h','date','日期','str','hide-m')}<th>結果</th><th>照片</th></tr>
+    ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return`<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td><td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="font-size:11px;color:var(--blue)">📷</a></td></tr>`;}).join('')}
+    </table></div></div></div>`;}).join('');
 }
 
 // ════════════════════════════════════════════
 // ACTIONS
 // ════════════════════════════════════════════
 function openPickPreview(orderId){
-  const o=orders.find(x=>x.id===orderId);
-  const prod=mats.find(m=>m.id===o.productId);
-  const items=explodeBOM(o.productId,o.qty);
-  const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
-  document.getElementById('modalInner').innerHTML=`
-    <h3>🗂️ 產出領料單 — ${o.no}</h3>
-    <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px">
-      <div style="color:var(--text2)">客戶：<b style="color:var(--text)">${o.customer}</b></div>
-      <div style="color:var(--text2)">成品：<b style="color:var(--text)">${prod?.name}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
-    </div>
-    ${short.length>0?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name} 差${s.needed-s.stock}個`).join('、')}</div>`:`<div class="info-box info-ok">✅ 所有料件庫存充足</div>`}
-    <div class="table-wrap"><table style="margin-bottom:12px">
-      <tr><th>料件</th><th>類型</th><th>需求</th><th>現有</th></tr>
-      ${items.map(i=>`<tr><td style="color:var(--text)">${i.name}</td><td>${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
-    </table></div>
-    <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認產出並扣料</button>
-    </div>`;
+  const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
+  document.getElementById('modalInner').innerHTML=`<h3>🗂️ 領料單預覽 — ${o.no}</h3>
+  <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"><b style="color:var(--text)">${o.customer}</b> / <b style="color:var(--text)">${prod?.name}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
+  ${short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name} 差${s.needed-s.stock}個`).join('、')}</div>`:`<div class="info-box info-ok">✅ 庫存充足</div>`}
+  <div class="table-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
+  ${items.map(i=>`<tr><td>${i.name}<br><span style="font-size:10px;color:var(--text3)">${pill(i.type)}</span></td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
+  </table></div>
+  <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`;
   openModal();
 }
-
 async function doPick(orderId){
   const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);
-  const ds=new Date().toISOString().slice(0,10);const no=`PK-${ds.replace(/-/g,'').slice(2)}-${Math.floor(Math.random()*900+100)}`;
-  closeModal();showToast('處理中...','warn');
+  const ds=new Date().toISOString().slice(0,10);const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
+  closeModal();showToast('建立領料單中...','warn');
   try{
     const master=await createPage(DB.pickMaster,{'領料主單號':{title:[{text:{content:no}}]},'對應訂單':{relation:[{id:orderId}]},'成品品號':{rich_text:[{text:{content:prod?.name||''}}]},'生產數量':{number:o.qty},'狀態':{select:{name:'已確認扣料'}},'領料日期':{date:{start:ds}}});
     for(const item of items){
@@ -700,195 +549,140 @@ async function doPick(orderId){
     await refreshAll();await loadPicks();showToast(`✅ 領料單 ${no} 建立完成`,'ok');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
-
 async function approveQC(id,matId,qty){
   if(!confirm(`確認品檢通過？將增加 ${qty} 個庫存`))return;
-  try{
-    await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
-    const mat=mats.find(m=>m.id===matId);
-    await updatePage(matId,{'目前庫存':{number:(mat?.stock||0)+parseInt(qty)}});
-    await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
-    showToast(`✅ 品檢通過！${mat?.name} 庫存更新`,'ok');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+  try{await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});const mat=mats.find(m=>m.id===matId);await updatePage(matId,{'目前庫存':{number:(mat?.stock||0)+parseInt(qty)}});await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 品檢通過！${mat?.name} 庫存更新`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}
 }
 async function rejectQC(id){
   if(!confirm('確認不合格？將標記退回'))return;
-  try{
-    await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});
-    await loadInbounds();renderTab(CURRENT_TAB);showToast('已標記不合格','warn');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+  try{await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});await loadInbounds();renderTab(CURRENT_TAB);showToast('已標記不合格','warn');}catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 // ════════════════════════════════════════════
-// 客戶代號比對 — 嚴格版
+// 客戶比對 — 嚴格版
 // ════════════════════════════════════════════
-let _mc=null; // 當前比對到的客戶
-
-function matchCustomerByCode(code){
-  if(!code) return null;
-  const q=code.toLowerCase().trim();
-  // 1. 完全精確比對（大小寫不分）
-  let found=customers.find(c=>c.code&&c.code.toLowerCase()===q);
-  // 2. 前綴比對（輸入不完整時）
-  if(!found) found=customers.find(c=>c.code&&c.code.toLowerCase().startsWith(q));
-  // 3. 包含比對
-  if(!found&&q.length>=4) found=customers.find(c=>c.code&&c.code.toLowerCase().includes(q));
-  return found||null;
+let _mc=null;
+function matchCustomer(code){
+  if(!code)return null;const q=code.toLowerCase().trim();
+  return customers.find(c=>c.code&&c.code.toLowerCase()===q)||
+         customers.find(c=>c.code&&c.code.toLowerCase().startsWith(q))||
+         (q.length>=4?customers.find(c=>c.code&&c.code.toLowerCase().includes(q)):null)||null;
 }
-
-function onCustCodeInput(code){
-  const info=document.getElementById('custMatch');
-  const btn=document.getElementById('fetchPIBtn');
-  const notionList=document.getElementById('piFromNotionList');
-  if(notionList) notionList.style.display='none';
-
-  if(!code){info.textContent='';if(btn)btn.style.display='none';_mc=null;return;}
-
-  const found=matchCustomerByCode(code);
-  if(found){
-    _mc=found;
-    // 同步更新下拉選單
-    const sel=document.getElementById('m_cust');
-    if(sel){
-      const opt=Array.from(sel.options).find(o=>o.dataset.id===found.id);
-      if(opt) sel.value=opt.value;
-    }
-    info.innerHTML=`<span style="color:var(--green)">✅ ${found.name}（代號：${found.code}）</span>`;
-    if(btn)btn.style.display='';
+function onCustCodeInput(v){
+  const info=document.getElementById('custMatch');const btn=document.getElementById('fetchPIBtn');
+  const list=document.getElementById('piNotionList');if(list)list.style.display='none';
+  if(!v){info.textContent='';if(btn)btn.style.display='none';_mc=null;return;}
+  _mc=matchCustomer(v);
+  if(_mc){
+    const sel=document.getElementById('m_cust');if(sel){const opt=Array.from(sel.options).find(o=>o.dataset.code===_mc.code);if(opt)sel.value=opt.value;}
+    info.innerHTML=`<span style="color:var(--green)">✅ ${_mc.name}（${_mc.code}）</span>`;if(btn)btn.style.display='';
   }else{
-    _mc=null;
-    // 顯示相似的客戶供參考
-    const q=code.toLowerCase();
-    const similar=customers.filter(c=>c.code&&c.code.toLowerCase().startsWith(code.slice(0,4).toLowerCase())).slice(0,3);
-    const hint=similar.length>0?` 相似：${similar.map(c=>c.code).join('、')}`:' 請確認代號是否正確';
-    info.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${code}」${hint}</span>`;
+    const sim=customers.filter(c=>c.code&&c.code.toLowerCase().startsWith(v.slice(0,4).toLowerCase())).slice(0,3);
+    info.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${v}」${sim.length?'  相似：'+sim.map(c=>c.code).join('、'):'，請確認代號'}</span>`;
     if(btn)btn.style.display='none';
   }
 }
 
 // ════════════════════════════════════════════
-// 從 Notion 抓 PI
+// FIX2,6: Notion PI 搜尋 — 修正路徑邏輯
+// Notion 結構：客戶總檔 > 客戶頁面 > 訂單/ > 2602AU016-1 > Excel附件
+// notionSearch(客戶代號) 會找到「2602AU016-1」這層頁面
 // ════════════════════════════════════════════
 async function fetchPIFromNotion(){
   if(!_mc)return;
-  const btn=document.getElementById('fetchPIBtn');
-  const listDiv=document.getElementById('piFromNotionList');
-  btn.textContent='搜尋中...';btn.disabled=true;
-  listDiv.style.display='';
-  listDiv.innerHTML=`<div style="text-align:center;padding:10px;font-size:11px;color:var(--text2)"><div class="spin" style="display:inline-block;margin-right:6px"></div>搜尋 ${_mc.code} 的訂單...</div>`;
+  const btn=document.getElementById('fetchPIBtn');const list=document.getElementById('piNotionList');
+  btn.textContent='搜尋中...';btn.disabled=true;list.style.display='';
+  list.innerHTML=`<div style="padding:8px;font-size:11px;color:var(--text2)"><div class="spin" style="margin-right:6px"></div>搜尋 ${_mc.code} 的訂單...</div>`;
   try{
     const r=await notionSearch(_mc.code);
     const pages=(r.results||[]).filter(p=>p.object==='page');
-    // 嚴格過濾：標題以客戶代號開頭，且含 '-'（訂單編號格式）
+    // 找標題以客戶代號開頭且含 '-' 的頁面（訂單號格式如 2602AU016-1）
     const orderPages=pages.filter(p=>{
-      const title=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';
-      return title&&title.toUpperCase().startsWith(_mc.code.toUpperCase())&&title.includes('-');
+      const t=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';
+      return t&&t.toUpperCase().startsWith(_mc.code.toUpperCase())&&t.includes('-');
     }).sort((a,b)=>{
       const ta=a.properties?.title?.title?.[0]?.plain_text||'';
       const tb=b.properties?.title?.title?.[0]?.plain_text||'';
-      return tb.localeCompare(ta); // 最新的在前
+      return tb.localeCompare(ta);
     });
-
-    if(orderPages.length===0){
-      listDiv.innerHTML=`<div style="font-size:11px;color:var(--yellow);padding:8px">⚠ 找不到 ${_mc.code} 的訂單頁面，請改用下方直接上傳 Excel</div>`;
+    if(!orderPages.length){
+      list.innerHTML=`<div style="font-size:11px;color:var(--yellow);padding:8px">⚠ 找不到「${_mc.code}」的訂單頁面。請確認 Notion 中有訂單，或改用下方直接上傳 Excel。</div>`;
     }else{
-      listDiv.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:8px">找到 ${orderPages.length} 筆訂單，選擇後自動讀取 PI：</div>`+
-      orderPages.map((p,i)=>{
-        const title=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';
-        return`<div class="pi-item" id="pii_${i}" onclick="selectAndLoadPI('${p.id}','${title}',${i})">
+      list.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">找到 ${orderPages.length} 筆訂單，點選自動讀取 PI：</div>`+
+      orderPages.map((p,i)=>{const t=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';
+        return`<div class="pi-item" id="pii_${i}" onclick="selectAndLoadPI('${p.id}','${t}',${i})">
           <span style="font-size:15px">📄</span>
-          <div style="flex:1">
-            <div style="font-size:12px;font-weight:700;color:var(--text)">${title}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:2px">點擊 → 自動讀取品項與數量</div>
-          </div>
-        </div>`;
-      }).join('');
+          <div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--text)">${t}</div><div class="pi-status" style="font-size:10px;color:var(--text3);margin-top:1px">點擊 → 自動讀取品項與數量</div></div>
+        </div>`;}).join('');
     }
-  }catch(e){listDiv.innerHTML=`<div style="font-size:11px;color:var(--red);padding:8px">❌ 搜尋失敗：${e.message}</div>`;}
+  }catch(e){list.innerHTML=`<div style="font-size:11px;color:var(--red);padding:8px">❌ 搜尋失敗：${e.message}</div>`;}
   btn.textContent='📂 從 Notion 抓取 PI';btn.disabled=false;
 }
 
-// ════════════════════════════════════════════
-// 讀取 PI Excel（從 Notion block）
-// ════════════════════════════════════════════
+// FIX2,6: 讀取訂單頁面中的 Excel 附件
+// Notion file block 正確解析：fd.file.url（內部檔案）或 fd.external.url（外部連結）
 async function selectAndLoadPI(pageId,title,idx){
   document.querySelectorAll('.pi-item').forEach(e=>e.classList.remove('selected'));
-  const el=document.getElementById('pii_'+idx);
-  if(el){el.classList.add('selected');el.querySelector('div>div:last-child').textContent='⏳ 讀取中...';}
-
+  const el=document.getElementById('pii_'+idx);if(el)el.classList.add('selected');
+  const setStatus=msg=>{const d=el?.querySelector('.pi-status');if(d)d.textContent=msg;};
+  setStatus('⏳ 讀取 block 列表...');
   try{
-    // 取得頁面的 blocks
     const blocks=await getBlockChildren(pageId);
-    const allBlocks=blocks.results||[];
+    const all=blocks.results||[];
+    let fileUrl='',fileName='',pdfUrl='';
 
-    let fileUrl='',fileName='';
+    for(const b of all){
+      if(b.type!=='file')continue;
+      const fd=b.file||{};
+      // 正確路徑：fd.name 是檔名，fd.file.url 或 fd.external.url 是下載連結
+      const name=(fd.name||'').toLowerCase();
+      const url=fd.file?.url||fd.external?.url||'';
+      if(!url)continue;
+      if((name.endsWith('.xlsx')||name.endsWith('.xls'))&&!fileUrl){fileUrl=url;fileName=fd.name;}
+      if(name.endsWith('.pdf')&&!pdfUrl){pdfUrl=url;}// FIX7: 記錄 PDF
+    }
 
-    // 搜尋所有 block 找 xlsx
-    for(const b of allBlocks){
-      const bType=b.type;
-      if(!bType)continue;
-      const bData=b[bType]||{};
-
-      // file block 結構（最常見）：b.file.file.url 或 b.file.external.url
-      if(bType==='file'){
-        const name=(bData.name||'').toLowerCase();
-        // 先找 file.url（直接URL），再找 file.file.url（嵌套結構），再找 external.url
-        const url=bData.url||bData.file?.url||bData.external?.url||'';
-        if((name.includes('.xlsx')||name.includes('.xls'))&&url){
-          fileUrl=url;fileName=bData.name||title;break;
+    // 若找不到 xlsx，嘗試 child_page 標題含 xlsx 的情況
+    if(!fileUrl){
+      for(const b of all){
+        if(b.type!=='child_page')continue;
+        const t=(b.child_page?.title||'').toLowerCase();
+        if(t.endsWith('.xlsx')||t.endsWith('.xls')){
+          setStatus('⏳ 取得 Excel 連結...');
+          try{const bd=await getBlock(b.id);const bfd=bd[bd.type]||{};const url=bfd.file?.url||bfd.external?.url||'';if(url){fileUrl=url;fileName=b.child_page.title;break;}}catch(e2){}
         }
       }
     }
 
-    // 如果沒找到 file block，嘗試 child_page（有時附件存成子頁面）
-    if(!fileUrl){
-      const childPages=allBlocks.filter(b=>b.type==='child_page'&&
-        (b.child_page?.title||'').toLowerCase().match(/\.xlsx?/));
-      for(const cp of childPages){
-        // 用 retrieve block 取得實際 signed URL
-        const blockDetail=await getBlock(cp.id);
-        if(blockDetail){
-          const bd=blockDetail[blockDetail.type]||{};
-          const url=bd.url||bd.file?.url||bd.external?.url||'';
-          if(url){fileUrl=url;fileName=cp.child_page?.title||title;break;}
-        }
-      }
+    // FIX7: 若只有 PDF，顯示 PDF 連結
+    if(!fileUrl&&pdfUrl){
+      setStatus('📄 找到 PDF，無 Excel');
+      const infoEl=document.getElementById('piInfo');
+      if(infoEl)infoEl.innerHTML=`<span style="color:var(--yellow)">⚠ 此訂單只有 PDF，無法自動解析品項。<a href="${pdfUrl}" target="_blank" style="color:var(--blue)">點此開啟 PDF</a>，請手動填入品號與數量。</span>`;
+      showToast('找到 PDF 但無 Excel，已顯示連結','warn');return;
     }
+    if(!fileUrl){setStatus('❌ 找不到 Excel');showToast('找不到 Excel 附件，請直接上傳','warn');return;}
 
-    if(!fileUrl){
-      if(el) el.querySelector('div>div:last-child').textContent='❌ 找不到 Excel，請直接上傳';
-      showToast('此頁面沒有 Excel 附件，請改用直接上傳','warn');return;
-    }
-
-    if(el) el.querySelector('div>div:last-child').textContent=`⏳ 下載 ${fileName}...`;
-
-    // 透過 Worker 代理下載
+    setStatus(`⏳ 下載 ${fileName||title}...`);
     const buf=await downloadViaProxy(fileUrl);
     const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
     const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null});
-
-    const items=parsePIRows(rows,title);
-    if(el) el.querySelector('div>div:last-child').textContent=`✅ 成功讀取 ${items.length} 個品項`;
-    showToast(`✅ PI ${title} 讀取成功`,'ok');
-
-  }catch(e){
-    if(el) el.querySelector('div>div:last-child').textContent=`❌ 失敗：${e.message.slice(0,40)}`;
-    showToast('讀取失敗，請改用直接上傳','err');
-    console.error('PI load error:',e);
-  }
+    // FIX5: 訂單號用頁面標題（如 2602AU016-1），不含括號
+    const orderNo=title.replace(/\s*\(.*?\)\s*/g,'').trim();
+    const items=parsePIRows(rows,orderNo);
+    setStatus(`✅ 讀取 ${items.length} 個品項`);
+    showToast(`✅ PI「${title}」讀取成功`,'ok');
+  }catch(e){setStatus(`❌ ${e.message.slice(0,50)}`);showToast('讀取失敗，請直接上傳','err');console.error(e);}
 }
 
-// ════════════════════════════════════════════
-// PI 解析 — 支援多品項
-// ════════════════════════════════════════════
+// FIX5: PI 解析 — 支援多品項，訂單號優先用 titleHint
 function parsePIRows(rows,titleHint){
-  // 解析 PI No
-  const piNo=rows[6]&&rows[6][9]?String(rows[6][9]).trim():(titleHint||'');
-  // 解析日期
+  const piNoRaw=rows[6]&&rows[6][9]?String(rows[6][9]).trim():'';
+  // FIX5: 用頁面標題作為訂單號（去掉括號內容）
+  const piNo=titleHint||piNoRaw;
   let piDate='';
-  if(rows[7]&&rows[7][8]){piDate=String(rows[7][8]).replace(/Date:/i,'').trim().replace(/\./g,'-');}
+  if(rows[7]&&rows[7][8])piDate=String(rows[7][8]).replace(/Date:/i,'').trim().replace(/\./g,'-');
 
-  // 解析所有品項
   const items=[];
   for(let i=12;i<(rows.length||0)-1;i++){
     const row=rows[i];if(!row)continue;
@@ -896,404 +690,274 @@ function parsePIRows(rows,titleHint){
     if(col1&&/^\d+\.?$/.test(col1)){
       const desc=row[2]!=null?String(row[2]).trim():'';
       const qty=row[6]!=null?parseInt(row[6])||0:0;
-      const nextRow=rows[i+1]||[];
-      const model=nextRow[2]!=null?String(nextRow[2]).trim():'';
+      const model=(rows[i+1]||[])[2]!=null?String((rows[i+1]||[])[2]).trim():'';
       if(model&&qty>0)items.push({model,desc,qty});
-      i++; // 跳過品號行
+      i++;
     }
   }
 
-  // 填入備註
-  const noteEl=document.getElementById('m_note');
-  if(noteEl&&piNo) noteEl.value='PI No: '+piNo;
-
-  // 填入交期
-  if(piDate&&piDate.match(/^\d{4}-\d{2}-\d{2}$/)){
+  const noteEl=document.getElementById('m_note');if(noteEl&&piNo)noteEl.value='PI No: '+piNo;
+  if(piDate.match(/^\d{4}-\d{2}-\d{2}$/)){
     const d=new Date(piDate);d.setDate(d.getDate()+30);
-    const dateEl=document.getElementById('m_date');
-    if(dateEl) dateEl.value=d.toISOString().slice(0,10);
+    const dateEl=document.getElementById('m_date');if(dateEl)dateEl.value=d.toISOString().slice(0,10);
   }
 
   const infoEl=document.getElementById('piInfo');
-
-  if(items.length===0){
-    if(infoEl) infoEl.textContent='⚠ 未能解析品項，請手動填入';
-    return items;
-  }
+  if(!items.length){if(infoEl)infoEl.textContent='⚠ 未能解析品項，請手動填入';return items;}
 
   if(items.length===1){
-    // 單品項：直接填入
-    const el=document.getElementById('m_prodCode');if(el) el.value=items[0].model;
-    const qe=document.getElementById('m_qty');if(qe) qe.value=items[0].qty;
+    const pc=document.getElementById('m_prodCode');if(pc)pc.value=items[0].model;
+    const qe=document.getElementById('m_qty');if(qe)qe.value=items[0].qty;
     matchProduct(items[0].model);
-    if(infoEl) infoEl.innerHTML=`<span style="color:var(--green)">✅ PI No: ${piNo} | ${items[0].model} × ${items[0].qty}</span>`;
+    if(infoEl)infoEl.innerHTML=`<span style="color:var(--green)">✅ ${piNo} | ${items[0].model} × ${items[0].qty}</span>`;
   }else{
-    // 多品項：顯示選擇清單
-    if(infoEl) infoEl.innerHTML=`<span style="color:var(--cyan)">📦 找到 ${items.length} 個品項，已列於下方 — 可勾選後一次建立多筆訂單</span>`;
-    showMultiItemList(items,piNo,piDate);
+    if(infoEl)infoEl.innerHTML=`<span style="color:var(--cyan)">📦 共 ${items.length} 個品項，請在下方勾選後批次建立訂單</span>`;
+    showMultiItems(items,piNo);
   }
-
   return items;
 }
 
-// 多品項選擇清單
-function showMultiItemList(items,piNo,piDate){
-  const listDiv=document.getElementById('piMultiItemList');
-  if(!listDiv)return;
-  listDiv.style.display='';
-  listDiv.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:8px">📦 PI 品項（勾選要建立的品項）：</div>`+
-  items.map((item,i)=>`
-    <div class="pi-multi-item">
-      <input type="checkbox" id="chk_${i}" checked>
-      <div style="flex:1">
-        <span style="font-family:monospace;font-weight:700;color:var(--text)">${item.model}</span>
-        <span style="color:var(--text2);font-size:11px;margin-left:6px">${item.desc}</span>
-      </div>
-      <input class="inp" type="number" id="qty_${i}" value="${item.qty}" min="1" style="width:70px;padding:4px 8px;font-size:12px">
-    </div>`).join('')+
-  `<button class="btn btn-blue" onclick="submitMultiOrders(${JSON.stringify(items).replace(/"/g,'&quot;')},${items.length},'${piNo}')" style="width:100%;justify-content:center;margin-top:8px">📋 批次建立所有勾選的訂單</button>`;
+function showMultiItems(items,piNo){
+  const div=document.getElementById('piMultiList');if(!div)return;
+  div.style.display='';
+  div.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 PI 品項（勾選要建立的）：</div>`+
+  items.map((item,i)=>`<div style="background:var(--bg4);border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">
+    <input type="checkbox" id="chk_${i}" checked style="accent-color:var(--blue);width:14px;height:14px;">
+    <div style="flex:1"><span style="font-family:monospace;font-weight:700;color:var(--text);font-size:12px">${item.model}</span><span style="color:var(--text2);font-size:11px;margin-left:6px">${item.desc}</span></div>
+    <input class="inp" type="number" id="qty_${i}" value="${item.qty}" min="1" style="width:70px;padding:4px 8px;font-size:12px">
+  </div>`).join('')+
+  `<button class="btn btn-blue" style="width:100%;justify-content:center;margin-top:8px" onclick="submitMultiOrders(${JSON.stringify(items)},${items.length},'${piNo}')">📋 批次建立所有勾選的訂單</button>`;
 }
 
-// 批次建立多筆訂單
+// FIX3,4: 批次建立 — 不 closeModal，在 modal 內顯示進度
 async function submitMultiOrders(items,count,piNo){
-  const cust=document.getElementById('m_cust').value;
-  const date=document.getElementById('m_date').value;
-  if(!cust){alert('請選擇客戶');return;}
-  if(!date){alert('請填入交期');return;}
-
-  // 收集勾選的品項
+  const cust=document.getElementById('m_cust').value;const date=document.getElementById('m_date').value;
+  if(!cust){alert('請選擇客戶');return;}if(!date){alert('請填入交期');return;}
   const selected=[];
   for(let i=0;i<count;i++){
-    const chk=document.getElementById('chk_'+i);
-    const qtyEl=document.getElementById('qty_'+i);
-    if(chk&&chk.checked&&qtyEl){
-      selected.push({model:items[i].model,qty:parseInt(qtyEl.value)||items[i].qty});
-    }
+    const chk=document.getElementById('chk_'+i);const qtyEl=document.getElementById('qty_'+i);
+    if(chk?.checked&&qtyEl)selected.push({model:items[i].model,qty:parseInt(qtyEl.value)||items[i].qty});
   }
-  if(selected.length===0){alert('請至少勾選一個品項');return;}
+  if(!selected.length){alert('請至少勾選一個品項');return;}
 
-  closeModal();
-  showToast(`建立 ${selected.length} 筆訂單中...`,'warn');
-  const d=new Date();const prefix=`ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}`;
+  const div=document.getElementById('piMultiList');
+  if(div)div.innerHTML=`<div style="padding:10px;font-size:12px;color:var(--cyan)"><div class="spin" style="margin-right:6px"></div>建立 ${selected.length} 筆訂單中，請勿關閉...</div>`;
+
+  const prefix=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}`;
   let ok=0,fail=0;
-
   for(const item of selected){
     try{
-      // 找或建立品號
       let prodId='';
-      const existing=mats.find(m=>m.name===item.model||m.code===item.model);
-      if(existing){prodId=existing.id;}
-      else{
-        const newMat=await createPage(DB.materials,{
-          '料件名稱':{title:[{text:{content:item.model}}]},
-          '類型':{select:{name:'成品'}},
-          '目前庫存':{number:1000},
-          '安全庫存':{number:0},
-        });
-        prodId=newMat.id;
+      const ex=mats.find(m=>m.name===item.model||m.code===item.model);
+      if(ex){prodId=ex.id;}else{
+        const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:item.model}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});
+        prodId=nm.id;
       }
       const no=`${prefix}-${Math.floor(Math.random()*900+100)}`;
-      await createPage(DB.orders,{
-        '訂單號':{title:[{text:{content:no}}]},
-        '客戶名稱':{select:{name:cust}},
-        '成品':{relation:[{id:prodId}]},
-        '訂購數量':{number:item.qty},
-        '交期':{date:{start:date}},
-        '狀態':{select:{name:'待排程'}},
-        '業務備註':{rich_text:[{text:{content:'PI No: '+piNo}}]},
-      });
+      await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:'PI No: '+piNo}}]}});
       ok++;
-    }catch(e){fail++;console.error('批次建單失敗:',item.model,e);}
+    }catch(e){fail++;console.error(item.model,e);}
   }
   await refreshAll();
-  showToast(`✅ 成功建立 ${ok} 筆訂單${fail>0?`，${fail} 筆失敗`:''}`, ok===selected.length?'ok':'warn');
+  if(div)div.innerHTML=`<div style="padding:10px;font-size:12px;color:${ok===selected.length?'var(--green)':'var(--yellow)'}">✅ 成功 ${ok} 筆${fail?`，失敗 ${fail} 筆（詳見 console）`:''}<br><button class="btn btn-ghost btn-sm" onclick="closeModal()" style="margin-top:8px">關閉</button></div>`;
+  showToast(`✅ 成功建立 ${ok} 筆訂單${fail?`，${fail} 筆失敗`:''}`,ok===selected.length?'ok':'warn');
 }
 
 function parsePIFile(input){
   const file=input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null});
-      parsePIRows(rows,file.name.replace(/\.xlsx?$/i,''));
-    }catch(err){const el=document.getElementById('piInfo');if(el)el.textContent='❌ 解析失敗：'+err.message;}
-  };
-  reader.readAsArrayBuffer(file);
+  const r=new FileReader();r.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});parsePIRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}),file.name.replace(/\.xlsx?$/i,''));}catch(err){const el=document.getElementById('piInfo');if(el)el.textContent='❌ 解析失敗：'+err.message;}};
+  r.readAsArrayBuffer(file);
 }
-
 function matchProduct(code){
   if(!code){const el=document.getElementById('prodMatch');if(el)el.textContent='';return;}
-  const found=mats.find(m=>m.name===code||m.code===code);
-  const info=document.getElementById('prodMatch');if(!info)return;
-  if(found){
-    const s=document.getElementById('m_prod');if(s)s.value=found.id;
-    info.textContent=`✅ 已建檔（庫存${found.stock}）`;info.style.color='var(--green)';
-  }else{
-    const s=document.getElementById('m_prod');if(s)s.value='';
-    info.textContent='⚠ 未建檔，下單時自動新增（庫存預設1000）';info.style.color='var(--yellow)';
-  }
+  const f=mats.find(m=>m.name===code||m.code===code);const info=document.getElementById('prodMatch');if(!info)return;
+  if(f){const s=document.getElementById('m_prod');if(s)s.value=f.id;info.textContent=`✅ 已建檔（庫存${f.stock}）`;info.style.color='var(--green)';}
+  else{const s=document.getElementById('m_prod');if(s)s.value='';info.textContent='⚠ 未建檔，下單時自動新增';info.style.color='var(--yellow)';}
 }
-function syncProdFromSelect(){
-  const sel=document.getElementById('m_prod');
-  if(sel&&sel.value){const mat=mats.find(m=>m.id===sel.value);if(mat){const el=document.getElementById('m_prodCode');if(el)el.value=mat.name;}}
-}
+function syncProdFromSelect(){const sel=document.getElementById('m_prod');if(sel?.value){const m=mats.find(x=>x.id===sel.value);if(m){const el=document.getElementById('m_prodCode');if(el)el.value=m.name;}}}
 
 // ════════════════════════════════════════════
 // MODALS
 // ════════════════════════════════════════════
 function openModal(type){
   if(!type){document.getElementById('modalBg').classList.add('open');return;}
-  const prods=mats.filter(m=>m.type==='成品');
-  const parts=mats.filter(m=>m.type!=='成品');
+  const prods=mats.filter(m=>m.type==='成品');const parts=mats.filter(m=>m.type!=='成品');
   const mi=document.getElementById('modalInner');
 
   if(type==='newOrder'){
-    // 客戶選單：以 code 為排序依據，code 顯示在前
-    const custOptions=customers.map(c=>`<option value="${c.name}" data-id="${c.id}">${c.code?c.code+' — ':''}${c.name}</option>`).join('');
-
+    const custOpts=customers.map(c=>`<option value="${c.name}" data-code="${c.code||''}">${c.code?c.code+' — ':''}${c.name}</option>`).join('');
     mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
-    <!-- 客戶 -->
-    <div class="field" style="margin-bottom:12px">
+    <div class="field" style="margin-bottom:10px">
       <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px"><span class="sn">1</span>客戶代號（${customers.length} 筆）</label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input class="inp" id="m_custCode" placeholder="輸入代號如 2602AU016" oninput="onCustCodeInput(this.value)" style="flex:1;min-width:160px">
+        <input class="inp" id="m_custCode" placeholder="輸入代號如 2602AU016" oninput="onCustCodeInput(this.value)" style="flex:1;min-width:150px">
         <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="fetchPIFromNotion()" style="display:none;white-space:nowrap">📂 抓 Notion PI</button>
       </div>
       <div id="custMatch" style="font-size:11px;margin-top:4px"></div>
     </div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">或從清單選擇</label>
-      <select class="inp" id="m_cust">${custOptions}</select>
-    </div>
-    <!-- Notion PI 搜尋結果 -->
-    <div id="piFromNotionList" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:12px"></div>
-    <!-- 上傳 PI -->
-    <div style="margin-bottom:12px">
-      <label style="display:block;font-size:10px;color:var(--text2);margin-bottom:4px"><span class="sn">2</span>或上傳 PI Excel</label>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">或從清單選擇</label><select class="inp" id="m_cust">${custOpts}</select></div>
+    <div id="piNotionList" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px"></div>
+    <div style="margin-bottom:10px">
+      <label style="display:block;font-size:10px;color:var(--text2);margin-bottom:4px"><span class="sn">2</span>或直接上傳 PI Excel</label>
       <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="parsePIFile(this)">
       <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">選擇 PI 檔案 (.xlsx)</button>
       <div id="piInfo" style="margin-top:6px;font-size:11px"></div>
     </div>
-    <!-- 多品項清單 -->
-    <div id="piMultiItemList" style="display:none;margin-bottom:12px;background:var(--bg3);border-radius:8px;padding:10px"></div>
-    <!-- 品號 -->
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px"><span class="sn">3</span>成品品號（單筆時填此欄）</label>
-      <input class="inp" id="m_prodCode" placeholder="輸入品號，未建檔自動新增" oninput="matchProduct(this.value)" style="margin-bottom:6px">
-      <select class="inp" id="m_prod" onchange="syncProdFromSelect()"><option value="">-- 從已建檔選擇 --</option>${prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
-      <div id="prodMatch" style="font-size:11px;margin-top:4px"></div>
+    <div id="piMultiList" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px"></div>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px"><span class="sn">3</span>成品品號（單筆時填）</label>
+      <input class="inp" id="m_prodCode" placeholder="輸入品號，未建檔自動新增" oninput="matchProduct(this.value)" style="margin-bottom:5px">
+      <select class="inp" id="m_prod" onchange="syncProdFromSelect()"><option value="">— 從已建檔選擇 —</option>${prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      <div id="prodMatch" style="font-size:11px;margin-top:3px"></div>
     </div>
-    <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_qty" placeholder="數量" min="1"></div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_qty" min="1"></div>
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">交期</label><input class="inp" type="date" id="m_date"></div>
     </div>
-    <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label><input class="inp" id="m_note" placeholder="PI No. 等"></div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label><input class="inp" id="m_note" placeholder="PI No. 等"></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitOrder()">建立訂單</button></div>`;
   }
 
   if(type==='newInbound'){
     mi.innerHTML=`<h3>📥 新增入料單</h3>
-    <div class="field" style="margin-bottom:12px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件</label><select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（現有：${m.stock}${m.unit}）</option>`).join('')}</select></div>
-    <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">入料數量</label><input class="inp" type="number" id="m_iqty" min="1"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">入料日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
-    </div>
-    <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
-    </div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立入料單</button></div>`;
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件</label><select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（庫存：${m.stock}）</option>`).join('')}</select></div>
+    <div class="form-row" style="margin-bottom:10px"><div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_iqty" min="1"></div><div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div></div>
+    <div class="form-row" style="margin-bottom:10px"><div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div><div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立</button></div>`;
   }
 
   if(type==='newCustomer'){
     mi.innerHTML=`<h3>🏢 新增客戶</h3>
-  <div style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:11px;color:var(--cyan)">
-    💡 同時新增到 ERP 客戶主檔 及 國外業務客戶總檔（雙向同步）
-  </div>
-  <div class="field" style="margin-bottom:12px">
-    <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label>
-    <input class="inp" id="m_cname" placeholder="完整公司名稱">
-  </div>
-  <div class="form-row" style="margin-bottom:12px">
-    <div>
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label>
-      <input class="inp" id="m_ccode" placeholder="如 2602AU016">
+    <div class="help-box">💡 將同時寫入 ERP 客戶主檔 及 國外業務客戶總檔（雙向同步）。國家請填 2 碼國碼（AU / US / ID）。</div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label><input class="inp" id="m_ccode" placeholder="如 2602AU016"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label><input class="inp" id="m_cregion" placeholder="AU / US / TW" maxlength="4"></div>
     </div>
-    <div>
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label>
-      <input class="inp" id="m_cregion" placeholder="如 AU、US、ID" maxlength="4">
-    </div>
-  </div>
-  <div class="form-actions">
-    <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-    <button class="btn btn-blue" onclick="submitCustomer()">新增（雙向同步）</button>
-  </div>`;
-}
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitCustomer()">新增（雙向同步）</button></div>`;
+  }
 
+  if(type==='help'){mi.innerHTML=renderHelp();}
   document.getElementById('modalBg').classList.add('open');
 }
 function closeModal(){document.getElementById('modalBg').classList.remove('open');}
+function openHelp(){openModal('help');}
+
+// FIX12: 使用說明書
+function renderHelp(){return`<h3>📖 LEMATEC ERP 使用說明</h3>
+<div style="font-size:12px;line-height:1.9;color:var(--text2)">
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">📊 總覽</div>
+顯示訂單數量、進行中、庫存警示、客戶總數。最近 8 筆訂單一覽，庫存不足時上方警示。
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">📋 訂單 — 業務/廠長</div>
+• <b>篩選：</b>可選近半年/3個月/1個月，勾選「隱藏完成/取消」保持介面乾淨<br>
+• <b>新增訂單：</b>輸入客戶代號 → 自動比對客戶 → 點「📂 抓 Notion PI」找訂單 → 點訂單頁面自動讀取 Excel → 填入品號與數量 → 建立<br>
+• <b>多品項：</b>PI 含多品項時，勾選後「批次建立所有勾選的訂單」，未建檔品號自動新增至料件主檔<br>
+• <b>領料：</b>訂單狀態「待排程/生產中」時，生管可點「領料」預覽 BOM 展開並確認扣料<br>
+• <b>Notion 對應資料庫：</b>客戶訂單（${DB.orders.slice(0,8)}...）
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">🏢 客戶 — 業務/廠長</div>
+• 合併顯示 ERP 客戶主檔 + 國外業務客戶總檔<br>
+• 新增客戶：同步寫入兩個資料庫（雙向同步）<br>
+• 搜尋框可即時搜尋代號或名稱<br>
+• 「業務總檔」來源的客戶以黃色標示，「ERP主檔」以青色標示
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">📦 庫存 — 倉管/廠長</div>
+• 庫存低於安全庫存時顯示 ⚠ 警示<br>
+• 倉管/廠長可點「✏」直接修改庫存數量<br>
+• <b>Notion 對應資料庫：</b>料件主檔（${DB.materials.slice(0,8)}...）
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">🗂️ 領料 — 生管/倉管</div>
+• 從訂單頁面確認領料後，自動建立領料主單並扣減庫存<br>
+• <b>Notion 對應資料庫：</b>領料主單（${DB.pickMaster.slice(0,8)}...）
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">📥 入料 — 倉管/採購</div>
+• 新增入料單後，進入「待品檢」狀態，等待品管確認<br>
+• <b>Notion 對應資料庫：</b>入料單（${DB.inbound.slice(0,8)}...）
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">✅ 品管 — 品管/廠長</div>
+• 「待品檢」頁籤：確認通過後自動入庫並更新庫存；不合格則標記退回<br>
+• 可點「📷」開啟 Notion 頁面上傳品檢照片<br>
+• 「已檢測記錄」按月份分組，可篩選通過/不合格
+
+<div style="font-weight:700;color:var(--text);margin:12px 0 4px">💡 常見問題</div>
+• 搜尋框文字看不到？請確認瀏覽器版本，建議使用 Chrome 最新版<br>
+• PI 抓取失敗？確認 Notion 訂單頁面有上傳 Excel 附件（.xlsx），且 Integration 有存取該頁面的權限<br>
+• 資料未同步？點右上角 🔄 重新整理<br>
+• 載入很慢？系統同時抓取 5 個 Notion 資料庫，初次約 10-20 秒為正常
+</div>
+<div class="form-actions" style="margin-top:14px"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;}
 
 // ════════════════════════════════════════════
 // SUBMIT
 // ════════════════════════════════════════════
 async function submitOrder(){
-  const cust=document.getElementById('m_cust').value;
-  const qty=parseInt(document.getElementById('m_qty').value)||0;
-  const date=document.getElementById('m_date').value;
-  const note=document.getElementById('m_note').value;
-  const prodCode=document.getElementById('m_prodCode').value.trim();
-  let prodId=document.getElementById('m_prod').value;
-
-  if(!cust){alert('請選擇客戶');return;}
-  if(!qty&&!prodCode){alert('請填入數量與品號');return;}
-  if(!date){alert('請填入交期');return;}
-
+  const cust=document.getElementById('m_cust').value;const qty=parseInt(document.getElementById('m_qty').value)||0;const date=document.getElementById('m_date').value;const note=document.getElementById('m_note').value;const prodCode=document.getElementById('m_prodCode').value.trim();let prodId=document.getElementById('m_prod').value;
+  if(!cust){alert('請選擇客戶');return;}if(!qty||!date){alert('請填入數量與交期');return;}
   if(prodCode&&!prodId){
-    const existing=mats.find(m=>m.name===prodCode||m.code===prodCode);
-    if(existing){prodId=existing.id;}
-    else{
-      showToast('品號未建檔，自動新增中...','warn');
-      try{
-        const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:prodCode}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});
-        prodId=nm.id;showToast(`✅ ${prodCode} 已建檔`,'ok');
-      }catch(e){showToast('自動建檔失敗：'+e.message,'err');return;}
-    }
+    const ex=mats.find(m=>m.name===prodCode||m.code===prodCode);
+    if(ex){prodId=ex.id;}else{showToast('自動新增品號...','warn');try{const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:prodCode}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});prodId=nm.id;}catch(e){showToast('建檔失敗：'+e.message,'err');return;}}
   }
   if(!prodId){alert('請選擇或輸入成品品號');return;}
-  const d=new Date();const no=`ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+  const no=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{
-    await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});
-    await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
+  catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 async function submitInbound(){
-  const matId=document.getElementById('m_mat').value;
-  const qty=parseInt(document.getElementById('m_iqty').value)||0;
-  const date=document.getElementById('m_idate').value;
-  const sup=document.getElementById('m_sup').value;
-  const rec=document.getElementById('m_rec').value;
+  const matId=document.getElementById('m_mat').value;const qty=parseInt(document.getElementById('m_iqty').value)||0;const date=document.getElementById('m_idate').value;const sup=document.getElementById('m_sup').value;const rec=document.getElementById('m_rec').value;
   if(!qty){alert('請填入數量');return;}
-  const d=new Date();const no=`IN-${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+  const no=`IN-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{
-    await createPage(DB.inbound,{'入料單號':{title:[{text:{content:no}}]},'料件':{relation:[{id:matId}]},'入料數量':{number:qty},'入料日期':{date:{start:date}},'供應商':{rich_text:[{text:{content:sup}}]},'驗收人員':{rich_text:[{text:{content:rec}}]},'品管狀態':{select:{name:'待品檢'}},'入庫狀態':{select:{name:'待入庫'}}});
-    await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 入料單 ${no} 建立`,'ok');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+  try{await createPage(DB.inbound,{'入料單號':{title:[{text:{content:no}}]},'料件':{relation:[{id:matId}]},'入料數量':{number:qty},'入料日期':{date:{start:date}},'供應商':{rich_text:[{text:{content:sup}}]},'驗收人員':{rich_text:[{text:{content:rec}}]},'品管狀態':{select:{name:'待品檢'}},'入庫狀態':{select:{name:'待入庫'}}});await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 入料單 ${no} 建立`,'ok');}
+  catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
-// ⚠️ 關鍵：新增客戶同步寫入 ERP 客戶主檔
-// 說明：客戶總檔（custMaster）欄位不同（Name vs 客戶名稱），
-// 且業務客戶總檔是另一個部門在維護，不適合直接寫入
-// 目前設計：寫入 ERP 客戶主檔，系統會在讀取時合併兩份
+// FIX8,9: 新增客戶雙向同步
 async function submitCustomer(){
- const name = document.getElementById('m_cname').value.trim();
-  const code = document.getElementById('m_ccode').value.trim().toUpperCase();
-  const region = document.getElementById('m_cregion').value.trim().toUpperCase();
-
-  if(!name){ alert('請填入客戶名稱'); return; }
-  if(!code){ alert('請填入客戶代號'); return; }
-
-  // 重複檢查
-  const dup = customers.find(c => c.code && c.code.toUpperCase() === code);
-  if(dup){ alert(`客戶代號 ${code} 已存在（${dup.name}），請確認`); return; }
-
-  closeModal();
-  showToast('新增中，同步兩個資料庫...', 'warn');
-
-  let erpOk = false, masterOk = false;
-
-  // 1. 寫入 ERP 客戶主檔（欄位：客戶名稱 title, 客戶代號 rich_text, 地區 select）
-  try {
-    await createPage(DB.customers, {
-      '客戶名稱': { title: [{ text: { content: name } }] },
-      '客戶代號': { rich_text: [{ text: { content: code } }] },
-      '地區': { select: { name: region || '海外' } },
-    });
-    erpOk = true;
-  } catch(e) {
-    console.error('ERP 主檔新增失敗:', e);
-  }
-
-  // 2. 同步寫入客戶總檔（欄位：Name title, 客戶編號 rich_text, 國家 select）
-  // 國家 select 需要是已有的選項（國碼），若不存在會失敗，用 try-catch 保護
-  try {
-    const masterProps = {
-      'Name': { title: [{ text: { content: name } }] },
-      '客戶編號': { rich_text: [{ text: { content: code } }] },
-    };
-    // 只在有國家代碼時才填入（避免不存在的選項報錯）
-    if(region) masterProps['國家'] = { select: { name: region } };
-
-    await notionAPI('POST', 'pages', {
-      parent: { database_id: DB.custMaster },
-      properties: masterProps,
-    });
-    masterOk = true;
-  } catch(e) {
-    console.error('客戶總檔新增失敗:', e);
-  }
-
+  const name=document.getElementById('m_cname').value.trim();
+  const code=document.getElementById('m_ccode').value.trim().toUpperCase();
+  const region=document.getElementById('m_cregion').value.trim().toUpperCase();
+  if(!name){alert('請填入客戶名稱');return;}if(!code){alert('請填入客戶代號');return;}
+  const dup=customers.find(c=>c.code&&c.code.toUpperCase()===code);if(dup){alert(`客戶代號 ${code} 已存在（${dup.name}）`);return;}
+  closeModal();showToast('新增中，同步兩個資料庫...','warn');
+  let erpOk=false,masterOk=false;
+  // 1. ERP 客戶主檔
+  try{await createPage(DB.customers,{'客戶名稱':{title:[{text:{content:name}}]},'客戶代號':{rich_text:[{text:{content:code}}]},'地區':{select:{name:region||'海外'}}});erpOk=true;}catch(e){console.error('ERP主檔失敗:',e);}
+  // 2. 國外業務客戶總檔（Name title + 客戶編號 rich_text + 國家 select）
+  try{
+    const mp={'Name':{title:[{text:{content:name}}]},'客戶編號':{rich_text:[{text:{content:code}}]}};
+    if(region)mp['國家']={select:{name:region}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.custMaster},properties:mp});masterOk=true;
+  }catch(e){console.error('客戶總檔失敗:',e);}
   await refreshAll();
-
-  if(erpOk && masterOk){
-    showToast(`✅ ${name}（${code}）已同步新增至兩個資料庫`, 'ok');
-  } else if(erpOk){
-    showToast(`⚠ ERP 主檔新增成功，但客戶總檔同步失敗（國家代碼可能無效）`, 'warn');
-  } else {
-    showToast(`❌ 新增失敗，請檢查欄位`, 'err');
-  }
+  if(erpOk&&masterOk)showToast(`✅ ${name}（${code}）已同步新增至兩個資料庫`,'ok');
+  else if(erpOk)showToast(`⚠ ERP 主檔成功，客戶總檔失敗（國家代碼「${region}」可能不存在）`,'warn');
+  else showToast('❌ 新增失敗','err');
 }
 
-function openStatusModal(orderId,currentStatus){
+function openStatusModal(orderId,cur){
   const statuses=['待排程','生產中','待出貨','已完成','取消'];
-  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-    ${statuses.map(s=>`<button class="btn ${s===currentStatus?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}
-    </div>
-    <div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${statuses.map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
   openModal();
 }
-async function doUpdateStatus(orderId,newStatus){
-  closeModal();
-  try{await updatePage(orderId,{'狀態':{select:{name:newStatus}}});await refreshAll();showToast(`✅ 狀態→「${newStatus}」`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
-}
-
-function openEditStock(matId,matName,currentStock){
-  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${matName}</h3>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">目前：<b style="color:var(--text);font-size:18px">${currentStock}</b> 個</div>
-    <input class="inp" type="number" id="newStockVal" value="${currentStock}" min="0" style="margin-bottom:12px">
-    <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="doEditStock('${matId}')">確認修改</button>
-    </div>`;
+async function doUpdateStatus(id,s){closeModal();try{await updatePage(id,{'狀態':{select:{name:s}}});await refreshAll();showToast(`✅ 狀態→「${s}」`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}}
+function openEditStock(id,name,cur){
+  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3><div style="font-size:12px;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:18px">${cur}</b> 個</div><input class="inp" type="number" id="newStockVal" value="${cur}" min="0" style="margin-bottom:12px"><div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doEditStock('${id}')">確認</button></div>`;
   openModal();
 }
-async function doEditStock(matId){
-  const v=parseInt(document.getElementById('newStockVal').value)||0;closeModal();
-  try{await updatePage(matId,{'目前庫存':{number:v}});await refreshAll();showToast(`✅ 庫存→${v}`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
-}
+async function doEditStock(id){const v=parseInt(document.getElementById('newStockVal').value)||0;closeModal();try{await updatePage(id,{'目前庫存':{number:v}});await refreshAll();showToast(`✅ 庫存→${v}`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}}
 
-// ════════════════════════════════════════════
 // TOAST
-// ════════════════════════════════════════════
 function showToast(msg,type){
   const c={ok:['rgba(46,196,138,.12)','rgba(46,196,138,.3)','#2ec48a'],warn:['rgba(245,185,66,.1)','rgba(245,185,66,.25)','#f5b942'],err:['rgba(245,101,101,.1)','rgba(245,101,101,.25)','#f56565']};
   const[bg,border,color]=c[type]||c.ok;
-  const t=document.createElement('div');t.className='toast';
-  t.style.cssText=`background:${bg};border:1px solid ${border};color:${color}`;
-  t.textContent=msg;document.body.appendChild(t);
-  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},3500);
+  const t=document.createElement('div');t.className='toast';t.style.cssText=`background:${bg};border:1px solid ${border};color:${color}`;
+  t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},3500);
 }
 
-// ════════════════════════════════════════════
 // INIT
-// ════════════════════════════════════════════
 window.onload=()=>{
   const t=localStorage.getItem('lematec_token');const r=localStorage.getItem('lematec_role');
   if(t&&r){TOKEN=t;ROLE=r;document.getElementById('tokenInput').value=t;document.getElementById('roleSelect').value=r;startApp();}
