@@ -455,8 +455,14 @@ function renderDashboard(){
   const shipped=orders.filter(o=>o.status==='已完成').length;
   const rate=orders.length?Math.round(shipped/orders.length*100):0;
 
-  const annCount=parseInt(localStorage.getItem(ANN_COUNT_KEY)||'3');
-  const pubAnns=announces.filter(a=>a.status==='已發佈').sort((a,b)=>{if(a.pinned!==b.pinned)return a.pinned?-1:1;return(a.order||99)-(b.order||99)||b.date.localeCompare(a.date);}).slice(0,annCount);
+  // ★ Dashboard 公告邏輯：置頂1則 + 日期最新1則（不重複）
+  const pubAll=announces.filter(a=>a.status==='已發佈');
+  const pinned=pubAll.filter(a=>a.pinned).sort((a,b)=>(a.order||99)-(b.order||99)||b.date.localeCompare(a.date));
+  const unpinned=pubAll.filter(a=>!a.pinned).sort((a,b)=>b.date.localeCompare(a.date));
+  const pinnedOne=pinned[0]||null;
+  // 最新1則（排除已置頂那筆，避免重複）
+  const latestOne=unpinned.find(a=>!pinnedOne||a.id!==pinnedOne.id)||null;
+  const pubAnns=[pinnedOne,latestOne].filter(Boolean);
   const annHtml=pubAnns.length?`<div class="panel" style="margin-bottom:12px"><div class="panel-hdr"><span class="panel-title">📢 最新公告</span><button class="btn btn-ghost btn-sm" onclick="switchTab('announce')">全部</button></div><div style="padding:10px">${pubAnns.map(a=>`<div style="border-bottom:1px solid var(--border);padding:8px 0" class="${!a._last?'':''}"><div>${a.pinned?'<span style="font-size:9px;color:var(--yellow);font-weight:700;margin-right:4px">📌</span>':''}<b style="color:var(--text)">${a.title}</b></div><div style="font-size:11px;color:var(--text2);margin:3px 0">${a.content}</div><div style="font-size:10px;color:var(--text3)">${a.date}</div></div>`).join('')}</div></div>`:'';
   return`${annHtml}<div class="stats">
     <div class="stat" onclick="switchTab('orders')" style="border-color:rgba(61,126,240,.2)"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">📋 訂單總數</div><div class="stat-n" style="color:var(--blue)">${orders.length}</div><div class="stat-l">進行中 <b style="color:var(--yellow)">${active.length}</b> 筆</div></div>
@@ -1185,10 +1191,9 @@ async function submitAnnounce(existId){
       const res2=await notionAPI('PATCH','pages/'+existId,{properties:props});
       if(res2.object==='error')throw new Error(res2.message);
     }else{
-      // ★ 新增公告必須用 data_source_id（collection ID），不能用 database_id
-      // 經 Notion MCP 實測確認：parent 必須是 {data_source_id: '28661b6b-...'}
-      const res2=await notionAPI('POST','pages',{parent:{database_id:DB.announceDS},properties:props});
-      if(res2.object==='error')throw new Error(res2.message);
+      // Notion raw API：parent.database_id 用資料庫的 page ID（e2950944-...）
+      const res2=await notionAPI('POST','pages',{parent:{database_id:DB.announce},properties:props});
+      if(res2.object==='error')throw new Error(res2.message||JSON.stringify(res2));
     }
     await refreshAll();renderTab('announce');showToast('✅ 公告已儲存','ok');
   }catch(e){showToast('❌ 儲存失敗：'+e.message,'err');}
