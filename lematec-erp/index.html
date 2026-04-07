@@ -33,7 +33,7 @@ h1{font-size:24px;font-weight:900;background:linear-gradient(135deg,var(--blue),
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px;}
 .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
 .role-badge{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
-.role-nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;padding:0 8px;overflow-x:auto;scrollbar-width:none;}
+.role-nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;padding:0 8px;overflow-x:scroll;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .role-nav::-webkit-scrollbar{display:none;}
 .tab-btn{padding:10px 12px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
@@ -208,16 +208,18 @@ const DB={
   pickDetail:'267f16cf-e88a-41ed-8049-d39d618a1275',
   inbound:'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
   custMaster:'19fff6f4-24bb-80fe-b265-c62fa39c814c',
+  announce:'e2950944-dbe2-43f6-afd5-ca0ff2980f86',
+  announceDS:'28661b6b-fd1a-44fd-bc49-480874a73f24',
 };
 const ROLES={
-  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','orders','picking','inventory','inbound','qc','customers']},
-  sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','orders','customers']},
+  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers']},
+  sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','announce','orders','customers']},
   production:{label:'生管',color:'#9b7ff5',tabs:['dashboard','orders','picking','inventory']},
   warehouse:{label:'倉管',color:'#2ec48a',tabs:['dashboard','inventory','picking','inbound']},
   qc:{label:'品管',color:'#f5b942',tabs:['dashboard','qc','inbound']},
   purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管'};
+const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管'};
 const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
@@ -231,6 +233,8 @@ const PILL={
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let QC_SUB='pending',QC_FILTER='all';
+let announces=[];
+const ANN_COUNT_KEY='lm_ann_count';
 const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
 
@@ -313,11 +317,12 @@ async function refreshAll(manual=false){
   const syncEl=document.getElementById('syncStatus');
   if(syncEl)syncEl.textContent='⟳ 同步中...';
   try{
-    const [mR,bR,oR,masterR]=await Promise.all([
+    const [mR,bR,oR,masterR,annR]=await Promise.all([
       dbQueryAll(DB.materials),
       dbQueryAll(DB.bom),
       dbQueryAll(DB.orders),
       dbQueryAll(DB.custMaster), // 唯一客戶來源，每次重新讀取
+      dbQueryAll(DB.announce),
     ]);
 
     mats=mR.map(p=>({
@@ -410,14 +415,18 @@ function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='
 function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
 
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
   const shipped=orders.filter(o=>o.status==='已完成').length;
   const rate=orders.length?Math.round(shipped/orders.length*100):0;
-  return`<div class="stats">
+
+  const annCount=parseInt(localStorage.getItem(ANN_COUNT_KEY)||'3');
+  const pubAnns=announces.filter(a=>a.status==='已發佈').sort((a,b)=>{if(a.pinned!==b.pinned)return a.pinned?-1:1;return(a.order||99)-(b.order||99)||b.date.localeCompare(a.date);}).slice(0,annCount);
+  const annHtml=pubAnns.length?`<div class="panel" style="margin-bottom:12px"><div class="panel-hdr"><span class="panel-title">📢 最新公告</span><button class="btn btn-ghost btn-sm" onclick="switchTab('announce')">全部</button></div><div style="padding:10px">${pubAnns.map(a=>`<div style="border-bottom:1px solid var(--border);padding:8px 0" class="${!a._last?'':''}"><div>${a.pinned?'<span style="font-size:9px;color:var(--yellow);font-weight:700;margin-right:4px">📌</span>':''}<b style="color:var(--text)">${a.title}</b></div><div style="font-size:11px;color:var(--text2);margin:3px 0">${a.content}</div><div style="font-size:10px;color:var(--text3)">${a.date}</div></div>`).join('')}</div></div>`:'';
+  return`${annHtml}<div class="stats">
     <div class="stat" onclick="switchTab('orders')" style="border-color:rgba(61,126,240,.2)"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">📋 訂單總數</div><div class="stat-n" style="color:var(--blue)">${orders.length}</div><div class="stat-l">進行中 <b style="color:var(--yellow)">${active.length}</b> 筆</div></div>
     <div class="stat" onclick="switchTab('orders')" style="border-color:rgba(39,184,122,.2)"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">✅ 已完成</div><div class="stat-n" style="color:var(--green)">${shipped}</div><div class="stat-l">完成率 <b style="color:var(--green)">${rate}%</b></div></div>
     <div class="stat" onclick="switchTab('inventory')" style="border-color:rgba(224,82,82,.2)"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">📦 庫存警示</div><div class="stat-n" style="color:${low.length?'var(--red)':'var(--green)'}">${low.length}</div><div class="stat-l">${low.length?'⚠ 需補充':'✓ 全部正常'}</div></div>
@@ -466,7 +475,7 @@ function renderOrders(){
     <td style="display:flex;gap:4px;flex-wrap:wrap">
       ${canPick&&isAct&&!hp?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">領料</button>`:''}
       ${hp?`<span style="font-size:10px;color:var(--green)">✓</span>`:''}
-      <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>
+      <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯訂單">✏</button>
     </td>
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -579,6 +588,40 @@ function renderQCTab(){
 // ═══════════════════════════════════════════════
 // ACTIONS
 // ═══════════════════════════════════════════════
+function openEditOrder(orderId){
+  const o=orders.find(x=>x.id===orderId);if(!o)return;
+  document.getElementById('modalInner').innerHTML=`<h3>✏️ 編輯訂單</h3>
+    <div style="font-family:monospace;font-size:11px;color:var(--text3);margin-bottom:12px">${o.no}</div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="eo_cust" value="${(o.customer||'').replace(/"/g,'&quot;')}"></div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">訂購數量</label><input class="inp" type="number" id="eo_qty" value="${o.qty}" min="1"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">交期</label><input class="inp" type="date" id="eo_date" value="${o.deadline||''}"></div>
+    </div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label><input class="inp" id="eo_note" value="${(o.note||'').replace(/"/g,'&quot;')}"></div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:10px">儲存後同步更新 Notion</div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doEditOrder('${orderId}')">💾 儲存</button></div>`;
+  openModal();
+}
+
+async function doEditOrder(orderId){
+  const cust=document.getElementById('eo_cust').value.trim();
+  const qty=parseInt(document.getElementById('eo_qty').value)||0;
+  const date=document.getElementById('eo_date').value;
+  const note=document.getElementById('eo_note').value.trim();
+  if(!cust||!qty||!date){alert('請填入所有欄位');return;}
+  closeModal();showToast('更新中...','warn');
+  try{
+    await updatePage(orderId,{
+      '客戶名稱':{select:{name:cust}},
+      '訂購數量':{number:qty},
+      '交期':{date:{start:date}},
+      '業務備註':{rich_text:[{text:{content:note}}]}
+    });
+    await refreshAll();showToast('✅ 訂單已更新','ok');
+  }catch(e){showToast('更新失敗：'+e.message,'err');}
+}
+
+
 function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
   document.getElementById('modalInner').innerHTML=`<h3>🗂️ 領料單預覽 — ${o.no}</h3>
@@ -838,7 +881,7 @@ function syncProdFromSelect(){const sel=document.getElementById('m_prod');if(sel
 // ═══════════════════════════════════════════════
 // MODALS
 // ═══════════════════════════════════════════════
-function openModal(type){
+function _origOpenModal(type){
   if(!type){document.getElementById('modalBg').classList.add('open');return;}
   const mi=document.getElementById('modalInner');
   const prods=mats.filter(m=>m.type==='成品');const parts=mats.filter(m=>m.type!=='成品');
@@ -1016,6 +1059,102 @@ function syncProdFromSelect(){
 function matchProduct(){}
 
 
+// ═══════════════════════════════════════
+// 公告管理 (ANNOUNCE MODULE)
+// ═══════════════════════════════════════
+function renderAnnounce(){
+  const canAdmin=ROLE==='manager';
+  const annCount=parseInt(localStorage.getItem(ANN_COUNT_KEY)||'3');
+  const filter=document.getElementById('annFilter')?.value||'all';
+  const all=[...announces].sort((a,b)=>{
+    if(a.pinned!==b.pinned)return a.pinned?-1:1;
+    return(a.order||99)-(b.order||99)||b.date.localeCompare(a.date);
+  });
+  const filtered=filter==='all'?all:all.filter(a=>a.status===filter);
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <select class="inp" id="annFilter" style="width:120px;padding:5px 8px;font-size:11px" onchange="renderTab('announce')">
+      <option value="all">全部</option><option value="已發佈">已發佈</option><option value="草稿">草稿</option>
+    </select>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:10px;color:var(--text2)">首頁顯示:</span>
+      <select class="inp" style="width:54px;padding:4px 8px;font-size:11px" onchange="localStorage.setItem(ANN_COUNT_KEY,this.value)">
+        ${[1,2,3,5,10].map(n=>`<option value="${n}" ${annCount==n?'selected':''}>${n}</option>`).join('')}
+      </select>筆
+      ${canAdmin?`<button class="btn btn-blue btn-sm" onclick="openModal('newAnnounce')">＋ 新增</button>`:''}
+    </div>
+  </div>
+  ${!filtered.length?'<div class="loading-row">尚無公告</div>':
+    filtered.map(a=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">
+      ${a.pinned?'<div style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:var(--yellow);font-weight:700;background:rgba(230,168,50,.1);border-radius:4px;padding:1px 6px;margin-bottom:5px">📌 置頂</div>':''}
+      ${pill(a.status)}
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-top:5px;margin-bottom:4px">${a.title}</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6">${a.content}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px;display:flex;justify-content:space-between;align-items:center">
+        <span>📅 ${a.date||'未設日期'} · 順序${a.order}</span>
+        ${canAdmin?`<div style="display:flex;gap:4px">
+          <button class="btn btn-yellow btn-sm" onclick="openEditAnnounce('${a.id}')">✏ 編輯</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleAnnStatus('${a.id}','${a.status}')">${a.status==='已發佈'?'↓ 草稿':'↑ 發佈'}</button>
+        </div>`:''}
+      </div>
+    </div>`).join('')}`;
+}
+
+function openEditAnnounce(id){
+  const a=announces.find(x=>x.id===id);if(!a)return;
+  openModal('newAnnounce',a);
+}
+
+function openModal(type,data){
+  const mi=document.getElementById('modalInner');
+  if(type==='newAnnounce'){
+    const d=data||{};
+    mi.innerHTML=`<h3>${d.id?'✏️ 編輯公告':'＋ 新增公告'}</h3>
+      <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">標題</label><input class="inp" id="ann_title" value="${(d.title||'').replace(/"/g,'&quot;')}" placeholder="公告標題"></div>
+      <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">內容</label><textarea class="inp" id="ann_body" style="height:90px;resize:vertical">${d.content||''}</textarea></div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">發佈日期</label><input class="inp" type="date" id="ann_date" value="${d.date||new Date().toISOString().slice(0,10)}"></div>
+        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">狀態</label><select class="inp" id="ann_status"><option value="草稿" ${d.status==='草稿'?'selected':''}>草稿</option><option value="已發佈" ${d.status==='已發佈'?'selected':''}>已發佈</option></select></div>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">顯示順序（數字小優先）</label><input class="inp" type="number" id="ann_order" value="${d.order||99}" min="1"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:12px;color:var(--text2)">置頂</label></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitAnnounce(${d.id?`'${d.id}'`:'null'})">💾 儲存</button></div>`;
+    document.getElementById('modalBg').classList.add('open');
+    return;
+  }
+  // Original openModal logic for other types
+  _origOpenModal(type);
+}
+
+async function submitAnnounce(existId){
+  const title=document.getElementById('ann_title').value.trim();
+  const body=document.getElementById('ann_body').value.trim();
+  const date=document.getElementById('ann_date').value;
+  const status=document.getElementById('ann_status').value;
+  const order=parseInt(document.getElementById('ann_order').value)||99;
+  const pin=document.getElementById('ann_pin').checked;
+  if(!title){showToast('請填入標題','warn');return;}
+  closeModal();showToast('儲存中...','warn');
+  try{
+    const props={'標題':{title:[{text:{content:title}}]},'內容':{rich_text:[{text:{content:body||''}}]},'狀態':{select:{name:status}},'置頂':{checkbox:pin},'顯示順序':{number:order}};
+    if(date)props['發佈日期']={date:{start:date}};
+    if(existId){await updatePage(existId,props);}
+    else{const res=await createPage(DB.announce,props);if(res.object==='error')throw new Error(res.message);}
+    await refreshAll();renderTab('announce');showToast('✅ 公告已儲存','ok');
+  }catch(e){showToast('❌ 儲存失敗：'+e.message,'err');}
+}
+
+async function toggleAnnStatus(id,cur){
+  const ns=cur==='已發佈'?'草稿':'已發佈';
+  try{await updatePage(id,{'狀態':{select:{name:ns}}});await refreshAll();renderTab('announce');showToast(`✅ 已改為「${ns}」`,'ok');}
+  catch(e){showToast('❌ '+e.message,'err');}
+}
+
+// Dashboard 加公告（最新 N 筆已發佈）
+// This is injected into renderDashboard
+
+
 function showToast(msg,type){
   const c={ok:['rgba(46,196,138,.12)','rgba(46,196,138,.3)','#2ec48a'],warn:['rgba(245,185,66,.1)','rgba(245,185,66,.25)','#f5b942'],err:['rgba(245,101,101,.1)','rgba(245,101,101,.25)','#f56565']};
   const[bg,border,color]=c[type]||c.ok;
@@ -1048,7 +1187,7 @@ function onCode(v){
     if(btn)btn.style.display='';
   }else{
     _selCust=null;if(btn)btn.style.display='none';
-    msg.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${v}」— 未建檔，請填入下方新客戶名稱</span>`;
+    msg.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${v}」— 此客戶尚未建檔，請在下方填入新客戶名稱即可自動建立</span>`;
     const sel=document.getElementById('m_cust');if(sel)sel.value='';
     const nr=document.getElementById('newCustRow');if(nr)nr.style.display='';
     const ni=document.getElementById('m_newcust');if(ni&&!ni.value)ni.focus();
@@ -1151,32 +1290,95 @@ async function getCustomer(){
 }
 
 async function submitAllOrders(){
-  const cust=await getCustomer();const date=document.getElementById('m_date')?.value;const note=document.getElementById('m_note')?.value||'';
-  if(!cust){showToast('請選擇客戶或填入新客戶名稱','err');return;}
-  if(!date){showToast('請填入交期','err');return;}
+  const btn=document.getElementById('orderSubmitBtn');
+  if(btn?.disabled)return;
+
+  const selVal=document.getElementById('m_cust')?.value||'';
+  const newVal=document.getElementById('m_newcust')?.value.trim()||'';
+  const date=document.getElementById('m_date')?.value||'';
+  const note=document.getElementById('m_note')?.value||'';
+
+  if(!selVal&&!newVal){showToast('請選擇客戶或填入新客戶名稱','warn');return;}
+  if(!date){showToast('請填入交期','warn');return;}
+
+  // 收集勾選品項（在 async 前讀完 DOM）
   const selected=[];
-  for(let i=0;i<_items.length;i++){const chk=document.getElementById('ichk_'+i);const qty=parseInt(document.getElementById('iqty_'+i)?.value)||_items[i].qty||0;if((chk?chk.checked:_items[i].checked!==false)&&_items[i].model&&qty>0)selected.push({model:_items[i].model,qty});}
-  if(!selected.length){showToast('請至少新增一個品項（點 ＋ 新增品項）','err');return;}
-  const btn=document.getElementById('orderSubmitBtn');if(btn)btn.disabled=true;
+  for(let i=0;i<_items.length;i++){
+    const chk=document.getElementById('ick_'+i)||document.getElementById('ichk_'+i);
+    const mod=document.getElementById('imd_'+i)||document.getElementById('imod_'+i);
+    const qty=parseInt((document.getElementById('iqt_'+i)||document.getElementById('iqty_'+i))?.value)||_items[i]?.qty||0;
+    const model=(mod?mod.value:_items[i]?.model||'').trim();
+    if((chk?chk.checked:_items[i]?.checked!==false)&&model&&qty>0)selected.push({model,qty});
+  }
+  if(!selected.length){showToast('請至少新增一個品項（點 ＋）','warn');return;}
+
+  // ★ 鎖定按鈕防重複點擊
+  if(btn){btn.disabled=true;btn.textContent='建立中...';}
   const pw=document.getElementById('orderProg');if(pw)pw.style.display='';
   const pt=document.getElementById('orderProgTxt');const pb=document.getElementById('orderProgBar');
+
+  // ★ 新客戶：先確認 Notion 建立成功（同步等待）
+  let custName=selVal;
+  if(!selVal&&newVal){
+    if(pt)pt.textContent='正在建立新客戶至 Notion 客戶總檔...';
+    try{
+      const res=await createPage(DB.custMaster,{'Name':{title:[{text:{content:newVal}}]}});
+      if(res.object==='error')throw new Error(res.message||'建立客戶失敗');
+      custName=newVal;
+      showToast('✅ 新客戶「'+newVal+'」已建立至 Notion 客戶總檔','ok');
+    }catch(e){
+      showToast('❌ 建立新客戶失敗：'+e.message+'。資料尚未存入 Notion，請稍後再試','err');
+      if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}
+      return;
+    }
+  }
+
   const prefix='ORD-'+new Date().toISOString().slice(2,7).replace('-','');
   let ok=0,fail=0,failList=[];
+
   for(let i=0;i<selected.length;i++){
-    const item=selected[i];if(pt)pt.textContent=`建立第 ${i+1}/${selected.length} 筆：${item.model}`;if(pb)pb.style.width=((i+1)/selected.length*100)+'%';
-    try{let prodId='';const ex=mats.find(m=>m.name===item.model||m.code===item.model);if(ex){prodId=ex.id;}else{const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:item.model}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});prodId=nm.id;}
+    const item=selected[i];
+    if(pt)pt.textContent=`建立第 ${i+1}/${selected.length} 筆：${item.model}`;
+    if(pb)pb.style.width=Math.round((i+1)/selected.length*100)+'%';
+    try{
+      // ★ 重複性檢查
+      const dup=orders.find(o=>{
+        const mat=mats.find(m=>m.id===o.productId);
+        return o.customer===custName&&o.deadline===date&&(mat?.name===item.model||mat?.code===item.model);
+      });
+      if(dup){
+        const conf=confirm(`⚠ 重複訂單警告
+「${dup.no}」已存在（${custName} / ${item.model} / ${date}）
+確定要再建立一筆？`);
+        if(!conf){fail++;failList.push(item.model+' (跳過重複)');continue;}
+      }
+      let prodId='';
+      const ex=mats.find(m=>m.name===item.model||m.code===item.model);
+      if(ex){prodId=ex.id;}
+      else{
+        const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:item.model}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});
+        if(nm.object==='error')throw new Error(nm.message);
+        prodId=nm.id;
+      }
       const no=prefix+'-'+String(i+1).padStart(3,'0');
-      await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});ok++;
-    }catch(e){fail++;failList.push(item.model);}
+      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});
+      if(res.object==='error')throw new Error(res.message);
+      ok++;
+    }catch(e){
+      fail++;failList.push(item.model);
+      console.error('[Order]',item.model,e.message);
+    }
   }
-  await refreshAll();
-  if(pt)pt.textContent='完成！成功 '+ok+' 筆'+(fail?'，失敗 '+fail+'（'+failList.join('、')+'）':'');
-  if(pb){pb.style.width='100%';pb.style.background=ok===selected.length?'var(--green)':'var(--yellow)';}
-  if(btn)btn.disabled=false;
-  showToast((ok===selected.length?'✅':'⚠')+' 建立 '+ok+'/'+selected.length+' 筆訂單',ok===selected.length?'ok':'warn');
+
+  // ★ 完成：closeModal → 跳訂單頁 → 背景同步
+  closeModal();
+  switchTab('orders');
+  const msg2=(ok===selected.length?'✅':'⚠')+` 建立 ${ok}/${selected.length} 筆訂單`+(fail?` · 失敗：${failList.join(', ')}`:'');
+  showToast(msg2,ok===selected.length?'ok':'warn');
+  refreshAll().catch(e=>console.error('bg refresh:',e));
 }
 
-// 舊函數別名（相容）
+
 function matchProduct(){}
 function parsePIRows(r,h){piParse(r,h);}
 function syncProdFromSelect(){}
