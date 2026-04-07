@@ -846,35 +846,6 @@ async function selectAndLoadPI(pageId,title,idx){
 // ═══════════════════════════════════════════════
 // PI 解析
 // ═══════════════════════════════════════════════
-function parsePIRows(rows,titleHint){
-  const piNo=titleHint||(rows[6]&&rows[6][9]?String(rows[6][9]).trim():'');
-  let piDate='';if(rows[7]&&rows[7][8])piDate=String(rows[7][8]).replace(/Date:/i,'').trim().replace(/\./g,'-');
-  const items=[];
-  for(let i=12;i<(rows.length||0)-1;i++){
-    const row=rows[i];if(!row)continue;
-    const col1=row[1]!=null?String(row[1]).trim():'';
-    if(col1&&/^\d+\.?$/.test(col1)){
-      const desc=row[2]!=null?String(row[2]).trim():'';
-      const qty=row[6]!=null?parseInt(row[6])||0:0;
-      const model=(rows[i+1]||[])[2]!=null?String((rows[i+1]||[])[2]).trim():'';
-      if(model&&qty>0)items.push({model,desc,qty});i++;
-    }
-  }
-  const noteEl=document.getElementById('m_note');if(noteEl&&piNo)noteEl.value='PI No: '+piNo;
-  if(piDate.match(/^\d{4}-\d{2}-\d{2}$/)){const d=new Date(piDate);d.setDate(d.getDate()+30);const dateEl=document.getElementById('m_date');if(dateEl)dateEl.value=d.toISOString().slice(0,10);}
-  const infoEl=document.getElementById('piInfo');
-  if(!items.length){if(infoEl)infoEl.textContent='⚠ 未能解析品項，請手動填入';return items;}
-  if(items.length===1){
-    const pc=document.getElementById('m_prodCode');if(pc)pc.value=items[0].model;
-    const qe=document.getElementById('m_qty');if(qe)qe.value=items[0].qty;
-    matchProduct(items[0].model);
-    if(infoEl)infoEl.innerHTML=`<span style="color:var(--green)">✅ ${piNo} | ${items[0].model} × ${items[0].qty}</span>`;
-  }else{
-    if(infoEl)infoEl.innerHTML=`<span style="color:var(--cyan)">📦 共 ${items.length} 個品項，請在下方勾選後批次建立</span>`;
-    showMultiItems(items,piNo);
-  }
-  return items;
-}
 
 function showMultiItems(items,piNo){
   const div=document.getElementById('piMultiList');if(!div)return;
@@ -969,13 +940,6 @@ function parsePIFile(input){
   const r=new FileReader();r.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});parsePIRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}),file.name.replace(/\.xlsx?$/i,''));}catch(err){const el=document.getElementById('piInfo');if(el)el.textContent='❌ 解析失敗：'+err.message;}};
   r.readAsArrayBuffer(file);
 }
-function matchProduct(code){
-  if(!code){const el=document.getElementById('prodMatch');if(el)el.textContent='';return;}
-  const f=mats.find(m=>m.name===code||m.code===code);const info=document.getElementById('prodMatch');if(!info)return;
-  if(f){const s=document.getElementById('m_prod');if(s)s.value=f.id;info.textContent=`✅ 已建檔（庫存${f.stock}）`;info.style.color='var(--green)';}
-  else{const s=document.getElementById('m_prod');if(s)s.value='';info.textContent='⚠ 未建檔，下單時自動新增';info.style.color='var(--yellow)';}
-}
-function syncProdFromSelect(){const sel=document.getElementById('m_prod');if(sel?.value){const m=mats.find(x=>x.id===sel.value);if(m){const el=document.getElementById('m_prodCode');if(el)el.value=m.name;}}}
 
 // ═══════════════════════════════════════════════
 // MODALS
@@ -1000,7 +964,7 @@ function openModal(type,data){
       <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitAnnounce(${d.id?`'${d.id}'`:'null'})">💾 儲存</button></div>`;
     document.getElementById('modalBg').classList.add('open');return;
   }
-  const mi=document.getElementById('modalInner');
+  mi=document.getElementById('modalInner');
   const prods=mats.filter(m=>m.type==='成品');const parts=mats.filter(m=>m.type!=='成品');
 
   if(type==='newOrder'){
@@ -1154,26 +1118,6 @@ async function doEditStock(id){const v=parseInt(document.getElementById('newStoc
 // ═══════════════════════════════════════════════
 // 品項列表管理（FIX1: 支援手動新增）
 // ═══════════════════════════════════════════════
-function parsePIRows(rows,titleHint){
-  const piNo=titleHint||(rows[6]&&rows[6][9]?String(rows[6][9]).trim():'');
-  let piDate='';if(rows[7]&&rows[7][8])piDate=String(rows[7][8]).replace(/Date:/i,'').trim().replace(/\./g,'-');
-  const items=[];
-  for(let i=12;i<(rows.length||0)-1;i++){const row=rows[i];if(!row)continue;const col1=row[1]!=null?String(row[1]).trim():'';if(col1&&/^\d+\.?$/.test(col1)){const desc=row[2]!=null?String(row[2]).trim():'';const qty=row[6]!=null?parseInt(row[6])||0:0;const model=(rows[i+1]||[])[2]!=null?String((rows[i+1]||[])[2]).trim():'';if(model&&qty>0)items.push({model,desc,qty});i++;}}
-  const noteEl=document.getElementById('m_note');if(noteEl&&piNo)noteEl.value='PI No: '+piNo;
-  if(piDate.match(/^\d{4}-\d{2}-\d{2}$/)){const d=new Date(piDate);d.setDate(d.getDate()+30);const de=document.getElementById('m_date');if(de)de.value=d.toISOString().slice(0,10);}
-  const infoEl=document.getElementById('piInfo');
-  if(items.length>0){_orderItems=items;renderOrderItems();if(infoEl)infoEl.innerHTML='<span style="color:var(--green)">✅ 解析 '+items.length+' 個品項，已列入下方清單</span>';}
-  else{if(infoEl)infoEl.textContent='⚠ 未能解析品項，請手動新增';}
-  return items;
-}
-
-function syncProdFromSelect(){
-  const sel=document.getElementById('m_prod');if(!sel?.value)return;
-  const m=mats.find(x=>x.id===sel.value);
-  if(m){_orderItems.push({model:m.name,desc:'',qty:1});renderOrderItems();sel.value='';}
-}
-
-function matchProduct(){}
 
 
 // ═══════════════════════════════════════
