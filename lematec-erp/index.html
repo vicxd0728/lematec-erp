@@ -221,13 +221,16 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 //   - 已清除之前錯誤寫入的 2xxx 客戶
 // ═══════════════════════════════════════════════
 const DB={
-  materials:'43d801b4-a787-4101-bd12-d8b8199385c7',
-  bom:'6b67dc8d-bafb-49e8-9c39-bf66046a99fe',
-  orders:'50b7ce68-437e-431f-9a4f-a0d0d65a7b25',
-  pickMaster:'55552dd1-eb31-4d68-8127-63cc062a93f8',
-  pickDetail:'267f16cf-e88a-41ed-8049-d39d618a1275',
-  inbound:'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
-  custMaster:'19fff6f4-24bb-80fe-b265-c62fa39c814c',
+  materials:  '43d801b4-a787-4101-bd12-d8b8199385c7',
+  bom:        '6b67dc8d-bafb-49e8-9c39-bf66046a99fe',
+  orders:     '50b7ce68-437e-431f-9a4f-a0d0d65a7b25',
+  pickMaster: '55552dd1-eb31-4d68-8127-63cc062a93f8',
+  pickDetail: '267f16cf-e88a-41ed-8049-d39d618a1275',
+  inbound:    'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
+  custMaster: '19fff6f4-24bb-80fe-b265-c62fa39c814c',
+  // 公告管理 — database_id 用於讀取，data_source_id 用於寫入
+  announce:   'e2950944-dbe2-43f6-afd5-ca0ff2980f86',
+  announceDS: '28661b6b-fd1a-44fd-bc49-480874a73f24',
 };
 const ROLES={
   manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers']},
@@ -1178,8 +1181,15 @@ async function submitAnnounce(existId){
   try{
     const props={'標題':{title:[{text:{content:title}}]},'內容':{rich_text:[{text:{content:body||''}}]},'狀態':{select:{name:status}},'置頂':{checkbox:pin},'顯示順序':{number:order}};
     if(date)props['發佈日期']={date:{start:date}};
-    if(existId){await updatePage(existId,props);}
-    else{const res=await createPage(DB.announce,props);if(res.object==='error')throw new Error(res.message);}
+    if(existId){
+      const res2=await notionAPI('PATCH','pages/'+existId,{properties:props});
+      if(res2.object==='error')throw new Error(res2.message);
+    }else{
+      // ★ 新增公告必須用 data_source_id（collection ID），不能用 database_id
+      // 經 Notion MCP 實測確認：parent 必須是 {data_source_id: '28661b6b-...'}
+      const res2=await notionAPI('POST','pages',{parent:{database_id:DB.announceDS},properties:props});
+      if(res2.object==='error')throw new Error(res2.message);
+    }
     await refreshAll();renderTab('announce');showToast('✅ 公告已儲存','ok');
   }catch(e){showToast('❌ 儲存失敗：'+e.message,'err');}
 }
