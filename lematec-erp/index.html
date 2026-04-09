@@ -976,7 +976,10 @@ function parsePIFile(input){
 function openModal(type,data){
   if(!type){document.getElementById('modalBg').classList.add('open');return;}
   const mi=document.getElementById('modalInner');
-  // 公告新增/編輯
+  const prods=mats.filter(m=>m.type==='成品');
+  const parts=mats.filter(m=>m.type!=='成品');
+
+  // ── 公告 ──
   if(type==='newAnnounce'){
     const d=data||{};
     mi.innerHTML=`<h3>${d.id?'✏️ 編輯公告':'＋ 新增公告'}</h3>
@@ -988,108 +991,15 @@ function openModal(type,data){
       </div>
       <div class="form-row" style="margin-bottom:10px">
         <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">顯示順序（小=優先）</label><input class="inp" type="number" id="ann_order" value="${d.order||99}" min="1"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:12px;color:var(--text2)">📌 置頂顯示</label></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:12px;color:var(--text2)">📌 置頂</label></div>
       </div>
       <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitAnnounce(${d.id?`'${d.id}'`:'null'})">💾 儲存</button></div>`;
     document.getElementById('modalBg').classList.add('open');return;
   }
-  mi=document.getElementById('modalInner');
-  const prods=mats.filter(m=>m.type==='成品');const parts=mats.filter(m=>m.type!=='成品');
 
-  if(type==='newOrder'){
-    // 重置品項清單
-    _items=[];
-    const custOpts='<option value="">— 選擇客戶（或空白輸入新客戶）—</option>'+
-      customers.sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(c=>
-        `<option value="${c.name.replace(/"/g,'&quot;')}">${c.code?c.code+' — ':''}${c.name}</option>`
-      ).join('');
-    const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
-      prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-
-    mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
-    <!-- ① 客戶 -->
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號（輸入後自動比對）</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input class="inp" id="m_code" placeholder="如 2602AU016" oninput="onCode(this.value)"
-          style="flex:1;min-width:140px;">
-        <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none;white-space:nowrap">
-          📂 抓 Notion PI
-        </button>
-      </div>
-      <div id="codeMsg" style="font-size:11px;margin-top:5px;min-height:16px"></div>
-    </div>
-    <div class="field" style="margin-bottom:8px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">或從清單選擇</label>
-      <select class="inp" id="m_cust" onchange="onCustDrop(this.value)">${custOpts}</select>
-    </div>
-    <div id="newCustRow" style="display:none;margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">新客戶名稱（下單後自動建立至客戶總檔）</label>
-      <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
-    </div>
-    <!-- PI Notion 搜尋結果 -->
-    <div id="piNotionList" style="display:none;margin-bottom:12px"></div>
-    <!-- ② 上傳 PI -->
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>讀取 PI Excel</label>
-      <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="onPIFile(this)">
-      <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">
-        📎 上傳 PI 檔案（.xlsx）
-      </button>
-      <div id="piMsg" style="font-size:11px;margin-top:6px;min-height:14px"></div>
-    </div>
-    <!-- ③ 品項清單 -->
-    <div style="margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
-        <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px"><span class="sn">3</span>品項清單（可手動新增）</label>
-        <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 新增品項</button>
-      </div>
-      <div id="itemsArea" style="min-height:44px;"></div>
-      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--text3);">從料件主檔選：</span>
-        <select class="inp" id="m_matsel" onchange="addFromMat(this)" style="flex:1;padding:5px 8px;font-size:11px">
-          ${prodOpts}
-        </select>
-      </div>
-    </div>
-    <!-- ④ 交期 & 備註 -->
-    <div class="form-row" style="margin-bottom:12px">
-      <div>
-        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">4</span>交期</label>
-        <input class="inp" type="date" id="m_date">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
-        <input class="inp" id="m_note" placeholder="PI No. 等">
-      </div>
-    </div>
-    <!-- 進度 -->
-    <div id="orderProg" style="display:none" class="prog-wrap">
-      <div class="prog-text" id="orderProgTxt">準備中...</div>
-      <div class="prog-track"><div class="prog-fill" id="orderProgBar" style="width:0%"></div></div>
-    </div>
-    <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
-    </div>`;
-    renderItems();
-  }
-
-  if(type==='newInbound'){
-    mi.innerHTML=`<h3>📥 新增入料單</h3>
-    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件</label><select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（庫存：${m.stock}）</option>`).join('')}</select></div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_iqty" min="1"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
-    </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
-    </div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立</button></div>`;
-  }
-
+  // ── 請假申請 ──
   if(type==='newLeave'){
+    const leaveTypes=['特休','事假','病假','婚假','喪假','產假','其他'];
     mi.innerHTML=`<h3>🗓️ 申請請假</h3>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">申請人姓名 *</label><input class="inp" id="lv_name" placeholder="填入姓名"></div>
@@ -1102,36 +1012,127 @@ function openModal(type,data){
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假天數 *</label><input class="inp" type="number" id="lv_days" min="0.5" step="0.5" placeholder="如 1、2.5"></div>
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">假別 *</label>
-        <select class="inp" id="lv_type">
-          ${['特休','事假','病假','婚假','喪假','產假','其他'].map(t=>`<option value="${t}">${t}</option>`).join('')}
-        </select>
+        <select class="inp" id="lv_type">${leaveTypes.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
       </div>
     </div>
     <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">職務代理人 *</label><input class="inp" id="lv_proxy" placeholder="填入代理人姓名"></div>
     <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假原因 *</label><input class="inp" id="lv_reason" placeholder="簡述請假原因"></div>
     <div style="font-size:10px;color:var(--text3);margin-bottom:10px">提交後將同步至 Notion，由廠長審核。</div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitLeave()">📤 送出申請</button></div>`;
+    document.getElementById('modalBg').classList.add('open');return;
   }
 
+  // ── 新增訂單 ──
+  if(type==='newOrder'){
+    _items=[];
+    const custOpts='<option value="">— 選擇客戶（或空白輸入新客戶）—</option>'+
+      customers.sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(c=>
+        `<option value="${c.name.replace(/"/g,'&quot;')}">${c.code?c.code+' — ':''}${c.name}</option>`
+      ).join('');
+    const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
+      prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號（輸入後自動比對）</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="inp" id="m_code" placeholder="如 2602AU016" oninput="onCode(this.value)" style="flex:1;min-width:140px;">
+        <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none;white-space:nowrap">📂 抓 Notion PI</button>
+      </div>
+      <div id="codeMsg" style="font-size:11px;margin-top:5px;min-height:16px"></div>
+    </div>
+    <div class="field" style="margin-bottom:8px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">或從清單選擇</label>
+      <select class="inp" id="m_cust" onchange="onCustDrop(this.value)">${custOpts}</select>
+    </div>
+    <div id="newCustRow" style="display:none;margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">新客戶名稱（下單後自動建立至客戶總檔）</label>
+      <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
+    </div>
+    <div id="piNotionList" style="display:none;margin-bottom:12px"></div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>讀取 PI Excel</label>
+      <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="onPIFile(this)">
+      <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">📎 上傳 PI 檔案（.xlsx）</button>
+      <div id="piMsg" style="font-size:11px;margin-top:6px;min-height:14px"></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+        <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px"><span class="sn">3</span>品項清單</label>
+        <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 新增品項</button>
+      </div>
+      <div id="itemsArea" style="min-height:44px;"></div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--text3);">從料件主檔選：</span>
+        <select class="inp" id="m_matsel" onchange="addFromMat(this)" style="flex:1;padding:5px 8px;font-size:11px">${prodOpts}</select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:12px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">4</span>交期</label><input class="inp" type="date" id="m_date"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="PI No. 等"></div>
+    </div>
+    <div id="orderProg" style="display:none" class="prog-wrap">
+      <div class="prog-text" id="orderProgTxt">準備中...</div>
+      <div class="prog-track"><div class="prog-fill" id="orderProgBar" style="width:0%"></div></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
+    </div>`;
+    renderItems();
+  }
+
+  // ── 新增入料單 ──
+  if(type==='newInbound'){
+    mi.innerHTML=`<h3>📥 新增入料單</h3>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件</label>
+      <select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（庫存：${m.stock}）</option>`).join('')}</select>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_iqty" min="1" placeholder="數量"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立</button></div>`;
+  }
+
+  // ── 新增客戶 ──
+  if(type==='newCustomer'){
+    mi.innerHTML=`<h3>🏢 新增客戶</h3>
+    <div class="help-box" style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.18);border-radius:8px;padding:10px;font-size:11px;color:var(--cyan);margin-bottom:12px">💡 新增至：國外業務 › 🤑 客戶總檔（Notion 資料庫）</div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱 *</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label><input class="inp" id="m_ccode" placeholder="如 2602AU016"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label><input class="inp" id="m_cregion" placeholder="AU / US / TW" maxlength="4"></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitCustomer()">新增至 Notion</button></div>`;
+  }
+
+  // ── 說明 ──
   if(type==='help'){
     mi.innerHTML=`<h3>📖 使用說明</h3>
     <div style="font-size:12px;line-height:1.9;color:var(--text2)">
-      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">📋 訂單：新增流程</div>
-      <div><span class="sn">1</span>輸入客戶代號 → 自動比對後點「📂 抓 Notion PI」</div>
-      <div><span class="sn">2</span>選擇訂單頁面 → 自動讀取 Excel 品項（已確認 Notion 結構正確）</div>
-      <div><span class="sn">3</span>多品項：勾選 → 點「批次建立」（按鈕在多品項清單底部，會在原視窗顯示進度）</div>
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">📋 訂單流程</div>
+      <div><span class="sn">1</span>輸入客戶代號 → 自動比對，或從清單選擇</div>
+      <div><span class="sn">2</span>上傳 PI Excel 或點「＋ 新增品項」手動輸入</div>
+      <div><span class="sn">3</span>填入交期 → 建立訂單（自動跳回訂單頁）</div>
       <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">🏢 客戶資料</div>
-      <div>• 唯一來源：國外業務客戶總檔（每次登入自動同步）</div>
-      <div>• 編號規則：YY+出貨狀態(01未出/02已出)+國碼+流水號</div>
+      <div>• 來源：國外業務 › 🤑 客戶總檔（每次登入同步）</div>
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">🗓️ 請假</div>
+      <div>• 所有人可申請 → 廠長審核（通過/不通過）</div>
       <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">💡 常見問題</div>
-      <div>• PI 讀不到？確認 Notion 訂單頁面有 .xlsx 附件</div>
-      <div>• 資料不同步？按右上角 🔄</div>
-      <div>• 批次建立沒反應？確認已選擇客戶和交期</div>
+      <div>• 資料不同步 → 右上角 🔄 重新整理</div>
+      <div>• API 失敗 → 顯示「資料尚未存入 Notion，請稍後再試」</div>
+      <div>• 公告儲存失敗 → 請在 Notion 把「LEMATEC ERP」integration 加入公告管理資料庫</div>
     </div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;
   }
+
   document.getElementById('modalBg').classList.add('open');
 }
+
 function closeModal(){document.getElementById('modalBg').classList.remove('open');}
 
 // ═══════════════════════════════════════════════
@@ -1333,6 +1334,26 @@ function openApproveLeave(lid, approve){
     </div>`;
   openModal();
 }
+
+async function submitCustomer(){
+  const name=document.getElementById('m_cname').value.trim();
+  const code=document.getElementById('m_ccode').value.trim().toUpperCase();
+  const region=document.getElementById('m_cregion').value.trim().toUpperCase();
+  if(!name){showToast('請填入客戶名稱','err');return;}
+  const dup=customers.find(c=>c.code&&c.code.toUpperCase()===code);
+  if(dup&&code){showToast('⚠ 客戶代號 '+code+' 已存在（'+dup.name+'）','warn');return;}
+  closeModal();showToast('新增中...','warn');
+  try{
+    const props={'Name':{title:[{text:{content:name}}]}};
+    if(code)props['客戶編號']={rich_text:[{text:{content:code}}]};
+    if(region)props['國家']={select:{name:region}};
+    const res=await createPage(DB.custMaster,props);
+    if(res.object==='error')throw new Error(res.message);
+    await refreshAll();
+    showToast('✅ '+name+'（'+code+'）已新增至 Notion 客戶總檔','ok');
+  }catch(e){showToast('❌ 新增失敗：'+e.message,'err');}
+}
+
 
 async function submitLeave(){
   const name=document.getElementById('lv_name').value.trim();
