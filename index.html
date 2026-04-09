@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-:root{--bg:#0c0f18;--bg2:#121622;--bg3:#181d2e;--bg4:#1f2640;--border:#242a40;--border2:#2e3857;--blue:#4d8ef5;--green:#2ec48a;--yellow:#f5b942;--red:#f56565;--purple:#9b7ff5;--cyan:#42d4f5;--text:#dde4f0;--text2:#6b7a9e;--text3:#313d5a;}
+:root{--bg:#0c0f18;--bg2:#121622;--bg3:#181d2e;--bg4:#1f2640;--border:#242a40;--border2:#2e3857;--blue:#4d8ef5;--green:#2ec48a;--yellow:#f5b942;--red:#f56565;--purple:#9b7ff5;--cyan:#42d4f5;--text:#e2eaf8;--text2:#9db3d4;--text3:#5a7099;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Space Grotesk','Noto Sans TC',sans-serif;min-height:100vh;}
 .inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;transition:border-color .2s;}
@@ -51,7 +51,7 @@ h1{font-size:24px;font-weight:900;background:linear-gradient(135deg,var(--blue),
 table{width:100%;border-collapse:collapse;min-width:360px;}
 th{font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);font-weight:700;padding:7px 12px;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
 th:hover{color:var(--text2);}th.th-asc,th.th-desc{color:var(--blue);}
-td{padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle;}
+td{padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}tr:hover td{background:rgba(255,255,255,.015);}
 @media(max-width:600px){.hide-m{display:none!important;}table{min-width:280px;}td,th{padding:6px 8px;font-size:11px;}}
 .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
@@ -231,16 +231,19 @@ const DB={
   // 公告管理 — database_id 用於讀取，data_source_id 用於寫入
   announce:   'e2950944-dbe2-43f6-afd5-ca0ff2980f86',
   announceDS: '28661b6b-fd1a-44fd-bc49-480874a73f24',
+  // 請假管理
+  leave:   '897e8784-4c2d-452c-a045-c568e175e6d5',
+  leaveDS: '9fabe403-8a8a-4efe-bc30-1a814c80ddee',
 };
 const ROLES={
-  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers']},
-  sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','announce','orders','customers']},
+  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave']},
+  sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','announce','orders','customers','leave']},
   production:{label:'生管',color:'#9b7ff5',tabs:['dashboard','orders','picking','inventory']},
-  warehouse:{label:'倉管',color:'#2ec48a',tabs:['dashboard','inventory','picking','inbound']},
-  qc:{label:'品管',color:'#f5b942',tabs:['dashboard','qc','inbound']},
-  purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound']},
+  warehouse:{label:'倉管',color:'#2ec48a',tabs:['dashboard','inventory','picking','inbound','leave']},
+  qc:{label:'品管',color:'#f5b942',tabs:['dashboard','qc','inbound','leave']},
+  purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管'};
+const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假'};
 const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
@@ -254,7 +257,7 @@ const PILL={
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let QC_SUB='pending',QC_FILTER='all';
-let announces=[];
+let announces=[],leaves=[];
 const ANN_COUNT_KEY='lm_ann_count';
 const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
@@ -338,12 +341,13 @@ async function refreshAll(manual=false){
   const syncEl=document.getElementById('syncStatus');
   if(syncEl)syncEl.textContent='⟳ 同步中...';
   try{
-    const [mR,bR,oR,masterR,annR]=await Promise.all([
+    const [mR,bR,oR,masterR,annR,leaveR]=await Promise.all([
       dbQueryAll(DB.materials),
       dbQueryAll(DB.bom),
       dbQueryAll(DB.orders),
       dbQueryAll(DB.custMaster), // 唯一客戶來源，每次重新讀取
       dbQueryAll(DB.announce),
+      dbQueryAll(DB.leave),
     ]);
 
     mats=mR.map(p=>({
@@ -384,6 +388,22 @@ async function refreshAll(manual=false){
       shipped:p.properties?.['出貨']?.select?.name||'',
     })).filter(c=>c.name);
 
+    // ★ 請假解析
+    leaves=(leaveR||[]).map(p=>({
+      id:p.id,
+      name:getTitle(p.properties,'申請人姓名'),
+      title:getRichText(p.properties,'職稱'),
+      dateFrom:p.properties?.['請假日期起']?.date?.start||'',
+      dateTo:p.properties?.['請假日期迄']?.date?.start||'',
+      days:p.properties?.['請假天數']?.number||0,
+      type:p.properties?.['假別']?.select?.name||'',
+      reason:getRichText(p.properties,'請假原因'),
+      proxy:getRichText(p.properties,'職務代理人'),
+      status:p.properties?.['審核狀態']?.select?.name||'待審核',
+      rejectReason:getRichText(p.properties,'不通過原因'),
+      reviewer:getRichText(p.properties,'審核人'),
+      applyDate:p.properties?.['申請日期']?.date?.start||p.created_time?.slice(0,10)||'',
+    }));
     // ★ 公告解析：'內容' 是 text 型欄位，Notion API 回傳為 rich_text 陣列
     announces=(annR||[]).map(p=>({
       id:p.id,
@@ -447,7 +467,7 @@ function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='
 function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
 
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
@@ -634,7 +654,7 @@ async function deleteOrder(oid, no){
     await updatePage(oid,{archived:true});
     // 同步更新本地資料
     orders=orders.filter(o=>o.id!==oid);
-    renderTab(CURTAB);
+    renderTab(CURRENT_TAB);
     showToast('✅ 訂單「'+no+'」已刪除','ok');
     // 背景重整確保同步
     refreshAll().catch(()=>{});
@@ -1069,6 +1089,30 @@ function openModal(type,data){
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立</button></div>`;
   }
 
+  if(type==='newLeave'){
+    mi.innerHTML=`<h3>🗓️ 申請請假</h3>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">申請人姓名 *</label><input class="inp" id="lv_name" placeholder="填入姓名"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">職稱</label><input class="inp" id="lv_title" placeholder="如：業務、倉管"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假起始日期 *</label><input class="inp" type="date" id="lv_from"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假結束日期 *</label><input class="inp" type="date" id="lv_to"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假天數 *</label><input class="inp" type="number" id="lv_days" min="0.5" step="0.5" placeholder="如 1、2.5"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">假別 *</label>
+        <select class="inp" id="lv_type">
+          ${['特休','事假','病假','婚假','喪假','產假','其他'].map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">職務代理人 *</label><input class="inp" id="lv_proxy" placeholder="填入代理人姓名"></div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">請假原因 *</label><input class="inp" id="lv_reason" placeholder="簡述請假原因"></div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:10px">提交後將同步至 Notion，由廠長審核。</div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitLeave()">📤 送出申請</button></div>`;
+  }
+
   if(type==='help'){
     mi.innerHTML=`<h3>📖 使用說明</h3>
     <div style="font-size:12px;line-height:1.9;color:var(--text2)">
@@ -1207,6 +1251,140 @@ async function toggleAnnStatus(id,cur){
 
 // Dashboard 加公告（最新 N 筆已發佈）
 // This is injected into renderDashboard
+
+
+// ═══════════════════════════════════════════════
+// 🗓️ 請假管理模組
+// ═══════════════════════════════════════════════
+const LEAVE_DS = '9fabe403-8a8a-4efe-bc30-1a814c80ddee';
+
+function renderLeave(){
+  const canApprove=ROLE==='manager';
+  const canApply=true; // 所有人都可申請
+
+  const tabFilter=document.getElementById('leaveTab')?.value||'all';
+  const sorted=[...leaves].sort((a,b)=>b.applyDate.localeCompare(a.applyDate));
+  const filtered=tabFilter==='all'?sorted:sorted.filter(l=>l.status===tabFilter);
+
+  const pending=leaves.filter(l=>l.status==='待審核').length;
+  const approved=leaves.filter(l=>l.status==='審核通過').length;
+  const rejected=leaves.filter(l=>l.status==='不通過').length;
+
+  const statusColors={'待審核':['rgba(245,185,66,.12)','#f5b942'],'審核通過':['rgba(46,196,138,.12)','#2ec48a'],'不通過':['rgba(245,101,101,.12)','#f56565']};
+
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${['all','待審核','審核通過','不通過'].map(s=>{
+        const labels={all:'全部',待審核:'⏳ 待審核',審核通過:'✅ 通過',不通過:'❌ 不通過'};
+        const counts={all:leaves.length,待審核:pending,審核通過:approved,不通過:rejected};
+        const active=tabFilter===s;
+        return`<button onclick="document.getElementById('leaveTab').value='${s}';renderTab('leave')" style="padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${active?'var(--blue)':'var(--border)'};background:${active?'rgba(77,142,245,.12)':'var(--bg3)'};color:${active?'var(--blue)':'var(--text2)'}">${labels[s]} <span style="font-size:10px;opacity:.8">(${counts[s]})</span></button>`;
+      }).join('')}
+    </div>
+    <button class="btn btn-blue btn-sm" onclick="openModal('newLeave')">＋ 申請請假</button>
+  </div>
+  <input type="hidden" id="leaveTab" value="${tabFilter}">
+
+  ${!filtered.length?`<div style="text-align:center;padding:36px;color:var(--text3);font-size:13px">📭 無請假記錄</div>`:
+    filtered.map(l=>{
+      const [bg,color]=statusColors[l.status]||['var(--bg3)','var(--text2)'];
+      return`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;bottom:0;width:4px;background:${color};border-radius:4px 0 0 4px"></div>
+        <div style="margin-left:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <div>
+              <span style="font-size:15px;font-weight:700;color:var(--text)">${l.name}</span>
+              <span style="font-size:11px;color:var(--text2);margin-left:8px">${l.title||''}</span>
+              ${l.type?`<span style="background:rgba(77,142,245,.12);color:var(--blue);border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700;margin-left:6px">${l.type}</span>`:''}
+            </div>
+            <span class="pill" style="background:${bg};color:${color};font-size:11px;padding:3px 12px">${l.status}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:8px;font-size:12px">
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">📅 請假期間</span><span style="color:var(--text);font-weight:600">${l.dateFrom||'—'} ~ ${l.dateTo||l.dateFrom||'—'}</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">📆 天數</span><span style="color:var(--yellow);font-weight:700;font-size:14px">${l.days}</span><span style="color:var(--text3);font-size:10px;margin-left:3px">天</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">👤 代理人</span><span style="color:var(--text)">${l.proxy||'—'}</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">🗓 申請日期</span><span style="color:var(--text2)">${l.applyDate||'—'}</span></div>
+          </div>
+          ${l.reason?`<div style="background:var(--bg3);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px">📝 ${l.reason}</div>`:''}
+          ${l.status==='不通過'&&l.rejectReason?`<div style="background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--red);margin-bottom:8px">❌ 不通過原因：${l.rejectReason}</div>`:''}
+          ${l.status==='審核通過'?`<div style="font-size:11px;color:var(--green)">✅ 審核人：${l.reviewer||'廠長'} · ${l.applyDate||''}</div>`:''}
+          ${canApprove&&l.status==='待審核'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-green btn-sm" onclick="openApproveLeave('${l.id}',true)">✅ 審核通過</button>
+            <button class="btn btn-red btn-sm" onclick="openApproveLeave('${l.id}',false)">❌ 不通過</button>
+          </div>`:''}
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function openApproveLeave(lid, approve){
+  const l=leaves.find(x=>x.id===lid);if(!l)return;
+  document.getElementById('modalInner').innerHTML=`<h3>${approve?'✅ 審核通過':'❌ 審核不通過'} — ${l.name}</h3>
+    <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      ${l.name} / ${l.type||''} / ${l.dateFrom} ~ ${l.dateTo||l.dateFrom} / ${l.days}天
+    </div>
+    ${!approve?`<div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">不通過原因（必填）</label>
+      <input class="inp" id="rejectReason" placeholder="請填入不通過原因">
+    </div>`:''}
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn ${approve?'btn-green':'btn-red'}" onclick="doApproveLeave('${lid}',${approve})">確認${approve?'通過':'退回'}</button>
+    </div>`;
+  openModal();
+}
+
+async function submitLeave(){
+  const name=document.getElementById('lv_name').value.trim();
+  const title=document.getElementById('lv_title').value.trim();
+  const from=document.getElementById('lv_from').value;
+  const to=document.getElementById('lv_to').value;
+  const days=parseFloat(document.getElementById('lv_days').value)||0;
+  const type=document.getElementById('lv_type').value;
+  const proxy=document.getElementById('lv_proxy').value.trim();
+  const reason=document.getElementById('lv_reason').value.trim();
+  if(!name||!from||!to||!days||!proxy||!reason){showToast('請填入所有必填欄位','warn');return;}
+  if(to<from){showToast('結束日期不能早於起始日期','warn');return;}
+  closeModal();showToast('送出申請中...','warn');
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    const res=await notionAPI('POST','pages',{parent:{database_id:DB.leave},properties:{
+      '申請人姓名':{title:[{text:{content:name}}]},
+      '職稱':{rich_text:[{text:{content:title}}]},
+      '請假日期起':{date:{start:from}},
+      '請假日期迄':{date:{start:to}},
+      '請假天數':{number:days},
+      '假別':{select:{name:type}},
+      '請假原因':{rich_text:[{text:{content:reason}}]},
+      '職務代理人':{rich_text:[{text:{content:proxy}}]},
+      '審核狀態':{select:{name:'待審核'}},
+      '申請日期':{date:{start:today}},
+    }});
+    if(res.object==='error')throw new Error(res.message);
+    await refreshAll();
+    switchTab('leave');
+    showToast('✅ 請假申請已送出，待廠長審核','ok');
+  }catch(e){showToast('❌ 送出失敗：'+e.message,'err');}
+}
+
+
+async function doApproveLeave(lid, approve){
+  const reason=approve?'':document.getElementById('rejectReason')?.value.trim();
+  if(!approve&&!reason){showToast('請填入不通過原因','warn');return;}
+  const today=new Date().toISOString().slice(0,10);
+  closeModal();showToast('更新中...','warn');
+  try{
+    const props={
+      '審核狀態':{select:{name:approve?'審核通過':'不通過'}},
+      '審核日期':{date:{start:today}},
+      '審核人':{rich_text:[{text:{content:'廠長'}}]},
+    };
+    if(!approve)props['不通過原因']={rich_text:[{text:{content:reason}}]};
+    await updatePage(lid,props);
+    await refreshAll();
+    showToast(approve?'✅ 已審核通過':'✅ 已標記不通過', approve?'ok':'warn');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
 
 
 function showToast(msg,type){
