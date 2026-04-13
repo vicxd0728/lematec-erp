@@ -1327,18 +1327,59 @@ function openModal(type,data){
   // ── 新增入料單 ──
   if(type==='newInbound'){
     mi.innerHTML=`<h3>📥 新增入料單</h3>
-    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件</label>
-      <select class="inp" id="m_mat">${parts.map(m=>`<option value="${m.id}">${m.name}（庫存：${m.stock}）</option>`).join('')}</select>
+
+    <!-- 料件來源切換 -->
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button id="ib_tab_exist" class="btn btn-blue btn-sm" onclick="ibSwitchTab('exist')" style="flex:1">📦 從料件主檔選擇</button>
+      <button id="ib_tab_new" class="btn btn-ghost btn-sm" onclick="ibSwitchTab('new')" style="flex:1">✏️ 手動輸入新料件</button>
+    </div>
+
+    <!-- 從主檔選擇 -->
+    <div id="ib_exist_block" style="margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件</label>
+      <select class="inp" id="m_mat">
+        <option value="">— 選擇料件 —</option>
+        ${mats.filter(m=>m.type!=='成品').map(m=>`<option value="${m.id}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('')}
+      </select>
+    </div>
+
+    <!-- 手動輸入新料件 -->
+    <div id="ib_new_block" style="display:none;margin-bottom:12px">
+      <div class="form-row" style="margin-bottom:8px">
+        <div>
+          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件名稱 *</label>
+          <input class="inp" id="m_mat_name" placeholder="如：SKC-1C 主體（藍色）">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件編號</label>
+          <input class="inp" id="m_mat_code" placeholder="如：SKC-1C">
+        </div>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件類型</label>
+        <div style="display:flex;gap:6px">
+          ${['零件','半成品','成品'].map(t=>`<button id="ib_type_${t}" onclick="ibSelectType('${t}')"
+            class="btn btn-sm ${t==='零件'?'btn-blue':'btn-ghost'}"
+            style="flex:1;justify-content:center">${t}</button>`).join('')}
+        </div>
+        <input type="hidden" id="m_mat_type" value="零件">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">⚠ 新料件將同步新增至 Notion 料件主檔</div>
+    </div>
+
+    <!-- 共用欄位 -->
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">入料數量 *</label><input class="inp" type="number" id="m_iqty" min="1" placeholder="數量"></div>
+      <div><label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">入料日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="m_iqty" min="1" placeholder="數量"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">日期</label><input class="inp" type="date" id="m_idate" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
+      <div><label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
     </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">供應商</label><input class="inp" id="m_sup" placeholder="選填"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">驗收人員</label><input class="inp" id="m_rec" placeholder="選填"></div>
-    </div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitInbound()">建立</button></div>`;
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" onclick="submitInbound()">📥 建立入料單</button>
+    </div>`;
   }
 
   // ── 新增客戶 ──
@@ -1393,13 +1434,97 @@ async function submitOrder(){
   try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
   catch(e){showToast('錯誤：'+e.message,'err');}
 }
+// ── 入料單 tab 切換輔助
+function ibSwitchTab(tab){
+  const isExist = tab==='exist';
+  document.getElementById('ib_exist_block').style.display = isExist ? '' : 'none';
+  document.getElementById('ib_new_block').style.display   = isExist ? 'none' : '';
+  document.getElementById('ib_tab_exist').className = 'btn btn-sm ' + (isExist?'btn-blue':'btn-ghost');
+  document.getElementById('ib_tab_new').className   = 'btn btn-sm ' + (isExist?'btn-ghost':'btn-blue');
+}
+function ibSelectType(t){
+  document.getElementById('m_mat_type').value = t;
+  ['零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('ib_type_'+x);
+    if(btn) btn.className = 'btn btn-sm ' + (x===t?'btn-blue':'btn-ghost');
+  });
+}
+
+// ── 新增入料單（支援從主檔選擇 or 手動輸入新料件）
 async function submitInbound(){
-  const matId=document.getElementById('m_mat').value;const qty=parseInt(document.getElementById('m_iqty').value)||0;const date=document.getElementById('m_idate').value;const sup=document.getElementById('m_sup').value;const rec=document.getElementById('m_rec').value;
-  if(!qty){alert('請填入數量');return;}
-  const no=`IN-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
+  const qty   = parseInt(document.getElementById('m_iqty').value)||0;
+  const date  = document.getElementById('m_idate').value;
+  const sup   = document.getElementById('m_sup').value.trim();
+  const rec   = document.getElementById('m_rec').value.trim();
+  if(!qty){showToast('請填入入料數量','warn');return;}
+
+  // 判斷是從主檔選還是手動輸入
+  const isExist = document.getElementById('ib_new_block').style.display==='none'
+               || document.getElementById('ib_exist_block').style.display!=='none';
+  let matId = '';
+  let matTypeName = '零件';
+
+  if(isExist){
+    // 從主檔選擇
+    matId = document.getElementById('m_mat').value;
+    if(!matId){showToast('請選擇料件','warn');return;}
+    const mat = mats.find(m=>m.id===matId);
+    matTypeName = mat?.type || '零件';
+  } else {
+    // 手動輸入新料件 → 先新增到料件主檔
+    const matName = document.getElementById('m_mat_name').value.trim();
+    const matCode = document.getElementById('m_mat_code').value.trim();
+    matTypeName   = document.getElementById('m_mat_type').value || '零件';
+    if(!matName){showToast('請填入料件名稱','warn');return;}
+
+    // 檢查是否已存在
+    const existing = mats.find(m=>
+      m.name===matName || (matCode && m.code===matCode)
+    );
+    if(existing){
+      matId = existing.id;
+      showToast('⚠ 料件已存在，直接關聯至現有料件','warn');
+    } else {
+      // 新增至料件主檔（Notion 同步）
+      showToast('新增料件中...','warn');
+      try{
+        const props = {
+          '料件名稱':{title:[{text:{content:matName}}]},
+          '類型':{select:{name:matTypeName}},
+          '目前庫存':{number:0},
+          '安全庫存':{number:0},
+        };
+        if(matCode) props['料件編號']={rich_text:[{text:{content:matCode}}]};
+        const newMat = await notionAPI('POST','pages',{
+          parent:{database_id:DB.materials},
+          properties:props
+        });
+        if(newMat.object==='error') throw new Error(newMat.message);
+        matId = newMat.id;
+        showToast(`✅ 料件「${matName}」已建立至料件主檔`,'ok');
+      }catch(e){showToast('❌ 新增料件失敗：'+e.message,'err');return;}
+    }
+  }
+
+  // 建立入料單
+  const no = `IN-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{await createPage(DB.inbound,{'入料單號':{title:[{text:{content:no}}]},'料件':{relation:[{id:matId}]},'入料數量':{number:qty},'入料日期':{date:{start:date}},'供應商':{rich_text:[{text:{content:sup}}]},'驗收人員':{rich_text:[{text:{content:rec}}]},'品管狀態':{select:{name:'待品檢'}},'入庫狀態':{select:{name:'待入庫'}}});await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 入料單 ${no} 建立`,'ok');}
-  catch(e){showToast('錯誤：'+e.message,'err');}
+  try{
+    const props = {
+      '入料單號':{title:[{text:{content:no}}]},
+      '入料數量':{number:qty},
+      '入料日期':{date:{start:date}},
+      '供應商':{rich_text:[{text:{content:sup}}]},
+      '驗收人員':{rich_text:[{text:{content:rec}}]},
+      '品管狀態':{select:{name:'待品檢'}},
+      '入庫狀態':{select:{name:'待入庫'}},
+      '料件類型':{select:{name:matTypeName}},
+    };
+    if(matId) props['料件']={relation:[{id:matId}]};
+    await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:props});
+    await refreshAll();
+    showToast(`✅ 入料單 ${no} 建立完成`,'ok');
+  }catch(e){showToast('❌ 錯誤：'+e.message,'err');}
 }
 function openStatusModal(orderId,cur){
   document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['待排程','生產中','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
