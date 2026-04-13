@@ -332,6 +332,10 @@ tr:hover td{background:rgba(59,130,246,.04);}
       <span id="lowWarn" style="font-size:10px;color:var(--yellow);display:none"></span>
       <span class="role-badge" id="roleBadge"></span>
       <span class="conn-dot"></span>
+      <span id="onlineCount" style="display:none;align-items:center;gap:4px;font-size:11px;color:var(--text3);background:var(--bg4);border:1px solid var(--border2);border-radius:12px;padding:2px 8px">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;box-shadow:0 0 6px rgba(16,185,129,.6)"></span>
+        <span id="onlineNum">1</span> 人在線
+      </span>
       <button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">🔄</button>
       <button class="btn btn-ghost btn-sm" onclick="openModal('help')">❓</button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">登出</button>
@@ -467,7 +471,7 @@ async function startApp(){
   const badge=document.getElementById('roleBadge');
   badge.textContent=ri.label;
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
-  buildNav();showTab('dashboard');
+  buildNav();showTab('dashboard');initOnlineTracking();
   document.getElementById('mainContent').innerHTML=`<div class="loading-row"><div class="spin"></div>資料載入中（首次約 10-20 秒）...</div>`;
   await refreshAll();
 }
@@ -747,8 +751,8 @@ function renderDashboard(){
 }
 
 function renderOrders(){
-  const canAdd=ROLE==='sales'||ROLE==='manager';const canPick=ROLE==='production'||ROLE==='manager';
-  const pickedIds=new Set(picks.map(p=>p.orderId));
+  const canAdd=ROLE==='sales'||ROLE==='manager';
+  
   const dateVal=document.getElementById('orderDateFilter')?.value||'6';
   const hideComp=document.getElementById('hideCompleted')?.checked||false;
   let data=applySort('orders',applyDateFilter('orders',orders,'deadline'));
@@ -766,7 +770,7 @@ function renderOrders(){
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
   <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','qty','數量','num')}${TH('orders','created','建立日','str','hide-m')}${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
-  ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';const hp=pickedIds.has(o.id);return`<tr>
+  ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${o.no||'—'}</td>
     <td class="hide-m" style="font-size:11px">${o.customer}</td>
     <td style="font-family:monospace">${o.qty}</td>
@@ -774,8 +778,6 @@ function renderOrders(){
     <td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
     <td>${pill(o.status)}</td>
     <td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${canPick&&isAct&&!hp?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">領料</button>`:''}
-      ${hp?`<span style="font-size:10px;color:var(--green)">✓</span>`:''}
       <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>
   </tr>`;}).join('')}
@@ -1189,7 +1191,7 @@ async function submitMultiOrders(){
         '成品':{relation:[{id:prodId}]},
         '訂購數量':{number:item.qty},
         '交期':{date:{start:date}},
-        '狀態':{select:{name:'待排程'}},
+        '狀態':{select:{name:'生產中'}},
         '業務備註':{rich_text:[{text:{content:'PI No: '+piNo}}]},
       });
       ok++;
@@ -1431,7 +1433,7 @@ async function submitOrder(){
   if(!prodId){alert('請選擇或輸入成品品號');return;}
   const no=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
+  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'生產中'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
   catch(e){showToast('錯誤：'+e.message,'err');}
 }
 // ── 入料單 tab 切換輔助
@@ -1527,7 +1529,7 @@ async function submitInbound(){
   }catch(e){showToast('❌ 錯誤：'+e.message,'err');}
 }
 function openStatusModal(orderId,cur){
-  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['待排程','生產中','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['生產中','待排程','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
   openModal();
 }
 async function doUpdateStatus(id,s){closeModal();try{await updatePage(id,{'狀態':{select:{name:s}}});await refreshAll();showToast(`✅ 狀態→「${s}」`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}}
@@ -1776,6 +1778,75 @@ async function doApproveLeave(lid, approve){
 }
 
 
+// ═══════════════════════════════════════════════
+// 線上人數（同一瀏覽器多分頁偵測）
+// ═══════════════════════════════════════════════
+const ONLINE_KEY = 'lm_online';
+const ONLINE_TTL = 15000; // 15秒心跳
+let _onlineChannel = null;
+let _onlineTimer = null;
+const _myTabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+
+function initOnlineTracking(){
+  // 寫入自己的心跳
+  function heartbeat(){
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      data[_myTabId] = {role:ROLE||'?', ts:Date.now()};
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(data));
+      updateOnlineDisplay();
+    }catch(e){}
+  }
+
+  function updateOnlineDisplay(){
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      const now = Date.now();
+      // 清除過期的分頁
+      const active = Object.entries(data).filter(([k,v])=>now-v.ts < ONLINE_TTL*2);
+      // 清理並回寫
+      const cleaned = {};
+      active.forEach(([k,v])=>cleaned[k]=v);
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(cleaned));
+
+      const count = active.length;
+      const badge = document.getElementById('onlineCount');
+      const num   = document.getElementById('onlineNum');
+      if(badge && num){
+        num.textContent = count;
+        badge.style.display = 'flex';
+        // 顏色：1人灰色，多人綠色
+        badge.style.borderColor = count>1?'rgba(16,185,129,.3)':'var(--border2)';
+        badge.style.color = count>1?'var(--green2)':'var(--text3)';
+      }
+    }catch(e){}
+  }
+
+  // BroadcastChannel（同域多分頁通訊）
+  try{
+    _onlineChannel = new BroadcastChannel('lm_erp_online');
+    _onlineChannel.onmessage = ()=>{ updateOnlineDisplay(); };
+  }catch(e){}
+
+  // 心跳：每 12 秒更新一次
+  heartbeat();
+  _onlineTimer = setInterval(()=>{
+    heartbeat();
+    if(_onlineChannel) _onlineChannel.postMessage('ping');
+  }, 12000);
+
+  // 離開時清除自己
+  window.addEventListener('beforeunload', ()=>{
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      delete data[_myTabId];
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(data));
+      if(_onlineChannel) _onlineChannel.postMessage('bye');
+    }catch(e){}
+  });
+}
+
+
 function showToast(msg,type){
   const c={ok:['rgba(46,196,138,.12)','rgba(46,196,138,.3)','#2ec48a'],warn:['rgba(245,185,66,.1)','rgba(245,185,66,.25)','#f5b942'],err:['rgba(245,101,101,.1)','rgba(245,101,101,.25)','#f56565']};
   const[bg,border,color]=c[type]||c.ok;
@@ -1982,7 +2053,7 @@ async function submitAllOrders(){
         prodId=nm.id;
       }
       const no=prefix+'-'+String(i+1).padStart(3,'0');
-      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});
+      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'生產中'}},'業務備註':{rich_text:[{text:{content:note}}]}});
       if(res.object==='error')throw new Error(res.message);
       ok++;
     }catch(e){
