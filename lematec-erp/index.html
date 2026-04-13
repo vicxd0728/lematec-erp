@@ -606,7 +606,7 @@ function applyDateFilter(filterId,data,dateKey='deadline'){
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));}
+function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
@@ -805,23 +805,183 @@ function renderCustomers(){
 }
 
 function renderInventory(){
-  const low=mats.filter(m=>m.stock<=m.safe);const canEdit=ROLE==='warehouse'||ROLE==='manager';
-  const q=(document.getElementById('matsSearch')?.value||'').toLowerCase();
-  const data=applySort('inventory',mats).filter(m=>!q||m.name.toLowerCase().includes(q)||m.code.toLowerCase().includes(q));
-  return`${low.length?`<div class="info-box info-warn">⚠ 需補料：${low.map(m=>`<b>${m.name}</b>`).join('、')}</div>`:`<div class="info-box info-ok">✅ 物料全部正常</div>`}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">料件主檔</span>
-    <input class="inp" id="matsSearch" style="width:140px;padding:5px 8px;font-size:11px" placeholder="搜尋..." oninput="renderTab('inventory')">
-  </div><div class="table-wrap">
-  <table><tr>${TH('inventory','name','料件名稱')}${TH('inventory','type','類型','str','hide-m')}${TH('inventory','stock','庫存','num')}${TH('inventory','safe','安全庫存','num','hide-m')}<th class="hide-m">狀態</th><th></th></tr>
-  ${data.map(m=>{const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';return`<tr>
-    <td style="color:var(--text);font-weight:600">${m.name}${m.code?`<div style="font-size:10px;color:var(--text3);font-family:monospace">${m.code}</div>`:''}</td>
-    <td class="hide-m">${pill(m.type)}</td>
-    <td><div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div><span style="font-family:monospace;font-size:12px">${m.stock}</span></td>
-    <td class="hide-m" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
-    <td class="hide-m" style="color:${sc};font-size:11px;font-weight:700">${m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓'}</td>
-    <td>${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}','${m.name}',${m.stock})">✏庫存</button><button class=\"btn btn-ghost btn-sm\" onclick=\"openEditMat(\\'${m.id}\\')\" style=\"margin-left:4px\">✏料件</button>`:''}</td>
-  </tr>`;}).join('')}
-  </table></div></div>`;
+  const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+  const canEdit=ROLE==='warehouse'||ROLE==='manager';
+
+  // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
+  const INV = window._invState = window._invState||{
+    q:'', type:'all', stockMin:'', stockMax:'', page:1, pageSize:100
+  };
+
+  // ── 套用篩選
+  let data = applySort('inventory', mats);
+  if(INV.q){
+    const q=INV.q.toLowerCase();
+    data=data.filter(m=>m.name.toLowerCase().includes(q)||m.code.toLowerCase().includes(q));
+  }
+  if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
+  if(INV.stockMin!=='') data=data.filter(m=>m.stock>=Number(INV.stockMin));
+  if(INV.stockMax!=='') data=data.filter(m=>m.stock<=Number(INV.stockMax));
+
+  const total=data.length;
+  const ps=INV.pageSize;
+  const maxPage=Math.max(1,Math.ceil(total/ps));
+  if(INV.page>maxPage) INV.page=maxPage;
+  const pageData=data.slice((INV.page-1)*ps, INV.page*ps);
+
+  // ── 分頁按鈕
+  function pageBtns(){
+    if(maxPage<=1) return '';
+    const btns=[];
+    const p=INV.page;
+    btns.push(`<button class="btn btn-ghost btn-xs" ${p<=1?'disabled':''} onclick="_invGo(${p-1})">‹</button>`);
+    // 顯示頁碼：最多7個
+    let start=Math.max(1,p-3), end=Math.min(maxPage,start+6);
+    if(end-start<6) start=Math.max(1,end-6);
+    for(let i=start;i<=end;i++){
+      btns.push(`<button class="btn btn-xs ${i===p?'btn-blue':'btn-ghost'}" onclick="_invGo(${i})">${i}</button>`);
+    }
+    btns.push(`<button class="btn btn-ghost btn-xs" ${p>=maxPage?'disabled':''} onclick="_invGo(${p+1})">›</button>`);
+    return btns.join('');
+  }
+
+  const html = `
+  ${low.length
+    ?`<div class="info-warn" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">⚠ 需補料：${low.slice(0,5).map(m=>`<b>${m.name}</b>`).join('、')}${low.length>5?`…等${low.length}項`:''}</div>`
+    :`<div class="info-ok" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">✅ 物料全部正常</div>`
+  }
+
+  <!-- 搜尋 & 篩選列 -->
+  <div class="panel" style="margin-bottom:12px">
+    <div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+      <!-- 關鍵字搜尋 -->
+      <div style="flex:1;min-width:160px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">搜尋料件名稱 / 料件編號</div>
+        <input class="inp" id="inv_q" value="${INV.q.replace(/"/g,'&quot;')}"
+          placeholder="輸入關鍵字..." style="padding:7px 12px;font-size:13px"
+          oninput="_invFilter('q',this.value)">
+      </div>
+      <!-- 類型篩選 -->
+      <div style="min-width:120px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">類型</div>
+        <select class="inp" style="padding:7px 10px;font-size:13px" onchange="_invFilter('type',this.value)">
+          ${['all','零件','半成品','成品'].map(t=>`<option value="${t}" ${INV.type===t?'selected':''}>${t==='all'?'全部類型':t}</option>`).join('')}
+        </select>
+      </div>
+      <!-- 庫存下限 -->
+      <div style="min-width:90px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存 ≥</div>
+        <input class="inp" id="inv_min" type="number" value="${INV.stockMin}"
+          placeholder="最小" style="padding:7px 10px;font-size:13px"
+          oninput="_invFilter('stockMin',this.value)">
+      </div>
+      <!-- 庫存上限 -->
+      <div style="min-width:90px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存 ≤</div>
+        <input class="inp" id="inv_max" type="number" value="${INV.stockMax}"
+          placeholder="最大" style="padding:7px 10px;font-size:13px"
+          oninput="_invFilter('stockMax',this.value)">
+      </div>
+      <!-- 清除篩選 -->
+      <div style="display:flex;align-items:flex-end;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
+        ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
+      </div>
+    </div>
+    <!-- 結果摘要 + 每頁筆數 -->
+    <div style="padding:6px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--text3)">
+        共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${mats.length} 筆
+        ${INV.page>1||total<mats.length?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
+      </span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px;color:var(--text3)">每頁</span>
+        <select class="inp" style="width:70px;padding:4px 8px;font-size:12px" onchange="_invFilter('pageSize',parseInt(this.value))">
+          ${[50,100,200,500].map(n=>`<option value="${n}" ${INV.pageSize===n?'selected':''}>${n}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:var(--text3)">筆</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 表格 -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <span class="panel-title">料件主檔 <span class="badge">${total}</span></span>
+      <div style="display:flex;gap:4px">${pageBtns()}</div>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <tr>
+        ${TH('inventory','name','料件名稱')}
+        ${TH('inventory','code','料件編號','str','hide-m')}
+        ${TH('inventory','type','類型','str','hide-m')}
+        ${TH('inventory','stock','庫存','num')}
+        ${TH('inventory','safe','安全庫存','num','hide-m')}
+        <th class="hide-m">狀態</th>
+        <th>操作</th>
+      </tr>
+      ${pageData.length?pageData.map(m=>{
+        const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);
+        const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
+        const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
+        return`<tr>
+        <td style="font-weight:600">${m.name}${m.code?`<div style="font-size:10px;color:var(--text3);font-family:monospace;margin-top:2px">${m.code}</div>`:''}</td>
+        <td class="hide-m" style="font-family:monospace;font-size:12px;color:var(--text2)">${m.code||'—'}</td>
+        <td class="hide-m">${pill(m.type)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div>
+            <span style="font-family:monospace;font-size:13px;font-weight:600;color:${sc}">${m.stock}</span>
+          </div>
+        </td>
+        <td class="hide-m" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
+        <td class="hide-m" style="color:${sc};font-size:13px;font-weight:700">${m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓'}</td>
+        <td style="white-space:nowrap">
+          ${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}','${m.name}',${m.stock})" style="margin-right:4px">✏庫存</button><button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')">✏料件</button>`:''}
+        </td>
+      </tr>`;}).join('')
+      :`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
+    </table>
+    </div>
+    ${maxPage>1?`<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:4px">${pageBtns()}</div>`:''}
+  </div>`;
+
+  return html;
+}
+
+// ── 庫存篩選輔助函數（不重渲染整個 tab）
+function _invFilter(key, val){
+  if(!window._invState) return;
+  window._invState[key] = val;
+  if(key!=='page') window._invState.page = 1; // 篩選改變時回第一頁
+  // 更新表格內容而不重建整個頁面（保持搜尋框焦點）
+  _invRender();
+}
+function _invGo(page){
+  if(!window._invState) return;
+  window._invState.page = page;
+  _invRender();
+  document.getElementById('mainContent')?.scrollTo?.(0,0);
+}
+function _invReset(){
+  window._invState = {q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:window._invState?.pageSize||100};
+  _invRender();
+}
+function _invRender(){
+  // 保存搜尋框焦點和游標位置
+  const qEl=document.getElementById('inv_q');
+  const qFocus=document.activeElement===qEl;
+  const qCursor=qEl?qEl.selectionStart:-1;
+
+  const c=document.getElementById('mainContent');
+  if(c) c.innerHTML=renderInventory();
+
+  // 恢復焦點
+  if(qFocus){
+    const newQ=document.getElementById('inv_q');
+    if(newQ){newQ.focus();try{newQ.setSelectionRange(qCursor,qCursor);}catch(e){}}
+  }
 }
 
 function renderPicking(){
