@@ -778,7 +778,7 @@ function renderOrders(){
     <td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
     <td>${pill(o.status)}</td>
     <td style="display:flex;gap:4px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='production'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -1016,7 +1016,7 @@ async function doPick(orderId){
       await createPage(DB.pickDetail,{'料件名稱':{title:[{text:{content:item.name}}]},'領料主單':{relation:[{id:master.id}]},'料件':{relation:[{id:item.id}]},'類型':{select:{name:item.type}},'需求數量':{number:item.needed},'實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},'狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}});
       if(item.type!=='半成品')await updatePage(item.id,{'目前庫存':{number:Math.max(0,item.stock-item.needed)}});
     }
-    await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+    await updatePage(orderId,{'狀態':{select:{name:'待排程'}}});
     await refreshAll();await loadPicks();showToast(`✅ 領料單 ${no} 建立完成`,'ok');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
@@ -1191,7 +1191,7 @@ async function submitMultiOrders(){
         '成品':{relation:[{id:prodId}]},
         '訂購數量':{number:item.qty},
         '交期':{date:{start:date}},
-        '狀態':{select:{name:'生產中'}},
+        '狀態':{select:{name:'待排程'}},
         '業務備註':{rich_text:[{text:{content:'PI No: '+piNo}}]},
       });
       ok++;
@@ -1433,7 +1433,7 @@ async function submitOrder(){
   if(!prodId){alert('請選擇或輸入成品品號');return;}
   const no=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
-  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'生產中'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
+  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
   catch(e){showToast('錯誤：'+e.message,'err');}
 }
 // ── 入料單 tab 切換輔助
@@ -1529,7 +1529,7 @@ async function submitInbound(){
   }catch(e){showToast('❌ 錯誤：'+e.message,'err');}
 }
 function openStatusModal(orderId,cur){
-  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['生產中','待排程','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['待排程','生產中','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
   openModal();
 }
 async function doUpdateStatus(id,s){closeModal();try{await updatePage(id,{'狀態':{select:{name:s}}});await refreshAll();showToast(`✅ 狀態→「${s}」`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}}
@@ -2053,7 +2053,7 @@ async function submitAllOrders(){
         prodId=nm.id;
       }
       const no=prefix+'-'+String(i+1).padStart(3,'0');
-      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'生產中'}},'業務備註':{rich_text:[{text:{content:note}}]}});
+      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});
       if(res.object==='error')throw new Error(res.message);
       ok++;
     }catch(e){
