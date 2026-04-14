@@ -950,6 +950,120 @@ function renderInventory(){
   return html;
 }
 
+// ═══════════════════════════════════════════════
+// 入料單：手動輸入料件名稱時，即時檢查是否已建檔
+// ═══════════════════════════════════════════════
+function checkDupMat(val){
+  const warn = document.getElementById('dup_mat_warn');
+  if(!warn) return;
+  const q = val.trim().toLowerCase();
+  if(!q){ warn.style.display='none'; return; }
+
+  // 比對料件主檔（名稱 or 料件編號）
+  const exact  = mats.find(m=> m.name.toLowerCase()===q || m.code.toLowerCase()===q);
+  const similar= mats.filter(m=>
+    m.name.toLowerCase().includes(q) || q.includes(m.name.toLowerCase()) ||
+    (m.code && (m.code.toLowerCase().includes(q) || q.includes(m.code.toLowerCase())))
+  ).slice(0,3);
+
+  if(exact){
+    // 完全相同 → 強烈提示切換到選擇模式
+    warn.style.display='';
+    warn.innerHTML=`
+      <div style="font-weight:700;margin-bottom:4px">⚠ 此料件已建檔</div>
+      <div style="margin-bottom:6px">
+        <span style="font-family:monospace;color:var(--text)">${exact.name}</span>
+        ${exact.code?`<span style="color:var(--text3);margin-left:6px">(${exact.code})</span>`:''}
+        <span class="pill" style="background:rgba(16,185,129,.12);color:var(--green2);margin-left:6px">${exact.type}</span>
+        <span style="color:var(--text2);margin-left:6px">庫存：<b>${exact.stock}</b></span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">請改用「從料件主檔選擇」避免重複建立，造成統計錯誤。</div>
+      <button class="btn btn-amber btn-xs" onclick="ibSwitchToExistAndSelect('${exact.id}')"
+        style="background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.3)">
+        → 切換並選擇此料件
+      </button>`;
+    warn.style.borderColor='rgba(239,68,68,.4)';
+    warn.style.background='rgba(239,68,68,.07)';
+    warn.style.color='var(--red2)';
+    warn.querySelector('div').style.color='var(--red2)';
+  } else if(similar.length){
+    // 相似 → 提示可能重複
+    warn.style.display='';
+    warn.style.borderColor='rgba(245,158,11,.3)';
+    warn.style.background='rgba(245,158,11,.07)';
+    warn.style.color='var(--amber)';
+    warn.innerHTML=`
+      <div style="font-weight:700;margin-bottom:5px">💡 找到相似料件，請確認是否已建檔</div>
+      ${similar.map(m=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(245,158,11,.15)">
+          <span>
+            <span style="font-family:monospace;font-size:12px;color:var(--text)">${m.name}</span>
+            ${m.code?`<span style="color:var(--text3);font-size:10px;margin-left:5px">${m.code}</span>`:''}
+            <span style="font-size:10px;color:var(--text3);margin-left:5px">庫存 ${m.stock}</span>
+          </span>
+          <button class="btn btn-ghost btn-xs" onclick="ibSwitchToExistAndSelect('${m.id}')" style="flex-shrink:0;margin-left:8px">使用此料件</button>
+        </div>`).join('')}
+      <div style="font-size:10px;color:var(--text3);margin-top:5px">確認是全新料件才繼續手動輸入</div>`;
+  } else {
+    warn.style.display='none';
+  }
+}
+
+// 切換到「從主檔選擇」模式並自動選中指定料件
+function ibSwitchToExistAndSelect(matId){
+  ibSwitchTab('exist');
+  const sel = document.getElementById('m_mat');
+  if(sel) sel.value = matId;
+  // 視覺回饋
+  if(sel){
+    sel.style.borderColor='var(--green)';
+    sel.style.boxShadow='0 0 0 3px rgba(16,185,129,.2)';
+    setTimeout(()=>{ sel.style.borderColor=''; sel.style.boxShadow=''; }, 2000);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// 新增客戶：輸入時檢查重複
+// ═══════════════════════════════════════════════
+function checkDupCustomer(val){
+  const warn = document.getElementById('dup_cust_warn');
+  if(!warn) return;
+  const q = val.trim().toLowerCase();
+  if(!q){ warn.style.display='none'; return; }
+
+  const exact = customers.find(c=>
+    c.name.toLowerCase()===q || (c.code && c.code.toLowerCase()===q)
+  );
+  const similar = customers.filter(c=>
+    c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase().slice(0,8))
+  ).slice(0,3);
+
+  if(exact){
+    warn.style.display='';
+    warn.style.background='rgba(239,68,68,.07)';
+    warn.style.borderColor='rgba(239,68,68,.35)';
+    warn.innerHTML=`
+      <div style="font-weight:700;color:var(--red2);margin-bottom:4px">⚠ 此客戶已建檔，請勿重複新增</div>
+      <div style="font-size:12px;color:var(--text2)">
+        <b>${exact.name}</b>
+        ${exact.code?`<span style="color:var(--text3);margin-left:6px">代號：${exact.code}</span>`:''}
+        ${exact.region?`<span style="color:var(--text3);margin-left:6px">國家：${exact.region}</span>`:''}
+      </div>`;
+  } else if(similar.length){
+    warn.style.display='';
+    warn.style.background='rgba(245,158,11,.07)';
+    warn.style.borderColor='rgba(245,158,11,.3)';
+    warn.innerHTML=`
+      <div style="font-weight:700;color:var(--amber);margin-bottom:5px">💡 找到相似客戶，請確認</div>
+      ${similar.map(c=>`<div style="font-size:12px;color:var(--text2);padding:2px 0">
+        <b>${c.name}</b>${c.code?` (${c.code})`:''}${c.region?` · ${c.region}`:''}
+      </div>`).join('')}
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">確認是全新客戶才繼續新增</div>`;
+  } else {
+    warn.style.display='none';
+  }
+}
+
 // ── 庫存篩選輔助函數（不重渲染整個 tab）
 function _invFilter(key, val){
   if(!window._invState) return;
@@ -1510,7 +1624,8 @@ function openModal(type,data){
       <div class="form-row" style="margin-bottom:8px">
         <div>
           <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件名稱 *</label>
-          <input class="inp" id="m_mat_name" placeholder="如：SKC-1C 主體（藍色）">
+          <input class="inp" id="m_mat_name" placeholder="如：SKC-1C 主體（藍色）" oninput="checkDupMat(this.value)">
+          <div id="dup_mat_warn" style="display:none;margin-top:6px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--amber)"></div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件編號</label>
@@ -1548,7 +1663,10 @@ function openModal(type,data){
   if(type==='newCustomer'){
     mi.innerHTML=`<h3>🏢 新增客戶</h3>
     <div class="help-box" style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.18);border-radius:8px;padding:10px;font-size:11px;color:var(--cyan);margin-bottom:12px">💡 新增至：國外業務 › 🤑 客戶總檔（Notion 資料庫）</div>
-    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱 *</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱 *</label>
+      <input class="inp" id="m_cname" placeholder="完整公司名稱" oninput="checkDupCustomer(this.value)">
+      <div id="dup_cust_warn" style="display:none;margin-top:6px;border-radius:7px;padding:8px 10px;font-size:12px;border:1px solid rgba(245,158,11,.3)"></div>
+    </div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label><input class="inp" id="m_ccode" placeholder="如 2602AU016"></div>
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label><input class="inp" id="m_cregion" placeholder="AU / US / TW" maxlength="4"></div>
