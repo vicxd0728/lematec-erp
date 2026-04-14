@@ -1010,17 +1010,7 @@ function checkDupMat(val){
 }
 
 // 切換到「從主檔選擇」模式並自動選中指定料件
-function ibSwitchToExistAndSelect(matId){
-  ibSwitchTab('exist');
-  const sel = document.getElementById('m_mat');
-  if(sel) sel.value = matId;
-  // 視覺回饋
-  if(sel){
-    sel.style.borderColor='var(--green)';
-    sel.style.boxShadow='0 0 0 3px rgba(16,185,129,.2)';
-    setTimeout(()=>{ sel.style.borderColor=''; sel.style.boxShadow=''; }, 2000);
-  }
-}
+// [removed duplicate]
 
 // ═══════════════════════════════════════════════
 // 新增客戶：輸入時檢查重複
@@ -1063,6 +1053,13 @@ function checkDupCustomer(val){
     warn.style.display='none';
   }
 }
+
+// ── 入料選擇模式：類型篩選 + 搜尋
+
+
+
+
+// ibSwitchToExistAndSelect 切換後也要觸發篩選更新
 
 // ── 庫存篩選輔助函數（不重渲染整個 tab）
 function _invFilter(key, val){
@@ -1666,10 +1663,18 @@ function openModal(type,data){
 
     <!-- 從主檔選擇 -->
     <div id="ib_exist_block" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件</label>
-      <select class="inp" id="m_mat">
+      <!-- 類型篩選按鈕 -->
+      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">依類型篩選</label>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        ${['全部','零件','半成品','成品'].map(t=>`<button id="eib_t_${t}" onclick="eibFilterType('${t}')" class="btn btn-xs ${t==='全部'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center">${t}</button>`).join('')}
+      </div>
+      <input type="hidden" id="eib_type_filter" value="全部">
+      <!-- 搜尋框 -->
+      <input class="inp" id="eib_search" placeholder="搜尋料件名稱或編號..." style="margin-bottom:6px;font-size:13px;padding:7px 12px" oninput="eibUpdateSelect()">
+      <!-- 選單（全部類型，由 JS 動態篩選）-->
+      <select class="inp" id="m_mat" size="7" style="height:auto;min-height:130px;padding:4px 0">
         <option value="">— 選擇料件 —</option>
-        ${mats.filter(m=>m.type!=='成品').map(m=>`<option value="${m.id}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('')}
+        ${mats.map(m=>`<option value="${m.id}" data-type="${m.type}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('')}
       </select>
     </div>
 
@@ -1768,7 +1773,7 @@ async function submitOrder(){
   try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
   catch(e){showToast('錯誤：'+e.message,'err');}
 }
-// ── 入料單 tab 切換輔助
+// ── 入料單 tab 切換
 function ibSwitchTab(tab){
   const isExist = tab==='exist';
   document.getElementById('ib_exist_block').style.display = isExist ? '' : 'none';
@@ -1776,12 +1781,95 @@ function ibSwitchTab(tab){
   document.getElementById('ib_tab_exist').className = 'btn btn-sm ' + (isExist?'btn-blue':'btn-ghost');
   document.getElementById('ib_tab_new').className   = 'btn btn-sm ' + (isExist?'btn-ghost':'btn-blue');
 }
+
+// ── 類型按鈕：同時更新手動模式類型 和 選擇模式篩選
 function ibSelectType(t){
-  document.getElementById('m_mat_type').value = t;
+  // 更新手動模式隱藏欄位
+  const typeEl = document.getElementById('m_mat_type');
+  if(typeEl) typeEl.value = (t==='全部'?'零件':t); // 手動新增預設零件
+
+  // 更新類型按鈕樣式（手動模式按鈕 ib_type_X）
   ['零件','半成品','成品'].forEach(x=>{
     const btn = document.getElementById('ib_type_'+x);
     if(btn) btn.className = 'btn btn-sm ' + (x===t?'btn-blue':'btn-ghost');
   });
+
+  // 更新選擇模式篩選（eib_t_X 按鈕）
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x===t?'btn-blue':'btn-ghost');
+  });
+
+  // 更新選擇模式篩選條件並刷新選單
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = t;
+  eibUpdateSelect();
+}
+
+// ── 選擇模式：依類型篩選按鈕
+function eibFilterType(t){
+  // 更新按鈕樣式
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x===t?'btn-blue':'btn-ghost');
+  });
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = t;
+  eibUpdateSelect();
+}
+
+// ── 選擇模式：更新 select 顯示（依類型 + 關鍵字搜尋）
+function eibUpdateSelect(){
+  const sel = document.getElementById('m_mat');
+  const typeFilter = document.getElementById('eib_type_filter')?.value || '全部';
+  const kw = (document.getElementById('eib_search')?.value || '').toLowerCase().trim();
+  if(!sel) return;
+
+  // 篩選料件
+  let filtered = mats.filter(m=>{
+    const typeOk = typeFilter==='全部' || m.type===typeFilter;
+    const kwOk = !kw || m.name.toLowerCase().includes(kw) || m.code.toLowerCase().includes(kw);
+    return typeOk && kwOk;
+  });
+
+  // 重建選項
+  const prev = sel.value; // 保留已選
+  sel.innerHTML = `<option value="">— 選擇料件（${filtered.length} 筆）—</option>` +
+    filtered.map(m=>`<option value="${m.id}" data-type="${m.type}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('');
+
+  // 嘗試還原選取
+  if(prev) sel.value = prev;
+}
+
+// ── 切換到選擇模式並自動選中指定料件（修正版：確保選項存在）
+function ibSwitchToExistAndSelect(matId){
+  // 先切換到選擇模式
+  ibSwitchTab('exist');
+
+  // 把類型篩選重置為「全部」確保料件一定看得到
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x==='全部'?'btn-blue':'btn-ghost');
+  });
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = '全部';
+
+  // 清空搜尋框
+  const searchEl = document.getElementById('eib_search');
+  if(searchEl) searchEl.value = '';
+
+  // 刷新選單（全部類型）
+  eibUpdateSelect();
+
+  // 選中目標料件
+  const sel = document.getElementById('m_mat');
+  if(sel){
+    sel.value = matId;
+    // 視覺回饋
+    sel.style.borderColor='var(--green)';
+    sel.style.boxShadow='0 0 0 3px rgba(16,185,129,.2)';
+    setTimeout(()=>{ sel.style.borderColor=''; sel.style.boxShadow=''; }, 2000);
+  }
 }
 
 // ── 新增入料單（支援從主檔選擇 or 手動輸入新料件）
