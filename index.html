@@ -557,7 +557,7 @@ async function refreshAll(manual=false){
       order:p.properties?.['顯示順序']?.number||99,
     }));
 
-    const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+    const low=mats.filter(m=>m.stock<=m.safe);
     const w=document.getElementById('lowWarn');
     if(low.length){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}else w.style.display='none';
 
@@ -612,7 +612,7 @@ function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
 
 function renderDashboard(){
-  const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+  const low=mats.filter(m=>m.stock<=m.safe);
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
   const done=orders.filter(o=>o.status==='已完成').length;
   const rate=orders.length?Math.round(done/orders.length*100):0;
@@ -805,7 +805,7 @@ function renderCustomers(){
 }
 
 function renderInventory(){
-  const low=mats.filter(m=>m.stock<=m.safe&&m.type!=='成品');
+  const low=mats.filter(m=>m.stock<=m.safe);
   const canEdit=ROLE==='warehouse'||ROLE==='manager';
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
@@ -950,6 +950,120 @@ function renderInventory(){
   return html;
 }
 
+// ═══════════════════════════════════════════════
+// 入料單：手動輸入料件名稱時，即時檢查是否已建檔
+// ═══════════════════════════════════════════════
+function checkDupMat(val){
+  const warn = document.getElementById('dup_mat_warn');
+  if(!warn) return;
+  const q = val.trim().toLowerCase();
+  if(!q){ warn.style.display='none'; return; }
+
+  // 比對料件主檔（名稱 or 料件編號）
+  const exact  = mats.find(m=> m.name.toLowerCase()===q || m.code.toLowerCase()===q);
+  const similar= mats.filter(m=>
+    m.name.toLowerCase().includes(q) || q.includes(m.name.toLowerCase()) ||
+    (m.code && (m.code.toLowerCase().includes(q) || q.includes(m.code.toLowerCase())))
+  ).slice(0,3);
+
+  if(exact){
+    // 完全相同 → 強烈提示切換到選擇模式
+    warn.style.display='';
+    warn.innerHTML=`
+      <div style="font-weight:700;margin-bottom:4px">⚠ 此料件已建檔</div>
+      <div style="margin-bottom:6px">
+        <span style="font-family:monospace;color:var(--text)">${exact.name}</span>
+        ${exact.code?`<span style="color:var(--text3);margin-left:6px">(${exact.code})</span>`:''}
+        <span class="pill" style="background:rgba(16,185,129,.12);color:var(--green2);margin-left:6px">${exact.type}</span>
+        <span style="color:var(--text2);margin-left:6px">庫存：<b>${exact.stock}</b></span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">請改用「從料件主檔選擇」避免重複建立，造成統計錯誤。</div>
+      <button class="btn btn-amber btn-xs" onclick="ibSwitchToExistAndSelect('${exact.id}')"
+        style="background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.3)">
+        → 切換並選擇此料件
+      </button>`;
+    warn.style.borderColor='rgba(239,68,68,.4)';
+    warn.style.background='rgba(239,68,68,.07)';
+    warn.style.color='var(--red2)';
+    warn.querySelector('div').style.color='var(--red2)';
+  } else if(similar.length){
+    // 相似 → 提示可能重複
+    warn.style.display='';
+    warn.style.borderColor='rgba(245,158,11,.3)';
+    warn.style.background='rgba(245,158,11,.07)';
+    warn.style.color='var(--amber)';
+    warn.innerHTML=`
+      <div style="font-weight:700;margin-bottom:5px">💡 找到相似料件，請確認是否已建檔</div>
+      ${similar.map(m=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(245,158,11,.15)">
+          <span>
+            <span style="font-family:monospace;font-size:12px;color:var(--text)">${m.name}</span>
+            ${m.code?`<span style="color:var(--text3);font-size:10px;margin-left:5px">${m.code}</span>`:''}
+            <span style="font-size:10px;color:var(--text3);margin-left:5px">庫存 ${m.stock}</span>
+          </span>
+          <button class="btn btn-ghost btn-xs" onclick="ibSwitchToExistAndSelect('${m.id}')" style="flex-shrink:0;margin-left:8px">使用此料件</button>
+        </div>`).join('')}
+      <div style="font-size:10px;color:var(--text3);margin-top:5px">確認是全新料件才繼續手動輸入</div>`;
+  } else {
+    warn.style.display='none';
+  }
+}
+
+// 切換到「從主檔選擇」模式並自動選中指定料件
+function ibSwitchToExistAndSelect(matId){
+  ibSwitchTab('exist');
+  const sel = document.getElementById('m_mat');
+  if(sel) sel.value = matId;
+  // 視覺回饋
+  if(sel){
+    sel.style.borderColor='var(--green)';
+    sel.style.boxShadow='0 0 0 3px rgba(16,185,129,.2)';
+    setTimeout(()=>{ sel.style.borderColor=''; sel.style.boxShadow=''; }, 2000);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// 新增客戶：輸入時檢查重複
+// ═══════════════════════════════════════════════
+function checkDupCustomer(val){
+  const warn = document.getElementById('dup_cust_warn');
+  if(!warn) return;
+  const q = val.trim().toLowerCase();
+  if(!q){ warn.style.display='none'; return; }
+
+  const exact = customers.find(c=>
+    c.name.toLowerCase()===q || (c.code && c.code.toLowerCase()===q)
+  );
+  const similar = customers.filter(c=>
+    c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase().slice(0,8))
+  ).slice(0,3);
+
+  if(exact){
+    warn.style.display='';
+    warn.style.background='rgba(239,68,68,.07)';
+    warn.style.borderColor='rgba(239,68,68,.35)';
+    warn.innerHTML=`
+      <div style="font-weight:700;color:var(--red2);margin-bottom:4px">⚠ 此客戶已建檔，請勿重複新增</div>
+      <div style="font-size:12px;color:var(--text2)">
+        <b>${exact.name}</b>
+        ${exact.code?`<span style="color:var(--text3);margin-left:6px">代號：${exact.code}</span>`:''}
+        ${exact.region?`<span style="color:var(--text3);margin-left:6px">國家：${exact.region}</span>`:''}
+      </div>`;
+  } else if(similar.length){
+    warn.style.display='';
+    warn.style.background='rgba(245,158,11,.07)';
+    warn.style.borderColor='rgba(245,158,11,.3)';
+    warn.innerHTML=`
+      <div style="font-weight:700;color:var(--amber);margin-bottom:5px">💡 找到相似客戶，請確認</div>
+      ${similar.map(c=>`<div style="font-size:12px;color:var(--text2);padding:2px 0">
+        <b>${c.name}</b>${c.code?` (${c.code})`:''}${c.region?` · ${c.region}`:''}
+      </div>`).join('')}
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">確認是全新客戶才繼續新增</div>`;
+  } else {
+    warn.style.display='none';
+  }
+}
+
 // ── 庫存篩選輔助函數（不重渲染整個 tab）
 function _invFilter(key, val){
   if(!window._invState) return;
@@ -1031,7 +1145,7 @@ function renderQCTab(){
       <td style="font-size:11px">${mat?.name||'—'}</td>
       <td style="font-family:monospace">${i.qty}</td>
       <td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td>
-      <td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button><button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗ 退回</button><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">📷</a></div>`:'—'}</td>
+      <td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button><button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗ 退回</button><button class="btn btn-cyan btn-sm" onclick="syncInboundStock('${i.id}','${i.matId}',${i.qty})" title="若已在Notion改過品管狀態，點此同步庫存">🔄 同步庫存</button><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">📷</a></div>`:'—'}</td>
     </tr>`;}).join('')}
     </table></div></div>`;
   }
@@ -1180,9 +1294,63 @@ async function doPick(orderId){
     await refreshAll();await loadPicks();showToast(`✅ 領料單 ${no} 建立完成`,'ok');
   }catch(e){showToast('錯誤：'+e.message,'err');}
 }
+// ══ 品管直接在 Notion 改狀態後，手動同步庫存 ══
+async function syncInboundStock(id, matId, qty){
+  if(!matId){ showToast('此入料單未關聯料件，無法同步庫存','warn'); return; }
+  // 先確認入料單目前狀態
+  const inbound = inbounds.find(i=>i.id===id);
+  if(!inbound){ showToast('找不到此入料單','warn'); return; }
+
+  if(inbound.qcStatus!=='品檢通過'){
+    showToast('⚠ 品管狀態尚未通過，無法同步庫存','warn'); return;
+  }
+
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat){ showToast('找不到對應料件','warn'); return; }
+
+  const newStock = (mat.stock||0) + parseInt(qty);
+  if(!confirm(`確認同步庫存？
+料件：${mat.name}
+目前庫存：${mat.stock}
+入料數量：${qty}
+同步後：${newStock}`)) return;
+
+  showToast('同步中...','warn');
+  try{
+    await updatePage(matId, {'目前庫存':{number: newStock}});
+    // 確保入庫狀態也是已入庫
+    await updatePage(id, {'入庫狀態':{select:{name:'已入庫'}}});
+    await refreshAll();
+    showToast(`✅ ${mat.name} 庫存已同步：${mat.stock} → ${newStock}`,'ok');
+  }catch(e){ showToast('❌ 同步失敗：'+e.message,'err'); }
+}
+
 async function approveQC(id,matId,qty){
-  if(!confirm(`確認品檢通過？將增加 ${qty} 個庫存`))return;
-  try{await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});const mat=mats.find(m=>m.id===matId);await updatePage(matId,{'目前庫存':{number:(mat?.stock||0)+parseInt(qty)}});await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);showToast(`✅ 品檢通過！${mat?.name} 庫存更新`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}
+  if(!confirm('確認品檢通過？將增加 '+qty+' 個庫存'))return;
+  // ★ 驗證 matId
+  if(!matId){
+    showToast('❌ 入料單未關聯料件，無法自動加庫存。品管狀態仍會更新。','err');
+    try{await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});}catch(e2){}
+    await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+    return;
+  }
+  try{
+    // 1. 更新品管狀態
+    await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
+    // 2. 重新從 Notion 讀最新庫存（不用快取，避免算錯）
+    const matData=await notionAPI('GET','pages/'+matId);
+    const curStock=matData?.properties?.['目前庫存']?.number??0;
+    const newStock=curStock+parseInt(qty);
+    // 3. 更新庫存
+    await updatePage(matId,{'目前庫存':{number:newStock}});
+    // 4. 重整
+    await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+    const mat=mats.find(m=>m.id===matId);
+    showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+curStock+' → '+newStock,'ok');
+  }catch(e){
+    showToast('❌ 品管通過失敗：'+e.message,'err');
+    console.error('approveQC error:',e);
+  }
 }
 async function rejectQC(id){
   if(!confirm('確認不合格？'))return;
@@ -1510,7 +1678,8 @@ function openModal(type,data){
       <div class="form-row" style="margin-bottom:8px">
         <div>
           <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件名稱 *</label>
-          <input class="inp" id="m_mat_name" placeholder="如：SKC-1C 主體（藍色）">
+          <input class="inp" id="m_mat_name" placeholder="如：SKC-1C 主體（藍色）" oninput="checkDupMat(this.value)">
+          <div id="dup_mat_warn" style="display:none;margin-top:6px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--amber)"></div>
         </div>
         <div>
           <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">料件編號</label>
@@ -1548,7 +1717,10 @@ function openModal(type,data){
   if(type==='newCustomer'){
     mi.innerHTML=`<h3>🏢 新增客戶</h3>
     <div class="help-box" style="background:rgba(66,212,245,.06);border:1px solid rgba(66,212,245,.18);border-radius:8px;padding:10px;font-size:11px;color:var(--cyan);margin-bottom:12px">💡 新增至：國外業務 › 🤑 客戶總檔（Notion 資料庫）</div>
-    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱 *</label><input class="inp" id="m_cname" placeholder="完整公司名稱"></div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶名稱 *</label>
+      <input class="inp" id="m_cname" placeholder="完整公司名稱" oninput="checkDupCustomer(this.value)">
+      <div id="dup_cust_warn" style="display:none;margin-top:6px;border-radius:7px;padding:8px 10px;font-size:12px;border:1px solid rgba(245,158,11,.3)"></div>
+    </div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">客戶代號</label><input class="inp" id="m_ccode" placeholder="如 2602AU016"></div>
       <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">國家代碼</label><input class="inp" id="m_cregion" placeholder="AU / US / TW" maxlength="4"></div>
@@ -1618,7 +1790,16 @@ async function submitInbound(){
   const date  = document.getElementById('m_idate').value;
   const sup   = document.getElementById('m_sup').value.trim();
   const rec   = document.getElementById('m_rec').value.trim();
-  if(!qty){showToast('請填入入料數量','warn');return;}
+
+  // ★ 必填驗證 — 明確提示缺少哪個欄位
+  if(!qty || qty<=0){
+    document.getElementById('m_iqty')?.focus();
+    showToast('⚠ 請填入入料數量（必填）','warn');return;
+  }
+  if(!date){
+    document.getElementById('m_idate')?.focus();
+    showToast('⚠ 請填入入料日期（必填）','warn');return;
+  }
 
   // 判斷是從主檔選還是手動輸入
   const isExist = document.getElementById('ib_new_block').style.display==='none'
@@ -1639,9 +1820,12 @@ async function submitInbound(){
     matTypeName   = document.getElementById('m_mat_type').value || '零件';
     if(!matName){showToast('請填入料件名稱','warn');return;}
 
-    // 檢查是否已存在
+    // 檢查是否已存在（大小寫不敏感）
+    const matNameLow = matName.toLowerCase();
+    const matCodeLow = matCode.toLowerCase();
     const existing = mats.find(m=>
-      m.name===matName || (matCode && m.code===matCode)
+      m.name.toLowerCase()===matNameLow ||
+      (matCode && m.code && m.code.toLowerCase()===matCodeLow)
     );
     if(existing){
       matId = existing.id;
