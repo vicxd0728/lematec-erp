@@ -1332,7 +1332,7 @@ function openPickPreview(orderId){
           <b style="color:var(--text);font-size:13px">${prod?.name||'—'}</b>
           <span style="font-family:monospace;color:var(--text3);font-size:11px;margin-left:8px">現有庫存：${prod?.stock??'—'}</span>
           <span style="color:var(--yellow);font-family:monospace;font-size:13px;margin-left:8px;font-weight:700">扣除：${o.qty}</span>
-          <span style="color:${(prod?.stock??0)>=o.qty?'var(--green)':'var(--red)'};font-family:monospace;font-size:13px;margin-left:8px;font-weight:700">→ ${Math.max(0,(prod?.stock??0)-o.qty}</span>
+          <span style="color:${(prod?.stock??0)>=o.qty?'var(--green)':'var(--red)'};font-family:monospace;font-size:13px;margin-left:8px;font-weight:700">→ ${Math.max(0,(prod?.stock??0)-o.qty)}</span>
         </div>
         ${(prod?.stock??0)<o.qty?`<div style="margin-top:6px;color:var(--red);font-size:11px">⚠ 庫存不足（現有 ${prod?.stock}，需要 ${o.qty}），將扣至 0</div>`:''}
         <div style="margin-top:6px;font-size:11px;color:var(--text3)">若需展開子件扣料，請在 Notion 🔩 BOM 清單建立母件→子件關係後重新整理。</div>
