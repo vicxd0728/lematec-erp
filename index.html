@@ -381,14 +381,14 @@ const DB={
   stockLogDS: '3bda3fab-943f-4a38-bf96-dc0384d228e9',
 };
 const ROLES={
-  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave']},
+  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog']},
   sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','announce','orders','customers','leave']},
   production:{label:'生管',color:'#9b7ff5',tabs:['dashboard','orders','picking','inventory']},
   warehouse:{label:'倉管',color:'#2ec48a',tabs:['dashboard','inventory','picking','inbound','leave']},
   qc:{label:'品管',color:'#f5b942',tabs:['dashboard','qc','inbound','leave']},
   purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假'};
+const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄'};
 const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
@@ -600,19 +600,172 @@ function toggleSort(tid,col,type='str'){const s=SORT[tid]||{};SORT[tid]={col,dir
 function applySort(tid,data){const s=SORT[tid];if(!s)return data;return[...data].sort((a,b)=>{let va=a[s.col],vb=b[s.col];if(s.type==='num'){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}else{va=String(va||'').toLowerCase();vb=String(vb||'').toLowerCase();}if(va<vb)return s.dir==='asc'?-1:1;if(va>vb)return s.dir==='asc'?1:-1;return 0;});}
 function TH(tid,col,label,type='str',cls=''){const s=SORT[tid]||{};const a=s.col===col;return`<th class="${a?'th-'+s.dir:''} ${cls}" onclick="toggleSort('${tid}','${col}','${type}')">${label}<span style="font-size:8px;opacity:${a?1:.3};margin-left:2px">${a?(s.dir==='asc'?'↑':'↓'):'↕'}</span></th>`;}
 function applyDateFilter(filterId,data,dateKey='deadline'){
-  const sel=document.getElementById(filterId+'DateFilter');const m=sel?parseInt(sel.value):6;if(!m)return data;
-  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-m);const cs=cutoff.toISOString().slice(0,10);
-  return data.filter(item=>{const d=item[dateKey]||item.date||item.created||'';return!d||d>=cs;});
+  const sel=document.getElementById(filterId+'DateFilter');
+  const val=sel?sel.value:'6';
+  if(!val||val==='0') return data; // 全部
+
+  const today=new Date();
+  let cutoff;
+
+  if(val==='7d'){
+    // 近7天
+    cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-7);
+  } else if(val==='month'){
+    // 當月：本月1日
+    cutoff=new Date(today.getFullYear(),today.getMonth(),1);
+  } else {
+    // 近N個月
+    cutoff=new Date();
+    cutoff.setMonth(cutoff.getMonth()-parseInt(val));
+  }
+
+  const cs=cutoff.toISOString().slice(0,10);
+  return data.filter(item=>{
+    const d=item[dateKey]||item.date||item.created||'';
+    return !d||d>=cs;
+  });
 }
 
 // ═══════════════════════════════════════════════
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}}
+function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc')loadInbounds().then(()=>renderTab(tab));if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='stocklog')loadStockLog().then(()=>renderTab('stocklog'));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){loadStockLog().then(()=>c.innerHTML=renderStockLog());}}
+
+// ══════════════════════════════════════════════
+// 庫存異動記錄模組
+// ══════════════════════════════════════════════
+let stockLogs = [];
+
+async function loadStockLog(){
+  try{
+    const r = await dbQueryAll(DB.stockLog);
+    stockLogs = r.map(p=>({
+      id: p.id,
+      title: getTitle(p.properties,'異動項目'),
+      matName: getRichText(p.properties,'料件名稱'),
+      matCode: getRichText(p.properties,'料件編號'),
+      type: p.properties?.['異動類型']?.select?.name||'',
+      qty: p.properties?.['異動數量']?.number??0,
+      before: p.properties?.['異動前庫存']?.number??0,
+      after: p.properties?.['異動後庫存']?.number??0,
+      date: p.properties?.['異動日期']?.date?.start||'',
+      ref: getRichText(p.properties,'關聯單號'),
+      operator: getRichText(p.properties,'操作人員'),
+    })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  }catch(e){
+    console.warn('loadStockLog error:',e);
+    stockLogs=[];
+  }
+}
+
+function renderStockLog(){
+  const dateVal=document.getElementById('slDateFilter')?.value||'month';
+  const typeVal=document.getElementById('slTypeFilter')?.value||'all';
+  const qVal=(document.getElementById('slSearch')?.value||'').toLowerCase().trim();
+
+  let data=[...stockLogs];
+
+  // 日期篩選
+  if(dateVal!=='0'){
+    const today=new Date();
+    let cutoff;
+    if(dateVal==='7d'){ cutoff=new Date(); cutoff.setDate(cutoff.getDate()-7); }
+    else if(dateVal==='month'){ cutoff=new Date(today.getFullYear(),today.getMonth(),1); }
+    else { cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-parseInt(dateVal)); }
+    const cs=cutoff.toISOString().slice(0,10);
+    data=data.filter(s=>!s.date||s.date>=cs);
+  }
+
+  // 類型篩選
+  if(typeVal!=='all') data=data.filter(s=>s.type===typeVal);
+
+  // 關鍵字
+  if(qVal) data=data.filter(s=>
+    s.matName.toLowerCase().includes(qVal)||
+    (s.matCode&&s.matCode.toLowerCase().includes(qVal))||
+    (s.ref&&s.ref.toLowerCase().includes(qVal))
+  );
+
+  // 統計
+  const inTotal=stockLogs.filter(s=>s.type==='入料').reduce((a,s)=>a+s.qty,0);
+  const outTotal=stockLogs.filter(s=>s.type==='領料').reduce((a,s)=>a+s.qty,0);
+  const adjTotal=stockLogs.filter(s=>s.type==='手動調整').length;
+
+  const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)'};
+
+  return`
+  <!-- 統計卡片 -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    ${[
+      {label:'總異動筆數',val:stockLogs.length,color:'var(--cyan2)',icon:'📊'},
+      {label:'入料次數',val:stockLogs.filter(s=>s.type==='入料').length,color:'var(--green)',icon:'📥'},
+      {label:'領料次數',val:stockLogs.filter(s=>s.type==='領料').length,color:'var(--blue)',icon:'🗂️'},
+      {label:'手動調整',val:adjTotal,color:'var(--yellow)',icon:'✏️'},
+    ].map(c=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+      <div style="font-size:18px;margin-bottom:3px">${c.icon}</div>
+      <div style="font-size:22px;font-weight:800;color:${c.color};font-family:monospace">${c.val}</div>
+      <div style="font-size:10px;color:var(--text3)">${c.label}</div>
+    </div>`).join('')}
+  </div>
+
+  <!-- 篩選列 -->
+  <div class="panel" style="margin-bottom:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:12px" onchange="renderTab('stocklog')">
+      <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option>
+      <option value="month" ${dateVal==='month'?'selected':''}>當月</option>
+      <option value="1">近1個月</option>
+      <option value="3">近3個月</option>
+      <option value="6">近半年</option>
+      <option value="0">全部</option>
+    </select>
+    <select class="inp" id="slTypeFilter" style="width:100px;padding:5px 8px;font-size:12px" onchange="renderTab('stocklog')">
+      <option value="all">全部類型</option>
+      <option value="入料" ${typeVal==='入料'?'selected':''}>📥 入料</option>
+      <option value="領料" ${typeVal==='領料'?'selected':''}>🗂️ 領料</option>
+      <option value="手動調整" ${typeVal==='手動調整'?'selected':''}>✏️ 手動調整</option>
+      <option value="品管退回" ${typeVal==='品管退回'?'selected':''}>❌ 品管退回</option>
+    </select>
+    <input class="inp" id="slSearch" value="${qVal}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:12px" oninput="renderTab('stocklog')">
+    <span style="font-size:11px;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
+  </div>
+
+  <!-- 記錄表格 -->
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">庫存異動記錄 <span class="badge">${data.length}</span></span></div>
+  ${!data.length?'<div style="padding:28px;text-align:center;color:var(--text3)">此期間無異動記錄</div>':
+  `<div class="table-wrap"><table>
+    <tr>
+      <th>日期</th>
+      <th>料件</th>
+      <th>類型</th>
+      <th>異動數量</th>
+      <th>異動前</th>
+      <th>異動後</th>
+      <th class="hide-m">關聯單號</th>
+      <th class="hide-m">操作人員</th>
+    </tr>
+    ${data.map(s=>{
+      const isIn=s.type==='入料';
+      const qtyColor=isIn?'var(--green)':s.type==='領料'?'var(--blue)':'var(--yellow)';
+      return`<tr>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${s.date||'—'}</td>
+        <td style="font-size:12px;font-weight:600">${s.matName||'—'}${s.matCode?`<div style="font-size:10px;color:var(--text3);font-family:monospace">${s.matCode}</div>`:''}</td>
+        <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[s.type]||'var(--border)'}44">${s.type||'—'}</span></td>
+        <td style="font-family:monospace;font-weight:700;color:${qtyColor}">${isIn?'+':''}${s.qty}</td>
+        <td style="font-family:monospace;color:var(--text3)">${s.before}</td>
+        <td style="font-family:monospace;font-weight:600;color:var(--text)">${s.after}</td>
+        <td class="hide-m" style="font-family:monospace;font-size:11px;color:var(--cyan2)">${s.ref||'—'}</td>
+        <td class="hide-m" style="font-size:11px;color:var(--text2)">${s.operator||'—'}</td>
+      </tr>`;
+    }).join('')}
+  </table></div>`}
+  </div>`;
+}
+
 
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe);
@@ -763,7 +916,7 @@ function renderOrders(){
   return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('orders')">
-        <option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="3">近3個月</option><option value="1">近1個月</option><option value="0">全部</option>
+        <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option>
       </select>
       <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
         <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="renderTab('orders')" style="accent-color:var(--blue)">隱藏完成/取消
@@ -1109,7 +1262,7 @@ function renderPicking(){
   const dateVal=document.getElementById('pickDateFilter')?.value||'6';
   const data=applySort('picking',applyDateFilter('picking',picks,'date'));
   return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-    <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('picking')"><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="3">近3個月</option><option value="0">全部</option></select>
+    <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單 <span class="badge">${data.length}</span></span></div>
   ${!picks.length?'<div class="loading-row">尚無領料記錄，從訂單頁面產出</div>':`<div class="table-wrap"><table>
@@ -1124,7 +1277,7 @@ function renderInbound(){
   const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
   const data=applySort('inbound',applyDateFilter('inbound',inbounds,'date'));
   return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
-    <select class="inp" id="inboundDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('inbound')"><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="3">近3個月</option><option value="0">全部</option></select>
+    <select class="inp" id="inboundDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span></div>
