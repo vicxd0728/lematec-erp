@@ -1304,20 +1304,45 @@ async function doEditOrder(orderId){
 
 
 function openPickPreview(orderId){
-  const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
+  const o=orders.find(x=>x.id===orderId);
+  const prod=mats.find(m=>m.id===o.productId);
+  const items=explodeBOM(o.productId,o.qty);
+  const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
+  // ★ BOM 診斷：清楚告知用戶狀況
+  const hasBOM = items.length > 0;
+  const bomCount = boms.filter(b=>b.parentId===o.productId).length;
+  console.log('[領料] 成品:', prod?.name, '| productId:', o.productId);
+  console.log('[領料] BOM清單總筆數:', boms.length);
+  console.log('[領料] 母件ID清單:', [...new Set(boms.map(b=>b.parentId))]);
+  console.log('[領料] productId是否在BOM母件中:', boms.some(b=>b.parentId===o.productId));
+  console.log('[領料] 展開料件:', items.length);
   document.getElementById('modalInner').innerHTML=`<h3>🗂️ 領料單預覽 — ${o.no}</h3>
-  <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"><b style="color:var(--text)">${o.customer}</b> / <b style="color:var(--text)">${prod?.name||'—'}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
+  <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px">
+    <div style="margin-bottom:4px"><b style="color:var(--text)">${o.customer}</b> / <b style="color:var(--cyan2);font-size:13px">${prod?.name||'未關聯成品'}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
+    <div style="font-size:10px;color:var(--text3)">BOM 子件：${bomCount} 筆 → 展開料件：${items.length} 項${!prod?.name?'<span style="color:var(--red2);margin-left:8px">⚠ 訂單未關聯成品料件</span>':''}</div>
+  </div>
   ${!items.length?
-    `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px;margin-bottom:12px;color:var(--red2)">
-      <div style="font-weight:700;margin-bottom:5px">⚠️ 此成品尚未建立 BOM 清單</div>
-      <div style="font-size:12px;color:var(--text2)">沒有 BOM 資料，無法自動計算和扣除料件庫存。<br>
-      請先在 Notion「🔩 BOM清單」資料庫建立此成品的子件關係，再執行領料。<br><br>
-      <b>或選擇「強制建立領料單（不扣料）」</b>，之後手動調整庫存。</div>
+    // ══ 無 BOM：直接扣成品本身庫存 ══
+    `<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;margin-bottom:5px;color:var(--blue2)">📦 無 BOM 設定 — 將直接扣除成品庫存</div>
+      <div style="font-size:12px;color:var(--text2)">
+        此成品未設定 BOM 子件，系統將直接扣除成品本身的庫存數量。<br>
+        <div style="margin-top:8px;background:var(--bg3);border-radius:6px;padding:8px 10px">
+          <span style="color:var(--text3);font-size:10px">成品</span><br>
+          <b style="color:var(--text);font-size:13px">${prod?.name||'—'}</b>
+          <span style="font-family:monospace;color:var(--text3);font-size:11px;margin-left:8px">現有庫存：${prod?.stock??'—'}</span>
+          <span style="color:var(--yellow);font-family:monospace;font-size:13px;margin-left:8px;font-weight:700">扣除：${o.qty}</span>
+          <span style="color:${(prod?.stock??0)>=o.qty?'var(--green)':'var(--red)'};font-family:monospace;font-size:13px;margin-left:8px;font-weight:700">→ ${Math.max(0,(prod?.stock??0)-o.qty}</span>
+        </div>
+        ${(prod?.stock??0)<o.qty?`<div style="margin-top:6px;color:var(--red);font-size:11px">⚠ 庫存不足（現有 ${prod?.stock}，需要 ${o.qty}），將扣至 0</div>`:''}
+        <div style="margin-top:6px;font-size:11px;color:var(--text3)">若需展開子件扣料，請在 Notion 🔩 BOM 清單建立母件→子件關係後重新整理。</div>
+      </div>
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-yellow" onclick="doPickNoDeduct('${orderId}')">⚠ 強制建立（不扣料）</button>
+      <button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認扣除成品庫存</button>
     </div>`:
+    // ══ 有 BOM：展開子件顯示 ══
     `${short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-ok" style="padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:10px">✅ 庫存充足，可執行領料</div>`}
     <div class="tbl-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
     ${items.map(i=>`<tr><td>${i.name} ${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
@@ -1329,6 +1354,7 @@ async function doPick(orderId){
   const o=orders.find(x=>x.id===orderId);
   const prod=mats.find(m=>m.id===o.productId);
   const items=explodeBOM(o.productId,o.qty);
+  const hasBOM = items.length > 0;
   const ds=new Date().toISOString().slice(0,10);
   const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
@@ -1345,48 +1371,75 @@ async function doPick(orderId){
     });
     if(master.object==='error') throw new Error('領料主單建立失敗：'+master.message);
 
-    // 2. 逐項扣庫存（★ 從 Notion 讀最新庫存，避免快取算錯）
     let stockErrors=[];
-    for(const item of items){
-      try{
-        // 建立領料明細
-        await createPage(DB.pickDetail,{
-          '料件名稱':{title:[{text:{content:item.name}}]},
-          '領料主單':{relation:[{id:master.id}]},
-          '料件':{relation:[{id:item.id}]},
-          '類型':{select:{name:item.type}},
-          '需求數量':{number:item.needed},
-          '實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},
-          '狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}
-        });
 
-        // ★ 只有零件才扣庫存，半成品不扣
-        if(item.type!=='半成品'){
-          // 從 Notion 讀最新庫存（避免快取舊值）
-          const latestMat=await notionAPI('GET','pages/'+item.id);
-          const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
-          const newStock=Math.max(0, latestStock-item.needed);
-          await updatePage(item.id,{'目前庫存':{number:newStock}});
-          // ★ 寫入庫存異動記錄
-          await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,latestStock,newStock,no,ROLE);
+    if(hasBOM){
+      // ══ 有 BOM：展開子件逐項扣庫存 ══
+      for(const item of items){
+        try{
+          await createPage(DB.pickDetail,{
+            '料件名稱':{title:[{text:{content:item.name}}]},
+            '領料主單':{relation:[{id:master.id}]},
+            '料件':{relation:[{id:item.id}]},
+            '類型':{select:{name:item.type}},
+            '需求數量':{number:item.needed},
+            '實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},
+            '狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}
+          });
+          // 只有零件才扣，半成品不扣（半成品本身的零件已在 BOM 展開時計算）
+          if(item.type!=='半成品'){
+            const latestMat=await notionAPI('GET','pages/'+item.id);
+            const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
+            const newStock=Math.max(0,latestStock-item.needed);
+            await updatePage(item.id,{'目前庫存':{number:newStock}});
+            await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,latestStock,newStock,no,ROLE);
+          }
+        }catch(itemErr){
+          stockErrors.push(item.name+': '+itemErr.message);
+          console.error('領料明細錯誤',item.name,itemErr);
         }
-      }catch(itemErr){
-        stockErrors.push(item.name+': '+itemErr.message);
-        console.error('領料明細錯誤',item.name,itemErr);
+      }
+    } else {
+      // ══ 無 BOM：直接扣成品本身庫存 ══
+      if(!prod){
+        stockErrors.push('訂單未關聯成品料件，無法扣庫存');
+      } else {
+        try{
+          // 建立一筆領料明細（成品本身）
+          await createPage(DB.pickDetail,{
+            '料件名稱':{title:[{text:{content:prod.name}}]},
+            '領料主單':{relation:[{id:master.id}]},
+            '料件':{relation:[{id:prod.id}]},
+            '類型':{select:{name:prod.type||'成品'}},
+            '需求數量':{number:o.qty},
+            '實領數量':{number:o.qty},
+            '狀態':{select:{name:'足夠'}}
+          });
+          // 從 Notion 讀最新庫存再扣
+          const latestProd=await notionAPI('GET','pages/'+prod.id);
+          const latestStock=latestProd?.properties?.['目前庫存']?.number??prod.stock;
+          const newStock=Math.max(0,latestStock-o.qty);
+          await updatePage(prod.id,{'目前庫存':{number:newStock}});
+          await logStockChange(prod.id,prod.name,prod.code||'','領料',-o.qty,latestStock,newStock,no,ROLE);
+        }catch(prodErr){
+          stockErrors.push(prod.name+': '+prodErr.message);
+          console.error('成品直接扣料錯誤',prodErr);
+        }
       }
     }
 
-    // 3. ★ 更新訂單狀態為「生產中」（修正：原本錯誤寫成「待排程」）
+    // 3. 更新訂單狀態為「生產中」
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
 
     // 4. 重新整理資料
     await refreshAll();
     await loadPicks();
 
+    const modeNote = hasBOM ? `（BOM展開 ${items.length} 項子件）` : '（直接扣成品庫存）';
     if(stockErrors.length){
-      showToast(`⚠ 領料單 ${no} 建立，但部分料件扣庫存失敗：${stockErrors.join('、')}`,'warn');
+      showToast(`⚠ 領料單 ${no} 建立，部分失敗：${stockErrors.join('、')}`,'warn');
     }else{
-      showToast(`✅ 領料單 ${no} 建立完成，訂單已更新為生產中`,'ok');
+      showToast(`✅ 領料單 ${no} 建立完成 ${modeNote}`,'ok');
     }
   }catch(e){
     showToast('❌ 領料失敗：'+e.message,'err');
