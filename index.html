@@ -1171,16 +1171,43 @@ function renderQCTab(){
 // ═══════════════════════════════════════════════
 // ── 刪除訂單（跳確認框，Notion archive 同步刪除）
 async function deleteOrder(oid, no){
-  if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將同步刪除 Notion 中的訂單，無法復原。')) return;
+  if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將從 Notion 永久刪除，無法復原。')) return;
   showToast('刪除中...','warn');
   try{
-    await updatePage(oid,{archived:true});
-    // 同步更新本地資料
-    orders=orders.filter(o=>o.id!==oid);
+    // ★ 先從本地移除（立即生效，不等 Notion）
+    orders = orders.filter(o=>o.id!==oid);
     renderTab(CURRENT_TAB);
+
+    // ★ 同步到 Notion：先 archive，確認後不再出現在 query 結果
+    const r = await notionAPI('PATCH','pages/'+oid,{archived:true});
+    if(r.object==='error') throw new Error(r.message);
+
     showToast('✅ 訂單「'+no+'」已刪除','ok');
-    // 背景重整確保同步
-    refreshAll().catch(()=>{});
+
+    // ★ 延遲 2 秒再 refreshAll，讓 Notion 有時間處理
+    // 且 refresh 時跳過已知刪除的 ID，避免 race condition
+    setTimeout(async ()=>{
+      try{
+        const [mR,bR,oR,masterR,annR,leaveR]=await Promise.all([
+          dbQueryAll(DB.materials), dbQueryAll(DB.bom),
+          dbQueryAll(DB.orders), dbQueryAll(DB.custMaster),
+          dbQueryAll(DB.announce), dbQueryAll(DB.leave),
+        ]);
+        // 解析訂單時排除剛刪除的 ID
+        orders=oR.filter(p=>p.id!==oid).map(p=>({
+          id:p.id, no:getTitle(p.properties,'訂單號'),
+          customer:p.properties?.['客戶名稱']?.select?.name||'',
+          productId:p.properties?.['成品']?.relation?.[0]?.id||'',
+          qty:p.properties?.['訂購數量']?.number??0,
+          deadline:p.properties?.['交期']?.date?.start||'',
+          status:p.properties?.['狀態']?.select?.name||'',
+          note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+          created:p.created_time?.slice(0,10)||'',
+        }));
+        renderTab(CURRENT_TAB);
+      }catch(e){ console.warn('bg refresh after delete:',e); }
+    }, 2000);
+
   }catch(e){ showToast('❌ 刪除失敗：'+e.message,'err'); }
 }
 
