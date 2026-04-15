@@ -959,12 +959,19 @@ function checkDupMat(val){
   const q = val.trim().toLowerCase();
   if(!q){ warn.style.display='none'; return; }
 
-  // 比對料件主檔（名稱 or 料件編號）
-  const exact  = mats.find(m=> m.name.toLowerCase()===q || m.code.toLowerCase()===q);
-  const similar= mats.filter(m=>
-    m.name.toLowerCase().includes(q) || q.includes(m.name.toLowerCase()) ||
-    (m.code && (m.code.toLowerCase().includes(q) || q.includes(m.code.toLowerCase())))
-  ).slice(0,3);
+  // 比對料件主檔（大小寫不敏感 + 去空白後比對）
+  const qNorm = q.replace(/\s+/g,''); // 去除所有空白後比對
+  const exact = mats.find(m=> {
+    const nNorm = m.name.toLowerCase().replace(/\s+/g,'');
+    const cNorm = (m.code||'').toLowerCase().replace(/\s+/g,'');
+    return nNorm===qNorm || (cNorm && cNorm===qNorm);
+  });
+  const similar = mats.filter(m=>{
+    const nNorm = m.name.toLowerCase().replace(/\s+/g,'');
+    const cNorm = (m.code||'').toLowerCase().replace(/\s+/g,'');
+    return !exact && (nNorm.includes(qNorm) || qNorm.includes(nNorm.slice(0,6)) ||
+           (cNorm && (cNorm.includes(qNorm) || qNorm.includes(cNorm))));
+  }).slice(0,3);
 
   if(exact){
     // 完全相同 → 強烈提示切換到選擇模式
@@ -1671,11 +1678,28 @@ function openModal(type,data){
       <input type="hidden" id="eib_type_filter" value="全部">
       <!-- 搜尋框 -->
       <input class="inp" id="eib_search" placeholder="搜尋料件名稱或編號..." style="margin-bottom:6px;font-size:13px;padding:7px 12px" oninput="eibUpdateSelect()">
-      <!-- 選單（全部類型，由 JS 動態篩選）-->
-      <select class="inp" id="m_mat" size="7" style="height:auto;min-height:130px;padding:4px 0">
-        <option value="">— 選擇料件 —</option>
-        ${mats.map(m=>`<option value="${m.id}" data-type="${m.type}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('')}
-      </select>
+      <!-- 自訂可點擊料件清單 -->
+      <div id="eib_list_wrap" style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:200px;overflow-y:auto;margin-top:4px">
+        <div id="eib_list_inner" style="padding:4px 0">
+          ${mats.map(m=>`<div class="eib-item" data-id="${m.id}" data-type="${m.type}"
+            onclick="eibSelectItem('${m.id}')"
+            style="padding:8px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);transition:background .1s"
+            onmouseover="this.style.background='rgba(59,130,246,.12)'" onmouseout="this.style.background=''">
+            <span style="font-size:10px;color:var(--text3);margin-right:4px">[${m.type}]</span>
+            <span style="color:var(--text);font-weight:600">${m.name}</span>
+            ${m.code?`<span style="font-family:monospace;font-size:10px;color:var(--text3);margin-left:5px">${m.code}</span>`:''}
+            <span style="color:var(--text3);font-size:11px;margin-left:8px">庫存：${m.stock}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+      <!-- 已選料件顯示 -->
+      <div id="eib_selected" style="display:none;margin-top:6px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;font-size:13px">
+        <span style="color:var(--text3);font-size:10px;display:block;margin-bottom:2px">已選擇</span>
+        <span id="eib_selected_name" style="color:var(--green2);font-weight:600"></span>
+        <button onclick="eibClearSelect()" style="float:right;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
+      </div>
+      <!-- 隱藏的實際值 -->
+      <input type="hidden" id="m_mat">
     </div>
 
     <!-- 手動輸入新料件 -->
@@ -1818,27 +1842,69 @@ function eibFilterType(t){
   eibUpdateSelect();
 }
 
-// ── 選擇模式：更新 select 顯示（依類型 + 關鍵字搜尋）
+// ── 選擇模式：更新可點擊清單（依類型 + 關鍵字搜尋）
 function eibUpdateSelect(){
-  const sel = document.getElementById('m_mat');
   const typeFilter = document.getElementById('eib_type_filter')?.value || '全部';
   const kw = (document.getElementById('eib_search')?.value || '').toLowerCase().trim();
-  if(!sel) return;
+  const inner = document.getElementById('eib_list_inner');
+  if(!inner) return;
 
-  // 篩選料件
   let filtered = mats.filter(m=>{
     const typeOk = typeFilter==='全部' || m.type===typeFilter;
-    const kwOk = !kw || m.name.toLowerCase().includes(kw) || m.code.toLowerCase().includes(kw);
+    const kwOk = !kw || m.name.toLowerCase().includes(kw) ||
+                 (m.code && m.code.toLowerCase().includes(kw));
     return typeOk && kwOk;
   });
 
-  // 重建選項
-  const prev = sel.value; // 保留已選
-  sel.innerHTML = `<option value="">— 選擇料件（${filtered.length} 筆）—</option>` +
-    filtered.map(m=>`<option value="${m.id}" data-type="${m.type}">[${m.type}] ${m.name}（庫存：${m.stock}）</option>`).join('');
+  if(!filtered.length){
+    inner.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">無符合料件</div>`;
+    return;
+  }
 
-  // 嘗試還原選取
-  if(prev) sel.value = prev;
+  const curId = document.getElementById('m_mat')?.value || '';
+  inner.innerHTML = filtered.map(m=>`<div class="eib-item" data-id="${m.id}" data-type="${m.type}"
+    onclick="eibSelectItem('${m.id}')"
+    style="padding:8px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);
+      background:${m.id===curId?'rgba(59,130,246,.15)':''};transition:background .1s"
+    onmouseover="this.style.background='rgba(59,130,246,.12)'"
+    onmouseout="this.style.background='${m.id===curId?'rgba(59,130,246,.15)':''}'"  >
+    <span style="font-size:10px;color:var(--text3);margin-right:4px">[${m.type}]</span>
+    <span style="color:var(--text);font-weight:600">${m.name}</span>
+    ${m.code?`<span style="font-family:monospace;font-size:10px;color:var(--text3);margin-left:5px">${m.code}</span>`:''}
+    <span style="color:var(--text3);font-size:11px;margin-left:8px">庫存：${m.stock}</span>
+  </div>`).join('');
+}
+
+// ── 點擊選取料件
+function eibSelectItem(matId){
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat) return;
+
+  // 更新隱藏欄位
+  const hiddenInput = document.getElementById('m_mat');
+  if(hiddenInput) hiddenInput.value = matId;
+
+  // 顯示已選
+  const sel = document.getElementById('eib_selected');
+  const selName = document.getElementById('eib_selected_name');
+  if(sel && selName){
+    selName.textContent = `[${mat.type}] ${mat.name}${mat.code?' ('+mat.code+')':''} — 庫存：${mat.stock}`;
+    sel.style.display = '';
+  }
+
+  // 高亮選中項目
+  document.querySelectorAll('.eib-item').forEach(el=>{
+    el.style.background = el.dataset.id===matId ? 'rgba(59,130,246,.15)' : '';
+  });
+}
+
+// ── 清除選取
+function eibClearSelect(){
+  const hiddenInput = document.getElementById('m_mat');
+  if(hiddenInput) hiddenInput.value = '';
+  const sel = document.getElementById('eib_selected');
+  if(sel) sel.style.display = 'none';
+  document.querySelectorAll('.eib-item').forEach(el=>el.style.background='');
 }
 
 // ── 切換到選擇模式並自動選中指定料件（修正版：確保選項存在）
@@ -1861,15 +1927,8 @@ function ibSwitchToExistAndSelect(matId){
   // 刷新選單（全部類型）
   eibUpdateSelect();
 
-  // 選中目標料件
-  const sel = document.getElementById('m_mat');
-  if(sel){
-    sel.value = matId;
-    // 視覺回饋
-    sel.style.borderColor='var(--green)';
-    sel.style.boxShadow='0 0 0 3px rgba(16,185,129,.2)';
-    setTimeout(()=>{ sel.style.borderColor=''; sel.style.boxShadow=''; }, 2000);
-  }
+  // 選中目標料件（使用 eibSelectItem 確保視覺一致）
+  setTimeout(()=>{ eibSelectItem(matId); }, 50); // 等清單渲染完
 }
 
 // ── 新增入料單（支援從主檔選擇 or 手動輸入新料件）
@@ -1908,13 +1967,14 @@ async function submitInbound(){
     matTypeName   = document.getElementById('m_mat_type').value || '零件';
     if(!matName){showToast('請填入料件名稱','warn');return;}
 
-    // 檢查是否已存在（大小寫不敏感）
-    const matNameLow = matName.toLowerCase();
-    const matCodeLow = matCode.toLowerCase();
-    const existing = mats.find(m=>
-      m.name.toLowerCase()===matNameLow ||
-      (matCode && m.code && m.code.toLowerCase()===matCodeLow)
-    );
+    // 檢查是否已存在（大小寫不敏感 + 去空白）
+    const matNameNorm = matName.toLowerCase().replace(/\s+/g,'');
+    const matCodeNorm = matCode.toLowerCase().replace(/\s+/g,'');
+    const existing = mats.find(m=>{
+      const nNorm = m.name.toLowerCase().replace(/\s+/g,'');
+      const cNorm = (m.code||'').toLowerCase().replace(/\s+/g,'');
+      return nNorm===matNameNorm || (matCodeNorm && cNorm && cNorm===matCodeNorm);
+    });
     if(existing){
       matId = existing.id;
       showToast('⚠ 料件已存在，直接關聯至現有料件','warn');
