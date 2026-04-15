@@ -376,6 +376,9 @@ const DB={
   // 請假管理
   leave:   '897e8784-4c2d-452c-a045-c568e175e6d5',
   leaveDS: '9fabe403-8a8a-4efe-bc30-1a814c80ddee',
+  // 庫存異動記錄
+  stockLog:   '0aa78528-a5bb-4a0d-8005-c0c1e0aaf8a3',
+  stockLogDS: '3bda3fab-943f-4a38-bf96-dc0384d228e9',
 };
 const ROLES={
   manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave']},
@@ -1304,11 +1307,22 @@ function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
   document.getElementById('modalInner').innerHTML=`<h3>🗂️ 領料單預覽 — ${o.no}</h3>
   <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"><b style="color:var(--text)">${o.customer}</b> / <b style="color:var(--text)">${prod?.name||'—'}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
-  ${short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-box info-ok">✅ 庫存充足</div>`}
-  <div class="table-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
-  ${items.map(i=>`<tr><td>${i.name} ${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
-  </table></div>
-  <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`;
+  ${!items.length?
+    `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px;margin-bottom:12px;color:var(--red2)">
+      <div style="font-weight:700;margin-bottom:5px">⚠️ 此成品尚未建立 BOM 清單</div>
+      <div style="font-size:12px;color:var(--text2)">沒有 BOM 資料，無法自動計算和扣除料件庫存。<br>
+      請先在 Notion「🔩 BOM清單」資料庫建立此成品的子件關係，再執行領料。<br><br>
+      <b>或選擇「強制建立領料單（不扣料）」</b>，之後手動調整庫存。</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-yellow" onclick="doPickNoDeduct('${orderId}')">⚠ 強制建立（不扣料）</button>
+    </div>`:
+    `${short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-ok" style="padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:10px">✅ 庫存充足，可執行領料</div>`}
+    <div class="tbl-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
+    ${items.map(i=>`<tr><td>${i.name} ${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
+    </table></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`}`;
   openModal();
 }
 async function doPick(orderId){
@@ -1353,6 +1367,8 @@ async function doPick(orderId){
           const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
           const newStock=Math.max(0, latestStock-item.needed);
           await updatePage(item.id,{'目前庫存':{number:newStock}});
+          // ★ 寫入庫存異動記錄
+          await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,latestStock,newStock,no,ROLE);
         }
       }catch(itemErr){
         stockErrors.push(item.name+': '+itemErr.message);
@@ -1378,6 +1394,28 @@ async function doPick(orderId){
   }
 }
 // ══ 品管直接在 Notion 改狀態後，手動同步庫存 ══
+// ══ 強制建立領料單（沒有 BOM，不扣料）══
+async function doPickNoDeduct(orderId){
+  const o=orders.find(x=>x.id===orderId);
+  const prod=mats.find(m=>m.id===o.productId);
+  const ds=new Date().toISOString().slice(0,10);
+  const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
+  closeModal();showToast('建立領料單（不扣料）...','warn');
+  try{
+    await createPage(DB.pickMaster,{
+      '領料主單號':{title:[{text:{content:no}}]},
+      '對應訂單':{relation:[{id:orderId}]},
+      '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
+      '生產數量':{number:o.qty},
+      '狀態':{select:{name:'已確認扣料'}},
+      '領料日期':{date:{start:ds}}
+    });
+    await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+    await refreshAll();await loadPicks();
+    showToast(`⚠ 領料單 ${no} 已建立（無 BOM，未扣料），請手動調整庫存`,'warn');
+  }catch(e){showToast('❌ 失敗：'+e.message,'err');}
+}
+
 async function syncInboundStock(id, matId, qty){
   if(!matId){ showToast('此入料單未關聯料件，無法同步庫存','warn'); return; }
   // 先確認入料單目前狀態
@@ -1408,6 +1446,32 @@ async function syncInboundStock(id, matId, qty){
   }catch(e){ showToast('❌ 同步失敗：'+e.message,'err'); }
 }
 
+// ══ 庫存異動記錄（每次入料/領料/手動調整都呼叫）══
+async function logStockChange(matId, matName, matCode, changeType, qty, beforeStock, afterStock, refNo, operator){
+  try{
+    const today = new Date().toISOString().slice(0,10);
+    const title = `${today} ${changeType} ${matName}`;
+    await notionAPI('POST','pages',{
+      parent:{database_id: DB.stockLog},
+      properties:{
+        '異動項目':   {title:[{text:{content:title}}]},
+        '料件名稱':   {rich_text:[{text:{content:matName||''}}]},
+        '料件編號':   {rich_text:[{text:{content:matCode||''}}]},
+        '異動類型':   {select:{name:changeType}},
+        '異動數量':   {number:Math.abs(qty)},
+        '異動前庫存': {number:beforeStock},
+        '異動後庫存': {number:afterStock},
+        '異動日期':   {date:{start:today}},
+        '關聯單號':   {rich_text:[{text:{content:refNo||''}}]},
+        '操作人員':   {rich_text:[{text:{content:operator||ROLE||''}}]},
+      }
+    });
+  }catch(e){
+    // 記錄失敗不影響主流程
+    console.warn('庫存異動記錄失敗：',e.message);
+  }
+}
+
 async function approveQC(id,matId,qty){
   if(!confirm('確認品檢通過？將增加 '+qty+' 個庫存'))return;
   // ★ 驗證 matId
@@ -1426,6 +1490,9 @@ async function approveQC(id,matId,qty){
     const newStock=curStock+parseInt(qty);
     // 3. 更新庫存
     await updatePage(matId,{'目前庫存':{number:newStock}});
+    // ★ 寫入庫存異動記錄
+    const mat2=mats.find(m=>m.id===matId);
+    await logStockChange(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),curStock,newStock,id,ROLE);
     // 4. 重整
     await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
     const mat=mats.find(m=>m.id===matId);
@@ -2108,7 +2175,21 @@ function openEditStock(id,name,cur){
   document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3><div style="font-size:12px;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:18px">${cur}</b> 個</div><input class="inp" type="number" id="newStockVal" value="${cur}" min="0" style="margin-bottom:12px"><div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doEditStock('${id}')">確認</button></div>`;
   openModal();
 }
-async function doEditStock(id){const v=parseInt(document.getElementById('newStockVal').value)||0;closeModal();try{await updatePage(id,{'目前庫存':{number:v}});await refreshAll();showToast(`✅ 庫存→${v}`,'ok');}catch(e){showToast('錯誤：'+e.message,'err');}}
+async function doEditStock(id){
+  const v=parseInt(document.getElementById('newStockVal').value)||0;
+  closeModal();
+  try{
+    // 讀最新庫存作為 before
+    const latestData=await notionAPI('GET','pages/'+id);
+    const beforeStock=latestData?.properties?.['目前庫存']?.number??0;
+    await updatePage(id,{'目前庫存':{number:v}});
+    // ★ 寫入庫存異動記錄
+    const mat=mats.find(m=>m.id===id);
+    await logStockChange(id,mat?.name||id,mat?.code||'','手動調整',v-beforeStock,beforeStock,v,'',ROLE);
+    await refreshAll();
+    showToast('✅ 庫存 '+beforeStock+' → '+v,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
+}
 
 // ═══════════════════════════════════════════════
 // 品項列表管理（FIX1: 支援手動新增）
