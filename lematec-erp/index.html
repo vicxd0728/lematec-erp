@@ -1171,16 +1171,43 @@ function renderQCTab(){
 // ═══════════════════════════════════════════════
 // ── 刪除訂單（跳確認框，Notion archive 同步刪除）
 async function deleteOrder(oid, no){
-  if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將同步刪除 Notion 中的訂單，無法復原。')) return;
+  if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將從 Notion 永久刪除，無法復原。')) return;
   showToast('刪除中...','warn');
   try{
-    await updatePage(oid,{archived:true});
-    // 同步更新本地資料
-    orders=orders.filter(o=>o.id!==oid);
+    // ★ 先從本地移除（立即生效，不等 Notion）
+    orders = orders.filter(o=>o.id!==oid);
     renderTab(CURRENT_TAB);
+
+    // ★ 同步到 Notion：先 archive，確認後不再出現在 query 結果
+    const r = await notionAPI('PATCH','pages/'+oid,{archived:true});
+    if(r.object==='error') throw new Error(r.message);
+
     showToast('✅ 訂單「'+no+'」已刪除','ok');
-    // 背景重整確保同步
-    refreshAll().catch(()=>{});
+
+    // ★ 延遲 2 秒再 refreshAll，讓 Notion 有時間處理
+    // 且 refresh 時跳過已知刪除的 ID，避免 race condition
+    setTimeout(async ()=>{
+      try{
+        const [mR,bR,oR,masterR,annR,leaveR]=await Promise.all([
+          dbQueryAll(DB.materials), dbQueryAll(DB.bom),
+          dbQueryAll(DB.orders), dbQueryAll(DB.custMaster),
+          dbQueryAll(DB.announce), dbQueryAll(DB.leave),
+        ]);
+        // 解析訂單時排除剛刪除的 ID
+        orders=oR.filter(p=>p.id!==oid).map(p=>({
+          id:p.id, no:getTitle(p.properties,'訂單號'),
+          customer:p.properties?.['客戶名稱']?.select?.name||'',
+          productId:p.properties?.['成品']?.relation?.[0]?.id||'',
+          qty:p.properties?.['訂購數量']?.number??0,
+          deadline:p.properties?.['交期']?.date?.start||'',
+          status:p.properties?.['狀態']?.select?.name||'',
+          note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+          created:p.created_time?.slice(0,10)||'',
+        }));
+        renderTab(CURRENT_TAB);
+      }catch(e){ console.warn('bg refresh after delete:',e); }
+    }, 2000);
+
   }catch(e){ showToast('❌ 刪除失敗：'+e.message,'err'); }
 }
 
@@ -1285,18 +1312,70 @@ function openPickPreview(orderId){
   openModal();
 }
 async function doPick(orderId){
-  const o=orders.find(x=>x.id===orderId);const prod=mats.find(m=>m.id===o.productId);const items=explodeBOM(o.productId,o.qty);
-  const ds=new Date().toISOString().slice(0,10);const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
-  closeModal();showToast('建立領料單中...','warn');
+  const o=orders.find(x=>x.id===orderId);
+  const prod=mats.find(m=>m.id===o.productId);
+  const items=explodeBOM(o.productId,o.qty);
+  const ds=new Date().toISOString().slice(0,10);
+  const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
+  closeModal();
+  showToast('建立領料單中...','warn');
   try{
-    const master=await createPage(DB.pickMaster,{'領料主單號':{title:[{text:{content:no}}]},'對應訂單':{relation:[{id:orderId}]},'成品品號':{rich_text:[{text:{content:prod?.name||''}}]},'生產數量':{number:o.qty},'狀態':{select:{name:'已確認扣料'}},'領料日期':{date:{start:ds}}});
+    // 1. 建立領料主單
+    const master=await createPage(DB.pickMaster,{
+      '領料主單號':{title:[{text:{content:no}}]},
+      '對應訂單':{relation:[{id:orderId}]},
+      '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
+      '生產數量':{number:o.qty},
+      '狀態':{select:{name:'已確認扣料'}},
+      '領料日期':{date:{start:ds}}
+    });
+    if(master.object==='error') throw new Error('領料主單建立失敗：'+master.message);
+
+    // 2. 逐項扣庫存（★ 從 Notion 讀最新庫存，避免快取算錯）
+    let stockErrors=[];
     for(const item of items){
-      await createPage(DB.pickDetail,{'料件名稱':{title:[{text:{content:item.name}}]},'領料主單':{relation:[{id:master.id}]},'料件':{relation:[{id:item.id}]},'類型':{select:{name:item.type}},'需求數量':{number:item.needed},'實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},'狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}});
-      if(item.type!=='半成品')await updatePage(item.id,{'目前庫存':{number:Math.max(0,item.stock-item.needed)}});
+      try{
+        // 建立領料明細
+        await createPage(DB.pickDetail,{
+          '料件名稱':{title:[{text:{content:item.name}}]},
+          '領料主單':{relation:[{id:master.id}]},
+          '料件':{relation:[{id:item.id}]},
+          '類型':{select:{name:item.type}},
+          '需求數量':{number:item.needed},
+          '實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},
+          '狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}
+        });
+
+        // ★ 只有零件才扣庫存，半成品不扣
+        if(item.type!=='半成品'){
+          // 從 Notion 讀最新庫存（避免快取舊值）
+          const latestMat=await notionAPI('GET','pages/'+item.id);
+          const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
+          const newStock=Math.max(0, latestStock-item.needed);
+          await updatePage(item.id,{'目前庫存':{number:newStock}});
+        }
+      }catch(itemErr){
+        stockErrors.push(item.name+': '+itemErr.message);
+        console.error('領料明細錯誤',item.name,itemErr);
+      }
     }
-    await updatePage(orderId,{'狀態':{select:{name:'待排程'}}});
-    await refreshAll();await loadPicks();showToast(`✅ 領料單 ${no} 建立完成`,'ok');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+
+    // 3. ★ 更新訂單狀態為「生產中」（修正：原本錯誤寫成「待排程」）
+    await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+
+    // 4. 重新整理資料
+    await refreshAll();
+    await loadPicks();
+
+    if(stockErrors.length){
+      showToast(`⚠ 領料單 ${no} 建立，但部分料件扣庫存失敗：${stockErrors.join('、')}`,'warn');
+    }else{
+      showToast(`✅ 領料單 ${no} 建立完成，訂單已更新為生產中`,'ok');
+    }
+  }catch(e){
+    showToast('❌ 領料失敗：'+e.message,'err');
+    console.error('doPick error:',e);
+  }
 }
 // ══ 品管直接在 Notion 改狀態後，手動同步庫存 ══
 async function syncInboundStock(id, matId, qty){
