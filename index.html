@@ -314,20 +314,6 @@ tr:hover td{background:rgba(59,130,246,.04);}
         <button class="show-btn" onclick="const p=document.getElementById('loginPass');p.type=p.type==='password'?'text':'password'">👁</button>
       </div>
     </div>
-    <!-- Notion Token（首次設定後自動記住）-->
-    <div class="field" id="tokenField" style="margin-top:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0" onclick="const b=document.getElementById('tokenBody');b.style.display=b.style.display==='none'?'':'none'">
-        <span style="font-size:11px;color:var(--text3)">⚙ Notion 連線設定</span>
-        <span style="font-size:10px;color:var(--text3)">▾</span>
-      </div>
-      <div id="tokenBody" style="display:none">
-        <div class="token-wrap">
-          <input class="inp" type="password" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx（首次輸入後自動記住）" autocomplete="off">
-          <button class="show-btn" onclick="const t=document.getElementById('tokenInput');t.type=t.type==='password'?'text':'password'">👁</button>
-        </div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px">前往 <a href="https://notion.so/profile/integrations" target="_blank" style="color:var(--blue)">notion.so/profile/integrations</a> 取得</div>
-      </div>
-    </div>
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
     <div class="alert alert-err" id="loginAlert"></div>
   </div>
@@ -394,16 +380,12 @@ const DB={
   scheduleDS: '54526a45-a011-442e-ba8a-cfab8f28f0b0',
 };
 const ROLES={
-  // 廠長：全功能
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','settings']},
-  // 業務：訂單 + 客戶管理（不負責領料）
-  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','announce','orders','customers','leave']},
-  // 倉管：庫存 + 入料 + 領料執行（發料）
-  warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','inventory','picking','inbound','announce','leave','schedule']},
-  // 品管：品管頁操作 + 入料瀏覽
-  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','qc','inbound','announce','leave']},
-  // 採購：唯讀瀏覽庫存和入料（暫無主動操作需求）
-  purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','inventory','inbound','announce','leave']},
+  manager:{label:'廠長',color:'#42d4f5',tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','settings']},
+  sales:{label:'業務',color:'#4d8ef5',tabs:['dashboard','announce','orders','customers','leave']},
+  production:{label:'生管',color:'#9b7ff5',tabs:['dashboard','orders','picking','inventory','schedule']},
+  warehouse:{label:'倉管',color:'#2ec48a',tabs:['dashboard','inventory','picking','inbound','leave','schedule']},
+  qc:{label:'品管',color:'#f5b942',tabs:['dashboard','qc','inbound','leave']},
+  purchase:{label:'採購',color:'#2ec48a',tabs:['dashboard','inventory','inbound','leave']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程',settings:'⚙️ 設定'};
 const PILL={
@@ -490,20 +472,6 @@ async function login(){
   if(!username){ showLoginErr('請填入帳號'); return; }
   if(!password){ showLoginErr('請填入密碼'); return; }
 
-  // ★ Token：優先用輸入框，其次用 localStorage
-  const inputToken = (document.getElementById('tokenInput')?.value||'').trim();
-  const savedToken = localStorage.getItem('lt')||'';
-  const useToken = inputToken || savedToken;
-  if(!useToken){ 
-    // 展開 token 欄位提示
-    document.getElementById('tokenBody').style.display='';
-    document.getElementById('tokenInput').focus();
-    showLoginErr('首次使用請展開「Notion 連線設定」填入 Token'); 
-    return; 
-  }
-  TOKEN = useToken;
-  if(inputToken) localStorage.setItem('lt', inputToken); // 記住 token
-
   const btn = document.getElementById('loginBtn');
   btn.disabled = true; btn.textContent = '驗證中...';
 
@@ -515,7 +483,7 @@ async function login(){
     const res = await fetch(PROXY, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        token: TOKEN,
+        token: TOKEN, // TOKEN 已在 html 裡設定為固定值
         method:'POST',
         endpoint:`databases/${DB_ACCOUNTS}/query`,
         body:{ filter:{ and:[
@@ -582,13 +550,95 @@ async function startApp(){
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav();showTab('dashboard');initOnlineTracking();
 
+  // ★ 分兩階段載入，減少等待感
   const mc = document.getElementById('mainContent');
-  mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入資料中，請稍候...</div>`;
+  mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入核心資料中...</div>`;
 
-  // 直接呼叫 refreshAll，確保所有資料完整載入後才渲染
-  await refreshAll();
+  try{
+    // 第一階段：核心資料（料件、訂單、客戶）—— 優先顯示
+    const [mR,oR,masterR] = await Promise.all([
+      dbQueryAll(DB.materials),
+      dbQueryAll(DB.orders),
+      dbQueryAll(DB.custMaster),
+    ]);
+
+    mats = mR.map(p=>({
+      id:p.id, name:getTitle(p.properties,'料件名稱'),
+      code:getRichText(p.properties,'料件編號'),
+      type:p.properties?.['類型']?.select?.name||'',
+      unit:p.properties?.['單位']?.select?.name||'個',
+      stock:p.properties?.['目前庫存']?.number??0,
+      safe:p.properties?.['安全庫存']?.number??0,
+    }));
+    orders = oR.map(p=>({
+      id:p.id, no:getTitle(p.properties,'訂單號'),
+      customer:p.properties?.['客戶名稱']?.select?.name||'',
+      productId:p.properties?.['成品']?.relation?.[0]?.id||'',
+      qty:p.properties?.['訂購數量']?.number??0,
+      deadline:p.properties?.['交期']?.date?.start||'',
+      status:p.properties?.['狀態']?.select?.name||'',
+      note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+      created:p.created_time?.slice(0,10)||'',
+    }));
+    customers = masterR.map(p=>({
+      id:p.id, name:getTitle(p.properties,'Name'),
+      code:getRichText(p.properties,'客戶編號'),
+      region:p.properties?.['國家']?.select?.name||'',
+      shipped:p.properties?.['出貨']?.select?.name||'',
+    })).filter(c=>c.name);
+
+    // 先渲染總覽
+    window._lastRefresh = Date.now();
+    renderTab('dashboard');
+
+    const w = document.getElementById('lowWarn');
+    const low = mats.filter(m=>m.stock<=m.safe);
+    if(low.length){ if(w){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;} }
+    else { if(w)w.style.display='none'; }
+
+    // 第二階段：背景載入 BOM、公告、請假、入料（不阻塞 UI）
+    Promise.all([
+      dbQueryAll(DB.bom),
+      dbQueryAll(DB.announce),
+      dbQueryAll(DB.leave),
+    ]).then(([bR,annR,leaveR])=>{
+      boms = bR.map(p=>({
+        parentId:p.properties?.['母件']?.relation?.[0]?.id||'',
+        childId:p.properties?.['子件']?.relation?.[0]?.id||'',
+        qty:p.properties?.['每台用量']?.number??1,
+      }));
+      announces = (annR||[]).map(p=>({
+        id:p.id, title:getTitle(p.properties,'標題'),
+        content:(p.properties?.['內容']?.rich_text||[]).map(r=>r.plain_text||'').join(''),
+        date:p.properties?.['發佈日期']?.date?.start||'',
+        status:p.properties?.['狀態']?.select?.name||'草稿',
+        pinned:p.properties?.['置頂']?.checkbox||false,
+        order:p.properties?.['顯示順序']?.number||99,
+      }));
+      leaves = (leaveR||[]).map(p=>({
+        id:p.id, name:getTitle(p.properties,'申請人姓名'),
+        title:getRichText(p.properties,'職稱'),
+        dateFrom:p.properties?.['請假日期起']?.date?.start||'',
+        dateTo:p.properties?.['請假日期迄']?.date?.start||'',
+        days:p.properties?.['請假天數']?.number||0,
+        type:p.properties?.['假別']?.select?.name||'',
+        reason:getRichText(p.properties,'請假原因'),
+        proxy:getRichText(p.properties,'職務代理人'),
+        status:p.properties?.['審核狀態']?.select?.name||'待審核',
+        rejectReason:getRichText(p.properties,'不通過原因'),
+        reviewer:getRichText(p.properties,'審核人'),
+        applyDate:p.properties?.['申請日期']?.date?.start||p.created_time?.slice(0,10)||'',
+      }));
+      // 更新總覽（加入公告）
+      if(CURRENT_TAB==='dashboard') renderTab('dashboard');
+      const syncEl=document.getElementById('syncStatus');
+      if(syncEl)syncEl.textContent='✓ '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+    }).catch(e=>console.warn('背景載入失敗:',e));
+
+  }catch(e){
+    mc.innerHTML=`<div style="padding:20px;color:var(--red)">❌ 載入失敗: ${e.message}<br><button class="btn btn-ghost" onclick="startApp()" style="margin-top:8px">重試</button></div>`;
+  }
 }
-
 
 // ═══════════════════════════════════════════════
 // DATA — 全部平行，客戶只從 custMaster 讀
@@ -894,315 +944,6 @@ function renderStockLog(){
 }
 
 
-// ══════════════════════════════════════════════
-// 📅 排程模組
-// ══════════════════════════════════════════════
-let schedules = [];
-
-async function loadSchedule(){
-  try{
-    const r = await dbQueryAll(DB.schedule);
-    schedules = r.map(p=>({
-      id: p.id,
-      name: getTitle(p.properties,'排程名稱'),
-      type: p.properties?.['類型']?.select?.name||'',
-      person: getRichText(p.properties,'負責人'),
-      startDate: p.properties?.['開始日期']?.date?.start||'',
-      endDate: p.properties?.['結束日期']?.date?.start||'',
-      orderRef: getRichText(p.properties,'關聯訂單號'),
-      priority: p.properties?.['優先級']?.select?.name||'',
-      status: p.properties?.['狀態']?.select?.name||'待開始',
-      note: getRichText(p.properties,'備註'),
-    })).sort((a,b)=>a.startDate.localeCompare(b.startDate));
-  }catch(e){ console.warn('loadSchedule:',e); schedules=[]; }
-}
-
-function renderSchedule(){
-  const canEdit = ROLE==='manager'||ROLE==='warehouse';
-  const today = new Date().toISOString().slice(0,10);
-  const viewVal = document.getElementById('schView')?.value||'list';
-  const typeVal = document.getElementById('schType')?.value||'all';
-  const statusVal = document.getElementById('schStatus')?.value||'all';
-
-  let data = [...schedules];
-  if(typeVal!=='all') data=data.filter(s=>s.type===typeVal);
-  if(statusVal!=='all') data=data.filter(s=>s.status===statusVal);
-
-  // 統計
-  const urgent = schedules.filter(s=>s.priority==='🔴 緊急'&&s.status!=='已完成').length;
-  const overdue = schedules.filter(s=>s.endDate&&s.endDate<today&&s.status!=='已完成').length;
-  const inProgress = schedules.filter(s=>s.status==='進行中').length;
-  const thisWeek = schedules.filter(s=>{
-    const d=new Date(); d.setDate(d.getDate()+7);
-    return s.startDate<=d.toISOString().slice(0,10)&&s.startDate>=today&&s.status!=='已完成';
-  }).length;
-
-  const typeColors={'生產':'var(--blue)','交貨':'var(--green)','採購入料':'var(--amber)','品管':'var(--yellow)','維護':'var(--text3)','其他':'var(--purple)'};
-  const statusColors={'待開始':'var(--text3)','進行中':'var(--blue)','已完成':'var(--green)','延期':'var(--red)'};
-  const priorityIcon={'🔴 緊急':'🔴','🟡 一般':'🟡','🟢 低優先':'🟢'};
-
-  // 月曆生成
-  function renderCalendar(){
-    const now=new Date();
-    const yr=now.getFullYear(), mo=now.getMonth();
-    const firstDay=new Date(yr,mo,1).getDay();
-    const daysInMonth=new Date(yr,mo+1,0).getDate();
-    const monthStr=`${yr}-${String(mo+1).padStart(2,'0')}`;
-    const days=['日','一','二','三','四','五','六'];
-    let cal=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
-      <div style="padding:14px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-weight:700;font-size:15px">${yr}年${mo+1}月</span>
-        <span style="font-size:11px;color:var(--text3)">${data.filter(s=>s.startDate.startsWith(monthStr)).length} 項排程</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr)">
-        ${days.map(d=>`<div style="text-align:center;padding:8px;font-size:11px;font-weight:700;color:var(--text3);border-bottom:1px solid var(--border)">${d}</div>`).join('')}`;
-    let cellIdx=0;
-    for(let i=0;i<firstDay;i++){cal+=`<div style="padding:8px;border:1px solid var(--border);min-height:64px;background:var(--bg3)"></div>`;cellIdx++;}
-    for(let d=1;d<=daysInMonth;d++){
-      const dateStr=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const isToday=dateStr===today;
-      const daySchedules=data.filter(s=>s.startDate===dateStr||s.endDate===dateStr||(s.startDate<=dateStr&&s.endDate>=dateStr));
-      cal+=`<div style="padding:5px;border:1px solid var(--border);min-height:64px;background:${isToday?'rgba(59,130,246,.08)':'var(--bg2)'}">
-        <div style="font-size:11px;font-weight:${isToday?800:400};color:${isToday?'var(--blue)':'var(--text2)'};margin-bottom:3px">${d}</div>
-        ${daySchedules.slice(0,2).map(s=>`<div style="font-size:9px;background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border-radius:3px;padding:1px 4px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>`).join('')}
-        ${daySchedules.length>2?`<div style="font-size:9px;color:var(--text3)">+${daySchedules.length-2} 更多</div>`:''}
-      </div>`;
-      cellIdx++;
-      if(cellIdx%7===0&&d<daysInMonth) cal+=``;
-    }
-    cal+=`</div></div>`;
-    return cal;
-  }
-
-  return`
-  <!-- 統計列 -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-    ${[
-      {label:'進行中',val:inProgress,color:'var(--blue)',icon:'▶'},
-      {label:'本週開始',val:thisWeek,color:'var(--cyan2)',icon:'📅'},
-      {label:'🔴 緊急',val:urgent,color:'var(--red)',icon:'🚨'},
-      {label:'逾期未完',val:overdue,color:'var(--amber)',icon:'⚠'},
-    ].map(c=>`<div style="background:var(--bg2);border:1px solid ${overdue>0&&c.label==='逾期未完'?'rgba(245,158,11,.3)':'var(--border)'};border-radius:10px;padding:12px;text-align:center;cursor:pointer" onclick="document.getElementById('schStatus').value='進行中';renderTab('schedule')">
-      <div style="font-size:20px;margin-bottom:2px">${c.icon}</div>
-      <div style="font-size:24px;font-weight:800;color:${c.color};font-family:monospace">${c.val}</div>
-      <div style="font-size:10px;color:var(--text3)">${c.label}</div>
-    </div>`).join('')}
-  </div>
-
-  <!-- 篩選列 -->
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-    <select class="inp" id="schView" style="width:100px;padding:5px 8px;font-size:12px" onchange="renderTab('schedule')">
-      <option value="list" ${viewVal==='list'?'selected':''}>📋 列表</option>
-      <option value="calendar" ${viewVal==='calendar'?'selected':''}>📅 月曆</option>
-    </select>
-    <select class="inp" id="schType" style="width:100px;padding:5px 8px;font-size:12px" onchange="renderTab('schedule')">
-      <option value="all">全部類型</option>
-      ${['生產','交貨','採購入料','品管','維護','其他'].map(t=>`<option value="${t}" ${typeVal===t?'selected':''}>${t}</option>`).join('')}
-    </select>
-    <select class="inp" id="schStatus" style="width:100px;padding:5px 8px;font-size:12px" onchange="renderTab('schedule')">
-      <option value="all">全部狀態</option>
-      ${['待開始','進行中','已完成','延期'].map(s=>`<option value="${s}" ${statusVal===s?'selected':''}>${s}</option>`).join('')}
-    </select>
-    <span style="font-size:11px;color:var(--text3);margin-left:auto">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
-    ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newSchedule')">＋ 新增排程</button>`:''}
-  </div>
-
-  ${viewVal==='calendar'?renderCalendar():`
-  <!-- 列表視圖 -->
-  <div class="panel">
-    <div class="panel-hdr"><span class="panel-title">生產排程 <span class="badge">${data.length}</span></span></div>
-    ${!data.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無排程資料</div>':
-    `<div class="table-wrap"><table>
-      <tr><th>排程名稱</th><th>類型</th><th>開始</th><th>結束</th><th class="hide-m">負責人</th><th>狀態</th><th class="hide-m">優先</th>${canEdit?'<th>操作</th>':''}</tr>
-      ${data.map(s=>{
-        const isOverdue=s.endDate&&s.endDate<today&&s.status!=='已完成';
-        return`<tr style="${isOverdue?'background:rgba(245,101,101,.05)':''}">
-          <td style="font-weight:600">${s.name}${s.orderRef?`<div style="font-size:10px;color:var(--cyan2);font-family:monospace">${s.orderRef}</div>`:''}</td>
-          <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'}">${s.type||'—'}</span></td>
-          <td style="font-family:monospace;font-size:11px">${s.startDate||'—'}</td>
-          <td style="font-family:monospace;font-size:11px;color:${isOverdue?'var(--red)':'var(--text2)'}">${s.endDate||'—'}${isOverdue?' ⚠':''}</td>
-          <td class="hide-m" style="font-size:12px">${s.person||'—'}</td>
-          <td><span class="pill" style="background:${statusColors[s.status]||'var(--bg4)'}22;color:${statusColors[s.status]||'var(--text2)'}">${s.status||'—'}</span></td>
-          <td class="hide-m" style="font-size:12px">${priorityIcon[s.priority]||'—'}</td>
-          ${canEdit?`<td style="white-space:nowrap">
-            <button class="btn btn-ghost btn-sm" onclick="openEditSchedule('${s.id}')">✏</button>
-            <button class="btn btn-green btn-sm" onclick="doScheduleStatus('${s.id}','已完成')" title="標記完成">✓</button>
-          </td>`:''}
-        </tr>`;
-      }).join('')}
-    </table></div>`}
-  </div>`}`;
-}
-
-async function submitSchedule(existId){
-  const name=document.getElementById('sch_name').value.trim();
-  const type=document.getElementById('sch_type').value;
-  const pri=document.getElementById('sch_pri').value;
-  const start=document.getElementById('sch_start').value;
-  const end=document.getElementById('sch_end').value;
-  const person=document.getElementById('sch_person').value.trim();
-  const order=document.getElementById('sch_order').value.trim();
-  const note=document.getElementById('sch_note').value.trim();
-  const status=document.getElementById('sch_status')?.value||'待開始';
-  if(!name){showToast('請填入排程名稱','warn');return;}
-  closeModal();showToast('儲存中...','warn');
-  try{
-    const props={
-      '排程名稱':{title:[{text:{content:name}}]},
-      '類型':{select:{name:type}},
-      '優先級':{select:{name:pri}},
-      '負責人':{rich_text:[{text:{content:person}}]},
-      '關聯訂單號':{rich_text:[{text:{content:order}}]},
-      '備註':{rich_text:[{text:{content:note}}]},
-      '狀態':{select:{name:status}},
-    };
-    if(start)props['開始日期']={date:{start}};
-    if(end)props['結束日期']={date:{start:end}};
-    if(existId){
-      await notionAPI('PATCH','pages/'+existId,{properties:props});
-      showToast('✅ 排程已更新','ok');
-    }else{
-      await notionAPI('POST','pages',{parent:{database_id:DB.schedule},properties:props});
-      showToast('✅ 排程已建立','ok');
-    }
-    await loadSchedule();renderTab('schedule');
-  }catch(e){showToast('❌ '+e.message,'err');}
-}
-
-async function doScheduleStatus(id, status){
-  const s=schedules.find(x=>x.id===id);
-  if(s){s.status=status;renderTab('schedule');}
-  try{
-    await updatePage(id,{'狀態':{select:{name:status}}});
-    showToast('✅ 已更新排程狀態','ok');
-    setTimeout(()=>loadSchedule().then(()=>renderTab('schedule')),1500);
-  }catch(e){showToast('❌ '+e.message,'err');}
-}
-
-function openEditSchedule(id){
-  const s=schedules.find(x=>x.id===id);if(!s)return;
-  openModal('editSchedule',s);
-}
-
-// ══════════════════════════════════════════════
-// ⚙️ 設定模組（廠長專用：密碼修改）
-// ══════════════════════════════════════════════
-function renderSettings(){
-  return`
-  <div style="max-width:560px">
-    <!-- 密碼修改 -->
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-hdr"><span class="panel-title">🔐 修改登入密碼</span></div>
-      <div style="padding:16px">
-        <div class="field" style="margin-bottom:10px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">目前密碼</label>
-          <input class="inp" type="password" id="pw_cur" placeholder="輸入目前密碼">
-        </div>
-        <div class="field" style="margin-bottom:10px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">新密碼</label>
-          <input class="inp" type="password" id="pw_new" placeholder="至少 6 個字元">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">確認新密碼</label>
-          <input class="inp" type="password" id="pw_confirm" placeholder="再輸入一次">
-        </div>
-        <div id="pw_msg" style="display:none;padding:8px 12px;border-radius:7px;font-size:12px;margin-bottom:10px"></div>
-        <button class="btn btn-blue" onclick="doChangePassword()">🔐 確認修改</button>
-      </div>
-    </div>
-
-    <!-- Hash 產生工具（方便廠長在 Notion 設定其他帳號密碼）-->
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-hdr"><span class="panel-title">🔧 密碼 Hash 產生工具</span></div>
-      <div style="padding:16px">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">在 Notion 帳號管理資料庫新增帳號時，需要填入密碼的 SHA-256 Hash。在此輸入密碼後複製 Hash 貼到 Notion 即可。</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <input class="inp" type="text" id="hash_input" placeholder="輸入要設定的密碼" style="flex:1" oninput="genHash()">
-        </div>
-        <div id="hash_output" style="background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:10px;font-family:monospace;font-size:11px;color:var(--text2);word-break:break-all;min-height:36px">在上方輸入密碼後，Hash 將自動顯示在此</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard.writeText(document.getElementById('hash_output').textContent).then(()=>showToast('✅ 已複製 Hash','ok'))">📋 複製 Hash</button>
-      </div>
-    </div>
-
-    <!-- 帳號資訊 -->
-    <div class="panel">
-      <div class="panel-hdr"><span class="panel-title">👤 目前登入資訊</span></div>
-      <div style="padding:16px;font-size:13px">
-        <div style="margin-bottom:6px"><span style="color:var(--text3)">帳號：</span><b style="color:var(--text)">${localStorage.getItem('lu')||'—'}</b></div>
-        <div style="margin-bottom:6px"><span style="color:var(--text3)">姓名：</span><b style="color:var(--text)">${DISPLAY_NAME||'—'}</b></div>
-        <div><span style="color:var(--text3)">角色：</span><b style="color:var(--cyan2)">${ROLES[ROLE]?.label||ROLE}</b></div>
-      </div>
-    </div>
-  </div>`;
-}
-
-async function genHash(){
-  const v=document.getElementById('hash_input').value;
-  const el=document.getElementById('hash_output');
-  if(!v){el.textContent='在上方輸入密碼後，Hash 將自動顯示在此';return;}
-  const h=await sha256(v);
-  el.textContent=h;
-}
-
-async function doChangePassword(){
-  const cur=document.getElementById('pw_cur').value;
-  const nw=document.getElementById('pw_new').value;
-  const cf=document.getElementById('pw_confirm').value;
-  const msg=document.getElementById('pw_msg');
-
-  function showPwMsg(text,type){
-    msg.style.display='';
-    msg.style.background=type==='ok'?'rgba(16,185,129,.1)':'rgba(245,101,101,.1)';
-    msg.style.color=type==='ok'?'var(--green)':'var(--red)';
-    msg.style.border=`1px solid ${type==='ok'?'rgba(16,185,129,.3)':'rgba(245,101,101,.3)'}`;
-    msg.textContent=text;
-  }
-
-  if(!cur||!nw||!cf){showPwMsg('請填入所有欄位','err');return;}
-  if(nw.length<6){showPwMsg('新密碼至少 6 個字元','err');return;}
-  if(nw!==cf){showPwMsg('新密碼與確認密碼不符','err');return;}
-
-  showPwMsg('驗證中...','ok');
-
-  try{
-    const curHash=await sha256(cur);
-    const newHash=await sha256(nw);
-    const username=localStorage.getItem('lu')||'';
-
-    // 從 Notion 查詢目前帳號
-    const res=await fetch(PROXY,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,method:'POST',
-        endpoint:`databases/${DB_ACCOUNTS}/query`,
-        body:{filter:{and:[
-          {property:'帳號名稱',title:{equals:username}},
-          {property:'啟用',checkbox:{equals:true}}
-        ]}}
-      })
-    });
-    const data=await res.json();
-    const acc=data.results?.[0];
-    if(!acc){showPwMsg('找不到帳號','err');return;}
-
-    const storedHash=acc.properties?.['密碼Hash']?.rich_text?.[0]?.plain_text||'';
-    if(curHash!==storedHash){showPwMsg('目前密碼不正確','err');return;}
-
-    // 更新密碼
-    await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,method:'PATCH',
-        endpoint:`pages/${acc.id}`,
-        body:{properties:{'密碼Hash':{rich_text:[{text:{content:newHash}}]}}}
-      })
-    });
-
-    showPwMsg('✅ 密碼已成功修改！下次登入請使用新密碼。','ok');
-    document.getElementById('pw_cur').value='';
-    document.getElementById('pw_new').value='';
-    document.getElementById('pw_confirm').value='';
-  }catch(e){showPwMsg('❌ 修改失敗：'+e.message,'err');}
-}
-
-
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe);
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
@@ -1370,7 +1111,7 @@ function renderOrders(){
     <td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
     <td>${pill(o.status)}</td>
     <td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='production'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -2555,164 +2296,866 @@ function openModal(type,data){
   }
 
   // ── 說明 ──
-  if(type==='newSchedule'||type==='editSchedule'){
-    const s=extra||{};const isEdit=type==='editSchedule';
-    mi.innerHTML=`<h3>${isEdit?'✏️ 編輯':'＋ 新增'}排程</h3>
-    <div class="form-row" style="margin-bottom:10px">
-      <div style="flex:2">
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">排程名稱 *</label>
-        <input class="inp" id="sch_name" value="${s.name||''}" placeholder="如：DAR03B 生產 × 500">
-      </div>
+  if(type==='help'){
+    mi.innerHTML=`<h3>📖 使用說明</h3>
+    <div style="font-size:12px;line-height:1.9;color:var(--text2)">
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">📋 訂單流程</div>
+      <div><span class="sn">1</span>輸入客戶代號 → 自動比對，或從清單選擇</div>
+      <div><span class="sn">2</span>上傳 PI Excel 或點「＋ 新增品項」手動輸入</div>
+      <div><span class="sn">3</span>填入交期 → 建立訂單（自動跳回訂單頁）</div>
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">🏢 客戶資料</div>
+      <div>• 來源：國外業務 › 🤑 客戶總檔（每次登入同步）</div>
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">🗓️ 請假</div>
+      <div>• 所有人可申請 → 廠長審核（通過/不通過）</div>
+      <div style="color:var(--cyan);font-weight:700;margin:10px 0 4px">💡 常見問題</div>
+      <div>• 資料不同步 → 右上角 🔄 重新整理</div>
+      <div>• API 失敗 → 顯示「資料尚未存入 Notion，請稍後再試」</div>
+      <div>• 公告儲存失敗 → 請在 Notion 把「LEMATEC ERP」integration 加入公告管理資料庫</div>
     </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">類型</label>
-        <select class="inp" id="sch_type">
-          ${['生產','交貨','採購入料','品管','維護','其他'].map(t=>`<option value="${t}" ${s.type===t?'selected':''}>${t}</option>`).join('')}
-        </select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">優先級</label>
-        <select class="inp" id="sch_pri">
-          ${['🔴 緊急','🟡 一般','🟢 低優先'].map(p=>`<option value="${p}" ${s.priority===p?'selected':''}>${p}</option>`).join('')}
-        </select>
-      </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;
+  }
+
+  document.getElementById('modalBg').classList.add('open');
+}
+
+function closeModal(){document.getElementById('modalBg').classList.remove('open');}
+
+// ═══════════════════════════════════════════════
+// SUBMITS
+// ═══════════════════════════════════════════════
+async function submitOrder(){
+  const cust=document.getElementById('m_cust').value;const qty=parseInt(document.getElementById('m_qty').value)||0;
+  const date=document.getElementById('m_date').value;const note=document.getElementById('m_note').value;
+  const prodCode=document.getElementById('m_prodCode').value.trim();let prodId=document.getElementById('m_prod').value;
+  if(!cust){alert('請選擇客戶');return;}if(!qty||!date){alert('請填入數量與交期');return;}
+  if(prodCode&&!prodId){const ex=mats.find(m=>m.name===prodCode||m.code===prodCode);if(ex){prodId=ex.id;}else{showToast('自動新增品號...','warn');try{const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:prodCode}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});prodId=nm.id;}catch(e){showToast('建檔失敗：'+e.message,'err');return;}}}
+  if(!prodId){alert('請選擇或輸入成品品號');return;}
+  const no=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
+  closeModal();
+  try{await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:cust}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});await refreshAll();showToast(`✅ 訂單 ${no} 建立成功`,'ok');}
+  catch(e){showToast('錯誤：'+e.message,'err');}
+}
+// ── 入料單 tab 切換
+function ibSwitchTab(tab){
+  const isExist = tab==='exist';
+  document.getElementById('ib_exist_block').style.display = isExist ? '' : 'none';
+  document.getElementById('ib_new_block').style.display   = isExist ? 'none' : '';
+  document.getElementById('ib_tab_exist').className = 'btn btn-sm ' + (isExist?'btn-blue':'btn-ghost');
+  document.getElementById('ib_tab_new').className   = 'btn btn-sm ' + (isExist?'btn-ghost':'btn-blue');
+}
+
+// ── 類型按鈕：同時更新手動模式類型 和 選擇模式篩選
+function ibSelectType(t){
+  // 更新手動模式隱藏欄位
+  const typeEl = document.getElementById('m_mat_type');
+  if(typeEl) typeEl.value = (t==='全部'?'零件':t); // 手動新增預設零件
+
+  // 更新類型按鈕樣式（手動模式按鈕 ib_type_X）
+  ['零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('ib_type_'+x);
+    if(btn) btn.className = 'btn btn-sm ' + (x===t?'btn-blue':'btn-ghost');
+  });
+
+  // 更新選擇模式篩選（eib_t_X 按鈕）
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x===t?'btn-blue':'btn-ghost');
+  });
+
+  // 更新選擇模式篩選條件並刷新選單
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = t;
+  eibUpdateSelect();
+}
+
+// ── 選擇模式：依類型篩選按鈕
+function eibFilterType(t){
+  // 更新按鈕樣式
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x===t?'btn-blue':'btn-ghost');
+  });
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = t;
+  eibUpdateSelect();
+}
+
+// ── 選擇模式：更新可點擊清單（依類型 + 關鍵字搜尋）
+function eibUpdateSelect(){
+  const typeFilter = document.getElementById('eib_type_filter')?.value || '全部';
+  const kw = (document.getElementById('eib_search')?.value || '').toLowerCase().trim();
+  const inner = document.getElementById('eib_list_inner');
+  if(!inner) return;
+
+  let filtered = mats.filter(m=>{
+    const typeOk = typeFilter==='全部' || m.type===typeFilter;
+    const kwOk = !kw || m.name.toLowerCase().includes(kw) ||
+                 (m.code && m.code.toLowerCase().includes(kw));
+    return typeOk && kwOk;
+  });
+
+  if(!filtered.length){
+    inner.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">無符合料件</div>`;
+    return;
+  }
+
+  const curId = document.getElementById('m_mat')?.value || '';
+  inner.innerHTML = filtered.map(m=>`<div class="eib-item" data-id="${m.id}" data-type="${m.type}"
+    onclick="eibSelectItem('${m.id}')"
+    style="padding:8px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);
+      background:${m.id===curId?'rgba(59,130,246,.15)':''};transition:background .1s"
+    onmouseover="this.style.background='rgba(59,130,246,.12)'"
+    onmouseout="this.style.background='${m.id===curId?'rgba(59,130,246,.15)':''}'"  >
+    <span style="font-size:10px;color:var(--text3);margin-right:4px">[${m.type}]</span>
+    <span style="color:var(--text);font-weight:600">${m.name}</span>
+    ${m.code?`<span style="font-family:monospace;font-size:10px;color:var(--text3);margin-left:5px">${m.code}</span>`:''}
+    <span style="color:var(--text3);font-size:11px;margin-left:8px">庫存：${m.stock}</span>
+  </div>`).join('');
+}
+
+// ── 點擊選取料件
+function eibSelectItem(matId){
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat) return;
+
+  // 更新隱藏欄位
+  const hiddenInput = document.getElementById('m_mat');
+  if(hiddenInput) hiddenInput.value = matId;
+
+  // 顯示已選
+  const sel = document.getElementById('eib_selected');
+  const selName = document.getElementById('eib_selected_name');
+  if(sel && selName){
+    selName.textContent = `[${mat.type}] ${mat.name}${mat.code?' ('+mat.code+')':''} — 庫存：${mat.stock}`;
+    sel.style.display = '';
+  }
+
+  // 高亮選中項目
+  document.querySelectorAll('.eib-item').forEach(el=>{
+    el.style.background = el.dataset.id===matId ? 'rgba(59,130,246,.15)' : '';
+  });
+}
+
+// ── 清除選取
+function eibClearSelect(){
+  const hiddenInput = document.getElementById('m_mat');
+  if(hiddenInput) hiddenInput.value = '';
+  const sel = document.getElementById('eib_selected');
+  if(sel) sel.style.display = 'none';
+  document.querySelectorAll('.eib-item').forEach(el=>el.style.background='');
+}
+
+// ── 切換到選擇模式並自動選中指定料件（修正版：確保選項存在）
+function ibSwitchToExistAndSelect(matId){
+  // 先切換到選擇模式
+  ibSwitchTab('exist');
+
+  // 把類型篩選重置為「全部」確保料件一定看得到
+  ['全部','零件','半成品','成品'].forEach(x=>{
+    const btn = document.getElementById('eib_t_'+x);
+    if(btn) btn.className = 'btn btn-xs ' + (x==='全部'?'btn-blue':'btn-ghost');
+  });
+  const filterEl = document.getElementById('eib_type_filter');
+  if(filterEl) filterEl.value = '全部';
+
+  // 清空搜尋框
+  const searchEl = document.getElementById('eib_search');
+  if(searchEl) searchEl.value = '';
+
+  // 刷新選單（全部類型）
+  eibUpdateSelect();
+
+  // 選中目標料件（使用 eibSelectItem 確保視覺一致）
+  setTimeout(()=>{ eibSelectItem(matId); }, 50); // 等清單渲染完
+}
+
+// ── 新增入料單（支援從主檔選擇 or 手動輸入新料件）
+async function submitInbound(){
+  const qty   = parseInt(document.getElementById('m_iqty').value)||0;
+  const date  = document.getElementById('m_idate').value;
+  const sup   = document.getElementById('m_sup').value.trim();
+  const rec   = document.getElementById('m_rec').value.trim();
+
+  // ★ 必填驗證 — 明確提示缺少哪個欄位
+  if(!qty || qty<=0){
+    document.getElementById('m_iqty')?.focus();
+    showToast('⚠ 請填入入料數量（必填）','warn');return;
+  }
+  if(!date){
+    document.getElementById('m_idate')?.focus();
+    showToast('⚠ 請填入入料日期（必填）','warn');return;
+  }
+
+  // 判斷是從主檔選還是手動輸入
+  const isExist = document.getElementById('ib_new_block').style.display==='none'
+               || document.getElementById('ib_exist_block').style.display!=='none';
+  let matId = '';
+  let matTypeName = '零件';
+
+  if(isExist){
+    // 從主檔選擇
+    matId = document.getElementById('m_mat').value;
+    if(!matId){showToast('請選擇料件','warn');return;}
+    const mat = mats.find(m=>m.id===matId);
+    matTypeName = mat?.type || '零件';
+  } else {
+    // 手動輸入新料件 → 先新增到料件主檔
+    const matName = document.getElementById('m_mat_name').value.trim();
+    const matCode = document.getElementById('m_mat_code').value.trim();
+    matTypeName   = document.getElementById('m_mat_type').value || '零件';
+    if(!matName){showToast('請填入料件名稱','warn');return;}
+
+    // 檢查是否已存在（大小寫不敏感 + 去空白）
+    const matNameNorm = matName.toLowerCase().replace(/\s+/g,'');
+    const matCodeNorm = matCode.toLowerCase().replace(/\s+/g,'');
+    const existing = mats.find(m=>{
+      const nNorm = m.name.toLowerCase().replace(/\s+/g,'');
+      const cNorm = (m.code||'').toLowerCase().replace(/\s+/g,'');
+      return nNorm===matNameNorm || (matCodeNorm && cNorm && cNorm===matCodeNorm);
+    });
+    if(existing){
+      matId = existing.id;
+      showToast('⚠ 料件已存在，直接關聯至現有料件','warn');
+    } else {
+      // 新增至料件主檔（Notion 同步）
+      showToast('新增料件中...','warn');
+      try{
+        const props = {
+          '料件名稱':{title:[{text:{content:matName}}]},
+          '類型':{select:{name:matTypeName}},
+          '目前庫存':{number:0},
+          '安全庫存':{number:0},
+        };
+        if(matCode) props['料件編號']={rich_text:[{text:{content:matCode}}]};
+        const newMat = await notionAPI('POST','pages',{
+          parent:{database_id:DB.materials},
+          properties:props
+        });
+        if(newMat.object==='error') throw new Error(newMat.message);
+        matId = newMat.id;
+        showToast(`✅ 料件「${matName}」已建立至料件主檔`,'ok');
+      }catch(e){showToast('❌ 新增料件失敗：'+e.message,'err');return;}
+    }
+  }
+
+  // 建立入料單
+  const no = `IN-${new Date().toISOString().slice(2,7).replace('-','')}-${Math.floor(Math.random()*900+100)}`;
+  closeModal();
+  try{
+    const props = {
+      '入料單號':{title:[{text:{content:no}}]},
+      '入料數量':{number:qty},
+      '入料日期':{date:{start:date}},
+      '供應商':{rich_text:[{text:{content:sup}}]},
+      '驗收人員':{rich_text:[{text:{content:rec}}]},
+      '品管狀態':{select:{name:'待品檢'}},
+      '入庫狀態':{select:{name:'待入庫'}},
+      '料件類型':{select:{name:matTypeName}},
+    };
+    if(matId) props['料件']={relation:[{id:matId}]};
+    await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:props});
+    await refreshAll();
+    showToast(`✅ 入料單 ${no} 建立完成`,'ok');
+  }catch(e){showToast('❌ 錯誤：'+e.message,'err');}
+}
+function openStatusModal(orderId,cur){
+  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">${['待排程','生產中','待出貨','已完成','取消'].map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" style="justify-content:center" onclick="doUpdateStatus('${orderId}','${s}')">${s}</button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  openModal();
+}
+async function doUpdateStatus(id,s){
+  closeModal();
+  // ★ 樂觀更新：立即更新本地資料 + 重渲染
+  const o = orders.find(x=>x.id===id);
+  if(o){ o.status=s; renderTab(CURRENT_TAB); }
+  showToast('更新狀態中...','warn');
+  try{
+    await updatePage(id,{'狀態':{select:{name:s}}});
+    showToast('✅ 狀態→「'+s+'」','ok');
+    // 背景同步（不阻塞 UI）
+    setTimeout(()=>refreshAll().catch(()=>{}), 1000);
+  }catch(e){
+    // 回滾本地狀態
+    if(o){ o.status=orders.find(x=>x.id===id)?.status||s; renderTab(CURRENT_TAB); }
+    showToast('❌ 更新失敗：'+e.message,'err');
+  }
+}
+function openEditStock(id,name,cur){
+  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3><div style="font-size:12px;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:18px">${cur}</b> 個</div><input class="inp" type="number" id="newStockVal" value="${cur}" min="0" style="margin-bottom:12px"><div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doEditStock('${id}')">確認</button></div>`;
+  openModal();
+}
+async function doEditStock(id){
+  const v=parseInt(document.getElementById('newStockVal').value)||0;
+  closeModal();
+  try{
+    // 讀最新庫存作為 before
+    const latestData=await notionAPI('GET','pages/'+id);
+    const beforeStock=latestData?.properties?.['目前庫存']?.number??0;
+    await updatePage(id,{'目前庫存':{number:v}});
+    // ★ 寫入庫存異動記錄
+    const mat=mats.find(m=>m.id===id);
+    await logStockChange(id,mat?.name||id,mat?.code||'','手動調整',v-beforeStock,beforeStock,v,'',ROLE);
+    await refreshAll();
+    showToast('✅ 庫存 '+beforeStock+' → '+v,'ok');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
+}
+
+// ═══════════════════════════════════════════════
+// 品項列表管理（FIX1: 支援手動新增）
+// ═══════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════
+// 公告管理 (ANNOUNCE MODULE)
+// ═══════════════════════════════════════
+function renderAnnounce(){
+  const canAdmin=ROLE==='manager';
+  const annCount=parseInt(localStorage.getItem(ANN_COUNT_KEY)||'3');
+  const filter=document.getElementById('annFilter')?.value||'all';
+  const all=[...announces].sort((a,b)=>{
+    if(a.pinned!==b.pinned)return a.pinned?-1:1;
+    return(a.order||99)-(b.order||99)||b.date.localeCompare(a.date);
+  });
+  const filtered=filter==='all'?all:all.filter(a=>a.status===filter);
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <select class="inp" id="annFilter" style="width:120px;padding:5px 8px;font-size:11px" onchange="renderTab('announce')">
+      <option value="all">全部</option><option value="已發佈">已發佈</option><option value="草稿">草稿</option>
+    </select>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:10px;color:var(--text2)">首頁顯示:</span>
+      <select class="inp" style="width:54px;padding:4px 8px;font-size:11px" onchange="localStorage.setItem(ANN_COUNT_KEY,this.value)">
+        ${[1,2,3,5,10].map(n=>`<option value="${n}" ${annCount==n?'selected':''}>${n}</option>`).join('')}
+      </select>筆
+      ${canAdmin?`<button class="btn btn-blue btn-sm" onclick="openModal('newAnnounce')">＋ 新增</button>`:''}
     </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">開始日期</label>
-        <input class="inp" type="date" id="sch_start" value="${s.startDate||new Date().toISOString().slice(0,10)}">
+  </div>
+  ${!filtered.length?'<div style="text-align:center;padding:28px;color:var(--text3);font-size:12px">📭 尚無公告</div>':
+    filtered.map(a=>`<div class="ann-item ${a.pinned?'ann-pinned':''}">
+      ${a.pinned?'<div style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:var(--yellow);font-weight:700;background:rgba(230,168,50,.1);border-radius:4px;padding:1px 6px;margin-bottom:5px">📌 置頂</div>':''}
+      ${pill(a.status)}
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-top:5px;margin-bottom:4px">${a.title}</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6">${a.content}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px;display:flex;justify-content:space-between;align-items:center">
+        <span>📅 ${a.date||'未設日期'} · 順序${a.order}</span>
+        ${canAdmin?`<div style="display:flex;gap:4px">
+          <button class="btn btn-yellow btn-sm" onclick="openEditAnnounce('${a.id}')">✏ 編輯</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleAnnStatus('${a.id}','${a.status}')">${a.status==='已發佈'?'↓ 草稿':'↑ 發佈'}</button>
+        </div>`:''}
       </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">結束日期</label>
-        <input class="inp" type="date" id="sch_end" value="${s.endDate||''}">
-      </div>
+    </div>`).join('')}`;
+}
+
+function openEditAnnounce(id){
+  const a=announces.find(x=>x.id===id);if(!a)return;
+  openModal('newAnnounce',a);
+}
+
+
+async function submitAnnounce(existId){
+  const title=document.getElementById('ann_title').value.trim();
+  const body=document.getElementById('ann_body').value.trim();
+  const date=document.getElementById('ann_date').value;
+  const status=document.getElementById('ann_status').value;
+  const order=parseInt(document.getElementById('ann_order').value)||99;
+  const pin=document.getElementById('ann_pin').checked;
+  if(!title){showToast('請填入標題','warn');return;}
+  closeModal();showToast('儲存中...','warn');
+  try{
+    const props={'標題':{title:[{text:{content:title}}]},'內容':{rich_text:[{text:{content:body||''}}]},'狀態':{select:{name:status}},'置頂':{checkbox:pin},'顯示順序':{number:order}};
+    if(date)props['發佈日期']={date:{start:date}};
+    if(existId){
+      const res2=await notionAPI('PATCH','pages/'+existId,{properties:props});
+      if(res2.object==='error')throw new Error(res2.message);
+    }else{
+      // Notion raw API：parent.database_id 用資料庫的 page ID（e2950944-...）
+      const res2=await notionAPI('POST','pages',{parent:{database_id:DB.announce},properties:props});
+      if(res2.object==='error')throw new Error(res2.message||JSON.stringify(res2));
+    }
+    await refreshAll();renderTab('announce');showToast('✅ 公告已儲存','ok');
+  }catch(e){showToast('❌ 儲存失敗：'+e.message,'err');}
+}
+
+async function toggleAnnStatus(id,cur){
+  const ns=cur==='已發佈'?'草稿':'已發佈';
+  // 樂觀更新
+  const a=announces.find(x=>x.id===id);
+  if(a){ a.status=ns; renderTab('announce'); }
+  try{
+    await updatePage(id,{'狀態':{select:{name:ns}}});
+    showToast('✅ 已改為「'+ns+'」','ok');
+    setTimeout(()=>refreshAll().catch(()=>{}), 1000);
+  }catch(e){
+    if(a){ a.status=cur; renderTab('announce'); }
+    showToast('❌ '+e.message,'err');
+  }
+}
+
+// Dashboard 加公告（最新 N 筆已發佈）
+// This is injected into renderDashboard
+
+
+// ═══════════════════════════════════════════════
+// 🗓️ 請假管理模組
+// ═══════════════════════════════════════════════
+const LEAVE_DS = '9fabe403-8a8a-4efe-bc30-1a814c80ddee';
+
+function renderLeave(){
+  const canApprove=ROLE==='manager';
+  const canApply=true; // 所有人都可申請
+
+  const tabFilter=document.getElementById('leaveTab')?.value||'all';
+  const sorted=[...leaves].sort((a,b)=>b.applyDate.localeCompare(a.applyDate));
+  const filtered=tabFilter==='all'?sorted:sorted.filter(l=>l.status===tabFilter);
+
+  const pending=leaves.filter(l=>l.status==='待審核').length;
+  const approved=leaves.filter(l=>l.status==='審核通過').length;
+  const rejected=leaves.filter(l=>l.status==='不通過').length;
+
+  const statusColors={'待審核':['rgba(245,185,66,.12)','#f5b942'],'審核通過':['rgba(46,196,138,.12)','#2ec48a'],'不通過':['rgba(245,101,101,.12)','#f56565']};
+
+  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${['all','待審核','審核通過','不通過'].map(s=>{
+        const labels={all:'全部',待審核:'⏳ 待審核',審核通過:'✅ 通過',不通過:'❌ 不通過'};
+        const counts={all:leaves.length,待審核:pending,審核通過:approved,不通過:rejected};
+        const active=tabFilter===s;
+        return`<button onclick="document.getElementById('leaveTab').value='${s}';renderTab('leave')" style="padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${active?'var(--blue)':'var(--border)'};background:${active?'rgba(77,142,245,.12)':'var(--bg3)'};color:${active?'var(--blue)':'var(--text2)'}">${labels[s]} <span style="font-size:10px;opacity:.8">(${counts[s]})</span></button>`;
+      }).join('')}
     </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">負責人</label>
-        <input class="inp" id="sch_person" value="${s.person||''}" placeholder="姓名">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">關聯訂單號</label>
-        <input class="inp" id="sch_order" value="${s.orderRef||''}" placeholder="選填">
-      </div>
+    <button class="btn btn-blue btn-sm" onclick="openModal('newLeave')">＋ 申請請假</button>
+  </div>
+  <input type="hidden" id="leaveTab" value="${tabFilter}">
+
+  ${!filtered.length?`<div style="text-align:center;padding:36px;color:var(--text3);font-size:13px">📭 無請假記錄</div>`:
+    filtered.map(l=>{
+      const [bg,color]=statusColors[l.status]||['var(--bg3)','var(--text2)'];
+      return`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;bottom:0;width:4px;background:${color};border-radius:4px 0 0 4px"></div>
+        <div style="margin-left:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <div>
+              <span style="font-size:15px;font-weight:700;color:var(--text)">${l.name}</span>
+              <span style="font-size:11px;color:var(--text2);margin-left:8px">${l.title||''}</span>
+              ${l.type?`<span style="background:rgba(77,142,245,.12);color:var(--blue);border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700;margin-left:6px">${l.type}</span>`:''}
+            </div>
+            <span class="pill" style="background:${bg};color:${color};font-size:11px;padding:3px 12px">${l.status}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:8px;font-size:12px">
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">📅 請假期間</span><span style="color:var(--text);font-weight:600">${l.dateFrom||'—'} ~ ${l.dateTo||l.dateFrom||'—'}</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">📆 天數</span><span style="color:var(--yellow);font-weight:700;font-size:14px">${l.days}</span><span style="color:var(--text3);font-size:10px;margin-left:3px">天</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">👤 代理人</span><span style="color:var(--text)">${l.proxy||'—'}</span></div>
+            <div><span style="color:var(--text3);font-size:10px;display:block;margin-bottom:1px">🗓 申請日期</span><span style="color:var(--text2)">${l.applyDate||'—'}</span></div>
+          </div>
+          ${l.reason?`<div style="background:var(--bg3);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px">📝 ${l.reason}</div>`:''}
+          ${l.status==='不通過'&&l.rejectReason?`<div style="background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--red);margin-bottom:8px">❌ 不通過原因：${l.rejectReason}</div>`:''}
+          ${l.status==='審核通過'?`<div style="font-size:11px;color:var(--green)">✅ 審核人：${l.reviewer||'廠長'} · ${l.applyDate||''}</div>`:''}
+          ${canApprove&&l.status==='待審核'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-green btn-sm" onclick="openApproveLeave('${l.id}',true)">✅ 審核通過</button>
+            <button class="btn btn-red btn-sm" onclick="openApproveLeave('${l.id}',false)">❌ 不通過</button>
+          </div>`:''}
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function openApproveLeave(lid, approve){
+  const l=leaves.find(x=>x.id===lid);if(!l)return;
+  document.getElementById('modalInner').innerHTML=`<h3>${approve?'✅ 審核通過':'❌ 審核不通過'} — ${l.name}</h3>
+    <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      ${l.name} / ${l.type||''} / ${l.dateFrom} ~ ${l.dateTo||l.dateFrom} / ${l.days}天
     </div>
-    ${isEdit?`<div style="margin-bottom:10px">
-      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">狀態</label>
-      <select class="inp" id="sch_status">
-        ${['待開始','進行中','已完成','延期'].map(st=>`<option value="${st}" ${s.status===st?'selected':''}>${st}</option>`).join('')}
-      </select>
+    ${!approve?`<div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">不通過原因（必填）</label>
+      <input class="inp" id="rejectReason" placeholder="請填入不通過原因">
     </div>`:''}
-    <div style="margin-bottom:14px">
-      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">備註</label>
-      <input class="inp" id="sch_note" value="${s.note||''}" placeholder="選填">
-    </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitSchedule('${s.id||''}')">
-        ${isEdit?'✅ 更新排程':'＋ 建立排程'}
-      </button>
+      <button class="btn ${approve?'btn-green':'btn-red'}" onclick="doApproveLeave('${lid}',${approve})">確認${approve?'通過':'退回'}</button>
     </div>`;
-  }
-
-  if(type==='help'){
-    mi.innerHTML=`<h3>📖 系統說明 v3.0</h3>
-    <div style="font-size:12px;line-height:1.9;color:var(--text2);max-height:70vh;overflow-y:auto;padding-right:4px">
-
-      <!-- 角色權限 -->
-      <div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px">
-        <div style="font-weight:700;color:var(--cyan2);margin-bottom:10px;font-size:13px">🎭 角色與操作權限</div>
-        <table style="width:100%;font-size:11px;border-collapse:collapse">
-          <tr style="color:var(--text3);font-weight:700">
-            <td style="padding:4px 6px">角色</td><td style="padding:4px 6px">可操作功能</td>
-          </tr>
-          ${[
-            ['🏭 廠長','全部功能・可修改密碼・帳號管理・庫存編輯・審核請假・查看所有記錄'],
-            ['📋 業務','新增/編輯/刪除訂單・客戶管理（不負責領料）'],
-            ['📦 倉管','庫存編輯・入料管理・執行領料/發料・排程瀏覽'],
-            ['✅ 品管','品管通過/退回・入料瀏覽（品管頁專屬操作）'],
-            ['🛒 採購','庫存瀏覽・入料瀏覽（唯讀，暫無主動操作）'],
-          ].map(([r,p])=>`<tr style="border-top:1px solid var(--border)"><td style="padding:5px 6px;font-weight:700;color:var(--text);white-space:nowrap">${r}</td><td style="padding:5px 6px;color:var(--text2)">${p}</td></tr>`).join('')}
-        </table>
-      </div>
-
-      <!-- 核心流程 -->
-      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">🔄 核心業務流程</div>
-
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-weight:700;color:var(--text);margin-bottom:6px">📋 訂單流程</div>
-        <div style="color:var(--text2)">業務新增訂單（輸入客戶代號或 PI Excel）→ 狀態「待排程」→ 生管點「🗂 領料」→ 系統自動扣料件庫存 → 訂單轉「生產中」→ 廠長更新為「待出貨」→「已完成」</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px">⚠ 成品若有 BOM 子件設定，領料時自動展開扣零件庫存；若無 BOM，直接扣成品本身庫存</div>
-      </div>
-
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-weight:700;color:var(--text);margin-bottom:6px">📥 入料流程</div>
-        <div style="color:var(--text2)">採購新增入料單（從主檔選料件或手動輸入新料件）→ 狀態「待品檢」→ 品管點「✓ 通過」→ 庫存自動增加 + 寫入異動記錄 → 狀態「已入庫」</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px">⚠ 直接在 Notion 改品管狀態時，請在 ERP 點「🔄 同步庫存」按鈕補回庫存</div>
-      </div>
-
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-weight:700;color:var(--text);margin-bottom:6px">📦 庫存管理</div>
-        <div style="color:var(--text2)">庫存頁支援關鍵字搜尋、類型篩選（零件/半成品/成品）、庫存高低篩選、分頁（50/100/200/500筆）。廠長/倉管可手動調整庫存，每次調整自動寫入「📊 異動記錄」。</div>
-      </div>
-
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-weight:700;color:var(--text);margin-bottom:6px">📅 生產排程</div>
-        <div style="color:var(--text2)">廠長/生管可新增排程，設定類型（生產/交貨/採購入料等）、開始結束日期、負責人、優先級。列表或月曆視圖切換。逾期未完成的排程會以紅色標示。</div>
-      </div>
-
-      <!-- 防止重複錯誤 -->
-      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">🛡 防錯機制</div>
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        ${[
-          '料件輸入時即時比對大小寫（DAR03B = dar03b），偵測重複自動切換選擇模式',
-          '客戶新增時即時比對是否已建檔',
-          '刪除訂單後延遲 2 秒同步，防止 race condition 造成訂單復活',
-          '品管通過時直接讀 Notion 最新庫存計算，避免快取錯誤',
-          '每次入料/領料/手動調整庫存，自動寫入「📊 異動記錄」可追溯',
-        ].map(t=>`<div style="display:flex;gap:6px;margin-bottom:4px"><span style="color:var(--green);flex-shrink:0">✓</span><span>${t}</span></div>`).join('')}
-      </div>
-
-      <!-- 密碼管理 -->
-      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">🔐 帳號與密碼</div>
-      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="margin-bottom:6px">登入採用帳號+密碼，密碼以 SHA-256 Hash 儲存於 Notion 帳號資料庫，不存明文。</div>
-        <div style="margin-bottom:4px"><b style="color:var(--text)">修改密碼：</b>廠長登入 → ⚙️ 設定 → 修改登入密碼</div>
-        <div style="margin-bottom:4px"><b style="color:var(--text)">新增帳號：</b>廠長進入 Notion → 👤 ERP 帳號管理 → 新增一筆，填帳號/角色/密碼Hash/啟用</div>
-        <div><b style="color:var(--text)">產生密碼 Hash：</b>⚙️ 設定 → 密碼 Hash 產生工具，輸入密碼後複製 Hash 貼到 Notion</div>
-      </div>
-
-      <!-- 快捷鍵 -->
-      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">⌨️ 快捷操作</div>
-      <div style="background:var(--bg3);border-radius:8px;padding:10px">
-        ${[
-          ['🔄 右上角重整','強制重新同步所有資料（手動觸發）'],
-          ['搜尋框','庫存頁：即時篩選不失焦；入料料件選擇：關鍵字縮小清單'],
-          ['日期篩選','近7天 / 當月 / 近1月 / 近3月 / 近半年 / 全部'],
-          ['刪除訂單','點🗑後確認，立即從畫面移除，延遲2秒背景同步 Notion'],
-        ].map(([k,v])=>`<div style="display:flex;gap:10px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text);font-weight:600;min-width:120px;flex-shrink:0">${k}</span><span style="color:var(--text2)">${v}</span></div>`).join('')}
-      </div>
-
-      <div style="text-align:center;color:var(--text3);font-size:10px;margin-top:14px">LEMATEC ERP v3.0 · 福桑聯合企業股份有限公司</div>
-    </div>`;
-  }
-
   openModal();
 }
 
-function closeModal(){document.getElementById('modalOverlay').style.display='none';}
+async function submitCustomer(){
+  const name=document.getElementById('m_cname').value.trim();
+  const code=document.getElementById('m_ccode').value.trim().toUpperCase();
+  const region=document.getElementById('m_cregion').value.trim().toUpperCase();
+  if(!name){showToast('請填入客戶名稱','err');return;}
+  const dup=customers.find(c=>c.code&&c.code.toUpperCase()===code);
+  if(dup&&code){showToast('⚠ 客戶代號 '+code+' 已存在（'+dup.name+'）','warn');return;}
+  closeModal();showToast('新增中...','warn');
+  try{
+    const props={'Name':{title:[{text:{content:name}}]}};
+    if(code)props['客戶編號']={rich_text:[{text:{content:code}}]};
+    if(region)props['國家']={select:{name:region}};
+    const res=await createPage(DB.custMaster,props);
+    if(res.object==='error')throw new Error(res.message);
+    await refreshAll();
+    showToast('✅ '+name+'（'+code+'）已新增至 Notion 客戶總檔','ok');
+  }catch(e){showToast('❌ 新增失敗：'+e.message,'err');}
+}
+
+
+async function submitLeave(){
+  const name=document.getElementById('lv_name').value.trim();
+  const title=document.getElementById('lv_title').value.trim();
+  const from=document.getElementById('lv_from').value;
+  const to=document.getElementById('lv_to').value;
+  const days=parseFloat(document.getElementById('lv_days').value)||0;
+  const type=document.getElementById('lv_type').value;
+  const proxy=document.getElementById('lv_proxy').value.trim();
+  const reason=document.getElementById('lv_reason').value.trim();
+  if(!name||!from||!to||!days||!proxy||!reason){showToast('請填入所有必填欄位','warn');return;}
+  if(to<from){showToast('結束日期不能早於起始日期','warn');return;}
+  closeModal();showToast('送出申請中...','warn');
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    const res=await notionAPI('POST','pages',{parent:{database_id:DB.leave},properties:{
+      '申請人姓名':{title:[{text:{content:name}}]},
+      '職稱':{rich_text:[{text:{content:title}}]},
+      '請假日期起':{date:{start:from}},
+      '請假日期迄':{date:{start:to}},
+      '請假天數':{number:days},
+      '假別':{select:{name:type}},
+      '請假原因':{rich_text:[{text:{content:reason}}]},
+      '職務代理人':{rich_text:[{text:{content:proxy}}]},
+      '審核狀態':{select:{name:'待審核'}},
+      '申請日期':{date:{start:today}},
+    }});
+    if(res.object==='error')throw new Error(res.message);
+    await refreshAll();
+    switchTab('leave');
+    showToast('✅ 請假申請已送出，待廠長審核','ok');
+  }catch(e){showToast('❌ 送出失敗：'+e.message,'err');}
+}
+
+
+async function doApproveLeave(lid, approve){
+  const reason=approve?'':document.getElementById('rejectReason')?.value.trim();
+  if(!approve&&!reason){showToast('請填入不通過原因','warn');return;}
+  const today=new Date().toISOString().slice(0,10);
+  closeModal();showToast('更新中...','warn');
+  try{
+    const props={
+      '審核狀態':{select:{name:approve?'審核通過':'不通過'}},
+      '審核日期':{date:{start:today}},
+      '審核人':{rich_text:[{text:{content:'廠長'}}]},
+    };
+    if(!approve)props['不通過原因']={rich_text:[{text:{content:reason}}]};
+    await updatePage(lid,props);
+    await refreshAll();
+    showToast(approve?'✅ 已審核通過':'✅ 已標記不通過', approve?'ok':'warn');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+
+// ═══════════════════════════════════════════════
+// 線上人數（同一瀏覽器多分頁偵測）
+// ═══════════════════════════════════════════════
+const ONLINE_KEY = 'lm_online';
+const ONLINE_TTL = 15000; // 15秒心跳
+let _onlineChannel = null;
+let _onlineTimer = null;
+const _myTabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+
+function initOnlineTracking(){
+  // 寫入自己的心跳
+  function heartbeat(){
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      data[_myTabId] = {role:ROLE||'?', ts:Date.now()};
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(data));
+      updateOnlineDisplay();
+    }catch(e){}
+  }
+
+  function updateOnlineDisplay(){
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      const now = Date.now();
+      // 清除過期的分頁
+      const active = Object.entries(data).filter(([k,v])=>now-v.ts < ONLINE_TTL*2);
+      // 清理並回寫
+      const cleaned = {};
+      active.forEach(([k,v])=>cleaned[k]=v);
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(cleaned));
+
+      const count = active.length;
+      const badge = document.getElementById('onlineCount');
+      const num   = document.getElementById('onlineNum');
+      if(badge && num){
+        num.textContent = count;
+        badge.style.display = 'flex';
+        // 顏色：1人灰色，多人綠色
+        badge.style.borderColor = count>1?'rgba(16,185,129,.3)':'var(--border2)';
+        badge.style.color = count>1?'var(--green2)':'var(--text3)';
+      }
+    }catch(e){}
+  }
+
+  // BroadcastChannel（同域多分頁通訊）
+  try{
+    _onlineChannel = new BroadcastChannel('lm_erp_online');
+    _onlineChannel.onmessage = ()=>{ updateOnlineDisplay(); };
+  }catch(e){}
+
+  // 心跳：每 12 秒更新一次
+  heartbeat();
+  _onlineTimer = setInterval(()=>{
+    heartbeat();
+    if(_onlineChannel) _onlineChannel.postMessage('ping');
+  }, 12000);
+
+  // 離開時清除自己
+  window.addEventListener('beforeunload', ()=>{
+    try{
+      const data = JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+      delete data[_myTabId];
+      localStorage.setItem(ONLINE_KEY, JSON.stringify(data));
+      if(_onlineChannel) _onlineChannel.postMessage('bye');
+    }catch(e){}
+  });
+}
+
+
+function showToast(msg,type,duration=3500){
+  const c={ok:['rgba(46,196,138,.12)','rgba(46,196,138,.3)','#2ec48a'],warn:['rgba(245,185,66,.1)','rgba(245,185,66,.25)','#f5b942'],err:['rgba(245,101,101,.1)','rgba(245,101,101,.25)','#f56565']};
+  const[bg,border,color]=c[type]||c.ok;
+  // 清除同類舊 toast 避免堆疊
+  document.querySelectorAll('.toast').forEach(t=>{if(t._type===type)t.remove();});
+  const t=document.createElement('div');t.className='toast';t._type=type;
+  t.style.cssText=`background:${bg};border:1px solid ${border};color:${color}`;
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},duration);
+}
+
+// ══════════════════════════════════════════════════════
+// 新增訂單：品項管理（完整修正版）
+// ══════════════════════════════════════════════════════
+let _items = [];
+let _selCust = null;
+
+function onCode(v){
+  const msg=document.getElementById('codeMsg');
+  const btn=document.getElementById('fetchPIBtn');
+  const piList=document.getElementById('piNotionList');
+  if(piList)piList.style.display='none';
+  if(!v.trim()){msg.textContent='';if(btn)btn.style.display='none';_selCust=null;return;}
+  const q=v.toLowerCase().trim();
+  let found=customers.find(c=>c.code&&c.code.toLowerCase()===q)
+    ||customers.find(c=>c.code&&c.code.toLowerCase().startsWith(q))
+    ||(q.length>=3?customers.find(c=>c.code&&c.code.toLowerCase().includes(q)):null);
+  if(found){
+    _selCust=found;
+    const sel=document.getElementById('m_cust');
+    if(sel){for(const o of sel.options){if(o.value===found.name){sel.value=found.name;break;}}}
+    const nr=document.getElementById('newCustRow');if(nr)nr.style.display='none';
+    msg.innerHTML=`<span style="color:var(--green)">✅ ${found.name}（${found.code}）</span>`;
+    if(btn)btn.style.display='';
+  }else{
+    _selCust=null;if(btn)btn.style.display='none';
+    msg.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${v}」— 此客戶尚未建檔，請在下方填入新客戶名稱即可自動建立</span>`;
+    const sel=document.getElementById('m_cust');if(sel)sel.value='';
+    const nr=document.getElementById('newCustRow');if(nr)nr.style.display='';
+    const ni=document.getElementById('m_newcust');if(ni&&!ni.value)ni.focus();
+  }
+}
+
+function onCustDrop(v){
+  const nr=document.getElementById('newCustRow');
+  const msg=document.getElementById('codeMsg');
+  if(!v){if(nr)nr.style.display='';_selCust=null;if(msg)msg.textContent='';}
+  else{if(nr)nr.style.display='none';_selCust=customers.find(c=>c.name===v)||null;
+    if(_selCust&&msg)msg.innerHTML=`<span style="color:var(--green)">✅ ${_selCust.name}（${_selCust.code||'—'}）</span>`;
+    const btn=document.getElementById('fetchPIBtn');if(btn&&_selCust)btn.style.display='';}
+}
+
+function onPIFile(input){
+  const file=input.files[0];if(!file)return;
+  const msg=document.getElementById('piMsg');
+  msg.innerHTML='<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px"></span>解析中...';
+  const reader=new FileReader();
+  reader.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});piParse(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}),file.name.replace(/\.xlsx?$/i,''));}catch(err){msg.innerHTML=`<span style="color:var(--red)">❌ 解析失敗：${err.message}</span>`;}};
+  reader.readAsArrayBuffer(file);input.value='';
+}
+
+function piParse(rows,titleHint){
+  const piNo=titleHint||(rows[6]&&rows[6][9]?String(rows[6][9]).trim():'');
+  let piDate='';if(rows[7]&&rows[7][8])piDate=String(rows[7][8]).replace(/Date:/i,'').trim().replace(/\./g,'-');
+  const parsed=[];
+  for(let i=12;i<(rows.length||0)-1;i++){
+    const row=rows[i];if(!row)continue;
+    const col1=row[1]!=null?String(row[1]).trim():'';
+    if(col1&&/^\d+\.?$/.test(col1)){const qty=row[6]!=null?parseInt(row[6])||0:0;const model=(rows[i+1]||[])[2]!=null?String((rows[i+1]||[])[2]).trim():'';if(model&&qty>0)parsed.push({model,qty,checked:true});i++;}
+  }
+  const msg=document.getElementById('piMsg');
+  if(!parsed.length){msg.innerHTML='<span style="color:var(--yellow)">⚠ 未能解析品項，請手動新增</span>';return;}
+  _items=parsed;renderItems();
+  if(piNo){const ne=document.getElementById('m_note');if(ne)ne.value='PI No: '+piNo;}
+  if(piDate.match(/^\d{4}-\d{2}-\d{2}$/)){const d=new Date(piDate);d.setDate(d.getDate()+30);const de=document.getElementById('m_date');if(de)de.value=d.toISOString().slice(0,10);}
+  msg.innerHTML=`<span style="color:var(--green)">✅ 解析 ${parsed.length} 個品項，已列入下方清單</span>`;
+}
+
+async function doFetch(){
+  if(!_selCust)return;
+  const btn=document.getElementById('fetchPIBtn');
+  const list=document.getElementById('piNotionList');
+  btn.textContent='搜尋中...';btn.disabled=true;
+  list.style.cssText='display:block;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px';
+  list.innerHTML='<div style="font-size:11px;color:var(--text2)">搜尋中...</div>';
+  try{
+    const r=await notionSearch(_selCust.code);const pages=(r.results||[]).filter(p=>p.object==='page');
+    const op=pages.filter(p=>{const t=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';return t&&t.toUpperCase().startsWith(_selCust.code.toUpperCase())&&t.includes('-');}).sort((a,b)=>{const ta=a.properties?.title?.title?.[0]?.plain_text||'';const tb=b.properties?.title?.title?.[0]?.plain_text||'';return tb.localeCompare(ta);});
+    if(!op.length){list.innerHTML='<div style="font-size:11px;color:var(--yellow);padding:4px">⚠ 找不到訂單頁面，請直接上傳 Excel</div>';}
+    else{list.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">找到 ${op.length} 筆訂單：</div>`+
+      op.map((p,i)=>{const t=p.properties?.title?.title?.[0]?.plain_text||p.properties?.Name?.title?.[0]?.plain_text||'';
+        return`<div id="pii_${i}" onclick="loadPI('${p.id}','${t.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',${i})"
+          style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:5px;cursor:pointer;display:flex;align-items:center;gap:10px">
+          <span>📄</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text)">${t}</div>
+          <div id="pistat_${i}" style="font-size:10px;color:var(--text3)">點擊讀取品項</div></div>
+        </div>`;}).join('');}
+  }catch(e){list.innerHTML=`<div style="font-size:11px;color:var(--red)">❌ ${e.message}</div>`;}
+  btn.textContent='📂 抓 Notion PI';btn.disabled=false;
+}
+
+async function loadPI(pageId,title,idx){
+  const stat=document.getElementById('pistat_'+idx);if(stat)stat.textContent='⏳ 讀取中...';
+  try{
+    const blocks=await getBlockChildren(pageId);const all=blocks.results||[];
+    let fileUrl='',pdfUrl='';
+    for(const b of all){if(b.type!=='file')continue;const fd=b.file||{};const name=(fd.name||'').toLowerCase();const url=fd.file?.url||fd.external?.url||'';if(!url)continue;if((name.endsWith('.xlsx')||name.endsWith('.xls'))&&!fileUrl)fileUrl=url;if(name.endsWith('.pdf')&&!pdfUrl)pdfUrl=url;}
+    if(!fileUrl){for(const b of all){if(b.type!=='child_page')continue;const t=(b.child_page?.title||'').toLowerCase();if(t.endsWith('.xlsx')||t.endsWith('.xls')){try{const bd=await getBlock(b.id);const bfd=bd[bd.type]||{};const u=bfd.file?.url||bfd.external?.url||'';if(u){fileUrl=u;break;}}catch{}}}}
+    if(!fileUrl&&pdfUrl){if(stat)stat.innerHTML='<span style="color:var(--yellow)">📄 只有 PDF</span>';return;}
+    if(!fileUrl){if(stat)stat.textContent='❌ 找不到 Excel';showToast('找不到 Excel','warn');return;}
+    if(stat)stat.textContent='⏳ 下載中...';
+    const buf=await downloadViaProxy(fileUrl);
+    const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
+    piParse(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}),title.replace(/\s*\(.*?\)\s*/g,'').trim());
+    if(stat)stat.innerHTML='<span style="color:var(--green)">✅ 讀取完成</span>';
+    showToast('✅ PI 讀取成功','ok');
+  }catch(e){if(stat)stat.textContent='❌ '+e.message.slice(0,40);showToast('讀取失敗','err');}
+}
+
+function renderItems(){
+  const area=document.getElementById('itemsArea');if(!area)return;
+  if(_items.length===0){area.innerHTML='<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px;background:var(--bg4);border-radius:8px">尚無品項 — 請從 PI 讀取或點「＋ 新增品項」</div>';return;}
+  area.innerHTML=_items.map((item,i)=>{const found=mats.find(m=>m.name===item.model||m.code===item.model);const hint=item.model?(found?`<span style="color:var(--green)">✓ 已建檔（庫存${found.stock}）</span>`:`<span style="color:var(--yellow)">⚠ 未建檔，下單自動新增</span>`):'';
+    return`<div class="item-row"><input class="item-check" type="checkbox" id="ichk_${i}" ${item.checked!==false?'checked':''} onchange="_items[${i}].checked=this.checked"><div class="item-body"><div class="item-model-wrap"><input class="item-model" type="text" id="imod_${i}" value="${String(item.model||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" placeholder="品號（如 LE-AN67）" oninput="onMod(${i},this.value)"><input class="item-qty" type="number" id="iqty_${i}" value="${item.qty||''}" min="1" placeholder="數量" oninput="_items[${i}].qty=parseInt(this.value)||0"><button class="item-del" onclick="removeItem(${i})">✕</button></div><div class="item-hint" id="ihint_${i}">${hint}</div></div></div>`;}).join('');
+}
+
+function onMod(i,v){_items[i].model=v;const found=mats.find(m=>m.name===v||m.code===v);const h=document.getElementById('ihint_'+i);if(h)h.innerHTML=v?(found?`<span style="color:var(--green)">✓ 已建檔（庫存${found.stock}）</span>`:`<span style="color:var(--yellow)">⚠ 未建檔，下單自動新增</span>`):''; }
+function removeItem(i){_items.splice(i,1);renderItems();}
+function addItem(){_items.push({model:'',qty:1,checked:true});renderItems();setTimeout(()=>{const el=document.getElementById('imod_'+(_items.length-1));if(el)el.focus();},40);}
+function addFromMat(sel){if(!sel||!sel.value)return;const m=mats.find(x=>x.id===sel.value);if(m){_items.push({model:m.name,qty:1,checked:true});renderItems();}sel.value='';}
+
+async function getCustomer(){
+  const sv=document.getElementById('m_cust')?.value;const nv=document.getElementById('m_newcust')?.value.trim();
+  if(sv)return sv;
+  if(nv){showToast('建立新客戶中...','warn');try{await notionAPI('POST','pages',{parent:{database_id:DB.custMaster},properties:{'Name':{title:[{text:{content:nv}}]}}});await refreshAll();showToast('✅ 新客戶「'+nv+'」已建立','ok');return nv;}catch(e){showToast('建立新客戶失敗：'+e.message,'err');return null;}}
+  return null;
+}
+
+async function submitAllOrders(){
+  const btn=document.getElementById('orderSubmitBtn');
+  if(btn?.disabled)return;
+
+  const selVal=document.getElementById('m_cust')?.value||'';
+  const newVal=document.getElementById('m_newcust')?.value.trim()||'';
+  const date=document.getElementById('m_date')?.value||'';
+  const note=document.getElementById('m_note')?.value||'';
+
+  if(!selVal&&!newVal){showToast('請選擇客戶或填入新客戶名稱','warn');return;}
+  if(!date){showToast('請填入交期','warn');return;}
+
+  // 收集勾選品項（在 async 前讀完 DOM）
+  const selected=[];
+  for(let i=0;i<_items.length;i++){
+    const chk=document.getElementById('ick_'+i)||document.getElementById('ichk_'+i);
+    const mod=document.getElementById('imd_'+i)||document.getElementById('imod_'+i);
+    const qty=parseInt((document.getElementById('iqt_'+i)||document.getElementById('iqty_'+i))?.value)||_items[i]?.qty||0;
+    const model=(mod?mod.value:_items[i]?.model||'').trim();
+    if((chk?chk.checked:_items[i]?.checked!==false)&&model&&qty>0)selected.push({model,qty});
+  }
+  if(!selected.length){showToast('請至少新增一個品項（點 ＋）','warn');return;}
+
+  // ★ 鎖定按鈕防重複點擊
+  if(btn){btn.disabled=true;btn.textContent='建立中...';}
+  const pw=document.getElementById('orderProg');if(pw)pw.style.display='';
+  const pt=document.getElementById('orderProgTxt');const pb=document.getElementById('orderProgBar');
+
+  // ★ 新客戶：先確認 Notion 建立成功（同步等待）
+  let custName=selVal;
+  if(!selVal&&newVal){
+    if(pt)pt.textContent='正在建立新客戶至 Notion 客戶總檔...';
+    try{
+      const res=await createPage(DB.custMaster,{'Name':{title:[{text:{content:newVal}}]}});
+      if(res.object==='error')throw new Error(res.message||'建立客戶失敗');
+      custName=newVal;
+      showToast('✅ 新客戶「'+newVal+'」已建立至 Notion 客戶總檔','ok');
+    }catch(e){
+      showToast('❌ 建立新客戶失敗：'+e.message+'。資料尚未存入 Notion，請稍後再試','err');
+      if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}
+      return;
+    }
+  }
+
+  const prefix='ORD-'+new Date().toISOString().slice(2,7).replace('-','');
+  let ok=0,fail=0,failList=[];
+
+  for(let i=0;i<selected.length;i++){
+    const item=selected[i];
+    if(pt)pt.textContent=`建立第 ${i+1}/${selected.length} 筆：${item.model}`;
+    if(pb)pb.style.width=Math.round((i+1)/selected.length*100)+'%';
+    try{
+      // ★ 重複性檢查
+      const dup=orders.find(o=>{
+        const mat=mats.find(m=>m.id===o.productId);
+        return o.customer===custName&&o.deadline===date&&(mat?.name===item.model||mat?.code===item.model);
+      });
+      if(dup){
+        const conf=confirm(`⚠ 重複訂單警告
+「${dup.no}」已存在（${custName} / ${item.model} / ${date}）
+確定要再建立一筆？`);
+        if(!conf){fail++;failList.push(item.model+' (跳過重複)');continue;}
+      }
+      let prodId='';
+      const ex=mats.find(m=>m.name===item.model||m.code===item.model);
+      if(ex){prodId=ex.id;}
+      else{
+        const nm=await createPage(DB.materials,{'料件名稱':{title:[{text:{content:item.model}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}});
+        if(nm.object==='error')throw new Error(nm.message);
+        prodId=nm.id;
+      }
+      const no=prefix+'-'+String(i+1).padStart(3,'0');
+      const res=await createPage(DB.orders,{'訂單號':{title:[{text:{content:no}}]},'客戶名稱':{select:{name:custName}},'成品':{relation:[{id:prodId}]},'訂購數量':{number:item.qty},'交期':{date:{start:date}},'狀態':{select:{name:'待排程'}},'業務備註':{rich_text:[{text:{content:note}}]}});
+      if(res.object==='error')throw new Error(res.message);
+      ok++;
+    }catch(e){
+      fail++;failList.push(item.model);
+      console.error('[Order]',item.model,e.message);
+    }
+  }
+
+  // ★ 完成：closeModal → 跳訂單頁 → 背景同步
+  closeModal();
+  switchTab('orders');
+  const msg2=(ok===selected.length?'✅':'⚠')+` 建立 ${ok}/${selected.length} 筆訂單`+(fail?` · 失敗：${failList.join(', ')}`:'');
+  showToast(msg2,ok===selected.length?'ok':'warn');
+  refreshAll().catch(e=>console.error('bg refresh:',e));
+}
+
+
+function matchProduct(){}
+function parsePIRows(r,h){piParse(r,h);}
+function syncProdFromSelect(){}
+function addOrderItem(){addItem();}
+function renderOrderItems(){renderItems();}
+
 
 window.onload=()=>{
   const lu=localStorage.getItem('lu');
   const lr=localStorage.getItem('lr');
   const ldn=localStorage.getItem('ldn');
-  const lt=localStorage.getItem('lt');
-  // 自動帶入已儲存的 token
-  if(lt) TOKEN=lt;
-  if(lt && document.getElementById('tokenInput'))
-    document.getElementById('tokenInput').value=lt;
-  if(lu&&lr&&lt){
+  if(lu&&lr){
     ROLE=lr;
     DISPLAY_NAME=ldn||lu;
     startApp();
