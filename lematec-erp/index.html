@@ -314,6 +314,20 @@ tr:hover td{background:rgba(59,130,246,.04);}
         <button class="show-btn" onclick="const p=document.getElementById('loginPass');p.type=p.type==='password'?'text':'password'">👁</button>
       </div>
     </div>
+    <!-- Notion Token（首次設定後自動記住）-->
+    <div class="field" id="tokenField" style="margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0" onclick="const b=document.getElementById('tokenBody');b.style.display=b.style.display==='none'?'':'none'">
+        <span style="font-size:11px;color:var(--text3)">⚙ Notion 連線設定</span>
+        <span style="font-size:10px;color:var(--text3)">▾</span>
+      </div>
+      <div id="tokenBody" style="display:none">
+        <div class="token-wrap">
+          <input class="inp" type="password" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx（首次輸入後自動記住）" autocomplete="off">
+          <button class="show-btn" onclick="const t=document.getElementById('tokenInput');t.type=t.type==='password'?'text':'password'">👁</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">前往 <a href="https://notion.so/profile/integrations" target="_blank" style="color:var(--blue)">notion.so/profile/integrations</a> 取得</div>
+      </div>
+    </div>
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
     <div class="alert alert-err" id="loginAlert"></div>
   </div>
@@ -476,6 +490,20 @@ async function login(){
   if(!username){ showLoginErr('請填入帳號'); return; }
   if(!password){ showLoginErr('請填入密碼'); return; }
 
+  // ★ Token：優先用輸入框，其次用 localStorage
+  const inputToken = (document.getElementById('tokenInput')?.value||'').trim();
+  const savedToken = localStorage.getItem('lt')||'';
+  const useToken = inputToken || savedToken;
+  if(!useToken){ 
+    // 展開 token 欄位提示
+    document.getElementById('tokenBody').style.display='';
+    document.getElementById('tokenInput').focus();
+    showLoginErr('首次使用請展開「Notion 連線設定」填入 Token'); 
+    return; 
+  }
+  TOKEN = useToken;
+  if(inputToken) localStorage.setItem('lt', inputToken); // 記住 token
+
   const btn = document.getElementById('loginBtn');
   btn.disabled = true; btn.textContent = '驗證中...';
 
@@ -487,7 +515,7 @@ async function login(){
     const res = await fetch(PROXY, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        token: TOKEN, // TOKEN 已在 html 裡設定為固定值
+        token: TOKEN,
         method:'POST',
         endpoint:`databases/${DB_ACCOUNTS}/query`,
         body:{ filter:{ and:[
@@ -2761,7 +2789,12 @@ window.onload=()=>{
   const lu=localStorage.getItem('lu');
   const lr=localStorage.getItem('lr');
   const ldn=localStorage.getItem('ldn');
-  if(lu&&lr){
+  const lt=localStorage.getItem('lt');
+  // 自動帶入已儲存的 token
+  if(lt) TOKEN=lt;
+  if(lt && document.getElementById('tokenInput'))
+    document.getElementById('tokenInput').value=lt;
+  if(lu&&lr&&lt){
     ROLE=lr;
     DISPLAY_NAME=ldn||lu;
     startApp();
