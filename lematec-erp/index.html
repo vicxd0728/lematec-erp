@@ -582,95 +582,13 @@ async function startApp(){
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav();showTab('dashboard');initOnlineTracking();
 
-  // ★ 分兩階段載入，減少等待感
   const mc = document.getElementById('mainContent');
-  mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入核心資料中...</div>`;
+  mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入資料中，請稍候...</div>`;
 
-  try{
-    // 第一階段：核心資料（料件、訂單、客戶）—— 優先顯示
-    const [mR,oR,masterR] = await Promise.all([
-      dbQueryAll(DB.materials),
-      dbQueryAll(DB.orders),
-      dbQueryAll(DB.custMaster),
-    ]);
-
-    mats = mR.map(p=>({
-      id:p.id, name:getTitle(p.properties,'料件名稱'),
-      code:getRichText(p.properties,'料件編號'),
-      type:p.properties?.['類型']?.select?.name||'',
-      unit:p.properties?.['單位']?.select?.name||'個',
-      stock:p.properties?.['目前庫存']?.number??0,
-      safe:p.properties?.['安全庫存']?.number??0,
-    }));
-    orders = oR.map(p=>({
-      id:p.id, no:getTitle(p.properties,'訂單號'),
-      customer:p.properties?.['客戶名稱']?.select?.name||'',
-      productId:p.properties?.['成品']?.relation?.[0]?.id||'',
-      qty:p.properties?.['訂購數量']?.number??0,
-      deadline:p.properties?.['交期']?.date?.start||'',
-      status:p.properties?.['狀態']?.select?.name||'',
-      note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
-      created:p.created_time?.slice(0,10)||'',
-    }));
-    customers = masterR.map(p=>({
-      id:p.id, name:getTitle(p.properties,'Name'),
-      code:getRichText(p.properties,'客戶編號'),
-      region:p.properties?.['國家']?.select?.name||'',
-      shipped:p.properties?.['出貨']?.select?.name||'',
-    })).filter(c=>c.name);
-
-    // 先渲染總覽
-    window._lastRefresh = Date.now();
-    renderTab('dashboard');
-
-    const w = document.getElementById('lowWarn');
-    const low = mats.filter(m=>m.stock<=m.safe);
-    if(low.length){ if(w){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;} }
-    else { if(w)w.style.display='none'; }
-
-    // 第二階段：背景載入 BOM、公告、請假、入料（不阻塞 UI）
-    Promise.all([
-      dbQueryAll(DB.bom),
-      dbQueryAll(DB.announce),
-      dbQueryAll(DB.leave),
-    ]).then(([bR,annR,leaveR])=>{
-      boms = bR.map(p=>({
-        parentId:p.properties?.['母件']?.relation?.[0]?.id||'',
-        childId:p.properties?.['子件']?.relation?.[0]?.id||'',
-        qty:p.properties?.['每台用量']?.number??1,
-      }));
-      announces = (annR||[]).map(p=>({
-        id:p.id, title:getTitle(p.properties,'標題'),
-        content:(p.properties?.['內容']?.rich_text||[]).map(r=>r.plain_text||'').join(''),
-        date:p.properties?.['發佈日期']?.date?.start||'',
-        status:p.properties?.['狀態']?.select?.name||'草稿',
-        pinned:p.properties?.['置頂']?.checkbox||false,
-        order:p.properties?.['顯示順序']?.number||99,
-      }));
-      leaves = (leaveR||[]).map(p=>({
-        id:p.id, name:getTitle(p.properties,'申請人姓名'),
-        title:getRichText(p.properties,'職稱'),
-        dateFrom:p.properties?.['請假日期起']?.date?.start||'',
-        dateTo:p.properties?.['請假日期迄']?.date?.start||'',
-        days:p.properties?.['請假天數']?.number||0,
-        type:p.properties?.['假別']?.select?.name||'',
-        reason:getRichText(p.properties,'請假原因'),
-        proxy:getRichText(p.properties,'職務代理人'),
-        status:p.properties?.['審核狀態']?.select?.name||'待審核',
-        rejectReason:getRichText(p.properties,'不通過原因'),
-        reviewer:getRichText(p.properties,'審核人'),
-        applyDate:p.properties?.['申請日期']?.date?.start||p.created_time?.slice(0,10)||'',
-      }));
-      // 更新總覽（加入公告）
-      if(CURRENT_TAB==='dashboard') renderTab('dashboard');
-      const syncEl=document.getElementById('syncStatus');
-      if(syncEl)syncEl.textContent='✓ '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
-    }).catch(e=>console.warn('背景載入失敗:',e));
-
-  }catch(e){
-    mc.innerHTML=`<div style="padding:20px;color:var(--red)">❌ 載入失敗: ${e.message}<br><button class="btn btn-ghost" onclick="startApp()" style="margin-top:8px">重試</button></div>`;
-  }
+  // 直接呼叫 refreshAll，確保所有資料完整載入後才渲染
+  await refreshAll();
 }
+
 
 // ═══════════════════════════════════════════════
 // DATA — 全部平行，客戶只從 custMaster 讀
