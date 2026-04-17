@@ -1965,20 +1965,92 @@ function matchCustomer(v){
          (q.length>=4?customers.find(c=>c.code&&c.code.toLowerCase().includes(q)):null)||null;
 }
 function onCustCodeInput(v){
-  const info=document.getElementById('custMatch');const btn=document.getElementById('fetchPIBtn');
-  const list=document.getElementById('piNotionList');if(list)list.style.display='none';
-  if(!v){info.textContent='';if(btn)btn.style.display='none';_mc=null;return;}
-  _mc=matchCustomer(v);
-  if(_mc){
-    const sel=document.getElementById('m_cust');
-    if(sel){const opt=Array.from(sel.options).find(o=>o.value===_mc.name);if(opt)sel.value=opt.value;}
-    info.innerHTML=`<span style="color:var(--green)">✅ ${_mc.name}（${_mc.code}）</span>`;
-    if(btn)btn.style.display='';
-  }else{
-    const sim=customers.filter(c=>c.code&&v.length>=2&&c.code.toLowerCase().startsWith(v.slice(0,4).toLowerCase())).slice(0,3);
-    info.innerHTML=`<span style="color:var(--yellow)">⚠ 找不到「${v}」${sim.length?' 相似：'+sim.map(c=>c.code).join('、'):'，請確認代號'}</span>`;
+  const suggest=document.getElementById('custSuggest');
+  const matchEl=document.getElementById('custMatch');
+  const matchText=document.getElementById('custMatchText');
+  const newRow=document.getElementById('newCustRow');
+  const btn=document.getElementById('fetchPIBtn');
+  const hiddenSel=document.getElementById('m_cust');
+  const list=document.getElementById('piNotionList');
+  if(list)list.style.display='none';
+
+  if(!v){
+    if(suggest)suggest.style.display='none';
+    if(matchEl)matchEl.style.display='none';
+    if(newRow)newRow.style.display='none';
     if(btn)btn.style.display='none';
+    _mc=null;
+    return;
   }
+
+  const q=v.toLowerCase();
+  // 搜尋符合的客戶（代號或名稱）
+  const matches=customers.filter(c=>
+    (c.code&&c.code.toLowerCase().includes(q))||
+    (c.name&&c.name.toLowerCase().includes(q))
+  ).slice(0,8);
+
+  if(matches.length){
+    // 顯示建議列表
+    if(suggest){
+      suggest.style.display='';
+      suggest.innerHTML=matches.map(c=>`
+        <div onclick="selectCust('${c.id}','${c.name.replace(/'/g,"\'")}','${c.code||''}')"
+          style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px"
+          onmouseover="this.style.background='rgba(59,130,246,.12)'"
+          onmouseout="this.style.background=''">
+          <span style="font-family:monospace;font-weight:700;color:var(--cyan2)">${c.code||'—'}</span>
+          <span style="margin-left:8px;color:var(--text)">${c.name}</span>
+        </div>`).join('');
+    }
+    if(matchEl)matchEl.style.display='none';
+    if(newRow)newRow.style.display='none';
+    _mc=null;
+  }else if(v.length>=2){
+    // 找不到 → 提示可輸入新客戶
+    if(suggest)suggest.style.display='none';
+    if(matchEl)matchEl.style.display='none';
+    if(newRow){
+      newRow.style.display='';
+      const ni=document.getElementById('m_newcust');
+      if(ni&&!ni.value)ni.value=v;
+    }
+    if(btn)btn.style.display='none';
+    _mc=null;
+  }else{
+    if(suggest)suggest.style.display='none';
+  }
+}
+
+function selectCust(id,name,code){
+  const suggest=document.getElementById('custSuggest');
+  const matchEl=document.getElementById('custMatch');
+  const matchText=document.getElementById('custMatchText');
+  const newRow=document.getElementById('newCustRow');
+  const hiddenSel=document.getElementById('m_cust');
+  const btn=document.getElementById('fetchPIBtn');
+  const codeInput=document.getElementById('m_code');
+
+  if(suggest)suggest.style.display='none';
+  if(matchEl)matchEl.style.display='flex';
+  if(matchText)matchText.textContent='✅ '+name+(code?' ('+code+')':'');
+  if(newRow)newRow.style.display='none';
+  if(hiddenSel)hiddenSel.value=name;
+  if(codeInput)codeInput.value=code||name;
+  if(btn)btn.style.display='';
+  _mc=customers.find(c=>c.id===id)||null;
+}
+
+function clearCustSelect(){
+  const matchEl=document.getElementById('custMatch');
+  const hiddenSel=document.getElementById('m_cust');
+  const codeInput=document.getElementById('m_code');
+  const suggest=document.getElementById('custSuggest');
+  if(matchEl)matchEl.style.display='none';
+  if(hiddenSel)hiddenSel.value='';
+  if(codeInput){codeInput.value='';codeInput.focus();}
+  if(suggest)suggest.style.display='none';
+  _mc=null;
 }
 
 // ═══════════════════════════════════════════════
@@ -2202,21 +2274,28 @@ function openModal(type,data){
     const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
       prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
     mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號（輸入後自動比對）</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input class="inp" id="m_code" placeholder="如 2602AU016" oninput="onCode(this.value)" style="flex:1;min-width:140px;">
-        <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none;white-space:nowrap">📂 抓 Notion PI</button>
-      </div>
-      <div id="codeMsg" style="font-size:11px;margin-top:5px;min-height:16px"></div>
+    <!-- 步驟1：客戶選擇 -->
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號 / 名稱搜尋</label>
+      <input class="inp" id="m_code" placeholder="輸入代號如 2602AU016 或客戶名稱關鍵字..." oninput="onCode(this.value)" autocomplete="off">
+      <div id="codeMsg" style="font-size:11px;margin-top:4px;min-height:16px"></div>
     </div>
-    <div class="field" style="margin-bottom:8px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">或從清單選擇</label>
-      <select class="inp" id="m_cust" onchange="onCustDrop(this.value)">${custOpts}</select>
+    <!-- 客戶搜尋結果列表 -->
+    <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:10px"></div>
+    <!-- 已選客戶顯示 -->
+    <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between">
+      <span id="custMatchText" style="color:var(--green)"></span>
+      <button onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
     </div>
-    <div id="newCustRow" style="display:none;margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">新客戶名稱（下單後自動建立至客戶總檔）</label>
+    <!-- 隱藏的 select（保留給 submit 用）-->
+    <input type="hidden" id="m_cust" value="">
+    <!-- 新客戶輸入（找不到時顯示）-->
+    <div id="newCustRow" style="display:none;margin-bottom:10px">
+      <label style="font-size:10px;color:var(--amber);display:block;margin-bottom:4px">⚠ 找不到此客戶，輸入新客戶名稱（會自動建立）</label>
       <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none;white-space:nowrap">📂 抓 Notion PI</button>
     </div>
     <div id="piNotionList" style="display:none;margin-bottom:12px"></div>
     <div class="field" style="margin-bottom:12px">
@@ -2894,19 +2973,7 @@ function addFromMat(sel){
   sel.selectedIndex=0;
   renderItems();
 }
-function onCustDrop(val){
-  if(!val){document.getElementById('newCustRow').style.display='';return;}
-  const cust=customers.find(c=>c.name===val);
-  if(cust){
-    document.getElementById('newCustRow').style.display='none';
-    document.getElementById('custMatch').innerHTML=
-      `<span style="color:var(--green)">✅ ${cust.name}（${cust.code}）</span>`;
-    const btn=document.getElementById('fetchPIBtn');
-    if(btn){btn.style.display='';_mc=cust;}
-  }else{
-    document.getElementById('newCustRow').style.display='';
-  }
-}
+function onCustDrop(val){} // deprecated, replaced by selectCust
 function onCode(v){onCustCodeInput(v);}
 function onPIFile(input){parsePIFile(input);}
 function doFetch(){fetchPIFromNotion();}
