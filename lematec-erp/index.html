@@ -2985,7 +2985,7 @@ async function submitAllOrders(){
   if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}
 }
 
-function closeModal(){document.getElementById('modalOverlay').style.display='none';}
+function closeModal(){document.getElementById('modalBg').classList.remove('open');}
 
 // ══ Toast 提示（右下角）══
 function showToast(msg, type='ok'){
