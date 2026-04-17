@@ -304,29 +304,18 @@ tr:hover td{background:rgba(59,130,246,.04);}
   <div class="brand">LEMATEC · ERP</div>
   <h1>製造管理系統</h1>
   <div class="card">
-    <div class="field"><label>帳號</label>
-      <div class="token-wrap"><input class="inp" type="text" id="loginUser" placeholder="輸入帳號" autocomplete="username" spellcheck="false"></div>
+    <div class="field"><label>Notion Integration Token</label>
+      <div class="token-wrap"><input class="inp" type="text" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false"><button class="show-btn" onclick="document.getElementById('tokenInput').value=''">清除</button></div>
+      <div class="hint">前往 <a href="https://notion.so/profile/integrations" target="_blank">notion.so/profile/integrations</a> 取得</div>
     </div>
-    <div class="field"><label>密碼</label>
-      <div class="token-wrap">
-        <input class="inp" type="password" id="loginPass" placeholder="輸入密碼" autocomplete="current-password"
-          onkeydown="if(event.key==='Enter')login()">
-        <button class="show-btn" onclick="const p=document.getElementById('loginPass');p.type=p.type==='password'?'text':'password'">👁</button>
-      </div>
-    </div>
-    <!-- Notion Token（首次設定後自動記住）-->
-    <div class="field" id="tokenField" style="margin-top:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0" onclick="const b=document.getElementById('tokenBody');b.style.display=b.style.display==='none'?'':'none'">
-        <span style="font-size:11px;color:var(--text3)">⚙ Notion 連線設定</span>
-        <span style="font-size:10px;color:var(--text3)">▾</span>
-      </div>
-      <div id="tokenBody" style="display:none">
-        <div class="token-wrap">
-          <input class="inp" type="password" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx（首次輸入後自動記住）" autocomplete="off">
-          <button class="show-btn" onclick="const t=document.getElementById('tokenInput');t.type=t.type==='password'?'text':'password'">👁</button>
-        </div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px">前往 <a href="https://notion.so/profile/integrations" target="_blank" style="color:var(--blue)">notion.so/profile/integrations</a> 取得</div>
-      </div>
+    <div class="field"><label>角色</label>
+      <select class="inp" id="roleSelect">
+        <option value="manager">🏭 廠長（全功能）</option>
+        <option value="sales">📋 業務</option>
+        <option value="warehouse">📦 倉管</option>
+        <option value="qc">✅ 品管</option>
+        <option value="purchase">🛒 採購</option>
+      </select>
     </div>
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
     <div class="alert alert-err" id="loginAlert"></div>
@@ -395,7 +384,7 @@ const DB={
 };
 const ROLES={
   // 廠長：全功能
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','settings']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule']},
   // 業務：訂單 + 客戶管理（不負責領料）
   sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','announce','orders','customers','leave']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
@@ -405,7 +394,7 @@ const ROLES={
   // 採購：唯讀瀏覽庫存和入料（暫無主動操作需求）
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','inventory','inbound','announce','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程',settings:'⚙️ 設定'};
+const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
@@ -417,7 +406,7 @@ const PILL={
 };
 
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
-let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];let DISPLAY_NAME='';
+let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let QC_SUB='pending',QC_FILTER='all';
 let announces=[],leaves=[];
 const ANN_COUNT_KEY='lm_ann_count';
@@ -472,101 +461,23 @@ function getRichText(props,...keys){for(const k of keys){const p=props?.[k];if(!
 // ═══════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════
-// ══ 帳號資料庫設定 ══
-const DB_ACCOUNTS = 'a08bcf55-d6d9-47d7-a384-5071f18718bf'; // 👤 ERP 帳號管理
-const DS_ACCOUNTS = '7ae84bf7-e594-42c4-b7ab-95521f4f74e1';
-
-// SHA-256 hash（瀏覽器原生，不需外部套件）
-async function sha256(str){
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
 async function login(){
-  const username = document.getElementById('loginUser').value.trim().toLowerCase();
-  const password = document.getElementById('loginPass').value;
+  const t=document.getElementById('tokenInput').value.trim().replace(/\s+/g,'');
+  const r=document.getElementById('roleSelect').value;
   document.getElementById('loginAlert').classList.remove('show');
-
-  if(!username){ showLoginErr('請填入帳號'); return; }
-  if(!password){ showLoginErr('請填入密碼'); return; }
-
-  // ★ Token：優先用輸入框，其次用 localStorage
-  const inputToken = (document.getElementById('tokenInput')?.value||'').trim();
-  const savedToken = localStorage.getItem('lt')||'';
-  const useToken = inputToken || savedToken;
-  if(!useToken){ 
-    // 展開 token 欄位提示
-    document.getElementById('tokenBody').style.display='';
-    document.getElementById('tokenInput').focus();
-    showLoginErr('首次使用請展開「Notion 連線設定」填入 Token'); 
-    return; 
-  }
-  TOKEN = useToken;
-  if(inputToken) localStorage.setItem('lt', inputToken); // 記住 token
-
-  const btn = document.getElementById('loginBtn');
-  btn.disabled = true; btn.textContent = '驗證中...';
-
+  if(!t){showLoginErr('請填入 Token');return;}
+  if(!t.startsWith('ntn_')){showLoginErr('Token 需 <b>ntn_</b> 開頭');return;}
+  TOKEN=t;ROLE=r;
+  const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='驗證中...';
   try{
-    // 計算密碼 hash
-    const pwHash = await sha256(password);
-
-    // 從 Notion 帳號資料庫查詢
-    const res = await fetch(PROXY, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        token: TOKEN,
-        method:'POST',
-        endpoint:`databases/${DB_ACCOUNTS}/query`,
-        body:{ filter:{ and:[
-          { property:'帳號名稱', title:{ equals: username } },
-          { property:'啟用', checkbox:{ equals: true } }
-        ]}}
-      })
-    });
-    const data = await res.json();
-    const accounts = data.results || [];
-
-    if(!accounts.length){
-      showLoginErr('帳號不存在或已停用');
-      btn.disabled=false; btn.textContent='⚡ 進入系統'; return;
-    }
-
-    const acc = accounts[0];
-    const storedHash = acc.properties?.['密碼Hash']?.rich_text?.[0]?.plain_text || '';
-    const role = acc.properties?.['角色']?.select?.name || '';
-    const displayName = acc.properties?.['顯示姓名']?.rich_text?.[0]?.plain_text || username;
-
-    if(pwHash !== storedHash){
-      showLoginErr('密碼錯誤');
-      btn.disabled=false; btn.textContent='⚡ 進入系統'; return;
-    }
-
-    // 驗證成功
-    ROLE = role;
-    DISPLAY_NAME = displayName;
-    localStorage.setItem('lu', username);
-    localStorage.setItem('lr', role);
-    localStorage.setItem('ldn', displayName);
-
-    // 更新最後登入時間（背景，不阻塞）
-    fetch(PROXY, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        token: TOKEN, method:'PATCH',
-        endpoint:`pages/${acc.id}`,
-        body:{ properties:{ '最後登入':{ date:{ start: new Date().toISOString().slice(0,10) }}}}
-      })
-    }).catch(()=>{});
-
-    startApp();
-
-  }catch(e){
-    showLoginErr('連線錯誤：'+e.message);
-  }
-  btn.disabled=false; btn.textContent='⚡ 進入系統';
+    const data=await notionAPI('GET',`databases/${DB.materials}`);
+    if(data.id||data.object==='database'){
+      localStorage.setItem('lt',t);localStorage.setItem('lr',r);startApp();
+    }else if(data.status===401||data.code==='unauthorized'){showLoginErr('Token 無效 (401)');}
+    else{showLoginErr(`連接失敗: ${data.message||data.code||'未知'}`);}
+  }catch(e){showLoginErr(`網路錯誤: ${e.message}`);}
+  btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
-
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
 function logout(){localStorage.removeItem('lu');localStorage.removeItem('lr');localStorage.removeItem('ldn');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
@@ -578,7 +489,7 @@ async function startApp(){
   document.getElementById('app').style.display='flex';
   const ri=ROLES[ROLE];
   const badge=document.getElementById('roleBadge');
-  badge.textContent=(DISPLAY_NAME?DISPLAY_NAME+' · ':'')+ri.label;
+  badge.textContent=ri.label;
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav();showTab('dashboard');initOnlineTracking();
 
@@ -761,7 +672,7 @@ function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){loadStockLog().then(()=>c.innerHTML=renderStockLog());}
   else if(tab==='schedule'){loadSchedule().then(()=>c.innerHTML=renderSchedule());}
-  else if(tab==='settings'){c.innerHTML=renderSettings();}}
+  }
 
 // ══════════════════════════════════════════════
 // 庫存異動記錄模組
@@ -1087,121 +998,6 @@ function openEditSchedule(id){
 // ══════════════════════════════════════════════
 // ⚙️ 設定模組（廠長專用：密碼修改）
 // ══════════════════════════════════════════════
-function renderSettings(){
-  return`
-  <div style="max-width:560px">
-    <!-- 密碼修改 -->
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-hdr"><span class="panel-title">🔐 修改登入密碼</span></div>
-      <div style="padding:16px">
-        <div class="field" style="margin-bottom:10px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">目前密碼</label>
-          <input class="inp" type="password" id="pw_cur" placeholder="輸入目前密碼">
-        </div>
-        <div class="field" style="margin-bottom:10px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">新密碼</label>
-          <input class="inp" type="password" id="pw_new" placeholder="至少 6 個字元">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">確認新密碼</label>
-          <input class="inp" type="password" id="pw_confirm" placeholder="再輸入一次">
-        </div>
-        <div id="pw_msg" style="display:none;padding:8px 12px;border-radius:7px;font-size:12px;margin-bottom:10px"></div>
-        <button class="btn btn-blue" onclick="doChangePassword()">🔐 確認修改</button>
-      </div>
-    </div>
-
-    <!-- Hash 產生工具（方便廠長在 Notion 設定其他帳號密碼）-->
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-hdr"><span class="panel-title">🔧 密碼 Hash 產生工具</span></div>
-      <div style="padding:16px">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">在 Notion 帳號管理資料庫新增帳號時，需要填入密碼的 SHA-256 Hash。在此輸入密碼後複製 Hash 貼到 Notion 即可。</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <input class="inp" type="text" id="hash_input" placeholder="輸入要設定的密碼" style="flex:1" oninput="genHash()">
-        </div>
-        <div id="hash_output" style="background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:10px;font-family:monospace;font-size:11px;color:var(--text2);word-break:break-all;min-height:36px">在上方輸入密碼後，Hash 將自動顯示在此</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard.writeText(document.getElementById('hash_output').textContent).then(()=>showToast('✅ 已複製 Hash','ok'))">📋 複製 Hash</button>
-      </div>
-    </div>
-
-    <!-- 帳號資訊 -->
-    <div class="panel">
-      <div class="panel-hdr"><span class="panel-title">👤 目前登入資訊</span></div>
-      <div style="padding:16px;font-size:13px">
-        <div style="margin-bottom:6px"><span style="color:var(--text3)">帳號：</span><b style="color:var(--text)">${localStorage.getItem('lu')||'—'}</b></div>
-        <div style="margin-bottom:6px"><span style="color:var(--text3)">姓名：</span><b style="color:var(--text)">${DISPLAY_NAME||'—'}</b></div>
-        <div><span style="color:var(--text3)">角色：</span><b style="color:var(--cyan2)">${ROLES[ROLE]?.label||ROLE}</b></div>
-      </div>
-    </div>
-  </div>`;
-}
-
-async function genHash(){
-  const v=document.getElementById('hash_input').value;
-  const el=document.getElementById('hash_output');
-  if(!v){el.textContent='在上方輸入密碼後，Hash 將自動顯示在此';return;}
-  const h=await sha256(v);
-  el.textContent=h;
-}
-
-async function doChangePassword(){
-  const cur=document.getElementById('pw_cur').value;
-  const nw=document.getElementById('pw_new').value;
-  const cf=document.getElementById('pw_confirm').value;
-  const msg=document.getElementById('pw_msg');
-
-  function showPwMsg(text,type){
-    msg.style.display='';
-    msg.style.background=type==='ok'?'rgba(16,185,129,.1)':'rgba(245,101,101,.1)';
-    msg.style.color=type==='ok'?'var(--green)':'var(--red)';
-    msg.style.border=`1px solid ${type==='ok'?'rgba(16,185,129,.3)':'rgba(245,101,101,.3)'}`;
-    msg.textContent=text;
-  }
-
-  if(!cur||!nw||!cf){showPwMsg('請填入所有欄位','err');return;}
-  if(nw.length<6){showPwMsg('新密碼至少 6 個字元','err');return;}
-  if(nw!==cf){showPwMsg('新密碼與確認密碼不符','err');return;}
-
-  showPwMsg('驗證中...','ok');
-
-  try{
-    const curHash=await sha256(cur);
-    const newHash=await sha256(nw);
-    const username=localStorage.getItem('lu')||'';
-
-    // 從 Notion 查詢目前帳號
-    const res=await fetch(PROXY,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,method:'POST',
-        endpoint:`databases/${DB_ACCOUNTS}/query`,
-        body:{filter:{and:[
-          {property:'帳號名稱',title:{equals:username}},
-          {property:'啟用',checkbox:{equals:true}}
-        ]}}
-      })
-    });
-    const data=await res.json();
-    const acc=data.results?.[0];
-    if(!acc){showPwMsg('找不到帳號','err');return;}
-
-    const storedHash=acc.properties?.['密碼Hash']?.rich_text?.[0]?.plain_text||'';
-    if(curHash!==storedHash){showPwMsg('目前密碼不正確','err');return;}
-
-    // 更新密碼
-    await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,method:'PATCH',
-        endpoint:`pages/${acc.id}`,
-        body:{properties:{'密碼Hash':{rich_text:[{text:{content:newHash}}]}}}
-      })
-    });
-
-    showPwMsg('✅ 密碼已成功修改！下次登入請使用新密碼。','ok');
-    document.getElementById('pw_cur').value='';
-    document.getElementById('pw_new').value='';
-    document.getElementById('pw_confirm').value='';
-  }catch(e){showPwMsg('❌ 修改失敗：'+e.message,'err');}
-}
-
 
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe);
@@ -2674,13 +2470,11 @@ function openModal(type,data){
         ].map(t=>`<div style="display:flex;gap:6px;margin-bottom:4px"><span style="color:var(--green);flex-shrink:0">✓</span><span>${t}</span></div>`).join('')}
       </div>
 
-      <!-- 密碼管理 -->
-      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">🔐 帳號與密碼</div>
+      <!-- 登入說明 -->
+      <div style="color:var(--cyan2);font-weight:700;margin:12px 0 6px;font-size:13px">🔐 登入說明</div>
       <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="margin-bottom:6px">登入採用帳號+密碼，密碼以 SHA-256 Hash 儲存於 Notion 帳號資料庫，不存明文。</div>
-        <div style="margin-bottom:4px"><b style="color:var(--text)">修改密碼：</b>廠長登入 → ⚙️ 設定 → 修改登入密碼</div>
-        <div style="margin-bottom:4px"><b style="color:var(--text)">新增帳號：</b>廠長進入 Notion → 👤 ERP 帳號管理 → 新增一筆，填帳號/角色/密碼Hash/啟用</div>
-        <div><b style="color:var(--text)">產生密碼 Hash：</b>⚙️ 設定 → 密碼 Hash 產生工具，輸入密碼後複製 Hash 貼到 Notion</div>
+        <div style="margin-bottom:4px">登入需要 <b style="color:var(--text)">Notion Integration Token</b>（ntn_ 開頭）及角色選擇。</div>
+        <div>Token 儲存在瀏覽器，下次開啟自動帶入，不需重複輸入。</div>
       </div>
 
       <!-- 快捷鍵 -->
@@ -2703,20 +2497,91 @@ function openModal(type,data){
 
 function closeModal(){document.getElementById('modalOverlay').style.display='none';}
 
-window.onload=()=>{
-  const lu=localStorage.getItem('lu');
-  const lr=localStorage.getItem('lr');
-  const ldn=localStorage.getItem('ldn');
-  const lt=localStorage.getItem('lt');
-  // 自動帶入已儲存的 token
-  if(lt) TOKEN=lt;
-  if(lt && document.getElementById('tokenInput'))
-    document.getElementById('tokenInput').value=lt;
-  if(lu&&lr&&lt){
-    ROLE=lr;
-    DISPLAY_NAME=ldn||lu;
-    startApp();
+// ══ Toast 提示（右下角）══
+function showToast(msg, type='ok'){
+  let el = document.getElementById('_toast');
+  if(!el){
+    el = document.createElement('div');
+    el.id='_toast';
+    el.style.cssText='position:fixed;bottom:20px;right:20px;z-index:9999;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;max-width:300px;transition:opacity .3s;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4)';
+    document.body.appendChild(el);
   }
+  const colors = {
+    ok:   {bg:'rgba(16,185,129,.15)',border:'rgba(16,185,129,.4)',text:'var(--green)'},
+    warn: {bg:'rgba(245,158,11,.12)',border:'rgba(245,158,11,.35)',text:'var(--yellow)'},
+    err:  {bg:'rgba(239,68,68,.12)', border:'rgba(239,68,68,.35)', text:'var(--red)'},
+  };
+  const c = colors[type]||colors.ok;
+  el.style.background=c.bg;
+  el.style.border='1px solid '+c.border;
+  el.style.color=c.text;
+  el.textContent=msg;
+  el.style.opacity='1';
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.style.opacity='0';},3000);
+}
+
+// ══ 線上人數（同一瀏覽器多分頁偵測）══
+const ONLINE_KEY='lm_online';
+const ONLINE_TTL=15000;
+let _onlineChannel=null;
+let _onlineTimer=null;
+const _myTabId='tab_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+
+function initOnlineTracking(){
+  try{
+    // BroadcastChannel 偵測同一瀏覽器的其他 tab
+    _onlineChannel=new BroadcastChannel('lematec_online');
+    _onlineChannel.onmessage=e=>{
+      if(e.data?.type==='ping'||e.data?.type==='pong'){
+        _updateOnlineUI();
+      }
+    };
+    // 每12秒發心跳
+    function heartbeat(){
+      try{
+        // 存入 localStorage
+        const now=Date.now();
+        const tabs=JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+        tabs[_myTabId]=now;
+        // 清除過期
+        Object.keys(tabs).forEach(k=>{ if(now-tabs[k]>ONLINE_TTL) delete tabs[k]; });
+        localStorage.setItem(ONLINE_KEY,JSON.stringify(tabs));
+        _onlineChannel.postMessage({type:'ping',id:_myTabId});
+        _updateOnlineUI();
+      }catch(e){}
+    }
+    heartbeat();
+    _onlineTimer=setInterval(heartbeat,12000);
+    window.addEventListener('beforeunload',()=>{
+      try{
+        const tabs=JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+        delete tabs[_myTabId];
+        localStorage.setItem(ONLINE_KEY,JSON.stringify(tabs));
+      }catch(e){}
+    });
+  }catch(e){
+    console.log('Online tracking not supported');
+  }
+}
+
+function _updateOnlineUI(){
+  try{
+    const now=Date.now();
+    const tabs=JSON.parse(localStorage.getItem(ONLINE_KEY)||'{}');
+    const count=Object.values(tabs).filter(t=>now-t<ONLINE_TTL).length;
+    const el=document.getElementById('onlineCount');
+    const numEl=document.getElementById('onlineNum');
+    if(el){
+      if(count>1){el.style.display='inline-flex';if(numEl)numEl.textContent=count;}
+      else{el.style.display='none';}
+    }
+  }catch(e){}
+}
+
+window.onload=()=>{
+  const t=localStorage.getItem('lt');const r=localStorage.getItem('lr');
+  if(t&&r){TOKEN=t;ROLE=r;document.getElementById('tokenInput').value=t;document.getElementById('roleSelect').value=r;startApp();}
 };
 </script>
 </body>
