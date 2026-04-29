@@ -1200,7 +1200,7 @@ async function submitInspection(){
   try{
     const props = {
       '檢驗單號':   {title:[{text:{content:no}}]},
-      '關聯訂單號': {rich_text:[{text:{content:orderNo||orderId}}]},
+      '關聯訂單號': {rich_text:[{text:{content: orderId ? orderId+'|'+(orderNo||orderId) : (orderNo||'')}}]},
       '檢驗類型':   {select:{name:type}},
       '品項名稱':   {rich_text:[{text:{content:matName}}]},
       '料件編號':   {rich_text:[{text:{content:matCode}}]},
@@ -1414,10 +1414,11 @@ function renderOrders(){
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','qty','數量','num')}${TH('orders','created','建立日','str','hide-m')}${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
+  <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','product','品項')}<th>數量</th>${TH('orders','created','建立日','str','hide-m')}${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${o.no||'—'}</td>
     <td class="hide-m" style="font-size:11px">${o.customer}</td>
+    <td style="font-size:12px;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:10px;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}</td>
     <td style="font-family:monospace">${o.qty}</td>
     <td class="hide-m" style="font-family:monospace;font-size:10px;color:var(--text3)">${o.created||'—'}</td>
     <td class="hide-m" style="font-family:monospace;font-size:11px">${o.deadline||'—'}</td>
@@ -1839,7 +1840,9 @@ async function loadQCInspections(){
     window._qcInspections = r.map(p=>({
       id:       p.id,
       no:       p.properties?.['檢驗單號']?.title?.[0]?.plain_text||'',
-      orderRef: p.properties?.['關聯訂單號']?.rich_text?.[0]?.plain_text||'',
+      orderRefRaw: p.properties?.['關聯訂單號']?.rich_text?.[0]?.plain_text||'',
+      get orderRef(){ const r=this.orderRefRaw; return r.includes('|')?r.split('|')[1]:r; },
+      get orderId(){ const r=this.orderRefRaw; return r.includes('|')?r.split('|')[0]:''; },
       matName:  p.properties?.['品項名稱']?.rich_text?.[0]?.plain_text||
                 p.properties?.['料件名稱']?.rich_text?.[0]?.plain_text||'',
       matCode:  p.properties?.['料件編號']?.rich_text?.[0]?.plain_text||'',
@@ -1861,6 +1864,18 @@ async function loadQCInspections(){
 
 // ── 檢驗結果：通過 / 不通過 ──
 async function doInspResult(insId, orderRef, result){
+  // orderRef 格式：「orderId|orderNo」或純訂單號
+  // 解析
+  let orderId = '', orderNo = '';
+  if(orderRef && orderRef.includes('|')){
+    [orderId, orderNo] = orderRef.split('|');
+  } else {
+    orderNo = orderRef||'';
+    // 嘗試從本地 orders 找
+    const found = orders.find(o=>o.no===(orderNo||'').trim());
+    if(found) orderId = found.id;
+  }
+
   // 確認不通過原因
   let badDesc = '';
   if(result === '不通過'){
@@ -1871,30 +1886,35 @@ async function doInspResult(insId, orderRef, result){
   showToast('更新中...','warn');
 
   try{
-    // 1. 更新檢驗單的檢驗結果
+    // 1. 更新檢驗單結果
     const props = { '檢驗結果':{select:{name:result}} };
     if(badDesc) props['不良描述']={rich_text:[{text:{content:badDesc}}]};
     await updatePage(insId, props);
 
     // 2. 若有關聯訂單 → 更新訂單狀態（不動庫存）
-    if(orderRef){
-      const order = orders.find(o=>o.no===orderRef);
-      if(order){
-        const newStatus = result==='通過' ? '待出貨' : '待檢驗'; // 不通過維持待檢驗
-        await updatePage(order.id, {'狀態':{select:{name:newStatus}}});
-        order.status = newStatus;
+    if(orderId){
+      const newStatus = result==='通過' ? '待出貨' : '待檢驗';
+      await updatePage(orderId, {'狀態':{select:{name:newStatus}}});
+      const o = orders.find(x=>x.id===orderId);
+      if(o){ o.status = newStatus; }
+    } else if(orderNo){
+      // 找不到 ID 時用訂單號比對
+      const o = orders.find(x=>(x.no||'').trim()===(orderNo||'').trim());
+      if(o){
+        const newStatus = result==='通過' ? '待出貨' : '待檢驗';
+        await updatePage(o.id, {'狀態':{select:{name:newStatus}}});
+        o.status = newStatus;
       }
     }
 
-    // 3. 重新載入檢驗單 + 刷新
+    // 3. 重新載入並刷新
     await loadQCInspections();
     await refreshAll();
 
-    if(result==='通過'){
-      showToast('✅ 檢驗通過' + (orderRef?' — 訂單已更新為「待出貨」':''),'ok');
-    } else {
-      showToast('❌ 檢驗不通過，訂單維持待檢驗狀態','warn');
-    }
+    showToast(result==='通過'
+      ? '✅ 檢驗通過'+(orderId||orderNo?' — 訂單已更新為「待出貨」':'')
+      : '❌ 檢驗不通過，訂單維持待檢驗狀態'
+    , result==='通過'?'ok':'warn');
 
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
@@ -1920,7 +1940,7 @@ function renderQCTab(){
   if(QC_SUB==='inspect'){
     const inspections = window._qcInspections||[];
     // 已建立檢驗單的訂單號
-    const doneOrderNos = new Set(inspections.map(i=>i.orderRef).filter(Boolean));
+    const doneOrderNos = new Set(inspections.map(i=>i.orderRef).filter(Boolean)); // orderRef getter 回傳訂單號
     // 待檢驗訂單：過濾掉已開立過檢驗單的
     const pendingInspOrders = getInspectionOrders().filter(o=>!doneOrderNos.has(o.no));
     const statusColors={'待檢驗':'var(--text3)','通過':'var(--green)','不通過':'var(--red)','條件通過':'var(--yellow)'};
@@ -1975,10 +1995,10 @@ function renderQCTab(){
         +'<td style="font-family:monospace;font-size:11px;color:var(--text3)">'+(ins.date||'—')+'</td>'
         +(canQC && isPending
           ? '<td style="white-space:nowrap">'
-            +'<button class="btn btn-green btn-sm" data-id="'+ins.id+'" data-ref="'+(ins.orderRef||'')+'" onclick="doInspResult(this.dataset.id,this.dataset.ref,\'通過\')">✓ 通過</button> '
-            +'<button class="btn btn-red btn-sm" data-id="'+ins.id+'" data-ref="'+(ins.orderRef||'')+'" onclick="doInspResult(this.dataset.id,this.dataset.ref,\'不通過\')">✗ 不通過</button>'
+            +'<button class="btn btn-green btn-sm" data-id="'+ins.id+'" data-ref="'+(ins.orderRefRaw||'')+'" onclick="doInspResult(this.dataset.id,this.dataset.ref,\'通過\')">✓ 通過</button> '
+            +'<button class="btn btn-red btn-sm" data-id="'+ins.id+'" data-ref="'+(ins.orderRefRaw||'')+'" onclick="doInspResult(this.dataset.id,this.dataset.ref,\'不通過\')">✗ 不通過</button>'
             +'</td>'
-          : '<td style="font-size:11px;color:var(--text2)">'+(ins.handling||'—')+'</td>')
+          : '<td style="font-size:11px;color:var(--text2)">'+(ins.result||'—')+'</td>')
         +'</tr>';
     }).join('');
 
