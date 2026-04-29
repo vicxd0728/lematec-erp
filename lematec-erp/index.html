@@ -369,12 +369,21 @@ const DB={
   pickDetail: '267f16cf-e88a-41ed-8049-d39d618a1275',
   inbound:    'cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4',
   custMaster: '19fff6f4-24bb-80fe-b265-c62fa39c814c',
+  custMasterDS:'19fff6f4-24bb-81b5-85d4-000bdabccfbb',
+  // 國內客戶總檔
+  custDomestic: '987033cc-2ce6-48d3-9557-ed936dd42904',
+  custDomesticDS:'5da3060f-b56c-44b6-97b9-b0c02fca198c',
   // 公告管理 — database_id 用於讀取，data_source_id 用於寫入
   announce:   'e2950944-dbe2-43f6-afd5-ca0ff2980f86',
   announceDS: '28661b6b-fd1a-44fd-bc49-480874a73f24',
   // 請假管理
   leave:   '897e8784-4c2d-452c-a045-c568e175e6d5',
   leaveDS: '9fabe403-8a8a-4efe-bc30-1a814c80ddee',
+  // 品管檢驗單
+  qcInspection: '48f1a7b9-1e89-4f9c-a4db-6df8e5ee7e5f',
+  // 品管檢驗單
+  qcInspect:   '48f1a7b9-1e89-4f9c-a4db-6df8e5ee7e5f',
+  qcInspectDS: 'd771ab41-1cc3-4baa-b306-273550d58685',
   // 庫存異動記錄
   stockLog:   '0aa78528-a5bb-4a0d-8005-c0c1e0aaf8a3',
   stockLogDS: '3bda3fab-943f-4a38-bf96-dc0384d228e9',
@@ -397,6 +406,7 @@ const ROLES={
 const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 const PILL={
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
+  '待檢驗':['rgba(139,92,246,.15)','#a78bfa'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
   '取消':['rgba(245,101,101,.12)','#f56565'],'已確認扣料':['rgba(46,196,138,.12)','#2ec48a'],
   '待品檢':['rgba(245,185,66,.12)','#f5b942'],'品檢通過':['rgba(46,196,138,.12)','#2ec48a'],
@@ -556,15 +566,33 @@ async function refreshAll(manual=false){
       created:p.created_time?.slice(0,10)||'',
     }));
 
-    // 客戶唯一來源：國外業務客戶總檔
-    // 每次都重新讀取，因為出貨狀態變動時客戶編號會改變
-    customers=masterR.map(p=>({
+    // 國外客戶
+    const overseasCustomers = masterR.map(p=>({
       id:p.id,
       name:getTitle(p.properties,'Name'),
       code:getRichText(p.properties,'客戶編號'),
       region:p.properties?.['國家']?.select?.name||'',
       shipped:p.properties?.['出貨']?.select?.name||'',
+      type:'overseas',
     })).filter(c=>c.name);
+
+    // 同步載入國內客戶
+    let domesticCustomers=[];
+    try{
+      const domR=await dbQueryAll(DB.custDomestic);
+      domesticCustomers=domR.map(p=>({
+        id:p.id,
+        name:getTitle(p.properties,'客戶名稱'),
+        code:getRichText(p.properties,'客戶編號'),
+        region:p.properties?.['地區']?.select?.name||'',
+        shipped:p.properties?.['出貨記錄']?.select?.name||'',
+        grade:p.properties?.['客戶等級']?.select?.name||'',
+        area:p.properties?.['地區']?.select?.name||'',
+        type:'domestic',
+      })).filter(c=>c.name);
+    }catch(e){console.warn('國內客戶載入失敗:',e);}
+
+    customers=[...overseasCustomers,...domesticCustomers];
 
     // ★ 請假解析
     leaves=(leaveR||[]).map(p=>({
@@ -999,6 +1027,192 @@ function openEditSchedule(id){
 // ⚙️ 設定模組（廠長專用：密碼修改）
 // ══════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════
+// ✅ 品管檢驗單模組
+// ══════════════════════════════════════════════════════
+let qcInspects = [];
+
+// 品管頁加入檢驗單 tab（原本的入料品管 + 新的檢驗單）
+// 從訂單找「待檢驗」狀態的訂單
+function getInspectionOrders(){
+  return orders.filter(o=>o.status==='待檢驗');
+}
+
+// 新增檢驗單 modal（從訂單觸發 或 手動）
+function openNewInspection(orderId, orderNo, matName, qty){
+  const today = new Date().toISOString().slice(0,10);
+  const insNo = 'INS-'+today.slice(2).replace(/-/g,'')+'-'+Math.floor(Math.random()*900+100);
+  document.getElementById('modalInner').innerHTML=`<h3>🔬 新增品管檢驗單</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗單號</label>
+      <input class="inp" id="ins_no" value="${insNo}" readonly style="opacity:.7">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">關聯訂單號</label>
+      <input class="inp" id="ins_order" value="${orderNo||''}" placeholder="輸入訂單號（選填）">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">品項名稱 *</label>
+      <input class="inp" id="ins_mat" value="${matName||''}" placeholder="品名或型號">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件編號</label>
+      <input class="inp" id="ins_code" placeholder="選填">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">應檢數量</label>
+      <input class="inp" type="number" id="ins_qtyreq" value="${qty||0}" min="0">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">實檢數量</label>
+      <input class="inp" type="number" id="ins_qtyact" value="${qty||0}" min="0">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">不良數量</label>
+      <input class="inp" type="number" id="ins_qtybad" value="0" min="0">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗類型</label>
+      <select class="inp" id="ins_type">
+        ${['抽檢','全檢','首件確認','手動新增'].map(t=>`<option value="${t}">${t}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗日期</label>
+      <input class="inp" type="date" id="ins_date" value="${today}">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗結果</label>
+      <select class="inp" id="ins_result" onchange="toggleInspectionBad(this.value)">
+        <option value="待檢驗">待檢驗</option>
+        <option value="通過">✅ 通過</option>
+        <option value="條件通過">⚠ 條件通過</option>
+        <option value="不通過">❌ 不通過</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗人員</label>
+      <input class="inp" id="ins_inspector" value="${ROLE==='qc'?'品管':''}">
+    </div>
+  </div>
+  <!-- 不良資訊（有不良才顯示）-->
+  <div id="ins_bad_block" style="display:none;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:12px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div>
+        <label style="font-size:10px;color:var(--red);display:block;margin-bottom:4px">不良原因</label>
+        <select class="inp" id="ins_bad_reason">
+          <option value="">— 選擇 —</option>
+          ${['外觀不良','尺寸不符','功能異常','包裝不良','標籤錯誤','其他'].map(r=>`<option value="${r}">${r}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--red);display:block;margin-bottom:4px">處理方式</label>
+        <select class="inp" id="ins_handling">
+          <option value="">— 選擇 —</option>
+          ${['全數退回','挑選後入庫','特採入庫','報廢','正常入庫'].map(s=>`<option value="${s}">${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--red);display:block;margin-bottom:4px">不良描述</label>
+      <input class="inp" id="ins_bad_desc" placeholder="詳細描述不良情形">
+    </div>
+  </div>
+  <!-- 連動庫存 -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <input type="checkbox" id="ins_sync_stock" style="accent-color:var(--blue);width:16px;height:16px">
+    <label style="font-size:12px;color:var(--text2)">✅ 通過後自動加入庫存</label>
+    <input class="inp" type="number" id="ins_stock_delta" placeholder="數量" style="width:80px;padding:4px 8px;font-size:12px;margin-left:auto">
+    <span style="font-size:11px;color:var(--text3)">個</span>
+  </div>
+  <div style="margin-bottom:12px">
+    <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label>
+    <input class="inp" id="ins_note" placeholder="選填">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+    <button class="btn btn-blue" onclick="submitInspection('${orderId||''}')">🔬 建立檢驗單</button>
+  </div>`;
+  openModal();
+}
+
+function toggleInspectionBad(result){
+  const block = document.getElementById('ins_bad_block');
+  if(block) block.style.display = (result==='不通過'||result==='條件通過') ? '' : 'none';
+}
+
+async function submitInspection(orderId){
+  const no = document.getElementById('ins_no').value;
+  const orderRef = document.getElementById('ins_order').value.trim();
+  const matName = document.getElementById('ins_mat').value.trim();
+  const matCode = document.getElementById('ins_code').value.trim();
+  const qtyReq = parseInt(document.getElementById('ins_qtyreq').value)||0;
+  const qtyAct = parseInt(document.getElementById('ins_qtyact').value)||0;
+  const qtyBad = parseInt(document.getElementById('ins_qtybad').value)||0;
+  const type = document.getElementById('ins_type').value;
+  const date = document.getElementById('ins_date').value;
+  const result = document.getElementById('ins_result').value;
+  const inspector = document.getElementById('ins_inspector').value.trim();
+  const badReason = document.getElementById('ins_bad_reason')?.value||'';
+  const handling = document.getElementById('ins_handling')?.value||'';
+  const badDesc = document.getElementById('ins_bad_desc')?.value.trim()||'';
+  const syncStock = document.getElementById('ins_sync_stock').checked;
+  const stockDelta = parseInt(document.getElementById('ins_stock_delta').value)||qtyAct-qtyBad;
+  const note = document.getElementById('ins_note').value.trim();
+
+  if(!matName){ showToast('請填入品項名稱','warn'); return; }
+  if(!date){ showToast('請填入檢驗日期','warn'); return; }
+
+  closeModal(); showToast('建立檢驗單中...','warn');
+
+  try{
+    const props = {
+      '檢驗單號':   {title:[{text:{content:no}}]},
+      '關聯訂單號': {rich_text:[{text:{content:orderRef}}]},
+      '檢驗類型':   {select:{name:type}},
+      '品項名稱':   {rich_text:[{text:{content:matName}}]},
+      '料件編號':   {rich_text:[{text:{content:matCode}}]},
+      '應檢數量':   {number:qtyReq},
+      '實檢數量':   {number:qtyAct},
+      '不良數量':   {number:qtyBad},
+      '檢驗結果':   {select:{name:result}},
+      '檢驗人員':   {rich_text:[{text:{content:inspector||ROLE}}]},
+      '連動庫存':   {checkbox:syncStock},
+      '庫存異動數量':{number:stockDelta},
+      '備註':       {rich_text:[{text:{content:note}}]},
+    };
+    if(date) props['檢驗日期']={date:{start:date}};
+    if(badReason) props['不良原因']={select:{name:badReason}};
+    if(handling) props['處理方式']={select:{name:handling}};
+    if(badDesc) props['不良描述']={rich_text:[{text:{content:badDesc}}]};
+
+    await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:props});
+
+    // 若訂單狀態=待檢驗 且 結果=通過 → 自動推進到待出貨
+    if(orderId && result==='通過'){
+      await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
+      const o = orders.find(x=>x.id===orderId);
+      if(o) o.status='待出貨';
+      showToast('✅ 檢驗通過，訂單已更新為「待出貨」','ok');
+    } else if(orderId && result==='不通過'){
+      showToast('❌ 檢驗不通過，請處理不良品','err');
+    } else {
+      showToast('✅ 檢驗單 '+no+' 已建立','ok');
+    }
+
+    await refreshAll();
+  }catch(e){ showToast('❌ '+e.message,'err'); }
+}
+
 function renderDashboard(){
   const low=mats.filter(m=>m.stock<=m.safe);
   const active=orders.filter(o=>o.status==='生產中'||o.status==='待排程');
@@ -1175,7 +1389,62 @@ function renderOrders(){
 function renderCustomers(){
   const canAdd=ROLE==='sales'||ROLE==='manager';
   const q=(document.getElementById('custSearch')?.value||'').toLowerCase();
-  const data=applySort('customers',customers).filter(c=>!q||c.code?.toLowerCase().includes(q)||c.name?.toLowerCase().includes(q));
+  const tabType=document.getElementById('custTabType')?.value||'overseas';
+  CUST_TYPE=tabType;
+
+  // 篩選國內/國外
+  let pool=customers.filter(c=>tabType==='all'||(c.type||'overseas')===tabType);
+  const data=applySort('customers',pool).filter(c=>!q||
+    c.code?.toLowerCase().includes(q)||c.name?.toLowerCase().includes(q)||
+    c.region?.toLowerCase().includes(q));
+
+  // 統計
+  const overseas=customers.filter(c=>(c.type||'overseas')==='overseas').length;
+  const domestic=customers.filter(c=>c.type==='domestic').length;
+
+  const tabBtns=`
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    <select class="inp" id="custTabType" style="padding:6px 10px;font-size:12px;width:auto" onchange="renderTab('customers')">
+      <option value="overseas" ${tabType==='overseas'?'selected':''}>🌍 國外客戶（${overseas}）</option>
+      <option value="domestic" ${tabType==='domestic'?'selected':''}>🏭 國內客戶（${domestic}）</option>
+      <option value="all" ${tabType==='all'?'selected':''}>全部（${customers.length}）</option>
+    </select>
+    <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:6px 10px;font-size:12px"
+      placeholder="搜尋代號/名稱/地區..." value="${q}"
+      oninput="renderTab('customers')" onblur="renderTab('customers')">
+    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">＋ 新增${tabType==='domestic'?'國內':'國外'}客戶</button>`:''}
+  </div>`;
+
+  // 國外：顯示代號、國家、出貨
+  // 國內：顯示編號、地區、等級、付款
+  const isOverseas=tabType!=='domestic';
+
+  const tableHeader=isOverseas
+    ?`<tr><th>客戶代號</th><th>客戶名稱</th><th>國家</th><th>出貨</th></tr>`
+    :`<tr><th>客戶編號</th><th>客戶名稱</th><th>地區</th><th>等級</th></tr>`;
+
+  const tableRows=data.map(c=>isOverseas
+    ?`<tr>
+      <td style="font-family:monospace;font-weight:700;color:var(--cyan2)">${c.code||'—'}</td>
+      <td>${c.name}</td>
+      <td><span class="pill">${c.region||'—'}</span></td>
+      <td>${pill(c.shipped)||'—'}</td>
+    </tr>`
+    :`<tr>
+      <td style="font-family:monospace;font-weight:700;color:var(--cyan2)">${c.code||'—'}</td>
+      <td>${c.name}</td>
+      <td><span class="pill">${c.region||'—'}</span></td>
+      <td>${c.grade?`<span class="pill" style="background:${c.grade.startsWith('A')?'rgba(239,68,68,.15)':c.grade.startsWith('B')?'rgba(59,130,246,.12)':'rgba(245,158,11,.12)'}">${c.grade}</span>`:'—'}</td>
+    </tr>`
+  ).join('');
+
+  return`${tabBtns}
+  <div class="panel"><div class="panel-hdr">
+    <span class="panel-title">${tabType==='domestic'?'🏭 國內':'🌍 國外'}客戶 <span class="badge">${data.length}</span></span>
+  </div>
+  ${!data.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無資料</div>'
+  :`<div class="table-wrap"><table>${tableHeader}${tableRows}</table></div>`}
+  </div>`;
   return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
     <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:8px 12px;font-size:12px" placeholder="搜尋客戶代號 / 名稱..." oninput="renderTab('customers')">
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">＋ 新增</button>`:''}
@@ -1520,14 +1789,71 @@ function renderInbound(){
   </div>`;
 }
 
+// ══ 品管檢驗單 ══
+async function loadQCInspections(){
+  try{
+    const r = await dbQueryAll(DB.qcInspection);
+    window._qcInspections = r.map(p=>({
+      id: p.id,
+      no: p.properties?.['檢驗單號']?.title?.[0]?.plain_text||'',
+      matName: p.properties?.['料件名稱']?.rich_text?.[0]?.plain_text||'',
+      matCode: p.properties?.['料件編號']?.rich_text?.[0]?.plain_text||'',
+      inspKind: p.properties?.['檢驗類型']?.select?.name||'',
+      inspType: p.properties?.['料件類型']?.select?.name||'',
+      qty: p.properties?.['抽檢數量']?.number??'',
+      defects: p.properties?.['不良數量']?.number??0,
+      status: p.properties?.['檢驗狀態']?.select?.name||'待檢驗',
+      date: p.properties?.['檢驗日期']?.date?.start||'',
+      orderRef: p.properties?.['關聯訂單號']?.rich_text?.[0]?.plain_text||'',
+      defectTypes: (p.properties?.['不良類型']?.multi_select||[]).map(t=>t.name),
+      disposal: p.properties?.['處置方式']?.select?.name||'',
+      note: p.properties?.['備註']?.rich_text?.[0]?.plain_text||'',
+    })).sort((a,b)=>b.date.localeCompare(a.date));
+  }catch(e){ console.warn('loadQCInspections error:',e); window._qcInspections=[]; }
+}
+
+async function updateInspectionStatus(id, status){
+  try{
+    await updatePage(id,{'檢驗狀態':{select:{name:status}}});
+    await loadQCInspections(); renderTab('qc');
+    showToast('✅ 已更新為「'+status+'」','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
+
 function renderQCTab(){
   const canQC=ROLE==='qc'||ROLE==='manager';
   const pending=inbounds.filter(i=>i.qcStatus==='待品檢');
   const history=inbounds.filter(i=>i.qcStatus!=='待品檢');
   const tabs=`<div class="qc-tabs">
     <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="QC_SUB='pending';renderTab('qc')">⏳ 待品檢<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pending.length}</span></button>
+    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="QC_SUB='inspect';loadQCInspections().then(()=>renderTab('qc'))">📋 檢驗單<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${(window._qcInspections||[]).length}</span></button>
     <button class="qc-tab${QC_SUB==='history'?' active':''}" onclick="QC_SUB='history';renderTab('qc')">📋 已檢測<span class="badge" style="background:rgba(46,196,138,.1);color:var(--green)">${history.length}</span></button>
   </div>`;
+  // ── 檢驗單 tab ──
+  if(QC_SUB==='inspect'){
+    const inspections = window._qcInspections||[];
+    const statusColors={'待檢驗':'var(--text3)','檢驗中':'var(--blue)','通過':'var(--green)','不通過':'var(--red)','條件通過':'var(--yellow)'};
+    return tabs+(canQC?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn" style="background:rgba(168,85,247,.15);color:var(--purple,#a855f7);border:1px solid rgba(168,85,247,.3);font-size:12px" onclick="openModal('newInspection')">📋 ＋ 新增檢驗單</button>
+    </div>`:'')
+    +`<div class="panel"><div class="panel-hdr"><span class="panel-title">品管檢驗單 <span class="badge">${inspections.length}</span></span></div>
+    ${!inspections.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無檢驗記錄，點右上角新增</div>'
+    :`<div class="table-wrap"><table>
+      <tr><th>檢驗單號</th><th>料件</th><th>類型</th><th>抽檢</th><th>不良</th><th>狀態</th><th>日期</th><th class="hide-m">處置</th></tr>
+      ${inspections.map(ins=>`<tr>
+        <td style="font-family:monospace;font-size:11px;color:var(--cyan2)">${ins.no}</td>
+        <td style="font-size:12px;font-weight:600">${ins.matName||'—'}<div style="font-size:10px;color:var(--text3)">${ins.inspType||''}</div></td>
+        <td><span class="pill">${ins.inspKind||'—'}</span></td>
+        <td style="font-family:monospace">${ins.qty||'—'}</td>
+        <td style="font-family:monospace;color:${(ins.defects||0)>0?'var(--red)':'var(--green)'}">${ins.defects||0}</td>
+        <td><span class="pill" style="color:${statusColors[ins.status]||'var(--text2)'}">${ins.status||'—'}</span></td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${ins.date||'—'}</td>
+        <td class="hide-m" style="font-size:11px">${ins.disposal||'—'}</td>
+      </tr>`).join('')}
+    </table></div>`}
+    </div>`;
+  }
+
   if(QC_SUB==='pending'){
     if(!pending.length)return tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有待品檢項目 ✅</div></div>`;
     return tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢</span></div><div class="table-wrap"><table>
@@ -2189,7 +2515,12 @@ async function submitMultiOrders(){
         '訂購數量':{number:item.qty},
         '交期':{date:{start:date}},
         '狀態':{select:{name:'待排程'}},
-        '業務備註':{rich_text:[{text:{content:'PI No: '+piNo}}]},
+        '訂單類型':{select:{name:orderType}},
+        '業務備註':{rich_text:[{text:{content:note||(piNo?'PI: '+piNo:'')}}]},
+        ...(piNo?{'PI單號':{rich_text:[{text:{content:piNo}}]}}:{}),
+        ...(shipMethod?{'出貨方式':{select:{name:shipMethod}}}:{}),
+        ...(packageType?{'包裝方式':{select:{name:packageType}}}:{}),
+        ...(deliverAddr?{'送貨地':{rich_text:[{text:{content:deliverAddr}}]}}:{}),
       });
       ok++;
     }catch(e){fail++;failList.push(item.model);console.error(item.model,e);}
@@ -2267,67 +2598,110 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     _items=[];
-    const custOpts='<option value="">— 選擇客戶（或空白輸入新客戶）—</option>'+
-      customers.sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(c=>
-        `<option value="${c.name.replace(/"/g,'&quot;')}">${c.code?c.code+' — ':''}${c.name}</option>`
-      ).join('');
+    const orderTypeTab=extra?.orderType||'overseas'; // 'overseas' | 'domestic'
+
+    // 國外客戶選項（custMaster）
+    const overseasOpts='<option value="">— 搜尋或選擇國外客戶 —</option>'+
+      customers.filter(c=>(c.type||'overseas')==='overseas')
+        .sort((a,b)=>(a.code||'').localeCompare(b.code||''))
+        .map(c=>`<option value="${c.name.replace(/"/g,'&quot;')}">${c.code?c.code+' — ':''}${c.name}</option>`)
+        .join('');
+
+    // 國內貿易商選項（從 customers 的 domestic）
+    const domesticNames=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','立偕','海峰','恒鋒','洛盛',
+      '勤維','勤裕','威樵','福桑','康得隆','麥督','泉耀','林威','飛雷','陸同','台靈','輝寶',
+      '善化','泉利','合正','高選','世福','丞泰','全通','凱傑','重威','宗上','安順發','鈦力',
+      '鋒泰','天賦','大壬','翰盟','宏斌','冠億','林勝','齊萌','勝凡','杉隆','聯鎖','隆茂',
+      '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
+    const domesticOpts='<option value="">— 選擇國內貿易商 —</option>'+
+      domesticNames.map(n=>`<option value="${n}">${n}</option>`).join('');
+
     const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
-      prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-    mi.innerHTML=`<h3>📋 新增客戶訂單</h3>
-    <!-- 步驟1：客戶選擇 -->
-    <div class="field" style="margin-bottom:10px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號 / 名稱搜尋</label>
-      <input class="inp" id="m_code" placeholder="輸入代號如 2602AU016 或客戶名稱關鍵字..." oninput="onCode(this.value)" autocomplete="off">
-      <div id="codeMsg" style="font-size:11px;margin-top:4px;min-height:16px"></div>
+      mats.filter(m=>m.type==='成品'||!m.type).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+
+    mi.innerHTML=`<h3>📋 新增訂單</h3>
+    <div style="display:flex;gap:6px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
+      <button id="tabOverseas" class="btn ${orderTypeTab==='overseas'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center;font-size:12px" onclick="switchOrderTab('overseas')">🌍 國外訂單</button>
+      <button id="tabDomestic" class="btn ${orderTypeTab==='domestic'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center;font-size:12px" onclick="switchOrderTab('domestic')">🏭 國內訂單</button>
     </div>
-    <!-- 客戶搜尋結果列表 -->
-    <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:10px"></div>
-    <!-- 已選客戶顯示 -->
-    <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between">
-      <span id="custMatchText" style="color:var(--green)"></span>
-      <button onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
+    <div id="blockOverseas" style="display:${orderTypeTab==='overseas'?'':'none'}">
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號 / 名稱搜尋</label>
+        <input class="inp" id="m_code" placeholder="輸入代號如 2602AU016 或名稱..." oninput="onCode(this.value)" autocomplete="off">
+        <div id="codeMsg" style="font-size:11px;margin-top:4px;min-height:16px"></div>
+      </div>
+      <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
+      <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between">
+        <span id="custMatchText" style="color:var(--green)"></span>
+        <button onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
+      </div>
+      <input type="hidden" id="m_cust" value="">
+      <div id="newCustRow" style="display:none;margin-bottom:10px">
+        <label style="font-size:10px;color:var(--amber,#f59e0b);display:block;margin-bottom:4px">⚠ 找不到此客戶，輸入新客戶名稱</label>
+        <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none">📂 抓 Notion PI</button>
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>讀取 PI Excel</label>
+        <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="onPIFile(this)">
+        <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">📎 上傳 PI 檔案（.xlsx）</button>
+        <div id="piMsg" style="font-size:11px;margin-top:6px;min-height:14px"></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">3</span>PI 單號</label>
+        <input class="inp" id="m_pino" placeholder="如 2602AU016-PI">
+      </div>
     </div>
-    <!-- 隱藏的 select（保留給 submit 用）-->
-    <input type="hidden" id="m_cust" value="">
-    <!-- 新客戶輸入（找不到時顯示）-->
-    <div id="newCustRow" style="display:none;margin-bottom:10px">
-      <label style="font-size:10px;color:var(--amber);display:block;margin-bottom:4px">⚠ 找不到此客戶，輸入新客戶名稱（會自動建立）</label>
-      <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
+    <div id="blockDomestic" style="display:${orderTypeTab==='domestic'?'':'none'}">
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>貿易商 / 客戶</label>
+        <input class="inp" id="m_dom_search" placeholder="輸入關鍵字搜尋..." oninput="filterDomesticCust(this.value)" autocomplete="off">
+        <div id="domCustList" style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;max-height:140px;overflow-y:auto;margin-top:6px"></div>
+        <input type="hidden" id="m_dom_cust" value="">
+        <div id="domCustSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;font-size:13px;color:var(--green)">
+          已選：<span id="domCustName"></span>
+          <button onclick="clearDomCust()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;margin-left:8px">✕ 重選</button>
+        </div>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">出貨方式</label>
+          <select class="inp" id="m_ship_method"><option value="">— 選擇 —</option>
+            ${['代寄','自取','自送','大榮貨運','大榮貨運-到付','昭信','郵局掛號小包'].map(s=>`<option value="${s}">${s}</option>`).join('')}
+          </select></div>
+        <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">包裝方式</label>
+          <select class="inp" id="m_package"><option value="">— 選擇 —</option>
+            ${['散裝+塑膠袋','散裝+氣泡袋','仂-彩盒','仂-白盒','仂-卡其盒','客-彩盒','客-插卡+釘','客-吊袋','其他'].map(s=>`<option value="${s}">${s}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">送貨地</label>
+        <input class="inp" id="m_deliver_addr" placeholder="填入送貨地址（選填）">
+      </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none;white-space:nowrap">📂 抓 Notion PI</button>
-    </div>
-    <div id="piNotionList" style="display:none;margin-bottom:12px"></div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>讀取 PI Excel</label>
-      <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="onPIFile(this)">
-      <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">📎 上傳 PI 檔案（.xlsx）</button>
-      <div id="piMsg" style="font-size:11px;margin-top:6px;min-height:14px"></div>
-    </div>
-    <div style="margin-bottom:12px">
+    <div style="margin-bottom:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
-        <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px"><span class="sn">3</span>品項清單</label>
-        <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 新增品項</button>
+        <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px">品項清單</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select class="inp" id="m_matsel" onchange="addFromMat(this)" style="padding:4px 8px;font-size:11px;max-width:180px">${prodOpts}</select>
+          <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 手動新增</button>
+        </div>
       </div>
-      <div id="itemsArea" style="min-height:44px;"></div>
-      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--text3);">從料件主檔選：</span>
-        <select class="inp" id="m_matsel" onchange="addFromMat(this)" style="flex:1;padding:5px 8px;font-size:11px">${prodOpts}</select>
-      </div>
+      <div id="itemsArea" style="min-height:40px"></div>
     </div>
     <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">4</span>交期</label><input class="inp" type="date" id="m_date"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="PI No. 等"></div>
-    </div>
-    <div id="orderProg" style="display:none" class="prog-wrap">
-      <div class="prog-text" id="orderProgTxt">準備中...</div>
-      <div class="prog-track"><div class="prog-fill" id="orderProgBar" style="width:0%"></div></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label>
+        <input class="inp" type="date" id="m_date"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
+        <input class="inp" id="m_note" placeholder="備註"></div>
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
     </div>`;
     renderItems();
+    if(orderTypeTab==='domestic') initDomesticList();
   }
 
   // ── 新增入料單 ──
@@ -2491,6 +2865,74 @@ function openModal(type,data){
     </div>`;
   }
 
+  if(type==='newInspection'){
+    const today = new Date().toISOString().slice(0,10);
+    const matOpts = '<option value="">— 從料件主檔選（選填）—</option>'+mats.map(m=>`<option value="${m.name}|${m.code||''}|${m.type||'零件'}">${m.name}${m.code?' ('+m.code+')':''}</option>`).join('');
+    const orderOpts = '<option value="">— 選填關聯訂單 —</option>'+orders.filter(o=>o.status==='生產中'||o.status==='待品檢').map(o=>`<option value="${o.no}">${o.no} — ${o.customer}</option>`).join('');
+    mi.innerHTML=`<h3>📋 新增品管檢驗單</h3>
+    <div class="form-row" style="margin-bottom:10px">
+      <div style="flex:2">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">從料件主檔選（自動帶入名稱）</label>
+        <select class="inp" onchange="const v=this.value.split('|');document.getElementById('ins_matname').value=v[0]||'';document.getElementById('ins_matcode').value=v[1]||'';document.getElementById('ins_mattype').value=v[2]||'零件'">
+          ${matOpts}
+        </select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div style="flex:2"><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件名稱 *</label>
+        <input class="inp" id="ins_matname" placeholder="料件名稱（必填）"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件編號</label>
+        <input class="inp" id="ins_matcode" placeholder="選填"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">料件類型</label>
+        <select class="inp" id="ins_mattype">
+          <option value="零件">零件</option><option value="半成品">半成品</option><option value="成品" selected>成品</option>
+        </select></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗類型</label>
+        <select class="inp" id="ins_kind">
+          ${['抽檢','全檢','首件確認','進貨品檢','製程品檢','出貨品檢'].map(k=>`<option value="${k}">${k}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">抽檢數量 *</label>
+        <input class="inp" type="number" id="ins_qty" placeholder="0" min="1"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">不良數量</label>
+        <input class="inp" type="number" id="ins_defects" placeholder="0" min="0" value="0"></div>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:6px">不良類型（可複選）</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${['外觀不良','尺寸不良','功能不良','包裝不良','標示不良','其他'].map(t=>`
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 10px;border-radius:20px;background:var(--bg4);border:1px solid var(--border)">
+            <input type="checkbox" name="ins_deftype" value="${t}" style="accent-color:var(--red)"> ${t}
+          </label>`).join('')}
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗日期</label>
+        <input class="inp" type="date" id="ins_date" value="${today}"></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">檢驗員</label>
+        <input class="inp" id="ins_inspector" placeholder="姓名" value="${ROLE}"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">關聯訂單</label>
+        <select class="inp" id="ins_orderref"><option value="">${orderOpts}</option></select></div>
+      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">處置方式</label>
+        <select class="inp" id="ins_disposal"><option value="">— 選填 —</option>
+          ${['全數OK','挑選使用','特採','全數退回','報廢'].map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label>
+      <input class="inp" id="ins_note" placeholder="選填">
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn" style="background:rgba(168,85,247,.2);color:var(--purple,#a855f7);border:1px solid rgba(168,85,247,.4)" onclick="submitInspection()">📋 建立檢驗單</button>
+    </div>`;
+  }
+
   if(type==='help'){
     mi.innerHTML=`<h3>📖 系統說明 v3.0</h3>
     <div style="font-size:12px;line-height:1.9;color:var(--text2);max-height:70vh;overflow-y:auto;padding-right:4px">
@@ -2582,7 +3024,7 @@ function openModal(type,data){
 // 訂單狀態 MODAL
 // ══════════════════════════════════════════════════════
 function openStatusModal(id, cur){
-  const statuses=['待排程','生產中','待出貨','已完成','取消'];
+  const statuses=['待排程','生產中','待檢驗','待品檢','待出貨','已完成','取消'];
   document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3>
   <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
     ${statuses.map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}"
@@ -2815,11 +3257,22 @@ async function submitCustomer(){
   if(!name){showToast('請填入客戶名稱','warn');return;}
   closeModal();showToast('新增中...','warn');
   try{
-    await createPage('19fff6f4-24bb-80fe-b265-c62fa39c814c',{
-      'Name':{title:[{text:{content:name}}]},
-      '客戶編號':{rich_text:[{text:{content:code}}]},
-      '國家':{select:{name:region||'其他'}},
-    });
+    // 依客戶類型寫入對應資料庫
+    if(document.getElementById('custTypeToggle')?.dataset.type==='domestic'){
+      // 國內客戶
+      await createPage(DB.custDomestic,{
+        '客戶名稱':{title:[{text:{content:name}}]},
+        '客戶編號':{rich_text:[{text:{content:code}}]},
+        '地區':{select:{name:region||'北部'}},
+      });
+    }else{
+      // 國外客戶
+      await createPage('19fff6f4-24bb-80fe-b265-c62fa39c814c',{
+        'Name':{title:[{text:{content:name}}]},
+        '客戶編號':{rich_text:[{text:{content:code}}]},
+        '國家':{select:{name:region||'其他'}},
+      });
+    }
     await refreshAll();showToast('✅ 客戶「'+name+'」已新增','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
@@ -3003,21 +3456,98 @@ function parsePIRows(rows, piNo){
   return items;
 }
 
+// ══ 訂單類型切換 ══
+const DOMESTIC_NAMES=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','立偕','海峰','恒鋒','洛盛',
+  '勤維','勤裕','威樵','福桑','康得隆','麥督','泉耀','林威','飛雷','陸同','台靈','輝寶',
+  '善化','泉利','合正','高選','世福','丞泰','全通','凱傑','重威','宗上','安順發','鈦力',
+  '鋒泰','天賦','大壬','翰盟','宏斌','冠億','林勝','齊萌','勝凡','杉隆','聯鎖','隆茂',
+  '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
+
+function switchOrderTab(type){
+  const isOverseas = type==='overseas';
+  document.getElementById('blockOverseas').style.display = isOverseas?'':'none';
+  document.getElementById('blockDomestic').style.display = isOverseas?'none':'';
+  document.getElementById('tabOverseas').className='btn '+(isOverseas?'btn-blue':'btn-ghost');
+  document.getElementById('tabDomestic').className='btn '+(isOverseas?'btn-ghost':'btn-blue');
+  document.getElementById('tabOverseas').style.cssText='flex:1;justify-content:center;font-size:12px';
+  document.getElementById('tabDomestic').style.cssText='flex:1;justify-content:center;font-size:12px';
+  if(!isOverseas) initDomesticList();
+}
+
+function initDomesticList(filter=''){
+  const list = document.getElementById('domCustList');
+  if(!list) return;
+  const q = filter.toLowerCase();
+  const filtered = DOMESTIC_NAMES.filter(n=>!q||n.toLowerCase().includes(q));
+  list.innerHTML = filtered.map(n=>`
+    <div onclick="selectDomCust('${n}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)"
+      onmouseover="this.style.background='rgba(59,130,246,.1)'"
+      onmouseout="this.style.background=''">
+      ${n}
+    </div>`).join('');
+  if(!filtered.length) list.innerHTML='<div style="padding:10px 14px;color:var(--text3);font-size:12px">無符合結果</div>';
+}
+
+function filterDomesticCust(v){
+  initDomesticList(v);
+}
+
+function selectDomCust(name){
+  document.getElementById('m_dom_cust').value=name;
+  document.getElementById('domCustSelected').style.display='';
+  document.getElementById('domCustName').textContent=name;
+  document.getElementById('domCustList').style.display='none';
+  document.getElementById('m_dom_search').value=name;
+}
+
+function clearDomCust(){
+  document.getElementById('m_dom_cust').value='';
+  document.getElementById('domCustSelected').style.display='none';
+  document.getElementById('domCustList').style.display='';
+  document.getElementById('m_dom_search').value='';
+  initDomesticList();
+}
+
+
 async function submitAllOrders(){
-  const custSel=document.getElementById('m_cust')?.value;
-  const custNew=document.getElementById('m_newcust')?.value.trim();
+  // 判斷訂單類型
+  const isDomestic = document.getElementById('blockDomestic')?.style.display !== 'none';
+  const orderType = isDomestic ? '國內' : '國外';
+
+  // 客戶名稱
+  let custName='';
+  if(isDomestic){
+    custName = document.getElementById('m_dom_cust')?.value||'';
+    if(!custName){showToast('請選擇貿易商','warn');return;}
+  }else{
+    const custSel=document.getElementById('m_cust')?.value;
+    const custNew=document.getElementById('m_newcust')?.value.trim();
+    custName=custSel||custNew;
+    if(!custName){showToast('請選擇或填入客戶','warn');return;}
+  }
+
   const date=document.getElementById('m_date')?.value;
   const note=document.getElementById('m_note')?.value.trim()||'';
-  const custName=custSel||custNew;
-  if(!custName){showToast('請選擇或填入客戶','warn');return;}
   if(!date){showToast('請填入交期','warn');return;}
   if(!_items.length){showToast('請至少新增一個品項','warn');return;}
   const btn=document.getElementById('orderSubmitBtn');
   if(btn){btn.disabled=true;btn.textContent='建立中...';}
-  const prefix='ORD-'+new Date().toISOString().slice(2,7).replace('-','');
+
+  const orderPrefix=isDomestic
+    ?('DOM-'+new Date().toISOString().slice(2,7).replace('-',''))
+    :('ORD-'+new Date().toISOString().slice(2,7).replace('-',''));
+
+  // 國內額外欄位
+  const shipMethod = document.getElementById('m_ship_method')?.value||'';
+  const packageType = document.getElementById('m_package')?.value||'';
+  const deliverAddr = document.getElementById('m_deliver_addr')?.value.trim()||'';
+  const piNo = document.getElementById('m_pino')?.value.trim()||'';stSel||custNew;
+  if(!custName){showToast('請選擇或填入客戶','warn');return;}
+  if(!date){showToast('請填入交期','warn');return;}
+  if(!_items.length){showToast('請至少新增一個品項','warn');return;}
   let ok=0,fail=0,failList=[];
   // 確保客戶存在
-  let finalCustName=custSel||custNew;
   for(let i=0;i<_items.length;i++){
     const item=_items[i];
     try{
