@@ -1050,7 +1050,7 @@ function openNewInspection(orderId, orderNo, matName, qty){
     </div>
     <div>
       <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">關聯訂單號</label>
-      <input class="inp" id="ins_order" value="${orderNo||''}" placeholder="輸入訂單號（選填）">
+      <input class="inp" id="ins_order" value="${orderNo||''}" placeholder="輸入訂單號（選填）"><input type="hidden" id="ins_order_id" value="${orderId||''}">
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
@@ -1127,13 +1127,28 @@ function openNewInspection(orderId, orderNo, matName, qty){
       <input class="inp" id="ins_bad_desc" placeholder="詳細描述不良情形">
     </div>
   </div>
-  <!-- 連動庫存 -->
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg3);border-radius:8px">
-    <input type="checkbox" id="ins_sync_stock" style="accent-color:var(--blue);width:16px;height:16px">
-    <label style="font-size:12px;color:var(--text2)">✅ 通過後自動加入庫存</label>
-    <input class="inp" type="number" id="ins_stock_delta" placeholder="數量" style="width:80px;padding:4px 8px;font-size:12px;margin-left:auto">
-    <span style="font-size:11px;color:var(--text3)">個</span>
+  <!-- 料號入庫 -->
+  ${!orderId?`
+  <div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <input type="checkbox" id="ins_to_stock" style="accent-color:var(--green);width:16px;height:16px"
+        onchange="document.getElementById('ins_mat_sel_row').style.display=this.checked?'':'none'">
+      <div>
+        <div style="font-size:12px;color:var(--text);font-weight:600">📦 料號入庫</div>
+        <div style="font-size:10px;color:var(--text3)">勾選後，若檢驗通過將實際增加對應料件庫存（實檢數量 − 不良數量）</div>
+      </div>
+    </div>
+    <div id="ins_mat_sel_row" style="display:none">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">選擇料件（入庫更新用）*</label>
+      <select class="inp" id="ins_mat_sel">
+        <option value="">— 從料件主檔選擇 —</option>
+        ${mats.map(m=>'<option value="'+m.id+'">'+m.name+(m.code?' ('+m.code+')':'')+'</option>').join('')}
+      </select>
+    </div>
   </div>
+  `:`<input type="hidden" id="ins_to_stock_val">
+  <input type="hidden" id="ins_mat_sel" value="">
+  <input type="hidden" id="ins_to_stock" value="">`}
   <div style="margin-bottom:12px">
     <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">備註</label>
     <input class="inp" id="ins_note" placeholder="選填">
@@ -1150,34 +1165,42 @@ function toggleInspectionBad(result){
   if(block) block.style.display = (result==='不通過'||result==='條件通過') ? '' : 'none';
 }
 
-async function submitInspection(orderId){
-  const no = document.getElementById('ins_no').value;
-  const orderRef = document.getElementById('ins_order').value.trim();
+async function submitInspection(){
+  // 讀取 orderId（從訂單觸發時有值，手動新增時為空）
+  const orderId = document.getElementById('ins_order_id')?.value||'';
+  const orderNo = document.getElementById('ins_order')?.value.trim()||'';
   const matName = document.getElementById('ins_mat').value.trim();
   const matCode = document.getElementById('ins_code').value.trim();
-  const qtyReq = parseInt(document.getElementById('ins_qtyreq').value)||0;
-  const qtyAct = parseInt(document.getElementById('ins_qtyact').value)||0;
-  const qtyBad = parseInt(document.getElementById('ins_qtybad').value)||0;
-  const type = document.getElementById('ins_type').value;
-  const date = document.getElementById('ins_date').value;
-  const result = document.getElementById('ins_result').value;
-  const inspector = document.getElementById('ins_inspector').value.trim();
-  const badReason = document.getElementById('ins_bad_reason')?.value||'';
+  const qtyReq  = parseInt(document.getElementById('ins_qtyreq').value)||0;
+  const qtyAct  = parseInt(document.getElementById('ins_qtyact').value)||0;
+  const qtyBad  = parseInt(document.getElementById('ins_qtybad').value)||0;
+  const type     = document.getElementById('ins_type').value;
+  const date     = document.getElementById('ins_date').value;
+  const result   = document.getElementById('ins_result').value;
+  const inspector= document.getElementById('ins_inspector').value.trim();
+  const badReason= document.getElementById('ins_bad_reason')?.value||'';
   const handling = document.getElementById('ins_handling')?.value||'';
-  const badDesc = document.getElementById('ins_bad_desc')?.value.trim()||'';
-  const syncStock = document.getElementById('ins_sync_stock').checked;
-  const stockDelta = parseInt(document.getElementById('ins_stock_delta').value)||qtyAct-qtyBad;
-  const note = document.getElementById('ins_note').value.trim();
+  const badDesc  = document.getElementById('ins_bad_desc')?.value.trim()||'';
+  const toStock  = document.getElementById('ins_to_stock')?.checked||false;
+  const matSel   = document.getElementById('ins_mat_sel')?.value||''; // 選擇的料件 ID（入庫用）
+  const note     = document.getElementById('ins_note').value.trim();
 
   if(!matName){ showToast('請填入品項名稱','warn'); return; }
   if(!date){ showToast('請填入檢驗日期','warn'); return; }
 
+  // 手動新增且勾選料號入庫：需選料件
+  const isManual = !orderId;
+  if(isManual && toStock && !matSel){
+    showToast('勾選料號入庫時，請從料件主檔選擇對應料件','warn'); return;
+  }
+
+  const no = document.getElementById('ins_no').value;
   closeModal(); showToast('建立檢驗單中...','warn');
 
   try{
     const props = {
       '檢驗單號':   {title:[{text:{content:no}}]},
-      '關聯訂單號': {rich_text:[{text:{content:orderRef}}]},
+      '關聯訂單號': {rich_text:[{text:{content:orderNo||orderId}}]},
       '檢驗類型':   {select:{name:type}},
       '品項名稱':   {rich_text:[{text:{content:matName}}]},
       '料件編號':   {rich_text:[{text:{content:matCode}}]},
@@ -1186,27 +1209,47 @@ async function submitInspection(orderId){
       '不良數量':   {number:qtyBad},
       '檢驗結果':   {select:{name:result}},
       '檢驗人員':   {rich_text:[{text:{content:inspector||ROLE}}]},
-      '連動庫存':   {checkbox:syncStock},
-      '庫存異動數量':{number:stockDelta},
+      '料號入庫':   {checkbox:toStock},
       '備註':       {rich_text:[{text:{content:note}}]},
     };
     if(date) props['檢驗日期']={date:{start:date}};
     if(badReason) props['不良原因']={select:{name:badReason}};
-    if(handling) props['處理方式']={select:{name:handling}};
-    if(badDesc) props['不良描述']={rich_text:[{text:{content:badDesc}}]};
+    if(handling)  props['處理方式']={select:{name:handling}};
+    if(badDesc)   props['不良描述']={rich_text:[{text:{content:badDesc}}]};
 
     await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:props});
 
-    // 若訂單狀態=待檢驗 且 結果=通過 → 自動推進到待出貨
-    if(orderId && result==='通過'){
-      await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
-      const o = orders.find(x=>x.id===orderId);
-      if(o) o.status='待出貨';
-      showToast('✅ 檢驗通過，訂單已更新為「待出貨」','ok');
-    } else if(orderId && result==='不通過'){
-      showToast('❌ 檢驗不通過，請處理不良品','err');
+    // ── 情況 A：訂單品管（有 orderId）──
+    if(orderId){
+      if(result==='通過'){
+        // 訂單推進到待出貨，不動庫存
+        await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
+        const o = orders.find(x=>x.id===orderId);
+        if(o){ o.status='待出貨'; renderTab(CURRENT_TAB); }
+        showToast('✅ 檢驗通過，訂單已更新為「待出貨」','ok');
+      } else if(result==='不通過'){
+        showToast('❌ 檢驗不通過，請處理不良品','err');
+      } else {
+        showToast('✅ 檢驗單 '+no+' 已建立','ok');
+      }
+
+    // ── 情況 B：手動新增（無 orderId）──
     } else {
-      showToast('✅ 檢驗單 '+no+' 已建立','ok');
+      // 若勾選「料號入庫」且結果通過 → 更新庫存
+      if(toStock && matSel && (result==='通過'||result==='條件通過')){
+        const mat = mats.find(m=>m.id===matSel);
+        if(mat){
+          const inQty = qtyAct - qtyBad; // 實檢數量 - 不良數量 = 入庫數量
+          const latest = await notionAPI('GET','pages/'+matSel);
+          const curStock = latest.properties?.['目前庫存']?.number??mat.stock;
+          const newStock = curStock + inQty;
+          await updatePage(matSel, {'目前庫存':{number:newStock}});
+          await logStockChange(matSel, mat.name, mat.code, '品管入庫', inQty, curStock, newStock, no, inspector||ROLE);
+          showToast('✅ 檢驗單 '+no+' 已建立，庫存 +'+inQty,'ok');
+        }
+      } else {
+        showToast('✅ 檢驗單 '+no+' 已建立','ok');
+      }
     }
 
     await refreshAll();
@@ -1833,8 +1876,36 @@ function renderQCTab(){
   if(QC_SUB==='inspect'){
     const inspections = window._qcInspections||[];
     const statusColors={'待檢驗':'var(--text3)','檢驗中':'var(--blue)','通過':'var(--green)','不通過':'var(--red)','條件通過':'var(--yellow)'};
-    return tabs+(canQC?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-      <button class="btn" style="background:rgba(168,85,247,.15);color:var(--purple,#a855f7);border:1px solid rgba(168,85,247,.3);font-size:12px" onclick="openModal('newInspection')">📋 ＋ 新增檢驗單</button>
+    const pendingInspOrders = getInspectionOrders();
+    return tabs
+    +(pendingInspOrders.length?`
+    <!-- 待檢驗訂單列表 -->
+    <div class="panel" style="margin-bottom:12px;border:1px solid rgba(139,92,246,.3)">
+      <div class="panel-hdr" style="background:rgba(139,92,246,.08)">
+        <span class="panel-title" style="color:var(--purple,#a78bfa)">🔬 待品管檢驗訂單 <span class="badge" style="background:rgba(139,92,246,.2);color:var(--purple,#a78bfa)">${pendingInspOrders.length}</span></span>
+        <span style="font-size:11px;color:var(--text3)">訂單狀態為「待檢驗」，請進行品管</span>
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>訂單號</th><th>客戶</th><th>品項</th><th>數量</th><th>交期</th><th>操作</th></tr>
+        ${pendingInspOrders.map(o=>{
+          const prod=mats.find(m=>m.id===o.productId);
+          const pname=(prod?.name||'').replace(/'/g,"\'");
+          const pcode=prod?.code?'<div style="font-size:10px;color:var(--text3)">'+prod.code+'</div>':'';
+          return '<tr>'
+            +'<td style="font-family:monospace;font-weight:700;color:var(--cyan2)">'+o.no+'</td>'
+            +'<td style="font-size:12px">'+(o.customer||'—')+'</td>'
+            +'<td style="font-size:12px;font-weight:600">'+(prod?.name||'—')+pcode+'</td>'
+            +'<td style="font-family:monospace">'+o.qty+'</td>'
+            +'<td style="font-family:monospace;font-size:11px;color:var(--text2)">'+(o.deadline||'—')+'</td>'
+            +'<td><button class="btn btn-sm" style="background:rgba(139,92,246,.15);color:var(--purple,#a78bfa);border:1px solid rgba(139,92,246,.3);white-space:nowrap"'
+            +' onclick="openNewInspection(\''+(o.id)+'\',\''+o.no+'\',\''+pname+'\','+o.qty+')">'
+            +'🔬 開立檢驗單</button></td>'
+            +'</tr>';
+        }).join('')}
+      </table></div>
+    </div>`:'')
+    +(canQC?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn" style="background:rgba(168,85,247,.15);color:var(--purple,#a855f7);border:1px solid rgba(168,85,247,.3);font-size:12px" onclick="openNewInspection('','','',0)">📋 ＋ 手動新增檢驗單</button>
     </div>`:'')
     +`<div class="panel"><div class="panel-hdr"><span class="panel-title">品管檢驗單 <span class="badge">${inspections.length}</span></span></div>
     ${!inspections.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無檢驗記錄，點右上角新增</div>'
