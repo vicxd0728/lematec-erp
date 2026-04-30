@@ -662,31 +662,29 @@ function explodeBOM(pid,qty){
 function toggleSort(tid,col,type='str'){const s=SORT[tid]||{};SORT[tid]={col,dir:s.col===col&&s.dir==='asc'?'desc':'asc',type};renderTab(CURRENT_TAB);}
 function applySort(tid,data){const s=SORT[tid];if(!s)return data;return[...data].sort((a,b)=>{let va=a[s.col],vb=b[s.col];if(s.type==='num'){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}else{va=String(va||'').toLowerCase();vb=String(vb||'').toLowerCase();}if(va<vb)return s.dir==='asc'?-1:1;if(va>vb)return s.dir==='asc'?1:-1;return 0;});}
 function TH(tid,col,label,type='str',cls=''){const s=SORT[tid]||{};const a=s.col===col;return`<th class="${a?'th-'+s.dir:''} ${cls}" onclick="toggleSort('${tid}','${col}','${type}')">${label}<span style="font-size:8px;opacity:${a?1:.3};margin-left:2px">${a?(s.dir==='asc'?'↑':'↓'):'↕'}</span></th>`;}
-function applyDateFilter(filterId,data,dateKey='deadline'){
+function applyDateFilter(filterId,data,dateKey='created'){
   const sel=document.getElementById(filterId+'DateFilter');
-  const val=sel?sel.value:'6';
-  if(!val||val==='0') return data; // 全部
+  const val=sel?sel.value:'0';
+  if(!val||val==='0') return data; // 全部，不篩選
 
   const today=new Date();
   let cutoff;
 
   if(val==='7d'){
-    // 近7天
     cutoff=new Date();
     cutoff.setDate(cutoff.getDate()-7);
   } else if(val==='month'){
-    // 當月：本月1日
     cutoff=new Date(today.getFullYear(),today.getMonth(),1);
   } else {
-    // 近N個月
     cutoff=new Date();
     cutoff.setMonth(cutoff.getMonth()-parseInt(val));
   }
 
   const cs=cutoff.toISOString().slice(0,10);
   return data.filter(item=>{
-    const d=item[dateKey]||item.date||item.created||'';
-    return !d||d>=cs;
+    const d=item[dateKey]||'';
+    if(!d) return false; // 沒有日期的不顯示（避免永遠出現）
+    return d>=cs;
   });
 }
 
@@ -1400,7 +1398,7 @@ function renderOrders(){
   
   const dateVal=document.getElementById('orderDateFilter')?.value||'6';
   const hideComp=document.getElementById('hideCompleted')?.checked||false;
-  let data=applySort('orders',applyDateFilter('orders',orders,'deadline'));
+  let data=applySort('orders',applyDateFilter('order',orders,'created'));
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
   return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1805,7 +1803,7 @@ function _invRender(){
 
 function renderPicking(){
   const dateVal=document.getElementById('pickDateFilter')?.value||'6';
-  const data=applySort('picking',applyDateFilter('picking',picks,'date'));
+  const data=applySort('picking',applyDateFilter('pick',picks,'date'));
   return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
     <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
   </div>
@@ -3774,10 +3772,12 @@ async function submitAllOrders(){
 
   await refreshAll();
   closeModal();
+
+  const total = _items.length; // 先存總數再清空
   _items = [];
 
   showToast(
-    (ok===_items.length||fail===0?'✅':'⚠')+' 建立 '+ok+'/'+_items.length+' 筆訂單'
+    (fail===0?'✅':'⚠')+' 建立 '+ok+'/'+total+' 筆訂單'
     +(fail?'，失敗：'+failList.join('、'):''),
     fail===0?'ok':'warn'
   );
