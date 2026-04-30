@@ -2881,6 +2881,7 @@ function openModal(type,data){
     </div>`;
     renderItems();
     if(orderTypeTab==='domestic') initDomesticList();
+    document.getElementById('modalBg').classList.add('open'); return;
   }
 
   // ── 新增入料單 ──
