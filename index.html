@@ -2777,7 +2777,7 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     _items=[];
-    const orderTypeTab=extra?.orderType||'overseas'; // 'overseas' | 'domestic'
+    const orderTypeTab=data?.orderType||'overseas'; // 'overseas' | 'domestic'
 
     // 國外客戶選項（custMaster）
     const overseasOpts='<option value="">— 搜尋或選擇國外客戶 —</option>'+
@@ -2985,7 +2985,7 @@ function openModal(type,data){
 
   // ── 說明 ──
   if(type==='newSchedule'||type==='editSchedule'){
-    const s=extra||{};const isEdit=type==='editSchedule';
+    const s=data||{};const isEdit=type==='editSchedule';
     mi.innerHTML=`<h3>${isEdit?'✏️ 編輯':'＋ 新增'}排程</h3>
     <div class="form-row" style="margin-bottom:10px">
       <div style="flex:2">
