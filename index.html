@@ -3692,75 +3692,96 @@ function clearDomCust(){
 
 
 async function submitAllOrders(){
-  // 判斷訂單類型
+  // ── 判斷訂單類型（國內 / 國外）
   const isDomestic = document.getElementById('blockDomestic')?.style.display !== 'none';
-  const orderType = isDomestic ? '國內' : '國外';
+  const orderType  = isDomestic ? '國內' : '國外';
 
-  // 客戶名稱
-  let custName='';
+  // ── 客戶名稱
+  let custName = '';
   if(isDomestic){
     custName = document.getElementById('m_dom_cust')?.value||'';
-    if(!custName){showToast('請選擇貿易商','warn');return;}
+    if(!custName){ showToast('請選擇貿易商','warn'); return; }
   }else{
-    const custSel=document.getElementById('m_cust')?.value;
-    const custNew=document.getElementById('m_newcust')?.value.trim();
-    custName=custSel||custNew;
-    if(!custName){showToast('請選擇或填入客戶','warn');return;}
+    const custSel = document.getElementById('m_cust')?.value||'';
+    const custNew = (document.getElementById('m_newcust')?.value||'').trim();
+    custName = custSel || custNew;
+    if(!custName){ showToast('請選擇或填入客戶','warn'); return; }
   }
 
-  const date=document.getElementById('m_date')?.value;
-  const note=document.getElementById('m_note')?.value.trim()||'';
-  if(!date){showToast('請填入交期','warn');return;}
-  if(!_items.length){showToast('請至少新增一個品項','warn');return;}
-  const btn=document.getElementById('orderSubmitBtn');
-  if(btn){btn.disabled=true;btn.textContent='建立中...';}
+  // ── 共用欄位
+  const date  = document.getElementById('m_date')?.value||'';
+  const note  = (document.getElementById('m_note')?.value||'').trim();
+  if(!date){ showToast('請填入交期','warn'); return; }
+  if(!_items.length){ showToast('請至少新增一個品項','warn'); return; }
 
-  const orderPrefix=isDomestic
-    ?('DOM-'+new Date().toISOString().slice(2,7).replace('-',''))
-    :('ORD-'+new Date().toISOString().slice(2,7).replace('-',''));
-
-  // 國內額外欄位
-  const shipMethod = document.getElementById('m_ship_method')?.value||'';
+  // ── 國內額外欄位
+  const shipMethod  = document.getElementById('m_ship_method')?.value||'';
   const packageType = document.getElementById('m_package')?.value||'';
-  const deliverAddr = document.getElementById('m_deliver_addr')?.value.trim()||'';
-  const piNo = document.getElementById('m_pino')?.value.trim()||'';stSel||custNew;
-  if(!custName){showToast('請選擇或填入客戶','warn');return;}
-  if(!date){showToast('請填入交期','warn');return;}
-  if(!_items.length){showToast('請至少新增一個品項','warn');return;}
-  let ok=0,fail=0,failList=[];
-  // 確保客戶存在
-  for(let i=0;i<_items.length;i++){
-    const item=_items[i];
+  const deliverAddr = (document.getElementById('m_deliver_addr')?.value||'').trim();
+  const piNo        = (document.getElementById('m_pino')?.value||'').trim();
+
+  // ── 訂單號前綴
+  const prefix = (isDomestic?'DOM-':'ORD-') + new Date().toISOString().slice(2,7).replace('-','');
+
+  // ── 鎖定按鈕
+  const btn = document.getElementById('orderSubmitBtn');
+  if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
+
+  let ok=0, fail=0, failList=[];
+
+  for(let i=0; i<_items.length; i++){
+    const item = _items[i];
     try{
-      let prodId=item.matId||'';
+      // 找或建立料件
+      let prodId = item.matId||'';
       if(!prodId){
-        const ex=mats.find(m=>m.name===item.model||m.code===item.model);
-        if(ex){prodId=ex.id;}
+        const ex = mats.find(m=>m.name===item.model||m.code===item.model);
+        if(ex){ prodId=ex.id; }
         else{
-          const nm=await createPage('43d801b4-a787-4101-bd12-d8b8199385c7',{
+          const nm = await createPage('43d801b4-a787-4101-bd12-d8b8199385c7',{
             '料件名稱':{title:[{text:{content:item.model}}]},
             '類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}
           });
-          prodId=nm.id;
+          prodId = nm.id;
         }
       }
-      const no=`${prefix}-${String(i+1).padStart(3,'0')}`;
-      await createPage('50b7ce68-437e-431f-9a4f-a0d0d65a7b25',{
-        '訂單號':{title:[{text:{content:no}}]},
-        '客戶名稱':{select:{name:finalCustName}},
-        '成品':{relation:[{id:prodId}]},
-        '訂購數量':{number:item.qty},
-        '交期':{date:{start:date}},
-        '狀態':{select:{name:'待排程'}},
-        '業務備註':{rich_text:[{text:{content:note}}]},
-      });
+
+      // 建立訂單
+      const no = prefix + '-' + String(i+1).padStart(3,'0');
+      const props = {
+        '訂單號':    {title:[{text:{content:no}}]},
+        '客戶名稱':  {select:{name:custName}},
+        '成品':      {relation:[{id:prodId}]},
+        '訂購數量':  {number:item.qty},
+        '交期':      {date:{start:date}},
+        '狀態':      {select:{name:'待排程'}},
+        '訂單類型':  {select:{name:orderType}},
+        '業務備註':  {rich_text:[{text:{content:note||(piNo?'PI: '+piNo:'')}}]},
+      };
+      if(piNo)         props['PI單號']   = {rich_text:[{text:{content:piNo}}]};
+      if(shipMethod)   props['出貨方式'] = {select:{name:shipMethod}};
+      if(packageType)  props['包裝方式'] = {select:{name:packageType}};
+      if(deliverAddr)  props['送貨地']   = {rich_text:[{text:{content:deliverAddr}}]};
+
+      await createPage('50b7ce68-437e-431f-9a4f-a0d0d65a7b25', props);
       ok++;
-    }catch(e){fail++;failList.push(item.model);console.error(item.model,e);}
+    }catch(e){
+      fail++;
+      failList.push(item.model);
+      console.error('建立訂單失敗:', item.model, e);
+    }
   }
+
   await refreshAll();
   closeModal();
-  showToast(`${ok===_items.length?'✅':'⚠'} 建立 ${ok}/${_items.length} 筆訂單${fail?'，失敗：'+failList.join('、'):''}`,ok===_items.length?'ok':'warn');
-  if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}
+  _items = [];
+
+  showToast(
+    (ok===_items.length||fail===0?'✅':'⚠')+' 建立 '+ok+'/'+_items.length+' 筆訂單'
+    +(fail?'，失敗：'+failList.join('、'):''),
+    fail===0?'ok':'warn'
+  );
+  if(btn){ btn.disabled=false; btn.textContent='📋 建立訂單'; }
 }
 
 function closeModal(){document.getElementById('modalBg').classList.remove('open');}
