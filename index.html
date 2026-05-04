@@ -371,8 +371,8 @@ const DB={
   custMaster: '19fff6f4-24bb-80fe-b265-c62fa39c814c',
   custMasterDS:'19fff6f4-24bb-81b5-85d4-000bdabccfbb',
   // 國內客戶總檔
-  custDomestic: '987033cc-2ce6-48d3-9557-ed936dd42904',
-  custDomesticDS:'5da3060f-b56c-44b6-97b9-b0c02fca198c',
+  custDomestic: '276ff6f4-24bb-807c-bac2-e8c68c788a7e',
+  custDomesticDS:'276ff6f4-24bb-81ee-a22a-000b0cac76ec',
   // 公告管理 — database_id 用於讀取，data_source_id 用於寫入
   announce:   'e2950944-dbe2-43f6-afd5-ca0ff2980f86',
   announceDS: '28661b6b-fd1a-44fd-bc49-480874a73f24',
@@ -563,6 +563,7 @@ async function refreshAll(manual=false){
       deadline:p.properties?.['交期']?.date?.start||'',
       status:p.properties?.['狀態']?.select?.name||'',
       note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+      orderType:p.properties?.['訂單類型']?.select?.name||'',
       created:p.created_time?.slice(0,10)||'',
     }));
 
@@ -1891,19 +1892,39 @@ async function doInspResult(insId, orderRef, resultCode){
     if(badDesc) props['不良描述']={rich_text:[{text:{content:badDesc}}]};
     await updatePage(insId, props);
 
-    // 2. 若有關聯訂單 → 更新訂單狀態（不動庫存）
+    // 2. 若有關聯訂單 → 更新訂單狀態
+    let targetOrder = null;
     if(orderId){
-      const newStatus = result==='通過' ? '待出貨' : '待檢驗';
-      await updatePage(orderId, {'狀態':{select:{name:newStatus}}});
-      const o = orders.find(x=>x.id===orderId);
-      if(o){ o.status = newStatus; }
+      targetOrder = orders.find(x=>x.id===orderId);
     } else if(orderNo){
-      // 找不到 ID 時用訂單號比對
-      const o = orders.find(x=>(x.no||'').trim()===(orderNo||'').trim());
-      if(o){
-        const newStatus = result==='通過' ? '待出貨' : '待檢驗';
-        await updatePage(o.id, {'狀態':{select:{name:newStatus}}});
-        o.status = newStatus;
+      targetOrder = orders.find(x=>(x.no||'').trim()===(orderNo||'').trim());
+    }
+
+    if(targetOrder){
+      const isSfgOrder = targetOrder.orderType==='半成品' || (targetOrder.no||'').startsWith('SFG-');
+      if(result==='通過'){
+        if(isSfgOrder){
+          // 半成品通過 → 自動入庫 + 訂單改「已完成」
+          const mat = mats.find(m=>m.id===targetOrder.productId);
+          if(mat){
+            const latest = await notionAPI('GET','pages/'+mat.id);
+            const curStock = latest.properties?.['目前庫存']?.number??mat.stock??0;
+            const inQty = targetOrder.qty||0;
+            const newStock = curStock + inQty;
+            await updatePage(mat.id, {'目前庫存':{number:newStock}});
+            await logStockChange(mat.id, mat.name, mat.code||'', '半成品入庫', inQty, curStock, newStock, orderNo||orderId, inspector||ROLE);
+          }
+          await updatePage(targetOrder.id, {'狀態':{select:{name:'已完成'}}});
+          targetOrder.status = '已完成';
+        } else {
+          // 一般訂單通過 → 待出貨（不動庫存）
+          await updatePage(targetOrder.id, {'狀態':{select:{name:'待出貨'}}});
+          targetOrder.status = '待出貨';
+        }
+      } else {
+        // 不通過 → 維持待檢驗
+        await updatePage(targetOrder.id, {'狀態':{select:{name:'待檢驗'}}});
+        targetOrder.status = '待檢驗';
       }
     }
 
@@ -2777,32 +2798,35 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     _items=[];
-    const orderTypeTab=data?.orderType||'overseas'; // 'overseas' | 'domestic'
+    const orderTypeTab=data?.orderType||'overseas';
 
-    // 國外客戶選項（custMaster）
-    const overseasOpts='<option value="">— 搜尋或選擇國外客戶 —</option>'+
-      customers.filter(c=>(c.type||'overseas')==='overseas')
-        .sort((a,b)=>(a.code||'').localeCompare(b.code||''))
-        .map(c=>`<option value="${c.name.replace(/"/g,'&quot;')}">${c.code?c.code+' — ':''}${c.name}</option>`)
-        .join('');
-
-    // 國內貿易商選項（從 customers 的 domestic）
-    const domesticNames=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','立偕','海峰','恒鋒','洛盛',
-      '勤維','勤裕','威樵','福桑','康得隆','麥督','泉耀','林威','飛雷','陸同','台靈','輝寶',
-      '善化','泉利','合正','高選','世福','丞泰','全通','凱傑','重威','宗上','安順發','鈦力',
-      '鋒泰','天賦','大壬','翰盟','宏斌','冠億','林勝','齊萌','勝凡','杉隆','聯鎖','隆茂',
-      '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
-    const domesticOpts='<option value="">— 選擇國內貿易商 —</option>'+
-      domesticNames.map(n=>`<option value="${n}">${n}</option>`).join('');
-
+    // 成品清單（可搜尋）
     const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
-      mats.filter(m=>m.type==='成品'||!m.type).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+      mats.filter(m=>m.type==='成品'||!m.type)
+          .sort((a,b)=>a.name.localeCompare(b.name))
+          .map(p=>`<option value="${p.id}">${p.name}${p.code?' ('+p.code+')':''}</option>`).join('');
+
+    // 半成品清單
+    const sfgOpts='<option value="">— 選擇半成品 —</option>'+
+      mats.filter(m=>m.type==='半成品')
+          .sort((a,b)=>a.name.localeCompare(b.name))
+          .map(p=>`<option value="${p.id}">${p.name}${p.code?' ('+p.code+')':''}</option>`).join('');
 
     mi.innerHTML=`<h3>📋 新增訂單</h3>
-    <div style="display:flex;gap:6px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
-      <button id="tabOverseas" class="btn ${orderTypeTab==='overseas'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center;font-size:12px" onclick="switchOrderTab('overseas')">🌍 國外訂單</button>
-      <button id="tabDomestic" class="btn ${orderTypeTab==='domestic'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center;font-size:12px" onclick="switchOrderTab('domestic')">🏭 國內訂單</button>
+    <!-- 訂單類型 Tab -->
+    <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
+      <button id="tabOverseas" onclick="switchOrderTab('overseas')"
+        class="btn ${orderTypeTab==='overseas'?'btn-blue':'btn-ghost'}"
+        style="flex:1;justify-content:center;font-size:12px">🌍 國外訂單</button>
+      <button id="tabDomestic" onclick="switchOrderTab('domestic')"
+        class="btn ${orderTypeTab==='domestic'?'btn-blue':'btn-ghost'}"
+        style="flex:1;justify-content:center;font-size:12px">🏭 國內訂單</button>
+      <button id="tabSfg" onclick="switchOrderTab('sfg')"
+        class="btn ${orderTypeTab==='sfg'?'btn-blue':'btn-ghost'}"
+        style="flex:1;justify-content:center;font-size:12px">⚙️ 半成品</button>
     </div>
+
+    <!-- 國外 -->
     <div id="blockOverseas" style="display:${orderTypeTab==='overseas'?'':'none'}">
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號 / 名稱搜尋</label>
@@ -2810,7 +2834,7 @@ function openModal(type,data){
         <div id="codeMsg" style="font-size:11px;margin-top:4px;min-height:16px"></div>
       </div>
       <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
-      <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between">
+      <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;align-items:center;justify-content:space-between">
         <span id="custMatchText" style="color:var(--green)"></span>
         <button onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
       </div>
@@ -2833,6 +2857,8 @@ function openModal(type,data){
         <input class="inp" id="m_pino" placeholder="如 2602AU016-PI">
       </div>
     </div>
+
+    <!-- 國內 -->
     <div id="blockDomestic" style="display:${orderTypeTab==='domestic'?'':'none'}">
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>貿易商 / 客戶</label>
@@ -2859,21 +2885,54 @@ function openModal(type,data){
         <input class="inp" id="m_deliver_addr" placeholder="填入送貨地址（選填）">
       </div>
     </div>
-    <div style="margin-bottom:10px">
+
+    <!-- 半成品 -->
+    <div id="blockSfg" style="display:${orderTypeTab==='sfg'?'':'none'}">
+      <div class="field" style="margin-bottom:12px;padding:12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
+        <div style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:4px">⚙️ 半成品生產單</div>
+        <div style="font-size:11px;color:var(--text3)">QC 通過後自動入庫，不需填寫客戶及包材</div>
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">半成品料號 *</label>
+        <input class="inp" id="m_sfg_search" placeholder="搜尋半成品..." oninput="filterSfgMat(this.value)" autocomplete="off">
+        <select class="inp" id="m_sfg_sel" size="5" style="margin-top:6px;height:auto;padding:4px" onchange="onSfgSelect(this.value)">
+          ${sfgOpts}
+        </select>
+        <div id="sfgSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:7px;font-size:13px;color:var(--yellow)">
+          已選：<span id="sfgMatName"></span>（庫存：<span id="sfgMatStock"></span>）
+        </div>
+        <input type="hidden" id="m_sfg_matid" value="">
+      </div>
+    </div>
+
+    <!-- 共用：品項 + 交期（半成品不需交期） -->
+    <div id="blockItems" style="margin-bottom:10px;${orderTypeTab==='sfg'?'':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
         <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px">品項清單</label>
-        <div style="display:flex;gap:6px;align-items:center">
-          <select class="inp" id="m_matsel" onchange="addFromMat(this)" style="padding:4px 8px;font-size:11px;max-width:180px">${prodOpts}</select>
+        <div id="itemAddRow" style="display:flex;gap:6px;align-items:center;${orderTypeTab==='sfg'?'display:none':''}">
+          <div style="position:relative">
+            <input class="inp" id="m_mat_search" placeholder="搜尋料件..." oninput="filterMatSel(this.value)"
+              style="padding:4px 8px;font-size:11px;width:160px">
+            <select class="inp" id="m_matsel" size="5"
+              style="position:absolute;top:100%;left:0;z-index:100;display:none;min-width:220px;max-height:150px;background:var(--bg2);border:1px solid var(--border2)"
+              onchange="addFromMat(this)">
+              ${prodOpts}
+            </select>
+          </div>
           <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 手動新增</button>
         </div>
       </div>
       <div id="itemsArea" style="min-height:40px"></div>
     </div>
     <div class="form-row" style="margin-bottom:12px">
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label>
-        <input class="inp" type="date" id="m_date"></div>
-      <div><label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
-        <input class="inp" id="m_note" placeholder="備註"></div>
+      <div id="dateRow">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label>
+        <input class="inp" type="date" id="m_date">
+      </div>
+      <div id="noteRow">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
+        <input class="inp" id="m_note" placeholder="備註">
+      </div>
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
@@ -2881,10 +2940,13 @@ function openModal(type,data){
     </div>`;
     renderItems();
     if(orderTypeTab==='domestic') initDomesticList();
+    if(orderTypeTab==='sfg') setTimeout(()=>{
+      const sel=document.getElementById('m_sfg_sel');
+      if(sel) sel.style.display='block';
+    },50);
     document.getElementById('modalBg').classList.add('open'); return;
   }
 
-  // ── 新增入料單 ──
   if(type==='newInbound'){
     mi.innerHTML=`<h3>📥 新增入料單</h3>
 
@@ -3644,14 +3706,60 @@ const DOMESTIC_NAMES=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','
   '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
 
 function switchOrderTab(type){
-  const isOverseas = type==='overseas';
-  document.getElementById('blockOverseas').style.display = isOverseas?'':'none';
-  document.getElementById('blockDomestic').style.display = isOverseas?'none':'';
-  document.getElementById('tabOverseas').className='btn '+(isOverseas?'btn-blue':'btn-ghost');
-  document.getElementById('tabDomestic').className='btn '+(isOverseas?'btn-ghost':'btn-blue');
-  document.getElementById('tabOverseas').style.cssText='flex:1;justify-content:center;font-size:12px';
-  document.getElementById('tabDomestic').style.cssText='flex:1;justify-content:center;font-size:12px';
-  if(!isOverseas) initDomesticList();
+  const tabs = ['overseas','domestic','sfg'];
+  tabs.forEach(t=>{
+    const block = document.getElementById('block'+t.charAt(0).toUpperCase()+t.slice(1));
+    const tab   = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(block) block.style.display = (t===type)?'':'none';
+    if(tab){
+      tab.className='btn '+(t===type?'btn-blue':'btn-ghost');
+      tab.style.cssText='flex:1;justify-content:center;font-size:12px';
+    }
+  });
+  // 半成品：隱藏手動新增品項
+  const itemAddRow = document.getElementById('itemAddRow');
+  const dateRow    = document.getElementById('dateRow');
+  if(itemAddRow) itemAddRow.style.display = (type==='sfg')?'none':'flex';
+  if(dateRow)    dateRow.style.display    = (type==='sfg')?'none':'';
+  if(type==='domestic') initDomesticList();
+  if(type==='sfg'){
+    const sel=document.getElementById('m_sfg_sel');
+    if(sel) sel.style.display='block';
+  }
+}
+
+function filterMatSel(q){
+  const sel = document.getElementById('m_matsel');
+  const drop = document.getElementById('m_matsel');
+  if(!sel) return;
+  const qLow = q.toLowerCase();
+  if(!q){ sel.style.display='none'; return; }
+  // 顯示下拉，過濾選項
+  sel.style.display='block';
+  Array.from(sel.options).forEach(opt=>{
+    opt.style.display = (!opt.value||opt.text.toLowerCase().includes(qLow))?'':'none';
+  });
+}
+
+function filterSfgMat(q){
+  const sel = document.getElementById('m_sfg_sel');
+  if(!sel) return;
+  const qLow = q.toLowerCase();
+  Array.from(sel.options).forEach(opt=>{
+    opt.style.display = (!opt.value||opt.text.toLowerCase().includes(qLow))?'':'none';
+  });
+}
+
+function onSfgSelect(matId){
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat) return;
+  document.getElementById('m_sfg_matid').value = matId;
+  document.getElementById('sfgSelected').style.display='';
+  document.getElementById('sfgMatName').textContent = mat.name+(mat.code?' ('+mat.code+')':'');
+  document.getElementById('sfgMatStock').textContent = mat.stock??'—';
+  // 自動加入品項
+  _items = [{model:mat.name, qty:1, desc:'', matId:mat.id}];
+  renderItems();
 }
 
 function initDomesticList(filter=''){
@@ -3691,16 +3799,20 @@ function clearDomCust(){
 
 
 async function submitAllOrders(){
-  // ── 判斷訂單類型（國內 / 國外）
-  const isDomestic = document.getElementById('blockDomestic')?.style.display !== 'none';
-  const orderType  = isDomestic ? '國內' : '國外';
+  // ── 判斷訂單類型
+  const isSfg      = document.getElementById('blockSfg')?.style.display !== 'none';
+  const isDomestic = !isSfg && document.getElementById('blockDomestic')?.style.display !== 'none';
+  const orderType  = isSfg ? '半成品' : isDomestic ? '國內' : '國外';
+  const orderLabel = isSfg ? '⚙️ 半成品' : isDomestic ? '🏭 國內訂單' : '🌍 國外訂單';
 
   // ── 客戶名稱
   let custName = '';
-  if(isDomestic){
+  if(isSfg){
+    custName = ''; // 半成品無需客戶
+  } else if(isDomestic){
     custName = document.getElementById('m_dom_cust')?.value||'';
     if(!custName){ showToast('請選擇貿易商','warn'); return; }
-  }else{
+  } else {
     const custSel = document.getElementById('m_cust')?.value||'';
     const custNew = (document.getElementById('m_newcust')?.value||'').trim();
     custName = custSel || custNew;
@@ -3708,9 +3820,9 @@ async function submitAllOrders(){
   }
 
   // ── 共用欄位
-  const date  = document.getElementById('m_date')?.value||'';
+  const date  = isSfg ? '' : (document.getElementById('m_date')?.value||'');
   const note  = (document.getElementById('m_note')?.value||'').trim();
-  if(!date){ showToast('請填入交期','warn'); return; }
+  if(!isSfg && !date){ showToast('請填入交期','warn'); return; }
   if(!_items.length){ showToast('請至少新增一個品項','warn'); return; }
 
   // ── 國內額外欄位
@@ -3720,13 +3832,15 @@ async function submitAllOrders(){
   const piNo        = (document.getElementById('m_pino')?.value||'').trim();
 
   // ── 訂單號前綴
-  const prefix = (isDomestic?'DOM-':'ORD-') + new Date().toISOString().slice(2,7).replace('-','');
+  const prefix = (isSfg?'SFG-':isDomestic?'DOM-':'ORD-') +
+                 new Date().toISOString().slice(2,7).replace('-','');
 
-  // ── 鎖定按鈕
   const btn = document.getElementById('orderSubmitBtn');
   if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
 
+  const total = _items.length;
   let ok=0, fail=0, failList=[];
+  const today = new Date().toISOString().slice(0,10);
 
   for(let i=0; i<_items.length; i++){
     const item = _items[i];
@@ -3739,30 +3853,57 @@ async function submitAllOrders(){
         else{
           const nm = await createPage('43d801b4-a787-4101-bd12-d8b8199385c7',{
             '料件名稱':{title:[{text:{content:item.model}}]},
-            '類型':{select:{name:'成品'}},'目前庫存':{number:1000},'安全庫存':{number:0}
+            '類型':{select:{name: isSfg?'半成品':'成品'}},
+            '目前庫存':{number:0},'安全庫存':{number:0}
           });
           prodId = nm.id;
         }
       }
 
-      // 建立訂單
       const no = prefix + '-' + String(i+1).padStart(3,'0');
+      const matName = item.model;
+
+      // ── 寫入 ERP 總資料庫
       const props = {
         '訂單號':    {title:[{text:{content:no}}]},
-        '客戶名稱':  {select:{name:custName}},
         '成品':      {relation:[{id:prodId}]},
         '訂購數量':  {number:item.qty},
-        '交期':      {date:{start:date}},
         '狀態':      {select:{name:'待排程'}},
         '訂單類型':  {select:{name:orderType}},
+        '訂單標籤':  {select:{name:orderLabel}},
         '業務備註':  {rich_text:[{text:{content:note||(piNo?'PI: '+piNo:'')}}]},
       };
-      if(piNo)         props['PI單號']   = {rich_text:[{text:{content:piNo}}]};
-      if(shipMethod)   props['出貨方式'] = {select:{name:shipMethod}};
-      if(packageType)  props['包裝方式'] = {select:{name:packageType}};
-      if(deliverAddr)  props['送貨地']   = {rich_text:[{text:{content:deliverAddr}}]};
+      if(custName)     props['客戶名稱']  = {select:{name:custName}};
+      if(date)         props['交期']      = {date:{start:date}};
+      if(piNo)         props['PI單號']    = {rich_text:[{text:{content:piNo}}]};
+      if(shipMethod)   props['出貨方式']  = {select:{name:shipMethod}};
+      if(packageType)  props['包裝方式']  = {select:{name:packageType}};
+      if(deliverAddr)  props['送貨地']    = {rich_text:[{text:{content:deliverAddr}}]};
 
       await createPage('50b7ce68-437e-431f-9a4f-a0d0d65a7b25', props);
+
+      // ── 國內訂單同步寫入 115年貿易商
+      if(isDomestic){
+        try{
+          await notionAPI('POST','pages',{
+            parent:{database_id:'276ff6f4-24bb-807c-bac2-e8c68c788a7e'},
+            properties:{
+              '登記':      {title:[{text:{content: today+' '+no}}]},
+              '訂單編號':  {rich_text:[{text:{content:no}}]},
+              '客戶':      {select:{name:custName}},
+              '品名':      {select:{name:matName}},
+              '數量':      {number:item.qty},
+              ...(date?{'預出貨日':{date:{start:date}}}:{}),
+              ...(shipMethod?{'出貨方式':{select:{name:shipMethod}}}:{}),
+              ...(packageType?{'包裝':{select:{name:packageType}}}:{}),
+              ...(deliverAddr?{'送貨地':{rich_text:[{text:{content:deliverAddr}}]}}:{}),
+            }
+          });
+        }catch(e2){
+          console.warn('115年貿易商同步失敗（不影響主訂單）:', e2.message);
+        }
+      }
+
       ok++;
     }catch(e){
       fail++;
@@ -3773,12 +3914,11 @@ async function submitAllOrders(){
 
   await refreshAll();
   closeModal();
-
-  const total = _items.length; // 先存總數再清空
   _items = [];
 
   showToast(
     (fail===0?'✅':'⚠')+' 建立 '+ok+'/'+total+' 筆訂單'
+    +(isDomestic?' (含同步115年貿易商)':'')
     +(fail?'，失敗：'+failList.join('、'):''),
     fail===0?'ok':'warn'
   );
