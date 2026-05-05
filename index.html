@@ -3726,7 +3726,6 @@ const DOMESTIC_NAMES=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','
   '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
 
 function switchOrderTab(type){
-  const tabs = ['overseas','domestic','sfg'];
   tabs.forEach(t=>{
     const block = document.getElementById('block'+t.charAt(0).toUpperCase()+t.slice(1));
     const tab   = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
@@ -3782,25 +3781,47 @@ function onSfgSelect(matId){
   renderItems();
 }
 
-function initDomesticList(filter=''){
+function initDomesticList(filter){
   const list = document.getElementById('domCustList');
   if(!list) return;
-  const q = (filter||'').toLowerCase().trim();
-  const dynamicNames = customers.filter(c=>c.type==='domestic'&&c.name).map(c=>c.name);
-  const allNames = [...new Set([...DOMESTIC_NAMES, ...dynamicNames])].sort((a,b)=>a.localeCompare(b,'zh'));
-  const filtered = q ? allNames.filter(n=>n.toLowerCase().includes(q)) : allNames;
-  const exactMatch = allNames.find(n=>n.toLowerCase()===q);
-  const newCustHtml = (q && !exactMatch)
-    ? `<div onclick="useDomNewCust('${q.replace(/'/g,"\\'")}')"
-        style="padding:9px 14px;cursor:pointer;border-top:1px solid var(--border2);font-size:12px;color:var(--amber,#f59e0b)"
-        onmouseover="this.style.background='rgba(245,158,11,.1)'" onmouseout="this.style.background=''">
-        ＋ 手動新增「${q}」</div>` : '';
-  list.innerHTML = filtered.slice(0,12).map(n=>`
-    <div onclick="selectDomCust('${n.replace(/'/g,"\\'")}'')"
-      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)"
-      onmouseover="this.style.background='rgba(59,130,246,.1)'" onmouseout="this.style.background=''">
-      ${n}</div>`).join('') + newCustHtml;
-  if(!filtered.length && !q) list.innerHTML='<div style="padding:10px 14px;color:var(--text3);font-size:12px">輸入關鍵字搜尋</div>';
+  const q = (filter||'').trim();
+  const ql = q.toLowerCase();
+  const dynNames = customers.filter(c=>c.type==='domestic'&&c.name).map(c=>c.name);
+  const allNames = [...new Set([...DOMESTIC_NAMES, ...dynNames])].sort((a,b)=>a.localeCompare(b,'zh'));
+  const filtered = ql ? allNames.filter(n=>n.toLowerCase().includes(ql)) : allNames;
+  const exactMatch = allNames.some(n=>n.toLowerCase()===ql);
+
+  const rows = filtered.slice(0,15).map(n=>{
+    const div = document.createElement('div');
+    div.className = '_domCustItem';
+    div.dataset.name = n;
+    div.textContent = n;
+    div.style.cssText = 'padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)';
+    div.onmouseenter = ()=>{ div.style.background='rgba(59,130,246,.1)'; };
+    div.onmouseleave = ()=>{ div.style.background=''; };
+    div.onclick = ()=>{ selectDomCust(n); };
+    return div;
+  });
+
+  list.innerHTML = '';
+  rows.forEach(r=>list.appendChild(r));
+
+  if(q && !exactMatch){
+    const addDiv = document.createElement('div');
+    addDiv.textContent = '＋ 手動新增「'+q+'」';
+    addDiv.style.cssText = 'padding:9px 14px;cursor:pointer;border-top:1px solid var(--border2);font-size:12px;color:var(--amber,#f59e0b)';
+    addDiv.onmouseenter = ()=>{ addDiv.style.background='rgba(245,158,11,.1)'; };
+    addDiv.onmouseleave = ()=>{ addDiv.style.background=''; };
+    addDiv.onclick = ()=>{ useDomNewCust(q); };
+    list.appendChild(addDiv);
+  }
+
+  if(!filtered.length && !exactMatch){
+    const empty = document.createElement('div');
+    empty.textContent = ql ? '找不到符合的客戶' : '請輸入關鍵字搜尋';
+    empty.style.cssText = 'padding:10px 14px;color:var(--text3);font-size:12px';
+    list.appendChild(empty);
+  }
 }
 
 function filterDomesticCust(v){
@@ -3823,6 +3844,8 @@ function confirmDomNewCust(){
   selectDomCust(name);
   document.getElementById('domNewCustRow').style.display='none';
 }
+
+
 
 
 function selectDomCust(name){
