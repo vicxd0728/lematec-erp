@@ -1397,9 +1397,11 @@ function renderDashboard(){
 function renderOrders(){
   const canAdd=ROLE==='sales'||ROLE==='manager';
   
-  const dateVal=document.getElementById('orderDateFilter')?.value||'6';
+  const dateVal=document.getElementById('orderDateFilter')?.value||'0';
   const hideComp=document.getElementById('hideCompleted')?.checked||false;
-  let data=applySort('orders',applyDateFilter('order',orders,'created'));
+  // 預設依建立日期降冪排序
+  const sorted=SORT['orders']?applySort('orders',[...orders]):[...orders].sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+  let data=applyDateFilter('order',sorted,'created');
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
   return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1413,8 +1415,9 @@ function renderOrders(){
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','product','品項')}<th>數量</th>${TH('orders','created','建立日','str','hide-m')}${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
+  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','product','品項')}<th class="hide-m">數量</th>${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
+    <td style="font-family:monospace;font-size:10px;color:var(--text3)">${o.created||'—'}</td>
     <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${o.no||'—'}</td>
     <td class="hide-m" style="font-size:11px">${o.customer}</td>
     <td style="font-size:12px;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:10px;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}</td>
@@ -2862,12 +2865,23 @@ function openModal(type,data){
     <div id="blockDomestic" style="display:${orderTypeTab==='domestic'?'':'none'}">
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>貿易商 / 客戶</label>
+        <!-- 搜尋框 -->
         <input class="inp" id="m_dom_search" placeholder="輸入關鍵字搜尋..." oninput="filterDomesticCust(this.value)" autocomplete="off">
+        <!-- 建議列表 -->
         <div id="domCustList" style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;max-height:140px;overflow-y:auto;margin-top:6px"></div>
         <input type="hidden" id="m_dom_cust" value="">
-        <div id="domCustSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;font-size:13px;color:var(--green)">
-          已選：<span id="domCustName"></span>
-          <button onclick="clearDomCust()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;margin-left:8px">✕ 重選</button>
+        <!-- 已選顯示 -->
+        <div id="domCustSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;font-size:13px;color:var(--green);display:flex;align-items:center;justify-content:space-between">
+          <span>已選：<span id="domCustName"></span></span>
+          <button onclick="clearDomCust()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px">✕ 重選</button>
+        </div>
+        <!-- 手動輸入新客戶 -->
+        <div id="domNewCustRow" style="display:none;margin-top:8px;padding:10px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
+          <div style="font-size:11px;color:var(--yellow);margin-bottom:6px">⚠ 找不到此客戶，確認手動輸入：</div>
+          <div style="display:flex;gap:6px">
+            <input class="inp" id="m_dom_new_name" style="flex:1" placeholder="確認客戶名稱...">
+            <button class="btn btn-green btn-sm" onclick="confirmDomNewCust()">✓ 確認</button>
+          </div>
         </div>
       </div>
       <div class="form-row" style="margin-bottom:10px">
@@ -2884,9 +2898,15 @@ function openModal(type,data){
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">送貨地</label>
         <input class="inp" id="m_deliver_addr" placeholder="填入送貨地址（選填）">
       </div>
+      <div class="field" style="margin-bottom:10px">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">
+          訂單編號 <span style="color:var(--text3);font-weight:400">（空白則用今日日期，重複自動加序號）</span>
+        </label>
+        <input class="inp" id="m_order_no" placeholder="如未填，自動產生 250505、250505-2...">
+      </div>
     </div>
 
-    <!-- 半成品 -->
+        <!-- 半成品 -->
     <div id="blockSfg" style="display:${orderTypeTab==='sfg'?'':'none'}">
       <div class="field" style="margin-bottom:12px;padding:12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
         <div style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:4px">⚙️ 半成品生產單</div>
@@ -3765,21 +3785,45 @@ function onSfgSelect(matId){
 function initDomesticList(filter=''){
   const list = document.getElementById('domCustList');
   if(!list) return;
-  const q = filter.toLowerCase();
-  const filtered = DOMESTIC_NAMES.filter(n=>!q||n.toLowerCase().includes(q));
-  list.innerHTML = filtered.map(n=>`
-    <div onclick="selectDomCust('${n}')"
+  const q = (filter||'').toLowerCase().trim();
+  const dynamicNames = customers.filter(c=>c.type==='domestic'&&c.name).map(c=>c.name);
+  const allNames = [...new Set([...DOMESTIC_NAMES, ...dynamicNames])].sort((a,b)=>a.localeCompare(b,'zh'));
+  const filtered = q ? allNames.filter(n=>n.toLowerCase().includes(q)) : allNames;
+  const exactMatch = allNames.find(n=>n.toLowerCase()===q);
+  const newCustHtml = (q && !exactMatch)
+    ? `<div onclick="useDomNewCust('${q.replace(/'/g,"\\'")}')"
+        style="padding:9px 14px;cursor:pointer;border-top:1px solid var(--border2);font-size:12px;color:var(--amber,#f59e0b)"
+        onmouseover="this.style.background='rgba(245,158,11,.1)'" onmouseout="this.style.background=''">
+        ＋ 手動新增「${q}」</div>` : '';
+  list.innerHTML = filtered.slice(0,12).map(n=>`
+    <div onclick="selectDomCust('${n.replace(/'/g,"\\'")}'')"
       style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;color:var(--text)"
-      onmouseover="this.style.background='rgba(59,130,246,.1)'"
-      onmouseout="this.style.background=''">
-      ${n}
-    </div>`).join('');
-  if(!filtered.length) list.innerHTML='<div style="padding:10px 14px;color:var(--text3);font-size:12px">無符合結果</div>';
+      onmouseover="this.style.background='rgba(59,130,246,.1)'" onmouseout="this.style.background=''">
+      ${n}</div>`).join('') + newCustHtml;
+  if(!filtered.length && !q) list.innerHTML='<div style="padding:10px 14px;color:var(--text3);font-size:12px">輸入關鍵字搜尋</div>';
 }
 
 function filterDomesticCust(v){
+  const newRow = document.getElementById('domNewCustRow');
+  if(newRow) newRow.style.display='none';
   initDomesticList(v);
 }
+
+function useDomNewCust(name){
+  const newRow = document.getElementById('domNewCustRow');
+  const inp = document.getElementById('m_dom_new_name');
+  if(newRow) newRow.style.display='';
+  if(inp){ inp.value=name; inp.focus(); }
+  document.getElementById('domCustList').innerHTML='';
+}
+
+function confirmDomNewCust(){
+  const name = (document.getElementById('m_dom_new_name')?.value||'').trim();
+  if(!name){ showToast('請填入客戶名稱','warn'); return; }
+  selectDomCust(name);
+  document.getElementById('domNewCustRow').style.display='none';
+}
+
 
 function selectDomCust(name){
   document.getElementById('m_dom_cust').value=name;
@@ -3830,6 +3874,23 @@ async function submitAllOrders(){
   const packageType = document.getElementById('m_package')?.value||'';
   const deliverAddr = (document.getElementById('m_deliver_addr')?.value||'').trim();
   const piNo        = (document.getElementById('m_pino')?.value||'').trim();
+
+  // ── 國內訂單編號（可手動輸入，空白則用今日日期，重複加序號）
+  let domOrderNo = '';
+  if(isDomestic){
+    const manualNo = (document.getElementById('m_order_no')?.value||'').trim();
+    const baseNo = manualNo || today.slice(2).replace(/-/g,''); // 如 250505
+    // 檢查是否已存在同編號（從本地 orders 比對）
+    const existingNos = new Set(orders.map(o=>o.no||''));
+    if(!existingNos.has(baseNo)){
+      domOrderNo = baseNo;
+    } else {
+      // 自動加序號 -2, -3, ...
+      let suffix = 2;
+      while(existingNos.has(baseNo+'-'+suffix)) suffix++;
+      domOrderNo = baseNo + '-' + suffix;
+    }
+  }
 
   // ── 訂單號前綴
   const prefix = (isSfg?'SFG-':isDomestic?'DOM-':'ORD-') +
@@ -3884,23 +3945,40 @@ async function submitAllOrders(){
 
       // ── 國內訂單同步寫入 115年貿易商
       if(isDomestic){
+        // 115庫的「登記」(title) 是排序核心，寫入：訂單編號（以便排序和識別）
+        const dom115No = domOrderNo || no; // 用手動訂單編號，無則用ERP訂單號
         try{
+          const dom115Props = {
+            '登記':      {title:[{text:{content: dom115No}}]},
+            '訂單編號':  {rich_text:[{text:{content: dom115No}}]},
+            '數量':      {number:item.qty},
+          };
+          if(custName)    dom115Props['客戶']    = {select:{name:custName}};
+          if(matName)     dom115Props['品名']    = {select:{name:matName}};
+          if(date)        dom115Props['預出貨日'] = {date:{start:date}};
+          if(shipMethod)  dom115Props['出貨方式'] = {select:{name:shipMethod}};
+          if(packageType) dom115Props['包裝']     = {select:{name:packageType}};
+          if(deliverAddr) dom115Props['送貨地']   = {rich_text:[{text:{content:deliverAddr}}]};
           await notionAPI('POST','pages',{
-            parent:{database_id:'276ff6f4-24bb-807c-bac2-e8c68c788a7e'},
-            properties:{
-              '登記':      {title:[{text:{content: today+' '+no}}]},
-              '訂單編號':  {rich_text:[{text:{content:no}}]},
-              '客戶':      {select:{name:custName}},
-              '品名':      {select:{name:matName}},
-              '數量':      {number:item.qty},
-              ...(date?{'預出貨日':{date:{start:date}}}:{}),
-              ...(shipMethod?{'出貨方式':{select:{name:shipMethod}}}:{}),
-              ...(packageType?{'包裝':{select:{name:packageType}}}:{}),
-              ...(deliverAddr?{'送貨地':{rich_text:[{text:{content:deliverAddr}}]}}:{}),
-            }
+            parent:{database_id:DB.custDomestic},
+            properties: dom115Props
           });
         }catch(e2){
-          console.warn('115年貿易商同步失敗（不影響主訂單）:', e2.message);
+          console.warn('115年貿易商同步失敗，嘗試降級寫入:', e2.message);
+          try{
+            await notionAPI('POST','pages',{
+              parent:{database_id:DB.custDomestic},
+              properties:{
+                '登記':     {title:[{text:{content: dom115No+' [同步]'}}]},
+                '訂單編號': {rich_text:[{text:{content:dom115No}}]},
+                '數量':     {number:item.qty},
+                '備註說明': {rich_text:[{text:{content:'客:'+custName+' 品:'+matName}}]},
+              }
+            });
+          }catch(e3){
+            console.error('115庫降級也失敗:', e3.message);
+            showToast('⚠ 115年貿易商同步失敗（主訂單已建立）','warn');
+          }
         }
       }
 
