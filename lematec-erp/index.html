@@ -2801,86 +2801,65 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     _items=[];
-    const orderTypeTab=data?.orderType||'overseas';
+    const orderTypeTab = data?.orderType||'overseas';
 
-    // 成品清單（可搜尋）
-    const prodOpts='<option value="">— 選擇已建檔料件 —</option>'+
+    const prodOpts = '<option value="">— 選擇已建檔料件 —</option>'+
       mats.filter(m=>m.type==='成品'||!m.type)
           .sort((a,b)=>a.name.localeCompare(b.name))
           .map(p=>`<option value="${p.id}">${p.name}${p.code?' ('+p.code+')':''}</option>`).join('');
 
-    // 半成品清單
-    const sfgOpts='<option value="">— 選擇半成品 —</option>'+
+    const sfgOpts = '<option value="">— 選擇半成品 —</option>'+
       mats.filter(m=>m.type==='半成品')
           .sort((a,b)=>a.name.localeCompare(b.name))
           .map(p=>`<option value="${p.id}">${p.name}${p.code?' ('+p.code+')':''}</option>`).join('');
 
     mi.innerHTML=`<h3>📋 新增訂單</h3>
-    <!-- 訂單類型 Tab -->
     <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
-      <button id="tabOverseas" onclick="switchOrderTab('overseas')"
-        class="btn ${orderTypeTab==='overseas'?'btn-blue':'btn-ghost'}"
-        style="flex:1;justify-content:center;font-size:12px">🌍 國外訂單</button>
-      <button id="tabDomestic" onclick="switchOrderTab('domestic')"
-        class="btn ${orderTypeTab==='domestic'?'btn-blue':'btn-ghost'}"
-        style="flex:1;justify-content:center;font-size:12px">🏭 國內訂單</button>
-      <button id="tabSfg" onclick="switchOrderTab('sfg')"
-        class="btn ${orderTypeTab==='sfg'?'btn-blue':'btn-ghost'}"
-        style="flex:1;justify-content:center;font-size:12px">⚙️ 半成品</button>
+      <button id="tabOverseas" type="button" onclick="switchOrderTab('overseas')"
+        class="btn btn-ghost" style="flex:1;justify-content:center;font-size:12px">🌍 國外訂單</button>
+      <button id="tabDomestic" type="button" onclick="switchOrderTab('domestic')"
+        class="btn btn-ghost" style="flex:1;justify-content:center;font-size:12px">🏭 國內訂單</button>
+      <button id="tabSfg" type="button" onclick="switchOrderTab('sfg')"
+        class="btn btn-ghost" style="flex:1;justify-content:center;font-size:12px">⚙️ 半成品</button>
     </div>
 
-    <!-- 國外 -->
-    <div id="blockOverseas" style="display:${orderTypeTab==='overseas'?'':'none'}">
+    <div id="blockOverseas" style="display:none">
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>客戶代號 / 名稱搜尋</label>
-        <input class="inp" id="m_code" placeholder="輸入代號如 2602AU016 或名稱..." oninput="onCode(this.value)" autocomplete="off">
+        <input class="inp" id="m_code" placeholder="輸入代號或名稱..." oninput="onCode(this.value)" autocomplete="off">
         <div id="codeMsg" style="font-size:11px;margin-top:4px;min-height:16px"></div>
       </div>
       <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
       <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:13px;align-items:center;justify-content:space-between">
         <span id="custMatchText" style="color:var(--green)"></span>
-        <button onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
+        <button type="button" onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕ 重選</button>
       </div>
       <input type="hidden" id="m_cust" value="">
       <div id="newCustRow" style="display:none;margin-bottom:10px">
         <label style="font-size:10px;color:var(--amber,#f59e0b);display:block;margin-bottom:4px">⚠ 找不到此客戶，輸入新客戶名稱</label>
         <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-        <button class="btn btn-cyan btn-sm" id="fetchPIBtn" onclick="doFetch()" style="display:none">📂 抓 Notion PI</button>
-      </div>
       <div class="field" style="margin-bottom:10px">
-        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>讀取 PI Excel</label>
-        <input type="file" id="piFile" accept=".xlsx,.xls" style="display:none" onchange="onPIFile(this)">
-        <button class="btn btn-ghost" onclick="document.getElementById('piFile').click()" style="width:100%;justify-content:center">📎 上傳 PI 檔案（.xlsx）</button>
-        <div id="piMsg" style="font-size:11px;margin-top:6px;min-height:14px"></div>
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">3</span>PI 單號</label>
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>PI 單號</label>
         <input class="inp" id="m_pino" placeholder="如 2602AU016-PI">
       </div>
     </div>
 
-    <!-- 國內 -->
-    <div id="blockDomestic" style="display:${orderTypeTab==='domestic'?'':'none'}">
+    <div id="blockDomestic" style="display:none">
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">1</span>貿易商 / 客戶</label>
-        <!-- 搜尋框 -->
         <input class="inp" id="m_dom_search" placeholder="輸入關鍵字搜尋..." oninput="filterDomesticCust(this.value)" autocomplete="off">
-        <!-- 建議列表 -->
         <div id="domCustList" style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;max-height:140px;overflow-y:auto;margin-top:6px"></div>
         <input type="hidden" id="m_dom_cust" value="">
-        <!-- 已選顯示 -->
         <div id="domCustSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;font-size:13px;color:var(--green);display:flex;align-items:center;justify-content:space-between">
           <span>已選：<span id="domCustName"></span></span>
-          <button onclick="clearDomCust()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px">✕ 重選</button>
+          <button type="button" onclick="clearDomCust()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px">✕ 重選</button>
         </div>
-        <!-- 手動輸入新客戶 -->
         <div id="domNewCustRow" style="display:none;margin-top:8px;padding:10px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
-          <div style="font-size:11px;color:var(--yellow);margin-bottom:6px">⚠ 找不到此客戶，確認手動輸入：</div>
+          <div style="font-size:11px;color:var(--yellow);margin-bottom:6px">⚠ 手動輸入新客戶：</div>
           <div style="display:flex;gap:6px">
             <input class="inp" id="m_dom_new_name" style="flex:1" placeholder="確認客戶名稱...">
-            <button class="btn btn-green btn-sm" onclick="confirmDomNewCust()">✓ 確認</button>
+            <button type="button" class="btn btn-green btn-sm" onclick="confirmDomNewCust()">✓ 確認</button>
           </div>
         </div>
       </div>
@@ -2896,26 +2875,25 @@ function openModal(type,data){
       </div>
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">送貨地</label>
-        <input class="inp" id="m_deliver_addr" placeholder="填入送貨地址（選填）">
+        <input class="inp" id="m_deliver_addr" placeholder="送貨地址（選填）">
       </div>
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">
-          訂單編號 <span style="color:var(--text3);font-weight:400">（空白則用今日日期，重複自動加序號）</span>
+          訂單編號 <span style="color:var(--text3);font-weight:400">（空白用今日日期，重複自動加序號）</span>
         </label>
-        <input class="inp" id="m_order_no" placeholder="如未填，自動產生 250505、250505-2...">
+        <input class="inp" id="m_order_no" placeholder="如 250505，自動去重">
       </div>
     </div>
 
-        <!-- 半成品 -->
-    <div id="blockSfg" style="display:${orderTypeTab==='sfg'?'':'none'}">
-      <div class="field" style="margin-bottom:12px;padding:12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
+    <div id="blockSfg" style="display:none">
+      <div style="margin-bottom:12px;padding:12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px">
         <div style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:4px">⚙️ 半成品生產單</div>
         <div style="font-size:11px;color:var(--text3)">QC 通過後自動入庫，不需填寫客戶及包材</div>
       </div>
       <div class="field" style="margin-bottom:10px">
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">半成品料號 *</label>
         <input class="inp" id="m_sfg_search" placeholder="搜尋半成品..." oninput="filterSfgMat(this.value)" autocomplete="off">
-        <select class="inp" id="m_sfg_sel" size="5" style="margin-top:6px;height:auto;padding:4px" onchange="onSfgSelect(this.value)">
+        <select class="inp" id="m_sfg_sel" size="5" style="margin-top:6px;height:auto" onchange="onSfgSelect(this.value)">
           ${sfgOpts}
         </select>
         <div id="sfgSelected" style="display:none;margin-top:6px;padding:7px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:7px;font-size:13px;color:var(--yellow)">
@@ -2925,11 +2903,10 @@ function openModal(type,data){
       </div>
     </div>
 
-    <!-- 共用：品項 + 交期（半成品不需交期） -->
-    <div id="blockItems" style="margin-bottom:10px;${orderTypeTab==='sfg'?'':''}">
+    <div id="blockItems" style="margin-bottom:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
         <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px">品項清單</label>
-        <div id="itemAddRow" style="display:flex;gap:6px;align-items:center;${orderTypeTab==='sfg'?'display:none':''}">
+        <div id="itemAddRow" style="display:flex;gap:6px;align-items:center">
           <div style="position:relative">
             <input class="inp" id="m_mat_search" placeholder="搜尋料件..." oninput="filterMatSel(this.value)"
               style="padding:4px 8px;font-size:11px;width:160px">
@@ -2939,7 +2916,7 @@ function openModal(type,data){
               ${prodOpts}
             </select>
           </div>
-          <button class="btn btn-cyan btn-sm" onclick="addItem()">＋ 手動新增</button>
+          <button type="button" class="btn btn-cyan btn-sm" onclick="addItem()">＋ 手動新增</button>
         </div>
       </div>
       <div id="itemsArea" style="min-height:40px"></div>
@@ -2949,21 +2926,18 @@ function openModal(type,data){
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label>
         <input class="inp" type="date" id="m_date">
       </div>
-      <div id="noteRow">
+      <div>
         <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
         <input class="inp" id="m_note" placeholder="備註">
       </div>
     </div>
     <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button type="button" class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
     </div>`;
     renderItems();
-    if(orderTypeTab==='domestic') initDomesticList();
-    if(orderTypeTab==='sfg') setTimeout(()=>{
-      const sel=document.getElementById('m_sfg_sel');
-      if(sel) sel.style.display='block';
-    },50);
+    // 設定初始 Tab（由 switchOrderTab 控制 display 和 class）
+    switchOrderTab(orderTypeTab);
     document.getElementById('modalBg').classList.add('open'); return;
   }
 
@@ -3726,6 +3700,7 @@ const DOMESTIC_NAMES=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','
   '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
 
 function switchOrderTab(type){
+  const tabs = ['overseas','domestic','sfg'];
   tabs.forEach(t=>{
     const block = document.getElementById('block'+t.charAt(0).toUpperCase()+t.slice(1));
     const tab   = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
