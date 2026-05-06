@@ -729,6 +729,7 @@ async function loadStockLog(){
 }
 
 function renderStockLog(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const dateVal=document.getElementById('slDateFilter')?.value||'month';
   const typeVal=document.getElementById('slTypeFilter')?.value||'all';
   const qVal=(document.getElementById('slSearch')?.value||'').toLowerCase().trim();
@@ -763,7 +764,7 @@ function renderStockLog(){
 
   const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)'};
 
-  return`
+  return _notionBar + `
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
@@ -816,7 +817,7 @@ function renderStockLog(){
     ${data.map(s=>{
       const isIn=s.type==='入料';
       const qtyColor=isIn?'var(--green)':s.type==='領料'?'var(--blue)':'var(--yellow)';
-      return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📦 料件主檔</a></div><tr>
+      return`<tr>
         <td style="font-family:monospace;font-size:11px;color:var(--text3)">${s.date||'—'}</td>
         <td style="font-size:12px;font-weight:600">${s.matName||'—'}${s.matCode?`<div style="font-size:10px;color:var(--text3);font-family:monospace">${s.matCode}</div>`:''}</td>
         <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[s.type]||'var(--border)'}44">${s.type||'—'}</span></td>
@@ -856,6 +857,7 @@ async function loadSchedule(){
 }
 
 function renderSchedule(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/c66f324d59c64276bdc5b0ec915c9c20" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📅 生產排程</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a></div>';;
   const canEdit = ROLE==='manager'||ROLE==='warehouse';
   const today = new Date().toISOString().slice(0,10);
   const viewVal = document.getElementById('schView')?.value||'list';
@@ -912,7 +914,7 @@ function renderSchedule(){
     return cal;
   }
 
-  return`
+  return _notionBar + `
   <!-- 統計列 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
@@ -954,7 +956,7 @@ function renderSchedule(){
       <tr><th>排程名稱</th><th>類型</th><th>開始</th><th>結束</th><th class="hide-m">負責人</th><th>狀態</th><th class="hide-m">優先</th>${canEdit?'<th>操作</th>':''}</tr>
       ${data.map(s=>{
         const isOverdue=s.endDate&&s.endDate<today&&s.status!=='已完成';
-        return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/c66f324d59c64276bdc5b0ec915c9c20" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📅 生產排程</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📋 ERP 客戶訂單</a></div><tr style="${isOverdue?'background:rgba(245,101,101,.05)':''}">
+        return`<tr style="${isOverdue?'background:rgba(245,101,101,.05)':''}">
           <td style="font-weight:600">${s.name}${s.orderRef?`<div style="font-size:10px;color:var(--cyan2);font-family:monospace">${s.orderRef}</div>`:''}</td>
           <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'}">${s.type||'—'}</span></td>
           <td style="font-family:monospace;font-size:11px">${s.startDate||'—'}</td>
@@ -1395,6 +1397,7 @@ function renderDashboard(){
 }
 
 function renderOrders(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
   const canAdd=ROLE==='sales'||ROLE==='manager';
   
   const dateVal=document.getElementById('orderDateFilter')?.value||'0';
@@ -1403,7 +1406,7 @@ function renderOrders(){
   const sorted=SORT['orders']?applySort('orders',[...orders]):[...orders].sort((a,b)=>(b.created||'').localeCompare(a.created||''));
   let data=applyDateFilter('order',sorted,'created');
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
-  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('orders')">
         <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option>
@@ -1416,7 +1419,7 @@ function renderOrders(){
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
   <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','product','品項')}<th class="hide-m">數量</th>${TH('orders','deadline','交期','str','hide-m')}${TH('orders','status','狀態')}<th>操作</th></tr>
-  ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🌍 國外客戶總檔</a></div><tr>
+  ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;font-size:10px;color:var(--text3)">${o.created||'—'}</td>
     <td style="font-family:monospace;color:var(--text);font-size:11px;font-weight:600">${o.no||'—'}</td>
     <td class="hide-m" style="font-size:11px">${o.customer}</td>
@@ -1433,6 +1436,7 @@ function renderOrders(){
 }
 
 function renderCustomers(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a></div>';;
   const canAdd=ROLE==='sales'||ROLE==='manager';
   const q=(document.getElementById('custSearch')?.value||'').toLowerCase();
   const tabType=document.getElementById('custTabType')?.value||'overseas';
@@ -1484,14 +1488,14 @@ function renderCustomers(){
     </tr>`
   ).join('');
 
-  return`${tabBtns}
+  return _notionBar + `${tabBtns}
   <div class="panel"><div class="panel-hdr">
     <span class="panel-title">${tabType==='domestic'?'🏭 國內':'🌍 國外'}客戶 <span class="badge">${data.length}</span></span>
   </div>
   ${!data.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無資料</div>'
   :`<div class="table-wrap"><table>${tableHeader}${tableRows}</table></div>`}
   </div>`;
-  return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🗺️ 115年貿易商</a></div><div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+  return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
     <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:8px 12px;font-size:12px" placeholder="搜尋客戶代號 / 名稱..." oninput="renderTab('customers')">
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">＋ 新增</button>`:''}
   </div>
@@ -1508,6 +1512,7 @@ function renderCustomers(){
 }
 
 function renderInventory(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;
   const low=mats.filter(m=>m.stock<=m.safe);
   const canEdit=ROLE==='warehouse'||ROLE==='manager';
 
@@ -1548,7 +1553,7 @@ function renderInventory(){
     return btns.join('');
   }
 
-  const html = `
+  let html = `
   ${low.length
     ?`<div class="info-warn" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">⚠ 需補料：${low.slice(0,5).map(m=>`<b>${m.name}</b>`).join('、')}${low.length>5?`…等${low.length}項`:''}</div>`
     :`<div class="info-ok" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">✅ 物料全部正常</div>`
@@ -1628,7 +1633,7 @@ function renderInventory(){
         const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);
         const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
         const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
-        return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📦 料件主檔</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📊 庫存異動記錄</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🔩 BOM清單</a></div><tr>
+        return`<tr>
         <td style="font-weight:600">${m.name}${m.code?`<div style="font-size:10px;color:var(--text3);font-family:monospace;margin-top:2px">${m.code}</div>`:''}</td>
         <td class="hide-m" style="font-family:monospace;font-size:12px;color:var(--text2)">${m.code||'—'}</td>
         <td class="hide-m">${pill(m.type)}</td>
@@ -1649,8 +1654,7 @@ function renderInventory(){
     </div>
     ${maxPage>1?`<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:4px">${pageBtns()}</div>`:''}
   </div>`;
-
-  return html;
+  return _notionBar + html;
 }
 
 // ═══════════════════════════════════════════════
@@ -1806,9 +1810,10 @@ function _invRender(){
 }
 
 function renderPicking(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📄 領料主單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;
   const dateVal=document.getElementById('pickDateFilter')?.value||'6';
   const data=applySort('picking',applyDateFilter('pick',picks,'date'));
-  return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📄 領料主單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📋 ERP 客戶訂單</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🔩 BOM清單</a></div><div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+  return _notionBar + `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
     <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單 <span class="badge">${data.length}</span></span></div>
@@ -1820,17 +1825,18 @@ function renderPicking(){
 }
 
 function renderInbound(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const canAdd=ROLE==='warehouse'||ROLE==='purchase'||ROLE==='manager';
   const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
   const data=applySort('inbound',applyDateFilter('inbound',inbounds,'date'));
-  return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <select class="inp" id="inboundDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span></div>
   ${!inbounds.length?'<div class="loading-row">尚無入料記錄</div>':`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}</tr>
-  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📥 入料單</a><a href="https://www.notion.so/43d801b4a787410112d8b8199385c7" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📦 料件主檔</a></div><tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:11px">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td></tr>`;}).join('')}
+  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:11px">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td></tr>`;}).join('')}
   </table></div>`}
   </div>`;
 }
@@ -1952,6 +1958,7 @@ async function updateInspectionStatus(id, status){
 }
 
 function renderQCTab(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/48f1a7b91e894f9ca4db6df8ee7e5ef" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">✅ 品管檢驗單</a><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a></div>';;
   const canQC=ROLE==='qc'||ROLE==='manager';
   const pending=inbounds.filter(i=>i.qcStatus==='待品檢');
   const history=inbounds.filter(i=>i.qcStatus!=='待品檢');
@@ -2054,12 +2061,12 @@ function renderQCTab(){
         :'<div class="table-wrap"><table>'+tableHead+buildInsRows(doneIns,false)+'</table></div>'}
     </div>`;
 
-    return tabs + pendingOrderTable + addBtn + pendingInsPanel + doneInsPanel;
+    return _notionBar + tabs + pendingOrderTable + addBtn + pendingInsPanel + doneInsPanel;
   }
 
   if(QC_SUB==='pending'){
-    if(!pending.length)return tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有待品檢項目 ✅</div></div>`;
-    return tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢</span></div><div class="table-wrap"><table>
+    if(!pending.length)return _notionBar + tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有待品檢項目 ✅</div></div>`;
+    return _notionBar + tabs+`<div class="panel"><div class="panel-hdr"><span class="panel-title">待品檢</span></div><div class="table-wrap"><table>
     <tr>${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str','hide-m')}<th>操作</th></tr>
     ${applySort('qcp',pending).map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr>
       <td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td>
@@ -2072,13 +2079,13 @@ function renderQCTab(){
   }
   const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text2)">篩選：</span>${['all','pass','fail'].map(f=>{const lb={all:'全部',pass:'✅通過',fail:'❌不合格'};const a=QC_FILTER===f;return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${lb[f]}</button>`;}).join('')}</div>`;
   let filtered=history;if(QC_FILTER==='pass')filtered=history.filter(i=>i.qcStatus==='品檢通過');if(QC_FILTER==='fail')filtered=history.filter(i=>i.qcStatus==='品檢不合格');
-  if(!filtered.length)return tabs+filterBar+`<div class="panel"><div style="padding:24px;text-align:center;color:var(--text3)">尚無記錄</div></div>`;
+  if(!filtered.length)return _notionBar+tabs+filterBar+`<div class="panel"><div style="padding:24px;text-align:center;color:var(--text3)">尚無記錄</div></div>`;
   const byM={};filtered.forEach(i=>{const m=i.date?i.date.slice(0,7):'無日期';if(!byM[m])byM[m]=[];byM[m].push(i);});
-  return tabs+filterBar+Object.keys(byM).sort().reverse().map(month=>{
+  return _notionBar+tabs+filterBar+Object.keys(byM).sort().reverse().map(month=>{
     const rows=applySort('qch',byM[month]);const pc=rows.filter(i=>i.qcStatus==='品檢通過').length,fc=rows.filter(i=>i.qcStatus==='品檢不合格').length;
     return`<div class="panel" style="margin-bottom:10px"><div class="panel-hdr" style="cursor:pointer" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'"><span class="panel-title">📅 ${month}</span><span style="font-size:11px;color:var(--text2)">共${rows.length}筆 <span style="color:var(--green)">✅${pc}</span> <span style="color:var(--red)">❌${fc}</span> ▼</span></div>
     <div><div class="table-wrap"><table><tr>${TH('qch','no','入料單號')}<th>料件</th>${TH('qch','qty','數量','num')}${TH('qch','date','日期','str','hide-m')}<th>結果</th><th>📷</th></tr>
-    ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/48f1a7b91e894f9ca4db6df8ee7e5ef" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">✅ 品管檢驗單</a><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📥 入料單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📋 ERP 客戶訂單</a></div><tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td><td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="color:var(--blue);font-size:11px">📷</a></td></tr>`;}).join('')}
+    ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return _notionBar + `<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td><td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="color:var(--blue);font-size:11px">📷</a></td></tr>`;}).join('')}
     </table></div></div></div>`;
   }).join('');
 }
@@ -3315,10 +3322,11 @@ async function doEditStock(id, name, oldStock){
 // 公告模組
 // ══════════════════════════════════════════════════════
 function renderAnnounce(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/e2950944dbe243f6afd5ca0ff2980f86" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📢 公告管理</a></div>';;
   const canEdit=ROLE==='manager';
   const sorted=announces.filter(a=>canEdit||a.status==='已發佈')
     .sort((a,b)=>{if(a.pinned&&!b.pinned)return -1;if(!a.pinned&&b.pinned)return 1;return b.date.localeCompare(a.date);});
-  return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/e2950944dbe243f6afd5ca0ff2980f86" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">📢 公告管理</a></div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <span style="font-size:11px;color:var(--text3)">共 ${sorted.length} 則公告</span>
     ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openEditAnnounce()">＋ 新增公告</button>`:''}
   </div>
@@ -3400,11 +3408,12 @@ async function toggleAnnStatus(id, cur){
 // 請假模組
 // ══════════════════════════════════════════════════════
 function renderLeave(){
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗓️ 請假管理</a></div>';;
   const canApprove=ROLE==='manager';
   const pending=leaves.filter(l=>l.status==='待審核');
   const history=leaves.filter(l=>l.status!=='待審核');
   const btn=`<button class="btn btn-blue btn-sm" onclick="openModal('newLeave')">＋ 申請請假</button>`;
-  return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3);white-space:nowrap">📌 Notion：</span><a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">🗓️ 請假管理</a></div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <span style="font-size:11px;color:var(--text3)">共 ${leaves.length} 筆紀錄</span>${btn}</div>
   ${pending.length?`<div class="panel" style="margin-bottom:12px">
     <div class="panel-hdr"><span class="panel-title">⏳ 待審核 <span class="badge">${pending.length}</span></span></div>
