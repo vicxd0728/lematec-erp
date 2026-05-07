@@ -4079,6 +4079,38 @@ async function submitAllOrders(){
   if(btn){ btn.disabled=false; btn.textContent='📋 建立訂單'; }
 }
 
+// 115庫連線測試函數（瀏覽器 F12 Console 輸入 test115Sync() 呼叫）
+async function test115Sync(){
+  console.log('=== 115庫連線測試 ===');
+  console.log('DB.custDomestic:', DB.custDomestic);
+  console.log('TOKEN 前5碼:', TOKEN.slice(0,5));
+  
+  const testProps = {
+    '登記':     {title:[{text:{content:'[TEST]'+new Date().toISOString().slice(0,16)}}]},
+    '訂單編號': {rich_text:[{text:{content:'TEST-'+Date.now()}}]},
+    '數量':     {number:1},
+    '備註說明': {rich_text:[{text:{content:'ERP 115庫連線測試'}}]},
+  };
+  console.log('發送 props:', JSON.stringify(testProps));
+  
+  try{
+    const r = await notionAPI('POST','pages',{
+      parent:{database_id:DB.custDomestic},
+      properties: testProps
+    });
+    console.log('回應:', JSON.stringify(r).slice(0,300));
+    if(r && r.object==='page'){
+      showToast('✅ 115庫連線成功！page id: '+r.id.slice(0,8)+'...','ok');
+    } else {
+      showToast('❌ 115庫回應異常: '+(r?.message||r?.code||JSON.stringify(r).slice(0,50)),'warn');
+    }
+  }catch(e){
+    console.error('115庫例外:', e);
+    showToast('❌ 115庫例外: '+e.message,'warn');
+  }
+}
+
+
 function closeModal(){document.getElementById('modalBg').classList.remove('open');}
 
 // ══ Toast 提示（右下角）══
