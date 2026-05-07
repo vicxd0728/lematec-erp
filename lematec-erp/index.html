@@ -417,7 +417,7 @@ const PILL={
 
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
-let QC_SUB='pending',QC_FILTER='all';
+let QC_SUB='pending',QC_FILTER='all',QC_DATE='0';
 let announces=[],leaves=[];
 const ANN_COUNT_KEY='lm_ann_count';
 const SORT={};
@@ -1518,7 +1518,7 @@ function renderInventory(){
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
-    q:'', type:'all', stockMin:'', stockMax:'', page:1, pageSize:100
+    q:'', type:'all', stockMin:'', stockMax:'', stockStatus:'all', page:1, pageSize:100
   };
 
   // ── 套用篩選
@@ -1530,6 +1530,9 @@ function renderInventory(){
   if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
   if(INV.stockMin!=='') data=data.filter(m=>m.stock>=Number(INV.stockMin));
   if(INV.stockMax!=='') data=data.filter(m=>m.stock<=Number(INV.stockMax));
+  if(INV.stockStatus==='ok')  data=data.filter(m=>m.stock>0&&(m.safe<=0||m.stock>m.safe));
+  if(INV.stockStatus==='low') data=data.filter(m=>m.stock>0&&m.safe>0&&m.stock<=m.safe);
+  if(INV.stockStatus==='out') data=data.filter(m=>m.stock<=0);
 
   const total=data.length;
   const ps=INV.pageSize;
@@ -1567,7 +1570,9 @@ function renderInventory(){
         <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">搜尋料件名稱 / 料件編號</div>
         <input class="inp" id="inv_q" value="${INV.q.replace(/"/g,'&quot;')}"
           placeholder="輸入關鍵字..." style="padding:7px 12px;font-size:13px"
-          oninput="_invFilter('q',this.value)">
+          oninput="if(!this._composing)_invFilter('q',this.value)"
+          oncompositionstart="this._composing=true"
+          oncompositionend="this._composing=false;_invFilter('q',this.value)">
       </div>
       <!-- 類型篩選 -->
       <div style="min-width:120px">
@@ -1589,6 +1594,13 @@ function renderInventory(){
         <input class="inp" id="inv_max" type="number" value="${INV.stockMax}"
           placeholder="最大" style="padding:7px 10px;font-size:13px"
           oninput="_invFilter('stockMax',this.value)">
+      </div>
+      <!-- 庫存狀態篩選 -->
+      <div style="min-width:120px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存狀態</div>
+        <select class="inp" style="padding:7px 10px;font-size:13px" onchange="_invFilter('stockStatus',this.value)">
+          ${[['all','全部狀態'],['ok','✅ 正常'],['low','⚠ 低庫存'],['out','❌ 缺料']].map(([v,l])=>`<option value="${v}" ${INV.stockStatus===v?'selected':''}>${l}</option>`).join('')}
+        </select>
       </div>
       <!-- 清除篩選 -->
       <div style="display:flex;align-items:flex-end;gap:6px">
@@ -1790,7 +1802,7 @@ function _invGo(page){
   document.getElementById('mainContent')?.scrollTo?.(0,0);
 }
 function _invReset(){
-  window._invState = {q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:window._invState?.pageSize||100};
+  window._invState = {q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',page:1,pageSize:window._invState?.pageSize||100};
   _invRender();
 }
 function _invRender(){
@@ -1973,7 +1985,12 @@ function renderQCTab(){
     // 待檢驗：尚未通過/不通過
     const pendingIns  = inspections.filter(i=>!i.result||i.result==='待檢驗');
     // 已檢測：通過、不通過、條件通過
-    const doneIns     = inspections.filter(i=>i.result&&i.result!=='待檢驗');
+    const _qcInsDays=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
+    const doneIns = inspections.filter(i=>{
+      if(!i.result||i.result==='待檢驗')return false;
+      if(_qcInsDays){const d=new Date(i.created||i.date||'').getTime();if(!d||d<_qcInsDays)return false;}
+      return true;
+    });
     // 待品管訂單（已開立檢驗單的訂單排除）
     const doneOrderNos = new Set(inspections.map(i=>i.orderRef).filter(Boolean));
     const pendingInspOrders = getInspectionOrders().filter(o=>!doneOrderNos.has(o.no));
@@ -2077,15 +2094,26 @@ function renderQCTab(){
     </tr>`;}).join('')}
     </table></div></div>`;
   }
-  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text2)">篩選：</span>${['all','pass','fail'].map(f=>{const lb={all:'全部',pass:'✅通過',fail:'❌不合格'};const a=QC_FILTER===f;return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${lb[f]}</button>`;}).join('')}</div>`;
-  let filtered=history;if(QC_FILTER==='pass')filtered=history.filter(i=>i.qcStatus==='品檢通過');if(QC_FILTER==='fail')filtered=history.filter(i=>i.qcStatus==='品檢不合格');
+  const _qcDateOpts=[['0','全部'],['7','近7天'],['30','當月'],['90','近3個月'],['180','近6個月']];
+  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:11px;color:var(--text2)">結果：</span>
+    ${['all','pass','fail'].map(f=>{const lb={all:'全部',pass:'✅通過',fail:'❌不合格'};const a=QC_FILTER===f;return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${lb[f]}</button>`;}).join('')}    <span style="font-size:11px;color:var(--text2);margin-left:6px">日期：</span><select onchange="QC_DATE=this.value;renderTab('qc')" style="padding:3px 8px;border-radius:6px;font-size:11px;border:1px solid var(--border);background:var(--bg3);color:var(--text2)">${_qcDateOpts.map(([v,l])=>`<option value="${v}" ${QC_DATE===v?"selected":""}>${l}</option>`).join("")}</select></div>`
+  const _qcNow=Date.now();
+  const _qcDayMs=86400000;
+  const _qcDateLimit=QC_DATE==='0'?0:(_qcNow-parseInt(QC_DATE)*_qcDayMs);
+  let filtered=history.filter(i=>{
+    if(_qcDateLimit){const d=new Date(i.date||i.created||'').getTime();if(!d||d<_qcDateLimit)return false;}
+    return true;
+  });
+  if(QC_FILTER==='pass')filtered=filtered.filter(i=>i.qcStatus==='品檢通過');
+  if(QC_FILTER==='fail')filtered=filtered.filter(i=>i.qcStatus==='品檢不合格');
   if(!filtered.length)return _notionBar+tabs+filterBar+`<div class="panel"><div style="padding:24px;text-align:center;color:var(--text3)">尚無記錄</div></div>`;
   const byM={};filtered.forEach(i=>{const m=i.date?i.date.slice(0,7):'無日期';if(!byM[m])byM[m]=[];byM[m].push(i);});
   return _notionBar+tabs+filterBar+Object.keys(byM).sort().reverse().map(month=>{
     const rows=applySort('qch',byM[month]);const pc=rows.filter(i=>i.qcStatus==='品檢通過').length,fc=rows.filter(i=>i.qcStatus==='品檢不合格').length;
     return`<div class="panel" style="margin-bottom:10px"><div class="panel-hdr" style="cursor:pointer" onclick="this.nextSibling.style.display=this.nextSibling.style.display==='none'?'':'none'"><span class="panel-title">📅 ${month}</span><span style="font-size:11px;color:var(--text2)">共${rows.length}筆 <span style="color:var(--green)">✅${pc}</span> <span style="color:var(--red)">❌${fc}</span> ▼</span></div>
     <div><div class="table-wrap"><table><tr>${TH('qch','no','入料單號')}<th>料件</th>${TH('qch','qty','數量','num')}${TH('qch','date','日期','str','hide-m')}<th>結果</th><th>📷</th></tr>
-    ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return _notionBar + `<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td><td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="color:var(--blue);font-size:11px">📷</a></td></tr>`;}).join('')}
+    ${rows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const ip=i.qcStatus==='品檢通過';return `<tr><td style="font-family:monospace;color:var(--text);font-size:11px">${i.no}</td><td style="font-size:11px">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-family:monospace;font-size:11px">${i.date||'—'}</td><td><span class="pill" style="background:${ip?'rgba(46,196,138,.12)':'rgba(245,101,101,.12)'};color:${ip?'var(--green)':'var(--red)'}">${i.qcStatus}</span></td><td><a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" style="color:var(--blue);font-size:11px">📷</a></td></tr>`;}).join('')}
     </table></div></div></div>`;
   }).join('');
 }
@@ -3669,6 +3697,10 @@ function addFromMat(sel){
   if(!mat)return;
   _items.push({model:mat.name,qty:1,desc:'',matId:mat.id});
   sel.selectedIndex=0;
+  // 選完後：清除搜尋框 + 隱藏下拉
+  const srch=document.getElementById('m_mat_search');
+  if(srch) srch.value='';
+  sel.style.display='none';
   renderItems();
 }
 function onCustDrop(val){} // deprecated, replaced by selectCust
@@ -3724,7 +3756,11 @@ function switchOrderTab(type){
   const dateRow    = document.getElementById('dateRow');
   if(itemAddRow) itemAddRow.style.display = (type==='sfg')?'none':'flex';
   if(dateRow)    dateRow.style.display    = (type==='sfg')?'none':'';
-  if(type==='domestic') initDomesticList();
+  if(type==='domestic'){
+    const list = document.getElementById('domCustList');
+    if(list) list.style.display='';
+    initDomesticList();
+  }
   if(type==='sfg'){
     const sel=document.getElementById('m_sfg_sel');
     if(sel) sel.style.display='block';
@@ -3811,6 +3847,9 @@ function initDomesticList(filter){
 function filterDomesticCust(v){
   const newRow = document.getElementById('domNewCustRow');
   if(newRow) newRow.style.display='none';
+  // 確保清單可見
+  const list = document.getElementById('domCustList');
+  if(list) list.style.display='';
   initDomesticList(v);
 }
 
