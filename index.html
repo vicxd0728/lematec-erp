@@ -3861,12 +3861,7 @@ function useDomNewCust(name){
   document.getElementById('domCustList').innerHTML='';
 }
 
-function confirmDomNewCust(){
-  const name = (document.getElementById('m_dom_new_name')?.value||'').trim();
-  if(!name){ showToast('請填入客戶名稱','warn'); return; }
-  selectDomCust(name);
-  document.getElementById('domNewCustRow').style.display='none';
-}
+
 
 
 
@@ -3874,11 +3869,42 @@ function confirmDomNewCust(){
 function selectDomCust(name){
   document.getElementById('m_dom_cust').value=name;
   const sel = document.getElementById('domCustSelected');
-  if(sel){ sel.style.display='flex'; }
+  if(sel) sel.style.display='flex';
   document.getElementById('domCustName').textContent=name;
-  document.getElementById('domCustList').style.display='none';
-  document.getElementById('m_dom_search').value=name;
+  const listEl = document.getElementById('domCustList');
+  if(listEl){ listEl.style.display='none'; listEl.innerHTML=''; }
+  document.getElementById('m_dom_search').value='';
 }
+
+async function confirmDomNewCust(){
+  const name = (document.getElementById('m_dom_new_name')?.value||'').trim();
+  if(!name){ showToast('請填入客戶名稱','warn'); return; }
+  // 寫入 115年貿易商，讓「客戶」SELECT 選項被 Notion 記住
+  try{
+    const r = await notionAPI('POST','pages',{
+      parent:{database_id:DB.custDomestic},
+      properties:{
+        '登記':    {title:[{text:{content:'[新客戶] '+name}}]},
+        '客戶':    {select:{name:name}},
+        '備註說明':{rich_text:[{text:{content:'ERP新增客戶 '+new Date().toLocaleDateString('zh-TW')}}]},
+      }
+    });
+    if(r && r.object==='page'){
+      if(!DOMESTIC_NAMES.includes(name)) DOMESTIC_NAMES.push(name);
+      showToast('✅ 客戶「'+name+'」已新增','ok');
+    }
+  }catch(e){
+    if(!DOMESTIC_NAMES.includes(name)) DOMESTIC_NAMES.push(name);
+    showToast('⚠ Notion同步失敗，本次仍可使用','warn');
+  }
+  selectDomCust(name);
+  document.getElementById('domNewCustRow').style.display='none';
+}
+
+
+
+
+
 
 function clearDomCust(){
   document.getElementById('m_dom_cust').value='';
