@@ -2943,9 +2943,9 @@ function openModal(type,data){
         <div id="itemAddRow" style="display:flex;gap:6px;align-items:center">
           <div style="position:relative">
             <input class="inp" id="m_mat_search" placeholder="搜尋料件..." oninput="filterMatSel(this.value)"
-              style="padding:4px 8px;font-size:11px;width:160px">
-            <select class="inp" id="m_matsel" size="5"
-              style="position:absolute;top:100%;left:0;z-index:100;display:none;min-width:220px;max-height:150px;background:var(--bg2);border:1px solid var(--border2)"
+              style="padding:4px 8px;font-size:11px;width:200px">
+            <select class="inp" id="m_matsel" size="6"
+              style="position:absolute;top:100%;left:0;z-index:100;display:none;min-width:320px;max-height:200px;background:var(--bg2);border:1px solid var(--border2)"
               onchange="addFromMat(this)">
               ${prodOpts}
             </select>
@@ -3913,7 +3913,7 @@ async function submitAllOrders(){
   // ── 客戶名稱（在 modal 關閉前讀取）
   let custName = '';
   if(isSfg){
-    custName = '';
+    custName = '組立單'; // 半成品訂單固定顯示「組立單」
   } else if(isDomestic){
     custName = document.getElementById('m_dom_cust')?.value||'';
     if(!custName){ showToast('請選擇貿易商','warn'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
