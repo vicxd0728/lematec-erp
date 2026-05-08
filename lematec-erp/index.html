@@ -349,6 +349,51 @@ tr:hover td{background:rgba(59,130,246,.04);}
 </div>
 
 <script>
+      if(isDomestic){
+        const dom115No = domOrderNo || no;
+        // 登記欄位 = 建立日期（YYYY/MM/DD）
+        const now = new Date();
+        const dateStr = now.getFullYear() + '/' +
+          String(now.getMonth()+1).padStart(2,'0') + '/' +
+          String(now.getDate()).padStart(2,'0');
+        // 備註說明：保留客戶/品名/預出資訊摘要
+        const note115 = [
+          custName ? '客：'+custName : '',
+          matName  ? '品：'+matName  : '',
+          date     ? '預出：'+date   : '',
+        ].filter(Boolean).join(' / ');
+
+        const props115 = {
+          '登記':     {title:[{text:{content:dateStr}}]},
+          '訂單編號': {rich_text:[{text:{content:dom115No}}]},
+          '數量':     {number:Number(item.qty)||0},
+          '備註說明': {rich_text:[{text:{content:note115}}]},
+        };
+        if(custName)    props115['客戶']    = {select:{name:custName}};
+        if(matName)     props115['品名']    = {select:{name:matName}};
+        if(date)        props115['預出貨日'] = {date:{start:date}};
+        if(shipMethod)  props115['出貨方式'] = {select:{name:shipMethod}};
+        if(packageType) props115['包裝']    = {select:{name:packageType}};
+        if(deliverAddr) props115['送貨地']  = {rich_text:[{text:{content:deliverAddr}}]};
+
+        console.log('[115庫] 同步:', dateStr, dom115No, matName);
+        try{
+          const r115 = await notionAPI('POST','pages',{
+            parent:{database_id:DB.custDomestic},
+            properties: props115
+          });
+          if(r115 && r115.object==='page'){
+            console.log('[115庫] 成功:', r115.id);
+          } else {
+            console.error('[115庫] 失敗:', JSON.stringify(r115).slice(0,200));
+            showToast('⚠ 115庫同步失敗: '+(r115?.message||r115?.code||'未知'),'warn');
+          }
+        }catch(e2){
+          console.error('[115庫] 例外:', e2);
+          showToast('⚠ 115庫例外: '+e2?.message,'warn');
+        }
+      }
+
 // ═══════════════════════════════════════════════
 // DB IDs — 客戶資料架構說明
 // ═══════════════════════════════════════════════
@@ -3879,24 +3924,9 @@ function selectDomCust(name){
 async function confirmDomNewCust(){
   const name = (document.getElementById('m_dom_new_name')?.value||'').trim();
   if(!name){ showToast('請填入客戶名稱','warn'); return; }
-  // 寫入 115年貿易商，讓「客戶」SELECT 選項被 Notion 記住
-  try{
-    const r = await notionAPI('POST','pages',{
-      parent:{database_id:DB.custDomestic},
-      properties:{
-        '登記':    {title:[{text:{content:'[新客戶] '+name}}]},
-        '客戶':    {select:{name:name}},
-        '備註說明':{rich_text:[{text:{content:'ERP新增客戶 '+new Date().toLocaleDateString('zh-TW')}}]},
-      }
-    });
-    if(r && r.object==='page'){
-      if(!DOMESTIC_NAMES.includes(name)) DOMESTIC_NAMES.push(name);
-      showToast('✅ 客戶「'+name+'」已新增','ok');
-    }
-  }catch(e){
-    if(!DOMESTIC_NAMES.includes(name)) DOMESTIC_NAMES.push(name);
-    showToast('⚠ Notion同步失敗，本次仍可使用','warn');
-  }
+  // 只加入本地清單，不預先寫 Notion（建立訂單時才同步，避免產生多餘空行）
+  if(!DOMESTIC_NAMES.includes(name)) DOMESTIC_NAMES.push(name);
+  showToast('✅ 客戶「'+name+'」已加入，建立訂單時自動同步','ok');
   selectDomCust(name);
   document.getElementById('domNewCustRow').style.display='none';
 }
@@ -4016,30 +4046,40 @@ async function submitAllOrders(){
 
       await createPage('50b7ce68-437e-431f-9a4f-a0d0d65a7b25', props);
 
-      // ── 國內訂單同步寫入 115年貿易商
-      if(isDomestic){
-        const dom115No = domOrderNo || no;
-        // 115庫的「品名」是嚴格 SELECT（固定料號），ERP 品名通常不在清單
-        // → 不送 品名 SELECT，改寫進 備註說明（text），避免整筆被 Notion 拒絕
+      // ── 國內訂單同步寫入 115年貿易商（在 for loop 內，只有 i===0 時建一行）
+      if(isDomestic && i===0){
+        // 登記欄位 = 今日日期 YYYY/MM/DD（115庫排序核心）
+        const today115 = new Date();
+        const yy = today115.getFullYear();
+        const mm = String(today115.getMonth()+1).padStart(2,'0');
+        const dd = String(today115.getDate()).padStart(2,'0');
+        const dateStr115 = yy+'/'+mm+'/'+dd;
+
+        // 彙整所有品項資訊進備註說明（多品項用逗號分隔）
+        const allItemNames = _items.map(it=>it.model+(it.qty?'×'+it.qty:'')).join('、');
         const note115 = [
-          custName ? '客：'+custName : '',
-          matName  ? '品：'+matName  : '',
-          date     ? '預出：'+date   : '',
+          custName   ? '客：'+custName         : '',
+          allItemNames ? '品：'+allItemNames   : '',
+          date       ? '預出：'+date.replace(/-/g,'/')  : '',
         ].filter(Boolean).join(' / ');
 
+        // 品名欄位嘗試送 SELECT（用第一個品項）
+        const firstMatName = _items[0]?.model || matName;
+
         const props115 = {
-          '登記':     {title:[{text:{content:dom115No}}]},
-          '訂單編號': {rich_text:[{text:{content:dom115No}}]},
-          '數量':     {number:Number(item.qty)||0},
+          '登記':     {title:[{text:{content:dateStr115}}]},
+          '訂單編號': {rich_text:[{text:{content:domOrderNo||no}}]},
+          '數量':     {number: _items.reduce(function(s,it){return s+(Number(it.qty)||0);},0)},
           '備註說明': {rich_text:[{text:{content:note115}}]},
         };
         if(custName)    props115['客戶']    = {select:{name:custName}};
+        if(firstMatName)props115['品名']    = {select:{name:firstMatName}};
         if(date)        props115['預出貨日'] = {date:{start:date}};
         if(shipMethod)  props115['出貨方式'] = {select:{name:shipMethod}};
         if(packageType) props115['包裝']    = {select:{name:packageType}};
         if(deliverAddr) props115['送貨地']  = {rich_text:[{text:{content:deliverAddr}}]};
 
-        console.log('[115庫] 同步開始:', dom115No);
+        console.log('[115庫] 同步 登記:'+dateStr115+' 訂單:'+(domOrderNo||no));
         try{
           const r115 = await notionAPI('POST','pages',{
             parent:{database_id:DB.custDomestic},
