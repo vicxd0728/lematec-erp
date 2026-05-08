@@ -348,53 +348,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
   <div class="modal"><div id="modalInner"></div></div>
 </div>
 
-<script>
-      if(isDomestic){
-        const dom115No = domOrderNo || no;
-        // 登記欄位 = 建立日期（YYYY/MM/DD）
-        const now = new Date();
-        const dateStr = now.getFullYear() + '/' +
-          String(now.getMonth()+1).padStart(2,'0') + '/' +
-          String(now.getDate()).padStart(2,'0');
-        // 備註說明：保留客戶/品名/預出資訊摘要
-        const note115 = [
-          custName ? '客：'+custName : '',
-          matName  ? '品：'+matName  : '',
-          date     ? '預出：'+date   : '',
-        ].filter(Boolean).join(' / ');
-
-        const props115 = {
-          '登記':     {title:[{text:{content:dateStr}}]},
-          '訂單編號': {rich_text:[{text:{content:dom115No}}]},
-          '數量':     {number:Number(item.qty)||0},
-          '備註說明': {rich_text:[{text:{content:note115}}]},
-        };
-        if(custName)    props115['客戶']    = {select:{name:custName}};
-        if(matName)     props115['品名']    = {select:{name:matName}};
-        if(date)        props115['預出貨日'] = {date:{start:date}};
-        if(shipMethod)  props115['出貨方式'] = {select:{name:shipMethod}};
-        if(packageType) props115['包裝']    = {select:{name:packageType}};
-        if(deliverAddr) props115['送貨地']  = {rich_text:[{text:{content:deliverAddr}}]};
-
-        console.log('[115庫] 同步:', dateStr, dom115No, matName);
-        try{
-          const r115 = await notionAPI('POST','pages',{
-            parent:{database_id:DB.custDomestic},
-            properties: props115
-          });
-          if(r115 && r115.object==='page'){
-            console.log('[115庫] 成功:', r115.id);
-          } else {
-            console.error('[115庫] 失敗:', JSON.stringify(r115).slice(0,200));
-            showToast('⚠ 115庫同步失敗: '+(r115?.message||r115?.code||'未知'),'warn');
-          }
-        }catch(e2){
-          console.error('[115庫] 例外:', e2);
-          showToast('⚠ 115庫例外: '+e2?.message,'warn');
-        }
-      }
-
-// ═══════════════════════════════════════════════
+<script>// ═══════════════════════════════════════════════
 // DB IDs — 客戶資料架構說明
 // ═══════════════════════════════════════════════
 // 客戶資料唯一來源：DB.custMaster（國外業務客戶總檔）
