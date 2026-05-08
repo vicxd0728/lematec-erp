@@ -3900,61 +3900,57 @@ function clearDomCust(){
 
 
 async function submitAllOrders(){
-  // ── 判斷訂單類型
+  // ── 按鈕立即鎖定，給使用者視覺回饋
+  const btn = document.getElementById('orderSubmitBtn');
+  if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
+
+  // ── 先讀取所有表單值（在關閉 modal 之前）
   const isSfg      = document.getElementById('blockSfg')?.style.display !== 'none';
   const isDomestic = !isSfg && document.getElementById('blockDomestic')?.style.display !== 'none';
   const orderType  = isSfg ? '半成品' : isDomestic ? '國內' : '國外';
   const orderLabel = isSfg ? '⚙️ 半成品' : isDomestic ? '🏭 國內訂單' : '🌍 國外訂單';
 
-  // ── 客戶名稱
+  // ── 客戶名稱（在 modal 關閉前讀取）
   let custName = '';
   if(isSfg){
-    custName = ''; // 半成品無需客戶
+    custName = '';
   } else if(isDomestic){
     custName = document.getElementById('m_dom_cust')?.value||'';
-    if(!custName){ showToast('請選擇貿易商','warn'); return; }
+    if(!custName){ showToast('請選擇貿易商','warn'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
   } else {
     const custSel = document.getElementById('m_cust')?.value||'';
     const custNew = (document.getElementById('m_newcust')?.value||'').trim();
     custName = custSel || custNew;
-    if(!custName){ showToast('請選擇或填入客戶','warn'); return; }
+    if(!custName){ showToast('請選擇或填入客戶','warn'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
   }
 
-  // ── 共用欄位
   const date  = isSfg ? '' : (document.getElementById('m_date')?.value||'');
   const note  = (document.getElementById('m_note')?.value||'').trim();
-  if(!isSfg && !date){ showToast('請填入交期','warn'); return; }
-  if(!_items.length){ showToast('請至少新增一個品項','warn'); return; }
+  if(!isSfg && !date){ showToast('請填入交期','warn'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
+  if(!_items.length){ showToast('請至少新增一個品項','warn'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
 
-  // ── 國內額外欄位
   const shipMethod  = document.getElementById('m_ship_method')?.value||'';
   const packageType = document.getElementById('m_package')?.value||'';
   const deliverAddr = (document.getElementById('m_deliver_addr')?.value||'').trim();
   const piNo        = (document.getElementById('m_pino')?.value||'').trim();
 
-  // ── 國內訂單編號（可手動輸入，空白則用今日日期，重複加序號）
+  // ── 國內訂單編號
   let domOrderNo = '';
   if(isDomestic){
     const manualNo = (document.getElementById('m_order_no')?.value||'').trim();
-    const baseNo = manualNo || today.slice(2).replace(/-/g,''); // 如 250505
-    // 檢查是否已存在同編號（從本地 orders 比對）
+    const today_d  = new Date().toISOString().slice(0,10);
+    const baseNo   = manualNo || today_d.slice(2).replace(/-/g,'');
     const existingNos = new Set(orders.map(o=>o.no||''));
-    if(!existingNos.has(baseNo)){
-      domOrderNo = baseNo;
-    } else {
-      // 自動加序號 -2, -3, ...
-      let suffix = 2;
-      while(existingNos.has(baseNo+'-'+suffix)) suffix++;
-      domOrderNo = baseNo + '-' + suffix;
-    }
+    if(!existingNos.has(baseNo)){ domOrderNo=baseNo; }
+    else { let s=2; while(existingNos.has(baseNo+'-'+s))s++; domOrderNo=baseNo+'-'+s; }
   }
 
-  // ── 訂單號前綴
+  // ── 所有值讀完，立刻關閉 modal（避免「按鈕失效感」）
+  closeModal();
+  showToast('⏳ 訂單建立中...','ok');
+
   const prefix = (isSfg?'SFG-':isDomestic?'DOM-':'ORD-') +
                  new Date().toISOString().slice(2,7).replace('-','');
-
-  const btn = document.getElementById('orderSubmitBtn');
-  if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
 
   const total = _items.length;
   let ok=0, fail=0, failList=[];
