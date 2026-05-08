@@ -2484,6 +2484,15 @@ async function _flushLogQueue(){
 
 async function approveQC(id,matId,qty){
   if(!confirm('確認品檢通過？將增加 '+qty+' 個庫存'))return;
+
+  // 找入料單資料（用來建立檢驗單）
+  const ib = inbounds.find(x=>x.id===id);
+  const ibNo = ib?.no||id;
+  const ibMat = ib?.matName||ib?.mat||'';
+  const ibCode = ib?.matCode||'';
+  const ibDate = new Date().toISOString().slice(0,10);
+  const insNo = 'IB-'+ibDate.replace(/-/g,'').slice(2)+'-'+Math.floor(Math.random()*900+100);
+
   // ★ 驗證 matId
   if(!matId){
     showToast('❌ 入料單未關聯料件，無法自動加庫存。品管狀態仍會更新。','err');
@@ -2492,18 +2501,37 @@ async function approveQC(id,matId,qty){
     return;
   }
   try{
-    // 1. 更新品管狀態
+    // 1. 建立品管檢驗單記錄（寫入品管資料庫）
+    const insProps = {
+      '檢驗單號':   {title:[{text:{content:insNo}}]},
+      '關聯訂單號': {rich_text:[{text:{content:ibNo}}]},
+      '檢驗類型':   {select:{name:'全檢'}},
+      '品項名稱':   {rich_text:[{text:{content:ibMat}}]},
+      '料件編號':   {rich_text:[{text:{content:ibCode}}]},
+      '應檢數量':   {number:parseInt(qty)||0},
+      '實檢數量':   {number:parseInt(qty)||0},
+      '不良數量':   {number:0},
+      '檢驗結果':   {select:{name:'通過'}},
+      '檢驗人員':   {rich_text:[{text:{content:ROLE}}]},
+      '料號入庫':   {checkbox:true},
+      '備註':       {rich_text:[{text:{content:'入料品管通過 自動建立'}}]},
+      '處理方式':   {select:{name:'正常入庫'}},
+    };
+    if(ibDate) insProps['檢驗日期']={date:{start:ibDate}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:insProps});
+
+    // 2. 更新入料單品管狀態
     await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
-    // 2. 重新從 Notion 讀最新庫存（不用快取，避免算錯）
+    // 3. 重新從 Notion 讀最新庫存
     const matData=await notionAPI('GET','pages/'+matId);
     const curStock=matData?.properties?.['目前庫存']?.number??0;
     const newStock=curStock+parseInt(qty);
-    // 3. 更新庫存
+    // 4. 更新庫存
     await updatePage(matId,{'目前庫存':{number:newStock}});
-    // ★ 寫入庫存異動記錄
+    // 5. 庫存異動記錄
     const mat2=mats.find(m=>m.id===matId);
     await logStockChange(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),curStock,newStock,id,ROLE);
-    // 4. 重整
+    // 6. 重整
     await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
     const mat=mats.find(m=>m.id===matId);
     showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+curStock+' → '+newStock,'ok');
@@ -2514,7 +2542,37 @@ async function approveQC(id,matId,qty){
 }
 async function rejectQC(id){
   if(!confirm('確認不合格？'))return;
-  try{await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});await loadInbounds();renderTab(CURRENT_TAB);showToast('已標記不合格','warn');}catch(e){showToast('錯誤：'+e.message,'err');}
+  try{
+    const ib = inbounds.find(x=>x.id===id);
+    const ibNo = ib?.no||id;
+    const ibMat = ib?.matName||ib?.mat||'';
+    const ibCode = ib?.matCode||'';
+    const ibDate = new Date().toISOString().slice(0,10);
+    const insNo = 'IB-'+ibDate.replace(/-/g,'').slice(2)+'-'+Math.floor(Math.random()*900+100);
+
+    // 建立品管檢驗單記錄
+    const insProps = {
+      '檢驗單號':   {title:[{text:{content:insNo}}]},
+      '關聯訂單號': {rich_text:[{text:{content:ibNo}}]},
+      '檢驗類型':   {select:{name:'全檢'}},
+      '品項名稱':   {rich_text:[{text:{content:ibMat}}]},
+      '料件編號':   {rich_text:[{text:{content:ibCode}}]},
+      '應檢數量':   {number:parseInt(ib?.qty)||0},
+      '實檢數量':   {number:parseInt(ib?.qty)||0},
+      '不良數量':   {number:parseInt(ib?.qty)||0},
+      '檢驗結果':   {select:{name:'不通過'}},
+      '檢驗人員':   {rich_text:[{text:{content:ROLE}}]},
+      '料號入庫':   {checkbox:false},
+      '備註':       {rich_text:[{text:{content:'入料品管不合格 自動建立'}}]},
+      '處理方式':   {select:{name:'全數退回'}},
+    };
+    if(ibDate) insProps['檢驗日期']={date:{start:ibDate}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:insProps});
+
+    await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});
+    await loadInbounds();renderTab(CURRENT_TAB);
+    showToast('已標記不合格，檢驗單已建立','warn');
+  }catch(e){showToast('錯誤：'+e.message,'err');}
 }
 
 // ═══════════════════════════════════════════════
