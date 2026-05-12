@@ -389,12 +389,18 @@ const DB={
   // 生產排程
   schedule:   'c66f324d-59c6-4276-bdc5-b0ec915c9c20',
   scheduleDS: '54526a45-a011-442e-ba8a-cfab8f28f0b0',
+  // C端訂單（蝦皮/消費者）
+  corders:    '64d6326e-c82a-4f5f-bccc-b34833f823c3',
+  cordersDS:  '9caf7f72-e11d-40c6-8d77-5dd735008b36',
+  // 115年蝦皮（C端訂單同步目標）
+  shopee115:    '276ff6f4-24bb-8024-8a2a-d39aff6800db',
+  shopee115DS:  '276ff6f4-24bb-8194-bc1e-000bc6ccd4e1',
 };
 const ROLES={
   // 廠長：全功能
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','announce','orders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule']},
   // 業務：訂單 + 客戶管理（不負責領料）
-  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','announce','orders','customers','leave']},
+  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','announce','orders','corders','customers','leave']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
   warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','inventory','picking','inbound','announce','leave','schedule']},
   // 品管：品管頁操作 + 入料瀏覽
@@ -402,8 +408,9 @@ const ROLES={
   // 採購：唯讀瀏覽庫存和入料（暫無主動操作需求）
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','inventory','inbound','announce','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+const TAB_LABELS={dashboard:'📊 總覽',announce:'📢 公告',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 const PILL={
+  '出貨中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待排程':['rgba(245,185,66,.12)','#f5b942'],'生產中':['rgba(77,142,245,.12)','#4d8ef5'],
   '待檢驗':['rgba(139,92,246,.15)','#a78bfa'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
@@ -698,6 +705,7 @@ function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){loadStockLog().then(()=>c.innerHTML=renderStockLog());}
   else if(tab==='schedule'){loadSchedule().then(()=>c.innerHTML=renderSchedule());}
+  else if(tab==='corders'){loadCorders().then(()=>c.innerHTML=renderCorders());}
   }
 
 // ══════════════════════════════════════════════
@@ -4247,6 +4255,342 @@ window.onload=()=>{
   const t=localStorage.getItem('lt');const r=localStorage.getItem('lr');
   if(t&&r){TOKEN=t;ROLE=r;document.getElementById('tokenInput').value=t;document.getElementById('roleSelect').value=r;startApp();}
 };
+
+// ═══════════════════════════════════════════════════════
+// C端訂單 (蝦皮/消費者訂單)
+// ═══════════════════════════════════════════════════════
+
+let corders = []; // C端訂單快取
+
+async function loadCorders(){
+  try{
+    const r = await dbQueryAll(DB.corders);
+    corders = r.map(p=>({
+      id:       p.id,
+      no:       p.properties?.['訂單號碼']?.title?.[0]?.plain_text || '',
+      buyer:    p.properties?.['買家帳號']?.rich_text?.[0]?.plain_text || '',
+      matName:  p.properties?.['品名']?.rich_text?.[0]?.plain_text || '',
+      qty:      p.properties?.['數量']?.number || 0,
+      shipMethod: p.properties?.['出貨方式']?.rich_text?.[0]?.plain_text || '',
+      shipDate: p.properties?.['出日']?.date?.start || '',
+      status:   p.properties?.['狀態']?.select?.name || '',
+      source:   p.properties?.['來源']?.select?.name || '',
+      note:     p.properties?.['備註']?.rich_text?.[0]?.plain_text || '',
+      matId:    p.properties?.['料件ID']?.rich_text?.[0]?.plain_text || '',
+    }));
+  }catch(e){ console.error('loadCorders error:', e); }
+}
+
+function renderCorders(){
+  const canAdd = ROLE==='manager'||ROLE==='sales';
+  const _notionBar = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/276ff6f424bb80248a2ad39aff6800db" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🇹🇼 115年蝦皮</a><a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a></div>';
+
+  const statusOpts = ['全部','出貨中','已完成','已取消'];
+  const COS = window._corsState = window._corsState || {status:'全部'};
+  let data = corders.slice();
+  if(COS.status !== '全部') data = data.filter(o=>o.status===COS.status);
+  data.sort((a,b)=>b.no.localeCompare(a.no));
+
+  const filterBar = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:11px;color:var(--text2)">狀態：</span>
+    ${statusOpts.map(s=>{
+      const a=COS.status===s;
+      return `<button onclick="window._corsState.status='${s}';renderTab('corders')"
+        style="padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${s}</button>`;
+    }).join('')}
+    ${canAdd?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openCorderModal()">＋ 手動新增</button>`:''}
+    ${canAdd?`<label class="btn btn-cyan btn-sm" style="cursor:pointer">📤 匯入 Excel
+      <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importShopeeExcel(this)">
+    </label>`:''}
+  </div>`;
+
+  if(!data.length) return _notionBar + `<div class="panel"><div class="panel-hdr"><span class="panel-title">🛒 C端訂單</span><span class="badge">${corders.length}</span></div>
+    ${filterBar}
+    <div style="padding:40px;text-align:center;color:var(--text3)">目前沒有符合條件的 C端訂單</div></div>`;
+
+  const rows = data.map(o=>{
+    const [bg,fg] = (PILL[o.status]||['rgba(200,200,200,.1)','#aaa']);
+    const canComplete = (ROLE==='manager'||ROLE==='sales') && o.status==='出貨中';
+    const canCancel   = (ROLE==='manager'||ROLE==='sales') && (o.status==='出貨中');
+    return `<tr>
+      <td style="font-family:monospace;color:var(--text);font-size:11px">${o.no}</td>
+      <td style="font-size:12px">${o.buyer||'—'}</td>
+      <td style="font-size:12px">${o.matName||'—'}</td>
+      <td style="text-align:right;font-size:12px">${o.qty}</td>
+      <td style="font-size:11px;color:var(--text2)">${o.shipMethod||'—'}</td>
+      <td style="font-size:11px;color:var(--text2)">${o.shipDate||'—'}</td>
+      <td><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:${bg};color:${fg}">${o.status||'—'}</span></td>
+      <td style="font-size:11px;color:var(--text3)">${o.source||'—'}</td>
+      <td style="white-space:nowrap;display:flex;gap:4px">
+        ${canComplete?`<button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✅ 完成</button>`:''}
+        ${canCancel?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="cancelCorder('${o.id}','${o.matId}',${o.qty})">✕ 取消</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  return _notionBar + `<div class="panel">
+    <div class="panel-hdr">
+      <span class="panel-title">🛒 C端訂單</span>
+      <span class="badge">${data.length}${data.length<corders.length?' / '+corders.length:''}</span>
+    </div>
+    ${filterBar}
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${['訂單號碼','買家帳號','品名','數量','出貨方式','出日','狀態','來源','操作'].map(h=>`<th style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:left;font-weight:600;white-space:nowrap">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></div>`;
+}
+
+// ── 完成訂單 ──
+async function completeCorder(id){
+  try{
+    await updatePage(id,{'狀態':{select:{name:'已完成'}}});
+    const o = corders.find(x=>x.id===id);
+    if(o) o.status='已完成';
+    renderTab(CURRENT_TAB);
+    showToast('✅ 訂單已完成','ok');
+  }catch(e){ showToast('錯誤：'+e.message,'err'); }
+}
+
+// ── 取消訂單 ──
+async function cancelCorder(id, matId, qty){
+  const doReturn = confirm('是否需要回料？\n\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 不回料（直接取消）');
+  try{
+    if(doReturn && matId){
+      const matData = await notionAPI('GET','pages/'+matId);
+      const curStock = matData?.properties?.['目前庫存']?.number??0;
+      const newStock = curStock + parseInt(qty);
+      await updatePage(matId,{'目前庫存':{number:newStock}});
+      await logStockChange(matId,'','','C端退料',parseInt(qty),curStock,newStock,id,ROLE);
+    }
+    await updatePage(id,{'狀態':{select:{name:'已取消'}}});
+    const o = corders.find(x=>x.id===id);
+    if(o) o.status='已取消';
+    await refreshAll();
+    renderTab(CURRENT_TAB);
+    showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（不回料）','ok');
+  }catch(e){ showToast('錯誤：'+e.message,'err'); }
+}
+
+// ── 手動新增 C端訂單 Modal ──
+function openCorderModal(){
+  const mi = document.getElementById('modalInner');
+  const prodOpts = '<option value="">— 選擇料件 —</option>'+
+    mats.filter(m=>m.type==='成品'||!m.type)
+        .sort((a,b)=>a.name.localeCompare(b.name))
+        .map(m=>`<option value="${m.id}">${m.name}${m.code?' ('+m.code+')':''}</option>`).join('');
+  const today = new Date().toISOString().slice(0,10);
+  mi.innerHTML = `<h3>🛒 新增 C端訂單</h3>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">訂單號碼 *</label>
+      <input class="inp" id="co_no" placeholder="如 2605114U79X5P4">
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">買家帳號</label>
+      <input class="inp" id="co_buyer" placeholder="蝦皮帳號">
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:2">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">品名（料號）*</label>
+        <select class="inp" id="co_mat">${prodOpts}</select>
+      </div>
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">數量 *</label>
+        <input class="inp" type="number" id="co_qty" value="1" min="1">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">出貨方式</label>
+        <input class="inp" id="co_ship" placeholder="新竹物流、7-11...">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">出日</label>
+        <input class="inp" type="date" id="co_date" value="${today}">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
+      <input class="inp" id="co_note" placeholder="選填">
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button type="button" class="btn btn-blue" onclick="submitCorder()">🛒 建立訂單</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('open');
+}
+
+// ── 提交 C端訂單 ──
+async function submitCorder(){
+  const no       = (document.getElementById('co_no')?.value||'').trim();
+  const buyer    = (document.getElementById('co_buyer')?.value||'').trim();
+  const matId    = document.getElementById('co_mat')?.value||'';
+  const qty      = parseInt(document.getElementById('co_qty')?.value)||1;
+  const shipMethod = (document.getElementById('co_ship')?.value||'').trim();
+  const shipDate = document.getElementById('co_date')?.value||'';
+  const note     = (document.getElementById('co_note')?.value||'').trim();
+
+  if(!no){ showToast('請填入訂單號碼','warn'); return; }
+  if(!matId){ showToast('請選擇品名','warn'); return; }
+
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat){ showToast('找不到料件','err'); return; }
+
+  closeModal();
+  showToast('⏳ 建立 C端訂單中...','ok');
+
+  try{
+    // 1. 扣庫存
+    const matData = await notionAPI('GET','pages/'+matId);
+    const curStock = matData?.properties?.['目前庫存']?.number??0;
+    const newStock = curStock - qty;
+    await updatePage(matId,{'目前庫存':{number:newStock}});
+    await logStockChange(matId,mat.name,mat.code||'','C端出貨',-qty,curStock,newStock,'',ROLE);
+
+    // 2. 寫入 ERP C端訂單資料庫
+    const cProps = {
+      '訂單號碼': {title:[{text:{content:no}}]},
+      '買家帳號': {rich_text:[{text:{content:buyer}}]},
+      '品名':     {rich_text:[{text:{content:mat.name}}]},
+      '數量':     {number:qty},
+      '出貨方式': {rich_text:[{text:{content:shipMethod}}]},
+      '狀態':     {select:{name:'出貨中'}},
+      '來源':     {select:{name:'手動'}},
+      '備註':     {rich_text:[{text:{content:note}}]},
+      '料件ID':   {rich_text:[{text:{content:matId}}]},
+    };
+    if(shipDate) cProps['出日']={date:{start:shipDate}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+
+    // 3. 同步至 115年蝦皮
+    await syncToShopee115({no,buyer,matName:mat.name,qty,shipMethod,shipDate,note});
+
+    await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
+    showToast('✅ C端訂單建立完成','ok');
+  }catch(e){
+    showToast('❌ 建立失敗：'+e.message,'err');
+    console.error('submitCorder error:',e);
+  }
+}
+
+// ── 同步到 115年蝦皮 資料庫 ──
+async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,note}){
+  const props = {
+    '訂單號碼': {title:[{text:{content:no}}]},
+    '買家帳號': {rich_text:[{text:{content:buyer||''}}]},
+    '數量':     {number:Number(qty)||0},
+    '來源':     {multi_select:[{name:'蝦皮'}]},
+    '備註':     {rich_text:[{text:{content:matName+(note?' / '+note:'')}}]},
+  };
+  if(shipMethod) props['出貨方式']={select:{name:shipMethod}};
+  if(shipDate) props['出日']={date:{start:shipDate}};
+  try{
+    const r = await notionAPI('POST','pages',{parent:{database_id:DB.shopee115},properties:props});
+    if(r&&r.object==='page') console.log('[115蝦皮] 同步成功:', r.id);
+    else console.error('[115蝦皮] 同步失敗:', JSON.stringify(r).slice(0,100));
+  }catch(e){ console.error('[115蝦皮] 例外:', e); }
+}
+
+// ── 匯入蝦皮 Excel ──
+async function importShopeeExcel(input){
+  const file = input.files[0];
+  if(!file) return;
+  showToast('⏳ 讀取 Excel 中...','ok');
+
+  // 使用 SheetJS 讀取（需密碼）
+  try{
+    const buf = await file.arrayBuffer();
+    // SheetJS 讀取加密 xlsx
+    let wb;
+    try{
+      wb = XLSX.read(buf, {type:'array', password:'576313'});
+    }catch(e){
+      // 嘗試不帶密碼
+      try{ wb = XLSX.read(buf, {type:'array'}); }
+      catch(e2){ showToast('❌ 無法讀取檔案，請確認密碼 576313','err'); return; }
+    }
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    if(!rows.length){ showToast('Excel 沒有資料','warn'); return; }
+
+    // 欄位對應
+    const ship_map = {
+      '新竹物流':'新竹物流','蝦皮':'蝦皮','店到家宅配':'店到家',
+      '7-11':'7-11','全家':'全家','黑貓宅便':'黑貓宅便',
+      'SF順豐':'SF順豐','大榮貨運':'大榮貨運','郵局包裹':'郵局包裹',
+    };
+    function mapShip(v){
+      for(const k in ship_map){ if(v&&v.toString().includes(k)) return ship_map[k]; }
+      return v||'';
+    }
+
+    // 合併同一訂單的多個品項
+    const ordersMap = {};
+    for(const row of rows){
+      const no      = (row['訂單編號']||'').toString().trim();
+      if(!no) continue;
+      const sku     = (row['主商品貨號']||'').toString().trim();
+      const qty     = parseInt(row['數量'])||1;
+      const buyer   = (row['買家帳號']||'').toString().trim();
+      const rawShip = (row['寄送方式']||'').toString().trim();
+      const shipDate= (row['實際出貨時間']||'').toString().slice(0,10);
+      const prodName= (row['商品名稱']||'').toString().slice(0,30);
+      const option  = (row['商品選項名稱']||'').toString();
+
+      if(!ordersMap[no]){
+        ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,items:[]};
+      }
+      ordersMap[no].items.push({sku:sku||prodName,qty,option});
+    }
+
+    const orders = Object.values(ordersMap);
+    if(!orders.length){ showToast('沒有有效訂單資料','warn'); return; }
+
+    showToast(`⏳ 匯入 ${orders.length} 筆訂單中...`,'ok');
+    let ok=0, skip=0;
+    for(const o of orders){
+      // 檢查是否已存在（避免重複匯入）
+      const exists = corders.find(c=>c.no===o.no);
+      if(exists){ skip++; continue; }
+
+      const allItems = o.items.map(i=>i.sku+(i.qty>1?'×'+i.qty:'')).join('、');
+      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
+
+      try{
+        // 寫入 ERP C端訂單
+        const cProps={
+          '訂單號碼':{title:[{text:{content:o.no}}]},
+          '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
+          '品名':{rich_text:[{text:{content:allItems}}]},
+          '數量':{number:totalQty},
+          '出貨方式':{rich_text:[{text:{content:o.shipMethod}}]},
+          '狀態':{select:{name:'出貨中'}},
+          '來源':{select:{name:'蝦皮'}},
+        };
+        if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
+        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+
+        // 同步至 115年蝦皮
+        await syncToShopee115({
+          no:o.no, buyer:o.buyer, matName:allItems,
+          qty:totalQty, shipMethod:o.shipMethod, shipDate:o.shipDate, note:''
+        });
+        ok++;
+      }catch(e){ console.error('import order error:',o.no,e); }
+    }
+
+    await loadCorders(); renderTab(CURRENT_TAB);
+    showToast(`✅ 匯入完成：新增 ${ok} 筆${skip?' / 跳過重複 '+skip+' 筆':''}`, 'ok');
+  }catch(e){
+    showToast('❌ 匯入失敗：'+e.message,'err');
+    console.error('importShopeeExcel error:',e);
+  }
+  // 清空 input，方便下次再選同一個檔案
+  input.value='';
+}
+
 </script>
 </body>
 </html>
