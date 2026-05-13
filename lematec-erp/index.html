@@ -4465,7 +4465,7 @@ async function submitCorder(){
     await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
 
     // 3. 同步至 115年蝦皮
-    await syncToShopee115({no,buyer,matName:mat.name,qty,shipMethod,shipDate,note});
+    await syncToShopee115({no,buyer,matName:mat.name,qty,shipMethod,shipDate,payDate:'',note});
 
     await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
     showToast('✅ C端訂單建立完成','ok');
@@ -4476,21 +4476,33 @@ async function submitCorder(){
 }
 
 // ── 同步到 115年蝦皮 資料庫 ──
-async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,note}){
+async function syncToShopee115({no, buyer, matName, qty, shipMethod, shipDate, payDate, note}){
   const props = {
-    '訂單號碼': {title:[{text:{content:no}}]},
+    '訂單號碼': {title:[{text:{content:no||''}}]},
     '買家帳號': {rich_text:[{text:{content:buyer||''}}]},
     '數量':     {number:Number(qty)||0},
+    '備註':     {rich_text:[{text:{content:[matName,note].filter(Boolean).join(' / ')}}]},
     '來源':     {multi_select:[{name:'蝦皮'}]},
-    '備註':     {rich_text:[{text:{content:matName+(note?' / '+note:'')}}]},
   };
-  if(shipMethod) props['出貨方式']={select:{name:shipMethod}};
-  if(shipDate) props['出日']={date:{start:shipDate}};
+  if(shipMethod) props['出貨方式'] = {select:{name:shipMethod}};
+  if(shipDate  && shipDate.length>=10)  props['出日']     = {date:{start:shipDate.slice(0,10)}};
+  if(payDate   && payDate.length>=10)   props['付款時間']  = {date:{start:payDate.slice(0,10)}};
+
   try{
-    const r = await notionAPI('POST','pages',{parent:{database_id:DB.shopee115},properties:props});
-    if(r&&r.object==='page') console.log('[115蝦皮] 同步成功:', r.id);
-    else console.error('[115蝦皮] 同步失敗:', JSON.stringify(r).slice(0,100));
-  }catch(e){ console.error('[115蝦皮] 例外:', e); }
+    const r = await notionAPI('POST','pages',{
+      parent:{database_id:DB.shopee115},
+      properties:props
+    });
+    if(r && r.object==='page'){
+      console.log('[115蝦皮] 同步成功:', r.id);
+    } else {
+      console.error('[115蝦皮] 失敗:', JSON.stringify(r).slice(0,150));
+      showToast('⚠ 115蝦皮同步失敗: '+(r?.message||r?.code||'未知'),'warn');
+    }
+  }catch(e){
+    console.error('[115蝦皮] 例外:', e);
+    showToast('⚠ 115蝦皮例外: '+e?.message,'warn');
+  }
 }
 
 // ── 匯入蝦皮 Excel ──
@@ -4499,95 +4511,168 @@ async function importShopeeExcel(input){
   if(!file) return;
   showToast('⏳ 讀取 Excel 中...','ok');
 
-  // 使用 SheetJS 讀取（需密碼）
   try{
     const buf = await file.arrayBuffer();
-    // SheetJS 讀取加密 xlsx
     let wb;
-    try{
-      wb = XLSX.read(buf, {type:'array', password:'576313'});
-    }catch(e){
-      // 嘗試不帶密碼
+    try{ wb = XLSX.read(buf, {type:'array', password:'576313'}); }
+    catch(e){
       try{ wb = XLSX.read(buf, {type:'array'}); }
-      catch(e2){ showToast('❌ 無法讀取檔案，請確認密碼 576313','err'); return; }
+      catch(e2){ showToast('❌ 無法讀取檔案，請確認格式','err'); return; }
     }
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
     if(!rows.length){ showToast('Excel 沒有資料','warn'); return; }
 
-    // 欄位對應
-    const ship_map = {
-      '新竹物流':'新竹物流','蝦皮':'蝦皮','店到家宅配':'店到家',
+    // 出貨方式對應表
+    const SHIP_MAP = {
+      '新竹物流':'新竹物流','蝦皮':'蝦皮','店到家宅配':'店到家','店到家':'店到家',
       '7-11':'7-11','全家':'全家','黑貓宅便':'黑貓宅便',
       'SF順豐':'SF順豐','大榮貨運':'大榮貨運','郵局包裹':'郵局包裹',
     };
     function mapShip(v){
-      for(const k in ship_map){ if(v&&v.toString().includes(k)) return ship_map[k]; }
+      for(const k in SHIP_MAP){ if(v&&v.toString().includes(k)) return SHIP_MAP[k]; }
       return v||'';
     }
 
-    // 合併同一訂單的多個品項
+    // 先依訂單號碼合併，收集每個品項
     const ordersMap = {};
     for(const row of rows){
-      const no      = (row['訂單編號']||'').toString().trim();
+      const no    = (row['訂單編號']||'').toString().trim();
       if(!no) continue;
-      const sku     = (row['主商品貨號']||'').toString().trim();
-      const qty     = parseInt(row['數量'])||1;
-      const buyer   = (row['買家帳號']||'').toString().trim();
+      const sku   = (row['主商品貨號']||'').toString().trim();
+      const qty   = parseInt(row['數量'])||1;
+      const buyer = (row['買家帳號']||'').toString().trim();
       const rawShip = (row['寄送方式']||'').toString().trim();
       const shipDate= (row['實際出貨時間']||'').toString().slice(0,10);
-      const prodName= (row['商品名稱']||'').toString().slice(0,30);
-      const option  = (row['商品選項名稱']||'').toString();
-
-      if(!ordersMap[no]){
-        ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,items:[]};
-      }
-      ordersMap[no].items.push({sku:sku||prodName,qty,option});
+      const payDate = (row['買家付款時間']||'').toString().slice(0,10);
+      const prodName= (row['商品名稱']||'').toString().slice(0,40);
+      if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
+      ordersMap[no].items.push({sku, qty, prodName});
     }
 
     const orders = Object.values(ordersMap);
     if(!orders.length){ showToast('沒有有效訂單資料','warn'); return; }
 
-    showToast(`⏳ 匯入 ${orders.length} 筆訂單中...`,'ok');
-    let ok=0, skip=0;
+    showToast('⏳ 匯入 '+orders.length+' 筆訂單，處理中...','ok');
+
+    let ok=0, skip=0, noSkuOrders=[];
+
     for(const o of orders){
-      // 檢查是否已存在（避免重複匯入）
-      const exists = corders.find(c=>c.no===o.no);
-      if(exists){ skip++; continue; }
+      // 跳過已存在的訂單
+      if(corders.find(c=>c.no===o.no)){ skip++; continue; }
 
-      const allItems = o.items.map(i=>i.sku+(i.qty>1?'×'+i.qty:'')).join('、');
-      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
+      // ── 逐品項處理庫存扣除 ──
+      const stockResults = []; // [{sku, qty, matId, matName, ok, newStock}]
+      const noSkuItems   = []; // 找不到料號的品項
 
-      try{
-        // 寫入 ERP C端訂單
-        const cProps={
-          '訂單號碼':{title:[{text:{content:o.no}}]},
-          '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
-          '品名':{rich_text:[{text:{content:allItems}}]},
-          '數量':{number:totalQty},
-          '出貨方式':{rich_text:[{text:{content:o.shipMethod}}]},
-          '狀態':{select:{name:'出貨中'}},
-          '來源':{select:{name:'蝦皮'}},
-        };
-        if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
-        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+      for(const item of o.items){
+        if(!item.sku){
+          // 完全沒有 SKU
+          noSkuItems.push(item.prodName||'(無品名)');
+          continue;
+        }
 
-        // 同步至 115年蝦皮
-        await syncToShopee115({
-          no:o.no, buyer:o.buyer, matName:allItems,
-          qty:totalQty, shipMethod:o.shipMethod, shipDate:o.shipDate, note:''
-        });
-        ok++;
-      }catch(e){ console.error('import order error:',o.no,e); }
+        // 在料件主檔尋找
+        let mat = mats.find(m=>
+          m.name===item.sku ||
+          m.code===item.sku ||
+          (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
+          (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
+        );
+
+        if(!mat){
+          // ── 料號不存在：自動建立 ──
+          try{
+            const newMatProps = {
+              '料件名稱': {title:[{text:{content:item.sku}}]},
+              '類型':     {select:{name:'成品'}},
+              '目前庫存': {number:20},
+              '安全庫存': {number:20},
+            };
+            const created = await notionAPI('POST','pages',{
+              parent:{database_id:DB.materials},
+              properties:newMatProps
+            });
+            if(created && created.object==='page'){
+              mat = {id:created.id, name:item.sku, code:item.sku, type:'成品', stock:20, safe:20};
+              mats.push(mat);
+              console.log('[自動建立料件]', item.sku);
+            }
+          }catch(e2){
+            console.error('自動建立料件失敗:', item.sku, e2);
+            noSkuItems.push(item.sku+' (建立失敗)');
+            continue;
+          }
+        }
+
+        // ── 扣庫存 ──
+        try{
+          const matData = await notionAPI('GET','pages/'+mat.id);
+          const curStock = matData?.properties?.['目前庫存']?.number??0;
+          const newStock = curStock - item.qty;
+          await updatePage(mat.id,{'目前庫存':{number:newStock}});
+          await logStockChange(mat.id, mat.name, mat.code||'', 'C端出貨', -item.qty, curStock, newStock, o.no, ROLE);
+          mat.stock = newStock;
+          stockResults.push({sku:item.sku, qty:item.qty, matId:mat.id, matName:mat.name, ok:true, newStock});
+        }catch(e3){
+          console.error('扣庫存失敗:', item.sku, e3);
+          stockResults.push({sku:item.sku, qty:item.qty, matId:mat.id, ok:false});
+        }
+      }
+
+      // ── 若有品項完全找不到品號 → 提醒，但仍建立訂單 ──
+      if(noSkuItems.length){
+        noSkuOrders.push({no:o.no, items:noSkuItems});
+      }
+
+      // 組合品名欄位
+      const allSkus = o.items.map(i=>
+        i.sku ? i.sku+(i.qty>1?'×'+i.qty:'') : ('('+( i.prodName||'無貨號')+')'+(i.qty>1?'×'+i.qty:''))
+      ).join(' / ');
+      const totalQty = o.items.reduce((s,i)=>s+i.qty, 0);
+      const matIds   = stockResults.filter(r=>r.ok).map(r=>r.matId).join(',');
+
+      // ── 寫入 ERP C端訂單 ──
+      const cProps={
+        '訂單號碼':{title:[{text:{content:o.no}}]},
+        '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
+        '品名':{rich_text:[{text:{content:allSkus}}]},
+        '數量':{number:totalQty},
+        '出貨方式':{rich_text:[{text:{content:o.shipMethod}}]},
+        '狀態':{select:{name:'出貨中'}},
+        '來源':{select:{name:'蝦皮'}},
+        '料件ID':{rich_text:[{text:{content:matIds}}]},
+        '備註':{rich_text:[{text:{content:noSkuItems.length?'⚠ 需手動補扣料：'+noSkuItems.join('、'):''}}]},
+        '付款時間':(o.payDate&&o.payDate.length===10)?{date:{start:o.payDate}}:undefined,
+      };
+      if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
+      await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+
+      // ── 同步至 115年蝦皮 ──
+      await syncToShopee115({no:o.no, buyer:o.buyer, matName:allSkus, qty:totalQty, shipMethod:o.shipMethod, shipDate:o.shipDate, payDate:o.payDate||'', note:''});
+
+      // ── 同步至 115年蝦皮 ──
+      await syncToShopee115({no:o.no, buyer:o.buyer, matName:allSkus, qty:totalQty,
+        shipMethod:o.shipMethod, shipDate:o.shipDate, payDate:o.payDate||'', note:''});
+      ok++;
     }
 
-    await loadCorders(); renderTab(CURRENT_TAB);
-    showToast(`✅ 匯入完成：新增 ${ok} 筆${skip?' / 跳過重複 '+skip+' 筆':''}`, 'ok');
+    await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
+
+    // ── 結果通知 ──
+    let msg = '✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過重複 '+skip+' 筆':'');
+    showToast(msg, 'ok');
+
+    // 有找不到品號的訂單 → 另外彈出提醒
+    if(noSkuOrders.length){
+      const detail = noSkuOrders.map(o=>'訂單 '+o.no+'：'+o.items.join('、')).join('\n');
+      alert('⚠ 以下品項無料號（庫存未扣除，請手動處理）：\n\n'+detail);
+    }
+
   }catch(e){
     showToast('❌ 匯入失敗：'+e.message,'err');
     console.error('importShopeeExcel error:',e);
   }
-  // 清空 input，方便下次再選同一個檔案
   input.value='';
 }
 
