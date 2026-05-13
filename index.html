@@ -4509,30 +4509,44 @@ async function syncToShopee115({no, buyer, matName, qty, shipMethod, shipDate, p
 async function importShopeeExcel(input){
   const file = input.files[0];
   if(!file) return;
-  showToast('⏳ 讀取 Excel 中...','ok');
+  input.value='';
+  showToast('⏳ 上傳解密中...','ok');
 
   try{
-    const buf = await file.arrayBuffer();
-    let wb;
-    try{
-      wb = XLSX.read(buf, {type:'array', password:'576313', cellDates:true});
-    }catch(e){
-      console.warn('帶密碼讀取失敗:', e.message);
-      try{
-        wb = XLSX.read(buf, {type:'array', cellDates:true});
-        console.log('無密碼讀取成功');
-      }catch(e2){
-        console.error('讀取失敗:', e2.message);
-        showToast('❌ 無法讀取檔案：'+e2.message.slice(0,50),'err');
-        input.value='';
-        return;
-      }
+    // ── 把加密 xlsx 傳給 Worker 解密 ──
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', '576313');
+
+    const workerRes = await fetch(PROXY, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if(!workerRes.ok){
+      showToast('❌ Worker 回應異常: '+workerRes.status,'err');
+      return;
     }
+
+    const { base64, encrypted, error } = await workerRes.json();
+    if(error){
+      showToast('❌ 解密失敗: '+error,'err');
+      return;
+    }
+
+    // ── 用 SheetJS 讀取解密後的 xlsx ──
+    const binStr = atob(base64);
+    const buf = new Uint8Array(binStr.length);
+    for(let i=0;i<binStr.length;i++) buf[i]=binStr.charCodeAt(i);
+
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
     if(!rows.length){ showToast('Excel 沒有資料','warn'); return; }
 
-    // 出貨方式對應表
+    showToast('⏳ 解析訂單中...','ok');
+
+    // 出貨方式對應
     const SHIP_MAP = {
       '新竹物流':'新竹物流','蝦皮':'蝦皮','店到家宅配':'店到家','店到家':'店到家',
       '7-11':'7-11','全家':'全家','黑貓宅便':'黑貓宅便',
@@ -4543,7 +4557,7 @@ async function importShopeeExcel(input){
       return v||'';
     }
 
-    // 先依訂單號碼合併，收集每個品項
+    // 合併同一訂單多品項
     const ordersMap = {};
     for(const row of rows){
       const no    = (row['訂單編號']||'').toString().trim();
@@ -4552,8 +4566,8 @@ async function importShopeeExcel(input){
       const qty   = parseInt(row['數量'])||1;
       const buyer = (row['買家帳號']||'').toString().trim();
       const rawShip = (row['寄送方式']||'').toString().trim();
-      const shipDate= (row['實際出貨時間']||'').toString().slice(0,10);
-      const payDate = (row['買家付款時間']||'').toString().slice(0,10);
+      const shipDate= (row['實際出貨時間']||'').toString().slice(0,10).replace(/\//g,'-');
+      const payDate = (row['買家付款時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const prodName= (row['商品名稱']||'').toString().slice(0,40);
       if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
       ordersMap[no].items.push({sku, qty, prodName});
@@ -4562,86 +4576,66 @@ async function importShopeeExcel(input){
     const orders = Object.values(ordersMap);
     if(!orders.length){ showToast('沒有有效訂單資料','warn'); return; }
 
-    showToast('⏳ 匯入 '+orders.length+' 筆訂單，處理中...','ok');
-
+    showToast('⏳ 匯入 '+orders.length+' 筆訂單...','ok');
     let ok=0, skip=0, noSkuOrders=[];
 
     for(const o of orders){
-      // 跳過已存在的訂單
       if(corders.find(c=>c.no===o.no)){ skip++; continue; }
 
-      // ── 逐品項處理庫存扣除 ──
-      const stockResults = []; // [{sku, qty, matId, matName, ok, newStock}]
-      const noSkuItems   = []; // 找不到料號的品項
+      const stockResults=[], noSkuItems=[];
 
       for(const item of o.items){
-        if(!item.sku){
-          // 完全沒有 SKU
-          noSkuItems.push(item.prodName||'(無品名)');
-          continue;
-        }
+        if(!item.sku){ noSkuItems.push(item.prodName||'(無品名)'); continue; }
 
-        // 在料件主檔尋找
         let mat = mats.find(m=>
-          m.name===item.sku ||
-          m.code===item.sku ||
+          m.name===item.sku || m.code===item.sku ||
           (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
           (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
         );
 
         if(!mat){
-          // ── 料號不存在：自動建立 ──
           try{
-            const newMatProps = {
-              '料件名稱': {title:[{text:{content:item.sku}}]},
-              '類型':     {select:{name:'成品'}},
-              '目前庫存': {number:20},
-              '安全庫存': {number:20},
-            };
             const created = await notionAPI('POST','pages',{
               parent:{database_id:DB.materials},
-              properties:newMatProps
+              properties:{
+                '料件名稱':{title:[{text:{content:item.sku}}]},
+                '類型':{select:{name:'成品'}},
+                '目前庫存':{number:20},
+                '安全庫存':{number:20},
+              }
             });
-            if(created && created.object==='page'){
-              mat = {id:created.id, name:item.sku, code:item.sku, type:'成品', stock:20, safe:20};
+            if(created&&created.object==='page'){
+              mat={id:created.id,name:item.sku,code:item.sku,type:'成品',stock:20,safe:20};
               mats.push(mat);
               console.log('[自動建立料件]', item.sku);
             }
           }catch(e2){
-            console.error('自動建立料件失敗:', item.sku, e2);
             noSkuItems.push(item.sku+' (建立失敗)');
             continue;
           }
         }
 
-        // ── 扣庫存 ──
         try{
           const matData = await notionAPI('GET','pages/'+mat.id);
           const curStock = matData?.properties?.['目前庫存']?.number??0;
           const newStock = curStock - item.qty;
           await updatePage(mat.id,{'目前庫存':{number:newStock}});
-          await logStockChange(mat.id, mat.name, mat.code||'', 'C端出貨', -item.qty, curStock, newStock, o.no, ROLE);
-          mat.stock = newStock;
-          stockResults.push({sku:item.sku, qty:item.qty, matId:mat.id, matName:mat.name, ok:true, newStock});
+          await logStockChange(mat.id,mat.name,mat.code||'','C端出貨',-item.qty,curStock,newStock,o.no,ROLE);
+          mat.stock=newStock;
+          stockResults.push({sku:item.sku,qty:item.qty,matId:mat.id,matName:mat.name,ok:true});
         }catch(e3){
-          console.error('扣庫存失敗:', item.sku, e3);
-          stockResults.push({sku:item.sku, qty:item.qty, matId:mat.id, ok:false});
+          console.error('扣庫存失敗:',item.sku,e3);
         }
       }
 
-      // ── 若有品項完全找不到品號 → 提醒，但仍建立訂單 ──
-      if(noSkuItems.length){
-        noSkuOrders.push({no:o.no, items:noSkuItems});
-      }
+      if(noSkuItems.length) noSkuOrders.push({no:o.no, items:noSkuItems});
 
-      // 組合品名欄位
       const allSkus = o.items.map(i=>
         i.sku ? i.sku+(i.qty>1?'×'+i.qty:'') : ('('+( i.prodName||'無貨號')+')'+(i.qty>1?'×'+i.qty:''))
       ).join(' / ');
-      const totalQty = o.items.reduce((s,i)=>s+i.qty, 0);
+      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
       const matIds   = stockResults.filter(r=>r.ok).map(r=>r.matId).join(',');
 
-      // ── 寫入 ERP C端訂單 ──
       const cProps={
         '訂單號碼':{title:[{text:{content:o.no}}]},
         '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
@@ -4652,27 +4646,18 @@ async function importShopeeExcel(input){
         '來源':{select:{name:'蝦皮'}},
         '料件ID':{rich_text:[{text:{content:matIds}}]},
         '備註':{rich_text:[{text:{content:noSkuItems.length?'⚠ 需手動補扣料：'+noSkuItems.join('、'):''}}]},
-        '付款時間':(o.payDate&&o.payDate.length===10)?{date:{start:o.payDate}}:undefined,
       };
       if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
+      if(o.payDate&&o.payDate.length===10) cProps['付款時間']={date:{start:o.payDate}};
       await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
 
-      // ── 同步至 115年蝦皮 ──
-      await syncToShopee115({no:o.no, buyer:o.buyer, matName:allSkus, qty:totalQty, shipMethod:o.shipMethod, shipDate:o.shipDate, payDate:o.payDate||'', note:''});
-
-      // ── 同步至 115年蝦皮 ──
-      await syncToShopee115({no:o.no, buyer:o.buyer, matName:allSkus, qty:totalQty,
-        shipMethod:o.shipMethod, shipDate:o.shipDate, payDate:o.payDate||'', note:''});
+      await syncToShopee115({no:o.no,buyer:o.buyer,matName:allSkus,qty:totalQty,
+        shipMethod:o.shipMethod,shipDate:o.shipDate,payDate:o.payDate||'',note:''});
       ok++;
     }
 
     await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
-
-    // ── 結果通知 ──
-    let msg = '✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過重複 '+skip+' 筆':'');
-    showToast(msg, 'ok');
-
-    // 有找不到品號的訂單 → 另外彈出提醒
+    showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':''), 'ok');
     if(noSkuOrders.length){
       const detail = noSkuOrders.map(o=>'訂單 '+o.no+'：'+o.items.join('、')).join('\n');
       alert('⚠ 以下品項無料號（庫存未扣除，請手動處理）：\n\n'+detail);
@@ -4682,7 +4667,6 @@ async function importShopeeExcel(input){
     showToast('❌ 匯入失敗：'+e.message,'err');
     console.error('importShopeeExcel error:',e);
   }
-  input.value='';
 }
 
 </script>
