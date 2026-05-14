@@ -295,6 +295,8 @@ tr:hover td{background:rgba(59,130,246,.04);}
 @media(max-width:380px){
   .kpi-num{font-size:28px!important;}
 }
+.sel-row { background: rgba(77,142,245,.06) !important; }
+.sel-row:hover { background: rgba(77,142,245,.10) !important; }
 </style>
 </head>
 <body>
@@ -4257,8 +4259,22 @@ window.onload=()=>{
 };
 
 // ═══════════════════════════════════════════════════════
-// C端訂單 (蝦皮/消費者訂單)
+// 批量勾選（全分頁共用）
 // ═══════════════════════════════════════════════════════
+let _sel = new Set(); // 目前勾選的 page id 集合
+
+function _selToggle(id){ _sel.has(id)?_sel.delete(id):_sel.add(id); _selRefreshHeader(); }
+function _selAll(ids, chk){ ids.forEach(id=>chk?_sel.add(id):_sel.delete(id)); _selRefreshHeader(); renderTab(CURRENT_TAB); }
+function _selClear(){ _sel.clear(); _selRefreshHeader(); }
+function _selRefreshHeader(){
+  const cb = document.getElementById('_selAll');
+  if(cb){ const ids=[...document.querySelectorAll('input[data-selid]')].map(x=>x.dataset.selid); cb.indeterminate=_sel.size>0&&_sel.size<ids.length; cb.checked=ids.length>0&&ids.every(id=>_sel.has(id)); }
+}
+function _selCheckbox(id){ return `<input type="checkbox" data-selid="${id}" ${_sel.has(id)?'checked':''} onclick="event.stopPropagation();_selToggle('${id}');this.closest('tr')?.classList.toggle('sel-row',_sel.has('${id}'));" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">`; }
+function _selHeaderCheckbox(ids_arr){
+  const allSel = ids_arr.length>0 && ids_arr.every(id=>_sel.has(id));
+  return `<input type="checkbox" id="_selAll" ${allSel?'checked':''} onclick="_selAll([${ids_arr.map(id=>`'${id}'`).join(',')}],this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">`;
+}
 
 let corders = []; // C端訂單快取
 
@@ -4308,11 +4324,21 @@ function renderCorders(){
     ${filterBar}
     <div style="padding:40px;text-align:center;color:var(--text3)">目前沒有符合條件的 C端訂單</div></div>`;
 
+  const ids = data.map(o=>o.id);
+  const selCount = ids.filter(id=>_sel.has(id)).length;
+  const bulkBar = selCount>0 ? `<div style="display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgba(77,142,245,.08);border:1px solid rgba(77,142,245,.3);border-radius:8px;margin-bottom:8px">
+    <span style="font-size:12px;color:var(--blue);font-weight:600">已選 ${selCount} 筆</span>
+    <button class="btn btn-sm btn-ghost" onclick="_selClear();renderTab('corders')">取消選取</button>
+    ${canAdd?`<button class="btn btn-green btn-sm" onclick="bulkCompleteCorders()">✅ 批量完成</button>`:''}
+    ${ROLE==='manager'?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="bulkDeleteCorders()">🗑 批量刪除</button>`:''}
+  </div>` : '';
+
   const rows = data.map(o=>{
     const [bg,fg] = (PILL[o.status]||['rgba(200,200,200,.1)','#aaa']);
     const canComplete = (ROLE==='manager'||ROLE==='sales') && o.status==='出貨中';
     const canCancel   = (ROLE==='manager'||ROLE==='sales') && (o.status==='出貨中');
-    return `<tr>
+    return `<tr class="${_sel.has(o.id)?'sel-row':''}">
+      <td style="padding:6px 8px">${_selCheckbox(o.id)}</td>
       <td style="font-family:monospace;color:var(--text);font-size:11px">${o.no}</td>
       <td style="font-size:12px">${o.buyer||'—'}</td>
       <td style="font-size:12px">${o.matName||'—'}</td>
@@ -4336,9 +4362,11 @@ function renderCorders(){
       <span class="badge">${data.length}${data.length<corders.length?' / '+corders.length:''}</span>
     </div>
     ${filterBar}
+    ${bulkBar}
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="padding:8px;width:36px">${_selHeaderCheckbox(ids)}</th>
         ${['訂單號碼','買家帳號','品名','數量','出貨方式','出日','狀態','來源','操作'].map(h=>`<th style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:left;font-weight:600;white-space:nowrap">${h}</th>`).join('')}
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -4488,7 +4516,7 @@ async function saveEditCorder(id){
 
 // ── 刪除訂單（廠長限定）──
 async function deleteCorder(id, matId, qty, status){
-  if(!confirm('確定要刪除這筆訂單？\n此操作無法復原。')) return;
+  if(!confirm('確定要刪除這筆訂單？\n此操作會同步刪除 Notion 資料（含 115蝦皮記錄），無法復原。')) return;
 
   // 若訂單狀態是「出貨中」，詢問是否回料
   let doReturn = false;
@@ -4496,7 +4524,11 @@ async function deleteCorder(id, matId, qty, status){
     doReturn = confirm('訂單狀態為「出貨中」，是否回料？\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 直接刪除不回料');
   }
 
+  const o = corders.find(x=>x.id===id);
+  const orderNo = o?.no || '';
+
   try{
+    // 1. 回料
     if(doReturn && matId){
       const matData = await notionAPI('GET','pages/'+matId);
       const curStock = matData?.properties?.['目前庫存']?.number??0;
@@ -4504,20 +4536,87 @@ async function deleteCorder(id, matId, qty, status){
       await updatePage(matId,{'目前庫存':{number:newStock}});
       await logStockChange(matId,'','','C端退料（刪除）',parseInt(qty),curStock,newStock,id,ROLE);
     }
-    // 標記為已刪除（Notion 無法直接刪除，改標記）
-    await updatePage(id,{
-      '訂單號碼': {title:[{text:{content:'【已刪除】'+((corders.find(x=>x.id===id)?.no)||id).slice(0,20)}}]},
-      '狀態':     {select:{name:'已取消'}},
-    });
-    // 從本地快取移除
-    const idx = corders.findIndex(x=>x.id===id);
-    if(idx>=0) corders.splice(idx,1);
+
+    // 2. 真正 Archive（刪除）ERP C端訂單頁面
+    await notionAPI('PATCH','pages/'+id,{archived:true});
+
+    // 3. 搜尋並刪除 115蝦皮 中相同訂單號碼的記錄
+    if(orderNo){
+      try{
+        const r115 = await notionAPI('POST','databases/'+DB.shopee115+'/query',{
+          filter:{property:'訂單號碼',title:{equals:orderNo}},
+          page_size:10
+        });
+        if(r115?.results?.length){
+          for(const pg of r115.results){
+            await notionAPI('PATCH','pages/'+pg.id,{archived:true});
+          }
+          console.log('[115蝦皮] 刪除',r115.results.length,'筆記錄');
+        }
+      }catch(e2){ console.warn('115蝦皮刪除失敗:',e2); }
+    }
+
+    // 4. 從本地快取移除
+    const cidx = corders.findIndex(x=>x.id===id);
+    if(cidx>=0) corders.splice(cidx,1);
     renderTab(CURRENT_TAB);
-    showToast(doReturn?'✅ 已刪除並回料':'✅ 訂單已刪除','ok');
+    showToast(doReturn?'✅ 已刪除並回料，Notion 記錄同步移除':'✅ 訂單已刪除，Notion 記錄同步移除','ok');
   }catch(e){ showToast('❌ 刪除失敗：'+e.message,'err'); }
 }
 
-// ── 取消訂單 ──
+// ── 批量完成 ──
+async function bulkCompleteCorders(){
+  const ids = [..._sel];
+  if(!ids.length) return;
+  if(!confirm('確定將選取的 '+ids.length+' 筆訂單標記為「已完成」？')) return;
+  showToast('⏳ 批量完成中...','ok');
+  let ok=0;
+  for(const id of ids){
+    try{
+      await updatePage(id,{'狀態':{select:{name:'已完成'}}});
+      const o=corders.find(x=>x.id===id); if(o) o.status='已完成';
+      ok++;
+    }catch(e){ console.error('bulkComplete error:',id,e); }
+  }
+  _selClear(); renderTab(CURRENT_TAB);
+  showToast(`✅ 已完成 ${ok}/${ids.length} 筆`,'ok');
+}
+
+// ── 批量刪除 ──
+async function bulkDeleteCorders(){
+  const ids = [..._sel];
+  if(!ids.length) return;
+  const doReturn = confirm('批量刪除 '+ids.length+' 筆訂單\n\n確定 = 出貨中訂單回料後刪除\n取消 = 全部直接刪除不回料\n\n（刪除後無法復原，Notion 記錄也會同步移除）');
+  showToast('⏳ 批量刪除中...','ok');
+  let ok=0;
+  for(const id of ids){
+    const o = corders.find(x=>x.id===id);
+    if(!o) continue;
+    try{
+      if(doReturn && o.status==='出貨中' && o.matId){
+        const matData = await notionAPI('GET','pages/'+o.matId);
+        const curStock = matData?.properties?.['目前庫存']?.number??0;
+        const newStock = curStock + parseInt(o.qty);
+        await updatePage(o.matId,{'目前庫存':{number:newStock}});
+        await logStockChange(o.matId,'','','C端退料（批量刪除）',parseInt(o.qty),curStock,newStock,id,ROLE);
+      }
+      await notionAPI('PATCH','pages/'+id,{archived:true});
+      if(o.no){
+        try{
+          const r115 = await notionAPI('POST','databases/'+DB.shopee115+'/query',{
+            filter:{property:'訂單號碼',title:{equals:o.no}},page_size:5
+          });
+          if(r115?.results?.length){
+            for(const pg of r115.results) await notionAPI('PATCH','pages/'+pg.id,{archived:true});
+          }
+        }catch(e2){}
+      }
+      ok++;
+    }catch(e){ console.error('bulkDelete error:',id,e); }
+  }
+  _selClear(); await loadCorders(); renderTab(CURRENT_TAB);
+  showToast(`✅ 已刪除 ${ok}/${ids.length} 筆`,'ok');
+}
 async function cancelCorder(id, matId, qty){
   const doReturn = confirm('是否需要回料？\n\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 不回料（直接取消）');
   try{
