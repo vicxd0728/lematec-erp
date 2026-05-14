@@ -4647,9 +4647,16 @@ async function syncToShopee115({no, buyer, matName, qty, shipMethod, shipDate, p
     '備註':     {rich_text:[{text:{content:[matName,note].filter(Boolean).join(' / ')}}]},
     '來源':     {multi_select:[{name:'蝦皮'}]},
   };
-  if(shipMethod) props['出貨方式'] = {select:{name:shipMethod}};
-  if(shipDate  && shipDate.length>=10)  props['出日']     = {date:{start:shipDate.slice(0,10)}};
-  if(payDate   && payDate.length>=10)   props['付款時間']  = {date:{start:payDate.slice(0,10)}};
+  // 訂單日期（優先用付款時間，方便排序）
+  const dateForSort = payDate||shipDate||'';
+  if(dateForSort && dateForSort.length>=10)
+    props['訂單日期'] = {date:{start:dateForSort.slice(0,10)}};
+  if(shipMethod && shipMethod.length)
+    props['出貨方式'] = {select:{name:shipMethod}};
+  if(shipDate && shipDate.length>=10)
+    props['出日'] = {date:{start:shipDate.slice(0,10)}};
+  if(payDate && payDate.length>=10)
+    props['付款時間'] = {date:{start:payDate.slice(0,10)}};
 
   try{
     const r = await notionAPI('POST','pages',{
