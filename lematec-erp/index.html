@@ -4324,6 +4324,8 @@ function renderCorders(){
       <td style="white-space:nowrap;display:flex;gap:4px">
         ${canComplete?`<button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✅ 完成</button>`:''}
         ${canCancel?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="cancelCorder('${o.id}','${o.matId}',${o.qty})">✕ 取消</button>`:''}
+        ${canAdd?`<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue)" onclick="editCorder('${o.id}')">✏️ 編輯</button>`:''}
+        ${ROLE==='manager'?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red);opacity:.7" onclick="deleteCorder('${o.id}','${o.matId}',${o.qty},'${o.status}')">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -4352,6 +4354,118 @@ async function completeCorder(id){
     renderTab(CURRENT_TAB);
     showToast('✅ 訂單已完成','ok');
   }catch(e){ showToast('錯誤：'+e.message,'err'); }
+}
+
+// ── 編輯訂單 ──
+function editCorder(id){
+  const o = corders.find(x=>x.id===id);
+  if(!o){ showToast('找不到訂單','err'); return; }
+  const mi = document.getElementById('modalInner');
+  mi.innerHTML = `<h3>✏️ 編輯 C端訂單</h3>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">訂單號碼</label>
+      <input class="inp" id="ec_no" value="${o.no}" readonly style="opacity:.6">
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">買家帳號</label>
+      <input class="inp" id="ec_buyer" value="${o.buyer||''}">
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">品名</label>
+      <input class="inp" id="ec_mat" value="${o.matName||''}">
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">數量</label>
+        <input class="inp" type="number" id="ec_qty" value="${o.qty}" min="1">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">狀態</label>
+        <select class="inp" id="ec_status">
+          ${['出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">出貨方式</label>
+        <input class="inp" id="ec_ship" value="${o.shipMethod||''}">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">出日</label>
+        <input class="inp" type="date" id="ec_date" value="${o.shipDate||''}">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">備註</label>
+      <input class="inp" id="ec_note" value="${o.note||''}">
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button type="button" class="btn btn-blue" onclick="saveEditCorder('${id}')">💾 儲存</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('open');
+}
+
+async function saveEditCorder(id){
+  const buyer    = document.getElementById('ec_buyer')?.value||'';
+  const matName  = document.getElementById('ec_mat')?.value||'';
+  const qty      = parseInt(document.getElementById('ec_qty')?.value)||1;
+  const status   = document.getElementById('ec_status')?.value||'出貨中';
+  const shipMethod = document.getElementById('ec_ship')?.value||'';
+  const shipDate = document.getElementById('ec_date')?.value||'';
+  const note     = document.getElementById('ec_note')?.value||'';
+
+  closeModal();
+  try{
+    const props = {
+      '買家帳號': {rich_text:[{text:{content:buyer}}]},
+      '品名':     {rich_text:[{text:{content:matName}}]},
+      '數量':     {number:qty},
+      '出貨方式': {rich_text:[{text:{content:shipMethod}}]},
+      '狀態':     {select:{name:status}},
+      '備註':     {rich_text:[{text:{content:note}}]},
+    };
+    if(shipDate) props['出日']={date:{start:shipDate}};
+    await updatePage(id, props);
+    // 更新本地快取
+    const o = corders.find(x=>x.id===id);
+    if(o){ o.buyer=buyer; o.matName=matName; o.qty=qty; o.status=status;
+           o.shipMethod=shipMethod; o.shipDate=shipDate; o.note=note; }
+    renderTab(CURRENT_TAB);
+    showToast('✅ 訂單已更新','ok');
+  }catch(e){ showToast('❌ 更新失敗：'+e.message,'err'); }
+}
+
+// ── 刪除訂單（廠長限定）──
+async function deleteCorder(id, matId, qty, status){
+  if(!confirm('確定要刪除這筆訂單？\n此操作無法復原。')) return;
+
+  // 若訂單狀態是「出貨中」，詢問是否回料
+  let doReturn = false;
+  if(status==='出貨中' && matId){
+    doReturn = confirm('訂單狀態為「出貨中」，是否回料？\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 直接刪除不回料');
+  }
+
+  try{
+    if(doReturn && matId){
+      const matData = await notionAPI('GET','pages/'+matId);
+      const curStock = matData?.properties?.['目前庫存']?.number??0;
+      const newStock = curStock + parseInt(qty);
+      await updatePage(matId,{'目前庫存':{number:newStock}});
+      await logStockChange(matId,'','','C端退料（刪除）',parseInt(qty),curStock,newStock,id,ROLE);
+    }
+    // 標記為已刪除（Notion 無法直接刪除，改標記）
+    await updatePage(id,{
+      '訂單號碼': {title:[{text:{content:'【已刪除】'+((corders.find(x=>x.id===id)?.no)||id).slice(0,20)}}]},
+      '狀態':     {select:{name:'已取消'}},
+    });
+    // 從本地快取移除
+    const idx = corders.findIndex(x=>x.id===id);
+    if(idx>=0) corders.splice(idx,1);
+    renderTab(CURRENT_TAB);
+    showToast(doReturn?'✅ 已刪除並回料':'✅ 訂單已刪除','ok');
+  }catch(e){ showToast('❌ 刪除失敗：'+e.message,'err'); }
 }
 
 // ── 取消訂單 ──
