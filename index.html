@@ -4705,15 +4705,30 @@ async function importShopeeExcel(input){
     for(const row of rows){
       const no    = (row['訂單編號']||'').toString().trim();
       if(!no) continue;
-      const sku   = (row['主商品貨號']||'').toString().trim();
+      const sku1    = (row['主商品貨號']||'').toString().trim();
+      const sku2raw = (row['商品選項貨號']||'').toString().trim();
+      const optName = (row['商品選項名稱']||'').toString().trim();
       const qty   = parseInt(row['數量'])||1;
+      // SKU 優先順序：主商品貨號 > 商品選項貨號(只取英數) > 商品選項名稱(抽取英數)
+      // 從含中文的貨號中只取英數+連字號部分（如 "AI303-R2 直上版" → "AI303-R2"）
+      function extractAlphaNum(s){
+        const m = s.match(/[A-Za-z][A-Za-z0-9\-]*[0-9][A-Za-z0-9\-]*/g);
+        return m ? m[0] : s.replace(/[^\x00-\x7F]/g,'').trim();
+      }
+      const sku2 = sku2raw ? extractAlphaNum(sku2raw) : '';
+      let sku = sku1 || sku2;
+      if(!sku && optName){
+        // 從商品選項名稱抽取英文+數字+連字號（如 DTI09B、AI303-R2）
+        const parts = optName.match(/[A-Za-z][A-Za-z0-9\-]*[0-9][A-Za-z0-9\-]*/g);
+        sku = parts ? parts[0] : '';
+      }
       const buyer = (row['買家帳號']||'').toString().trim();
       const rawShip = (row['寄送方式']||'').toString().trim();
       const shipDate= (row['實際出貨時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const payDate = (row['買家付款時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const prodName= (row['商品名稱']||'').toString().slice(0,40);
       if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
-      ordersMap[no].items.push({sku, qty, prodName});
+      ordersMap[no].items.push({sku, qty, prodName: prodName||optName});
     }
 
     const orders = Object.values(ordersMap);
