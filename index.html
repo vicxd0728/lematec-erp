@@ -4771,16 +4771,18 @@ async function importShopeeExcel(input){
         sku = parts ? parts[0] : '';
       }
       // 完全無英數 → 抓中文名詞（到逗號為止，保留括號+等符號，最多30字）
+      // 黑名單：這些詞開頭代表不是品名，強制排除
+      const _chBlacklist = ['含稅','不含稅','請備註','如需','統編','發票','備註'];
       let chName = '';
       if(!sku){
         for(const src of [optName, prodName]){
           if(!src) continue;
-          // 只用逗號截止，保留括號、+、-等符號
           const nm = src.split(/[,，]/)[0].trim();
-          // 必須含中文，長度 2-30
-          if(nm && /[\u4e00-\u9fff]/.test(nm) && nm.length >= 2 && nm.length <= 30){
-            chName = nm; break;
-          }
+          if(!nm || nm.length < 2 || nm.length > 30) continue;
+          if(!/[\u4e00-\u9fff]/.test(nm)) continue;
+          // 黑名單過濾
+          if(_chBlacklist.some(bl=>nm.startsWith(bl))) continue;
+          chName = nm; break;
         }
       }
       const buyer = (row['買家帳號']||'').toString().trim();
