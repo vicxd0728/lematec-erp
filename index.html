@@ -4409,14 +4409,63 @@ function editCorder(id){
 
 async function saveEditCorder(id){
   const buyer    = document.getElementById('ec_buyer')?.value||'';
-  const matName  = document.getElementById('ec_mat')?.value||'';
+  const matName  = (document.getElementById('ec_mat')?.value||'').trim();
   const qty      = parseInt(document.getElementById('ec_qty')?.value)||1;
   const status   = document.getElementById('ec_status')?.value||'出貨中';
   const shipMethod = document.getElementById('ec_ship')?.value||'';
   const shipDate = document.getElementById('ec_date')?.value||'';
   const note     = document.getElementById('ec_note')?.value||'';
 
+  const o = corders.find(x=>x.id===id);
+  const oldMatName = o?.matName||'';
+  const oldMatId   = o?.matId||'';
+
   closeModal();
+
+  // ── 若品名有修改，嘗試比對料件主檔並扣庫存 ──
+  let newMatId = oldMatId;
+  if(matName && matName !== oldMatName){
+    // 在料件主檔尋找對應的料件
+    const mat = mats.find(m=>
+      m.name===matName || m.code===matName ||
+      (m.name&&m.name.toLowerCase()===matName.toLowerCase())
+    );
+
+    if(mat){
+      // 找到對應料件 → 扣庫存
+      try{
+        const matData = await notionAPI('GET','pages/'+mat.id);
+        const curStock = matData?.properties?.['目前庫存']?.number??0;
+        const newStock = curStock - qty;
+        await updatePage(mat.id,{'目前庫存':{number:newStock}});
+        await logStockChange(mat.id,mat.name,mat.code||'','C端出貨',-qty,curStock,newStock,id,ROLE);
+        mat.stock = newStock;
+        newMatId = mat.id;
+        showToast('✅ 已找到料件「'+mat.name+'」並扣除 '+qty+' 個庫存','ok');
+
+        // 若舊料件 ID 存在且不同，代表先前是自動建立的無效料件 → 標記刪除
+        if(oldMatId && oldMatId !== mat.id){
+          const oldMat = mats.find(m=>m.id===oldMatId);
+          if(oldMat){
+            try{
+              await updatePage(oldMatId,{
+                '料件名稱':{title:[{text:{content:'【已刪除-無效料件】'+oldMat.name}}]},
+                '目前庫存':{number:0},
+              });
+              // 從本地快取移除
+              const idx = mats.findIndex(m=>m.id===oldMatId);
+              if(idx>=0) mats.splice(idx,1);
+              showToast('🗑 舊料件「'+oldMat.name+'」已標記刪除','ok');
+            }catch(e2){ console.warn('清除舊料件失敗:', e2); }
+          }
+        }
+      }catch(e){ showToast('⚠ 找到料件但扣庫存失敗：'+e.message,'warn'); }
+    } else {
+      // 找不到對應料件，只更新品名文字
+      showToast('⚠ 找不到料件「'+matName+'」，品名已更新但庫存未扣除','warn');
+    }
+  }
+
   try{
     const props = {
       '買家帳號': {rich_text:[{text:{content:buyer}}]},
@@ -4425,13 +4474,13 @@ async function saveEditCorder(id){
       '出貨方式': {rich_text:[{text:{content:shipMethod}}]},
       '狀態':     {select:{name:status}},
       '備註':     {rich_text:[{text:{content:note}}]},
+      '料件ID':   {rich_text:[{text:{content:newMatId}}]},
     };
     if(shipDate) props['出日']={date:{start:shipDate}};
     await updatePage(id, props);
     // 更新本地快取
-    const o = corders.find(x=>x.id===id);
     if(o){ o.buyer=buyer; o.matName=matName; o.qty=qty; o.status=status;
-           o.shipMethod=shipMethod; o.shipDate=shipDate; o.note=note; }
+           o.shipMethod=shipMethod; o.shipDate=shipDate; o.note=note; o.matId=newMatId; }
     renderTab(CURRENT_TAB);
     showToast('✅ 訂單已更新','ok');
   }catch(e){ showToast('❌ 更新失敗：'+e.message,'err'); }
@@ -4718,9 +4767,21 @@ async function importShopeeExcel(input){
       const sku2 = sku2raw ? extractAlphaNum(sku2raw) : '';
       let sku = sku1 || sku2;
       if(!sku && optName){
-        // 從商品選項名稱抽取英文+數字+連字號（如 DTI09B、AI303-R2）
         const parts = optName.match(/[A-Za-z][A-Za-z0-9\-]*[0-9][A-Za-z0-9\-]*/g);
         sku = parts ? parts[0] : '';
+      }
+      // 完全無英數 → 抓中文名詞（到逗號為止，保留括號+等符號，最多30字）
+      let chName = '';
+      if(!sku){
+        for(const src of [optName, prodName]){
+          if(!src) continue;
+          // 只用逗號截止，保留括號、+、-等符號
+          const nm = src.split(/[,，]/)[0].trim();
+          // 必須含中文，長度 2-30
+          if(nm && /[\u4e00-\u9fff]/.test(nm) && nm.length >= 2 && nm.length <= 30){
+            chName = nm; break;
+          }
+        }
       }
       const buyer = (row['買家帳號']||'').toString().trim();
       const rawShip = (row['寄送方式']||'').toString().trim();
@@ -4728,7 +4789,7 @@ async function importShopeeExcel(input){
       const payDate = (row['買家付款時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const prodName= (row['商品名稱']||'').toString().slice(0,40);
       if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
-      ordersMap[no].items.push({sku, qty, prodName: prodName||optName});
+      ordersMap[no].items.push({sku, qty, prodName: prodName||optName, chName});
     }
 
     const orders = Object.values(ordersMap);
@@ -4738,80 +4799,92 @@ async function importShopeeExcel(input){
     let ok=0, skip=0, noSkuOrders=[];
 
     for(const o of orders){
-      if(corders.find(c=>c.no===o.no)){ skip++; continue; }
-
-      const stockResults=[], noSkuItems=[];
+      // 每個品項獨立建一筆 C端訂單
+      let orderOk=0;
 
       for(const item of o.items){
-        if(!item.sku){ noSkuItems.push(item.prodName||'(無品名)'); continue; }
+        // 重複判斷：同訂單號 + 同 SKU 才跳過
+        const dupKey = o.no + '|' + (item.sku||item.prodName||'');
+        if(corders.find(c=>c.no===o.no && c.matName===item.sku)){
+          skip++; continue;
+        }
 
-        let mat = mats.find(m=>
-          m.name===item.sku || m.code===item.sku ||
-          (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
-          (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
-        );
+        // ── SKU / 品名 處理 ──
+        const displaySku = item.sku || item.chName || '(無貨號)';
+        const noSku = !item.sku && !item.chName;
 
-        if(!mat){
-          try{
-            const created = await notionAPI('POST','pages',{
-              parent:{database_id:DB.materials},
-              properties:{
-                '料件名稱':{title:[{text:{content:item.sku}}]},
-                '類型':{select:{name:'成品'}},
-                '目前庫存':{number:20},
-                '安全庫存':{number:20},
+        if(noSku){
+          noSkuOrders.push({no:o.no, items:[item.prodName?.slice(0,20)||'(無品名)']});
+        }
+
+        let mat = null;
+        let matId = '';
+        if(item.sku){
+          mat = mats.find(m=>
+            m.name===item.sku || m.code===item.sku ||
+            (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
+            (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
+          );
+          if(!mat){
+            // 自動建立料件
+            try{
+              const created = await notionAPI('POST','pages',{
+                parent:{database_id:DB.materials},
+                properties:{
+                  '料件名稱':{title:[{text:{content:item.sku}}]},
+                  '類型':{select:{name:'成品'}},
+                  '目前庫存':{number:20},
+                  '安全庫存':{number:20},
+                }
+              });
+              if(created&&created.object==='page'){
+                mat={id:created.id,name:item.sku,code:item.sku,type:'成品',stock:20,safe:20};
+                mats.push(mat);
+                console.log('[自動建立料件]', item.sku);
               }
-            });
-            if(created&&created.object==='page'){
-              mat={id:created.id,name:item.sku,code:item.sku,type:'成品',stock:20,safe:20};
-              mats.push(mat);
-              console.log('[自動建立料件]', item.sku);
-            }
-          }catch(e2){
-            noSkuItems.push(item.sku+' (建立失敗)');
-            continue;
+            }catch(e2){ console.error('自動建立料件失敗:', item.sku, e2); }
+          }
+
+          // 扣庫存
+          if(mat){
+            try{
+              const matData = await notionAPI('GET','pages/'+mat.id);
+              const curStock = matData?.properties?.['目前庫存']?.number??0;
+              const newStock = curStock - item.qty;
+              await updatePage(mat.id,{'目前庫存':{number:newStock}});
+              await logStockChange(mat.id,mat.name,mat.code||'','C端出貨',-item.qty,curStock,newStock,o.no,ROLE);
+              mat.stock=newStock;
+              matId = mat.id;
+            }catch(e3){ console.error('扣庫存失敗:', item.sku, e3); }
           }
         }
 
-        try{
-          const matData = await notionAPI('GET','pages/'+mat.id);
-          const curStock = matData?.properties?.['目前庫存']?.number??0;
-          const newStock = curStock - item.qty;
-          await updatePage(mat.id,{'目前庫存':{number:newStock}});
-          await logStockChange(mat.id,mat.name,mat.code||'','C端出貨',-item.qty,curStock,newStock,o.no,ROLE);
-          mat.stock=newStock;
-          stockResults.push({sku:item.sku,qty:item.qty,matId:mat.id,matName:mat.name,ok:true});
-        }catch(e3){
-          console.error('扣庫存失敗:',item.sku,e3);
-        }
+        // 寫入 ERP C端訂單（每品項一筆）
+        const cProps={
+          '訂單號碼':{title:[{text:{content:o.no}}]},
+          '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
+          '品名':{rich_text:[{text:{content:displaySku}}]},
+          '數量':{number:item.qty},
+          '出貨方式':{rich_text:[{text:{content:o.shipMethod}}]},
+          '狀態':{select:{name:'出貨中'}},
+          '來源':{select:{name:'蝦皮'}},
+          '料件ID':{rich_text:[{text:{content:matId}}]},
+          '備註':{rich_text:[{text:{content:noSku?'⚠ 無料號，請手動補':'  '}}]},
+        };
+        if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
+        if(o.payDate&&o.payDate.length===10) cProps['付款時間']={date:{start:o.payDate}};
+        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+        orderOk++;
       }
 
-      if(noSkuItems.length) noSkuOrders.push({no:o.no, items:noSkuItems});
-
-      const allSkus = o.items.map(i=>
-        i.sku ? i.sku+(i.qty>1?'×'+i.qty:'') : ('('+( i.prodName||'無貨號')+')'+(i.qty>1?'×'+i.qty:''))
-      ).join(' / ');
-      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
-      const matIds   = stockResults.filter(r=>r.ok).map(r=>r.matId).join(',');
-
-      const cProps={
-        '訂單號碼':{title:[{text:{content:o.no}}]},
-        '買家帳號':{rich_text:[{text:{content:o.buyer}}]},
-        '品名':{rich_text:[{text:{content:allSkus}}]},
-        '數量':{number:totalQty},
-        '出貨方式':{rich_text:[{text:{content:o.shipMethod}}]},
-        '狀態':{select:{name:'出貨中'}},
-        '來源':{select:{name:'蝦皮'}},
-        '料件ID':{rich_text:[{text:{content:matIds}}]},
-        '備註':{rich_text:[{text:{content:noSkuItems.length?'⚠ 需手動補扣料：'+noSkuItems.join('、'):''}}]},
-      };
-      if(o.shipDate&&o.shipDate.length===10) cProps['出日']={date:{start:o.shipDate}};
-      if(o.payDate&&o.payDate.length===10) cProps['付款時間']={date:{start:o.payDate}};
-      await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
-
-      await syncToShopee115({no:o.no,buyer:o.buyer,matName:allSkus,qty:totalQty,
-        shipMethod:o.shipMethod,shipDate:o.shipDate,payDate:o.payDate||'',note:''});
-      ok++;
+      if(orderOk > 0){
+        // 每張訂單只同步一次 115蝦皮（合併所有品項名稱）
+        const allSkus = o.items.map(i=>(i.sku||i.chName||'無貨號')+(i.qty>1?'×'+i.qty:'')).join(' / ');
+        const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
+        await syncToShopee115({no:o.no,buyer:o.buyer,matName:allSkus,qty:totalQty,
+          shipMethod:o.shipMethod,shipDate:o.shipDate,payDate:o.payDate||'',note:''});
+        ok++;
+      }
     }
 
     await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
