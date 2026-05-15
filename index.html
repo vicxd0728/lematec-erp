@@ -3060,8 +3060,11 @@ function openModal(type,data){
         ${['全部','零件','半成品','成品'].map(t=>`<button id="eib_t_${t}" onclick="eibFilterType('${t}')" class="btn btn-xs ${t==='全部'?'btn-blue':'btn-ghost'}" style="flex:1;justify-content:center">${t}</button>`).join('')}
       </div>
       <input type="hidden" id="eib_type_filter" value="全部">
-      <!-- 搜尋框 -->
-      <input class="inp" id="eib_search" placeholder="搜尋料件名稱或編號..." style="margin-bottom:6px;font-size:13px;padding:7px 12px" oninput="eibUpdateSelect()">
+      <!-- 搜尋框 + QR 掃描按鈕 -->
+      <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        <input class="inp" id="eib_search" placeholder="搜尋料件名稱或編號..." style="flex:1;font-size:13px;padding:7px 12px" oninput="eibUpdateSelect()">
+        <button class="btn btn-sm" style="white-space:nowrap;padding:7px 10px;font-size:13px" onclick="openQRScanner()" title="掃描 QR Code 自動填入">📷 掃描</button>
+      </div>
       <!-- 自訂可點擊料件清單 -->
       <div id="eib_list_wrap" style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:200px;overflow-y:auto;margin-top:4px">
         <div id="eib_list_inner" style="padding:4px 0">
@@ -4259,8 +4262,89 @@ window.onload=()=>{
 };
 
 // ═══════════════════════════════════════════════════════
-// 批量勾選（全分頁共用）
+// QR Code 掃描（手機鏡頭，BarcodeDetector API）
 // ═══════════════════════════════════════════════════════
+
+let _qrStream = null;
+
+async function openQRScanner(){
+  // 確認瀏覽器支援
+  if(!('BarcodeDetector' in window)){
+    showToast('⚠ 此瀏覽器不支援 QR 掃描，請用 Chrome 或 Safari（iOS 16+）','warn');
+    return;
+  }
+
+  // 建立掃描 modal
+  const mi = document.getElementById('modalInner');
+  const savedContent = mi.innerHTML;
+  mi.innerHTML = `
+    <h3>📷 掃描料件 QR Code</h3>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:10px">對準料件上的 QR Code，自動辨識後填入搜尋框</p>
+    <div style="position:relative;width:100%;max-width:320px;margin:0 auto">
+      <video id="qr_video" style="width:100%;border-radius:10px;background:#000" autoplay playsinline muted></video>
+      <div id="qr_status" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text2)">⏳ 啟動鏡頭中...</div>
+      <canvas id="qr_canvas" style="display:none"></canvas>
+    </div>
+    <div class="form-actions" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="closeQRScanner()">取消</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('open');
+
+  try{
+    _qrStream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }
+    });
+    const video = document.getElementById('qr_video');
+    if(!video){ closeQRScanner(); return; }
+    video.srcObject = _qrStream;
+    document.getElementById('qr_status').textContent = '🔍 掃描中，請對準 QR Code...';
+
+    const detector = new BarcodeDetector({formats:['qr_code']});
+    const canvas = document.getElementById('qr_canvas');
+    const ctx = canvas.getContext('2d');
+
+    const scanLoop = async () => {
+      if(!_qrStream) return; // 已關閉
+      if(video.readyState === video.HAVE_ENOUGH_DATA){
+        canvas.width  = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        try{
+          const barcodes = await detector.detect(canvas);
+          if(barcodes.length > 0){
+            const result = barcodes[0].rawValue.trim();
+            if(result){
+              closeQRScanner();
+              // 自動填入搜尋框並更新料件清單
+              const searchEl = document.getElementById('eib_search');
+              if(searchEl){
+                searchEl.value = result;
+                eibUpdateSelect();
+                showToast('✅ 掃描成功：'+result,'ok');
+              }
+              return;
+            }
+          }
+        }catch(e){}
+      }
+      requestAnimationFrame(scanLoop);
+    };
+    video.onloadedmetadata = () => requestAnimationFrame(scanLoop);
+  }catch(e){
+    closeQRScanner();
+    showToast('❌ 無法啟動鏡頭：'+e.message,'err');
+  }
+}
+
+function closeQRScanner(){
+  if(_qrStream){
+    _qrStream.getTracks().forEach(t=>t.stop());
+    _qrStream = null;
+  }
+  closeModal();
+}
+
+// ── 批量勾選（全分頁共用）──
 let _sel = new Set(); // 目前勾選的 page id 集合
 
 function _selToggle(id){ _sel.has(id)?_sel.delete(id):_sel.add(id); _selRefreshHeader(); }
@@ -4376,11 +4460,15 @@ function renderCorders(){
 // ── 完成訂單 ──
 async function completeCorder(id){
   try{
-    await updatePage(id,{'狀態':{select:{name:'已完成'}}});
+    const today = new Date().toISOString().slice(0,10);
+    await updatePage(id,{
+      '狀態':{select:{name:'已完成'}},
+      '出日':{date:{start:today}},
+    });
     const o = corders.find(x=>x.id===id);
-    if(o) o.status='已完成';
+    if(o){ o.status='已完成'; o.shipDate=today; }
     renderTab(CURRENT_TAB);
-    showToast('✅ 訂單已完成','ok');
+    showToast('✅ 訂單已完成，出日設為 '+today,'ok');
   }catch(e){ showToast('錯誤：'+e.message,'err'); }
 }
 
@@ -4570,16 +4658,21 @@ async function bulkCompleteCorders(){
   if(!ids.length) return;
   if(!confirm('確定將選取的 '+ids.length+' 筆訂單標記為「已完成」？')) return;
   showToast('⏳ 批量完成中...','ok');
+  const today = new Date().toISOString().slice(0,10);
   let ok=0;
   for(const id of ids){
     try{
-      await updatePage(id,{'狀態':{select:{name:'已完成'}}});
-      const o=corders.find(x=>x.id===id); if(o) o.status='已完成';
+      await updatePage(id,{
+        '狀態':{select:{name:'已完成'}},
+        '出日':{date:{start:today}},
+      });
+      const o=corders.find(x=>x.id===id);
+      if(o){ o.status='已完成'; o.shipDate=today; }
       ok++;
     }catch(e){ console.error('bulkComplete error:',id,e); }
   }
   _selClear(); renderTab(CURRENT_TAB);
-  showToast(`✅ 已完成 ${ok}/${ids.length} 筆`,'ok');
+  showToast(`✅ 已完成 ${ok}/${ids.length} 筆，出日設為 ${today}`,'ok');
 }
 
 // ── 批量刪除 ──
