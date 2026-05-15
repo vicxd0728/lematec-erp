@@ -4325,13 +4325,24 @@ async function openQRScanner(){
         if(code && code.data){
           const result = code.data.trim();
           if(result){
-            closeQRScanner();
-            const searchEl = document.getElementById('eib_search');
-            if(searchEl){
-              searchEl.value = result;
-              eibUpdateSelect();
-            }
-            showToast('✅ 掃描成功：'+result,'ok');
+            // 先停止掃描，再重開入料 modal 並填入
+            if(_qrAnimFrame){ cancelAnimationFrame(_qrAnimFrame); _qrAnimFrame=null; }
+            if(_qrStream){ _qrStream.getTracks().forEach(t=>t.stop()); _qrStream=null; }
+            // 重新開啟入料 modal（恢復原本的 modal 內容）
+            closeModal();
+            // 延遲一點再填入，確保 modal 已關閉並重新開啟
+            setTimeout(()=>{
+              openModal('newInbound', null);
+              setTimeout(()=>{
+                const searchEl = document.getElementById('eib_search');
+                if(searchEl){
+                  searchEl.value = result;
+                  eibUpdateSelect();
+                  searchEl.focus();
+                }
+                showToast('✅ 掃描成功：'+result,'ok');
+              }, 200);
+            }, 50);
             return;
           }
         }
@@ -4970,7 +4981,8 @@ const buyer = (row['買家帳號']||'').toString().trim();
       const shipDate= (row['實際出貨時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const payDate = (row['買家付款時間']||'').toString().slice(0,10).replace(/\//g,'-');
       if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
-      ordersMap[no].items.push({sku, qty, prodName: prodName||optName, chName});
+      ordersMap[no].items.push({sku, qty});
+      
     }
 
     const orders = Object.values(ordersMap);
@@ -4991,8 +5003,8 @@ const buyer = (row['買家帳號']||'').toString().trim();
         }
 
         // ── SKU / 品名 處理 ──
-        const displaySku = item.sku || item.chName || '(無貨號)';
-        const noSku = !item.sku && !item.chName;
+        const displaySku = item.sku || '(無貨號)';
+        const noSku = !item.sku;
 
         if(noSku){
           noSkuOrders.push({no:o.no, items:[item.prodName?.slice(0,20)||'(無品名)']});
