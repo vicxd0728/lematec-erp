@@ -4262,85 +4262,94 @@ window.onload=()=>{
 };
 
 // ═══════════════════════════════════════════════════════
-// QR Code 掃描（手機鏡頭，BarcodeDetector API）
+// QR Code 掃描（jsQR 純 JS，支援所有手機瀏覽器）
 // ═══════════════════════════════════════════════════════
 
 let _qrStream = null;
+let _qrAnimFrame = null;
 
 async function openQRScanner(){
-  // 確認瀏覽器支援
-  if(!('BarcodeDetector' in window)){
-    showToast('⚠ 此瀏覽器不支援 QR 掃描，請用 Chrome 或 Safari（iOS 16+）','warn');
-    return;
-  }
-
-  // 建立掃描 modal
   const mi = document.getElementById('modalInner');
-  const savedContent = mi.innerHTML;
   mi.innerHTML = `
     <h3>📷 掃描料件 QR Code</h3>
     <p style="font-size:12px;color:var(--text2);margin-bottom:10px">對準料件上的 QR Code，自動辨識後填入搜尋框</p>
     <div style="position:relative;width:100%;max-width:320px;margin:0 auto">
       <video id="qr_video" style="width:100%;border-radius:10px;background:#000" autoplay playsinline muted></video>
-      <div id="qr_status" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text2)">⏳ 啟動鏡頭中...</div>
       <canvas id="qr_canvas" style="display:none"></canvas>
+      <div id="qr_overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:180px;height:180px;border:2px solid rgba(77,142,245,.8);border-radius:12px;box-shadow:0 0 0 3000px rgba(0,0,0,.3);pointer-events:none"></div>
     </div>
+    <div id="qr_status" style="text-align:center;margin-top:10px;font-size:12px;color:var(--text2)">⏳ 啟動鏡頭中...</div>
     <div class="form-actions" style="margin-top:12px">
       <button class="btn btn-ghost" onclick="closeQRScanner()">取消</button>
     </div>`;
   document.getElementById('modalBg').classList.add('open');
 
+  // 動態載入 jsQR（CDN）
+  if(!window.jsQR){
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('jsQR 載入失敗'));
+      document.head.appendChild(s);
+    }).catch(e => {
+      document.getElementById('qr_status').textContent = '❌ 無法載入掃描器：'+e.message;
+      return;
+    });
+  }
+
   try{
     _qrStream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
     });
     const video = document.getElementById('qr_video');
     if(!video){ closeQRScanner(); return; }
     video.srcObject = _qrStream;
-    document.getElementById('qr_status').textContent = '🔍 掃描中，請對準 QR Code...';
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+    document.getElementById('qr_status').textContent = '🔍 對準 QR Code 框內掃描...';
 
-    const detector = new BarcodeDetector({formats:['qr_code']});
     const canvas = document.getElementById('qr_canvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', {willReadFrequently:true});
 
-    const scanLoop = async () => {
-      if(!_qrStream) return; // 已關閉
+    const scan = () => {
+      if(!_qrStream) return;
       if(video.readyState === video.HAVE_ENOUGH_DATA){
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0);
-        try{
-          const barcodes = await detector.detect(canvas);
-          if(barcodes.length > 0){
-            const result = barcodes[0].rawValue.trim();
-            if(result){
-              closeQRScanner();
-              // 自動填入搜尋框並更新料件清單
-              const searchEl = document.getElementById('eib_search');
-              if(searchEl){
-                searchEl.value = result;
-                eibUpdateSelect();
-                showToast('✅ 掃描成功：'+result,'ok');
-              }
-              return;
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = window.jsQR(imgData.data, imgData.width, imgData.height, {
+          inversionAttempts:'dontInvert'
+        });
+        if(code && code.data){
+          const result = code.data.trim();
+          if(result){
+            closeQRScanner();
+            const searchEl = document.getElementById('eib_search');
+            if(searchEl){
+              searchEl.value = result;
+              eibUpdateSelect();
             }
+            showToast('✅ 掃描成功：'+result,'ok');
+            return;
           }
-        }catch(e){}
+        }
       }
-      requestAnimationFrame(scanLoop);
+      _qrAnimFrame = requestAnimationFrame(scan);
     };
-    video.onloadedmetadata = () => requestAnimationFrame(scanLoop);
+    _qrAnimFrame = requestAnimationFrame(scan);
+
   }catch(e){
-    closeQRScanner();
+    const statusEl = document.getElementById('qr_status');
+    if(statusEl) statusEl.textContent = '❌ 無法啟動鏡頭：'+e.message;
     showToast('❌ 無法啟動鏡頭：'+e.message,'err');
   }
 }
 
 function closeQRScanner(){
-  if(_qrStream){
-    _qrStream.getTracks().forEach(t=>t.stop());
-    _qrStream = null;
-  }
+  if(_qrAnimFrame){ cancelAnimationFrame(_qrAnimFrame); _qrAnimFrame=null; }
+  if(_qrStream){ _qrStream.getTracks().forEach(t=>t.stop()); _qrStream=null; }
   closeModal();
 }
 
@@ -4953,39 +4962,10 @@ async function importShopeeExcel(input){
     for(const row of rows){
       const no    = (row['訂單編號']||'').toString().trim();
       if(!no) continue;
-      const sku1    = (row['主商品貨號']||'').toString().trim();
-      const sku2raw = (row['商品選項貨號']||'').toString().trim();
-      const optName = (row['商品選項名稱']||'').toString().trim();
-      const prodName= (row['商品名稱']||'').toString().slice(0,40);
-      const qty   = parseInt(row['數量'])||1;
-      // SKU 優先順序：主商品貨號 > 商品選項貨號(只取英數) > 商品選項名稱(抽取英數)
-      // 從含中文的貨號中只取英數+連字號部分（如 "AI303-R2 直上版" → "AI303-R2"）
-      function extractAlphaNum(s){
-        const m = s.match(/[A-Za-z][A-Za-z0-9\-]*[0-9][A-Za-z0-9\-]*/g);
-        return m ? m[0] : s.replace(/[^\x00-\x7F]/g,'').trim();
-      }
-      const sku2 = sku2raw ? extractAlphaNum(sku2raw) : '';
-      let sku = sku1 || sku2;
-      if(!sku && optName){
-        const parts = optName.match(/[A-Za-z][A-Za-z0-9\-]*[0-9][A-Za-z0-9\-]*/g);
-        sku = parts ? parts[0] : '';
-      }
-      // 完全無英數 → 抓中文名詞（到逗號為止，保留括號+等符號，最多30字）
-      // 黑名單：這些詞開頭代表不是品名，強制排除
-      const _chBlacklist = ['含稅','不含稅','請備註','如需','統編','發票','備註'];
-      let chName = '';
-      if(!sku){
-        for(const src of [optName, prodName]){
-          if(!src) continue;
-          const nm = src.split(/[,，]/)[0].trim();
-          if(!nm || nm.length < 2 || nm.length > 30) continue;
-          if(!/[\u4e00-\u9fff]/.test(nm)) continue;
-          // 黑名單過濾
-          if(_chBlacklist.some(bl=>nm.startsWith(bl))) continue;
-          chName = nm; break;
-        }
-      }
-      const buyer = (row['買家帳號']||'').toString().trim();
+      // ── SKU：只抓「商品選項貨號」欄位，空白就是空白 ──
+      const sku     = (row['商品選項貨號']||'').toString().trim();
+      const qty     = parseInt(row['數量'])||1;
+const buyer = (row['買家帳號']||'').toString().trim();
       const rawShip = (row['寄送方式']||'').toString().trim();
       const shipDate= (row['實際出貨時間']||'').toString().slice(0,10).replace(/\//g,'-');
       const payDate = (row['買家付款時間']||'').toString().slice(0,10).replace(/\//g,'-');
