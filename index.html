@@ -197,6 +197,89 @@ tr:hover td{background:rgba(59,130,246,.04);}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);}
 .modal-bg.open{display:flex;}
 @media(min-width:600px){.modal-bg{align-items:center;}.modal{border-radius:16px!important;width:560px!important;max-height:88vh!important;}}
+
+/* ── 手機版優化 ── */
+@media(max-width:599px){
+  /* ── Nav tabs 水平滑動 ── */
+  .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;padding-bottom:2px;scrollbar-width:none;}
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{white-space:nowrap;padding:10px 14px;font-size:13px;flex-shrink:0;}
+
+  /* ── KPI 卡片 2欄 ── */
+  .dash-kpi-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
+  .kpi-card{padding:14px 12px!important;border-radius:12px!important;}
+  .kpi-num{font-size:30px!important;}
+  .kpi-label{font-size:11px!important;}
+  .kpi-sub{font-size:11px!important;}
+
+  /* ── 表格水平滑動 ── */
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{min-width:500px;}
+  .hide-m{display:none!important;}
+
+  /* ── C端訂單表格 ── */
+  .corder-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .corder-table{min-width:600px;}
+
+  /* ── 按鈕手機版加大，方便點擊 ── */
+  .btn{min-height:40px;padding:8px 16px!important;font-size:13px!important;border-radius:10px!important;}
+  .btn-sm{min-height:36px!important;padding:8px 14px!important;font-size:12px!important;border-radius:8px!important;}
+  .btn-xs{min-height:32px!important;padding:6px 10px!important;font-size:11px!important;}
+
+  /* ── 狀態篩選按鈕 ── */
+  button[onclick*="_corsState"]{min-height:36px!important;padding:6px 12px!important;font-size:12px!important;}
+
+  /* ── Panel 標題與按鈕 ── */
+  .panel-hdr{flex-wrap:wrap;gap:8px;padding:10px 12px!important;}
+  .panel-hdr .btn-sm{flex:1;min-width:80px;text-align:center;justify-content:center;}
+
+  /* ── 頂部 nav bar ── */
+  .top-bar{padding:6px 10px!important;}
+  .top-bar .brand{font-size:13px!important;}
+
+  /* ── Modal 手機版底部滑出 ── */
+  .modal{width:100%!important;max-height:92vh!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;overflow-y:auto;}
+  .modal-bg{align-items:flex-end!important;}
+  .modal h3{font-size:16px!important;}
+
+  /* ── 操作按鈕欄位（縱向排列）── */
+  .act-col{display:flex;flex-direction:column;gap:4px;}
+  .act-col .btn-sm{padding:6px 10px!important;font-size:11px!important;}
+
+  /* ── 表格 td 行高 ── */
+  td{padding:10px 8px!important;font-size:12px!important;line-height:1.5;}
+  th{padding:10px 8px!important;font-size:11px!important;}
+
+  /* ── 搜尋框 ── */
+  .inp{font-size:16px!important;padding:10px 12px!important;} /* iOS 不縮放 */
+  input[type="number"]{font-size:16px!important;}
+
+  /* ── 表單 row 改直排 ── */
+  .form-row{flex-direction:column!important;gap:10px!important;}
+  .form-actions{gap:8px!important;}
+  .form-actions .btn{flex:1;}
+
+  /* ── 批量操作 bar ── */
+  div[style*="批量"]{flex-wrap:wrap!important;gap:8px!important;}
+
+  /* ── Checkbox 加大 ── */
+  input[type="checkbox"]{width:20px!important;height:20px!important;}
+
+  /* ── 操作按鈕組（完成/取消/編輯/刪除）── */
+  td:last-child{min-width:80px;}
+  td:last-child .btn-sm{padding:6px 8px!important;font-size:11px!important;}
+}
+
+/* C端訂單 手機卡片模式 */
+@media(max-width:599px){
+  .corder-row-mobile{display:block;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;position:relative;}
+  .corder-row-mobile .corder-no{font-family:monospace;font-size:11px;color:var(--text3);}
+  .corder-row-mobile .corder-sku{font-size:14px;font-weight:600;color:var(--text);margin:4px 0;}
+  .corder-row-mobile .corder-meta{font-size:11px;color:var(--text2);}
+  .corder-row-mobile .corder-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .corder-row-mobile .corder-cb{position:absolute;top:12px;right:12px;}
+  .corder-row-mobile .corder-status{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+}
 .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px 16px 0 0;padding:22px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 -20px 60px rgba(0,0,0,.6);}
 .modal h3{font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;color:var(--text);}
 
@@ -1272,6 +1355,7 @@ function renderDashboard(){
   const done=orders.filter(o=>o.status==='已完成').length;
   const rate=orders.length?Math.round(done/orders.length*100):0;
   const pending=leaves.filter(l=>l.status==='待審核').length;
+  const qcPending=(orders.filter(o=>o.status==='待檢驗').length)+(inbounds.filter(i=>i.qcStatus==='待品檢').length);
 
   // 公告
   const pubAll=announces.filter(a=>a.status==='已發佈');
@@ -1341,7 +1425,7 @@ function renderDashboard(){
   </div>
 
   <!-- KPI Row 2: 次要指標 -->
-  <div class="dash-kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+  <div class="dash-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin-bottom:16px">
 
     <div class="kpi-card kpi-amber" onclick="switchTab('orders')">
       <div class="kpi-glow"></div>
@@ -1349,6 +1433,14 @@ function renderDashboard(){
       <div class="kpi-num">${active.length}</div>
       <div class="kpi-sub">待排程 + 生產中</div>
       <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${orders.length?Math.round(active.length/orders.length*100):0}%"></div></div>
+    </div>
+
+    <div class="kpi-card ${qcPending?'kpi-red':'kpi-green'}" onclick="switchTab('qc')" style="cursor:pointer">
+      <div class="kpi-glow"></div>
+      <div class="kpi-label">品管待檢</div>
+      <div class="kpi-num">${qcPending}</div>
+      <div class="kpi-sub">${qcPending?`⏳ ${qcPending} 筆待檢驗`:'✓ 無待檢驗項目'}</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${qcPending?Math.min(100,qcPending*20):0}%;background:${qcPending?'var(--red)':'var(--green2)'}"></div></div>
     </div>
 
     <div class="kpi-card kpi-blue" onclick="switchTab('picking')">
@@ -4437,7 +4529,35 @@ function renderCorders(){
     ${ROLE==='manager'?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="bulkDeleteCorders()">🗑 批量刪除</button>`:''}
   </div>` : '';
 
-  const rows = data.map(o=>{
+  const isMobile = window.innerWidth < 600;
+
+  const rows = isMobile
+    // ── 手機版：卡片模式 ──
+    ? data.map(o=>{
+        const [bg,fg] = (PILL[o.status]||['rgba(200,200,200,.1)','#aaa']);
+        const canComplete = (ROLE==='manager'||ROLE==='sales') && o.status==='出貨中';
+        const canCancel   = (ROLE==='manager'||ROLE==='sales') && o.status==='出貨中';
+        const canAdd      = ROLE==='manager'||ROLE==='sales';
+        return `<div class="corder-row-mobile ${_sel.has(o.id)?'sel-row':''}">
+          <div class="corder-cb">${_selCheckbox(o.id)}</div>
+          <div class="corder-no">${o.no}</div>
+          <div class="corder-sku">${o.matName||'—'} <span style="color:var(--text3);font-weight:400">×${o.qty}</span></div>
+          <div class="corder-meta">
+            <span style="color:var(--text3)">${o.buyer||'—'}</span>
+            ${o.shipDate?` · 出日 ${o.shipDate}`:''}
+            ${o.shipMethod?` · ${o.shipMethod}`:''}
+          </div>
+          <div class="corder-actions">
+            <span class="corder-status" style="background:${bg};color:${fg}">${o.status||'—'}</span>
+            ${canComplete?`<button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✅ 完成</button>`:''}
+            ${canCancel?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="cancelCorder('${o.id}','${o.matId}',${o.qty})">✕ 取消</button>`:''}
+            ${canAdd?`<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue)" onclick="editCorder('${o.id}')">✏️</button>`:''}
+            ${ROLE==='manager'?`<button class="btn btn-sm" style="border-color:var(--red);color:var(--red);opacity:.7" onclick="deleteCorder('${o.id}','${o.matId}',${o.qty},'${o.status}')">🗑</button>`:''}
+          </div>
+        </div>`;
+      }).join('')
+    // ── 桌面版：表格模式 ──
+    : data.map(o=>{
     const [bg,fg] = (PILL[o.status]||['rgba(200,200,200,.1)','#aaa']);
     const canComplete = (ROLE==='manager'||ROLE==='sales') && o.status==='出貨中';
     const canCancel   = (ROLE==='manager'||ROLE==='sales') && (o.status==='出貨中');
@@ -4467,14 +4587,29 @@ function renderCorders(){
     </div>
     ${filterBar}
     ${bulkBar}
-    <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse">
+    <div class="corder-table-wrap" style="overflow-x:auto">
+    <table class="corder-table" style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:1px solid var(--border)">
         <th style="padding:8px;width:36px">${_selHeaderCheckbox(ids)}</th>
         ${['訂單號碼','買家帳號','品名','數量','出貨方式','出日','狀態','來源','操作'].map(h=>`<th style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:left;font-weight:600;white-space:nowrap">${h}</th>`).join('')}
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table></div></div>`;
+    </table></div>
+  ${isMobile ? '' : ''}</div>`;
+}
+
+// helper: 手機版卡片不用 table 包
+function _renderCordsContent(isMobile, bulkBar, ids, rows){
+  if(isMobile) return `${bulkBar}<div>${rows}</div>`;
+  return `${bulkBar}
+    <div style="overflow-x:auto" class="corder-table-wrap">
+    <table class="corder-table" style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="padding:8px;width:36px">${_selHeaderCheckbox(ids)}</th>
+        ${['訂單號碼','買家帳號','品名','數量','出貨方式','出日','狀態','來源','操作'].map(h=>`<th style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:left;font-weight:600;white-space:nowrap">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
 // ── 完成訂單 ──
