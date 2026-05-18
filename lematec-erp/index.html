@@ -160,8 +160,8 @@ tr:hover td{background:rgba(59,130,246,.04);}
 /* ══════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════ */
-.dash-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
-.kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 20px;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s;}
+.dash-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;align-items:stretch;}
+.kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px 22px;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s;min-height:140px;display:flex;flex-direction:column;justify-content:space-between;}
 .kpi-card:hover{transform:translateY(-3px);}
 .kpi-glow{position:absolute;width:130px;height:130px;border-radius:50%;top:-30px;right:-20px;opacity:.1;filter:blur(50px);pointer-events:none;}
 .kpi-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:12px;}
@@ -203,7 +203,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
   /* ── Nav tabs 水平滑動 ── */
   .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;padding-bottom:2px;scrollbar-width:none;}
   .tabs::-webkit-scrollbar{display:none;}
-  .tab{white-space:nowrap;padding:10px 14px;font-size:13px;flex-shrink:0;}
+  .tab{white-space:nowrap;padding:10px 18px;font-size:14px;font-weight:500;flex-shrink:0;letter-spacing:.01em;}
 
   /* ── KPI 卡片 2欄 ── */
   .dash-kpi-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
@@ -1373,17 +1373,33 @@ function renderDashboard(){
 
   const annSection=dashAnns.length?`
   <div style="margin-bottom:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;font-weight:700">📢 最新公告</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">📢 公告</div>
       <button class="btn btn-ghost btn-xs" onclick="switchTab('announce')">查看全部 →</button>
     </div>
-    ${dashAnns.map(a=>`<div class="ann-card">
-      <div class="ann-accent ${a.pinned?'pinned':''}"></div>
-      ${a.pinned?'<div class="ann-pin-badge">📌 置頂</div>':''}
-      <div class="ann-title">${a.title}</div>
-      <div class="ann-body" style="font-size:12px">${a.content}</div>
-      <div class="ann-meta">${a.date||'—'}</div>
-    </div>`).join('')}
+    ${(()=>{
+      const pinnedAnns = dashAnns.filter(a=>a.pinned);
+      const normalAnns = dashAnns.filter(a=>!a.pinned);
+      let out='';
+      if(pinnedAnns.length){
+        out+=`<div style="font-size:10px;font-weight:700;color:var(--amber);letter-spacing:.08em;margin-bottom:6px;opacity:.8">📌 置頂</div>`;
+        out+=pinnedAnns.map(a=>`<div class="ann-card" style="margin-bottom:8px;border-left:3px solid var(--amber)">
+          <div class="ann-title" style="font-size:13px">${a.title}</div>
+          <div class="ann-body" style="font-size:12px;margin-top:4px">${a.content}</div>
+          <div class="ann-meta" style="margin-top:4px">${a.date||'—'}</div>
+        </div>`).join('');
+      }
+      if(normalAnns.length){
+        if(pinnedAnns.length) out+=`<div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px;margin-top:10px;opacity:.7">最新消息</div>`;
+        out+=normalAnns.map(a=>`<div class="ann-card" style="margin-bottom:8px">
+          <div class="ann-accent"></div>
+          <div class="ann-title" style="font-size:13px">${a.title}</div>
+          <div class="ann-body" style="font-size:12px;margin-top:4px">${a.content}</div>
+          <div class="ann-meta" style="margin-top:4px">${a.date||'—'}</div>
+        </div>`).join('');
+      }
+      return out;
+    })()}
   </div>`:'';
 
   return`${annSection}
@@ -1658,10 +1674,6 @@ function renderInventory(){
   }
 
   let html = `
-  ${low.length
-    ?`<div class="info-warn" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">⚠ 需補料：${low.slice(0,5).map(m=>`<b>${m.name}</b>`).join('、')}${low.length>5?`…等${low.length}項`:''}</div>`
-    :`<div class="info-ok" style="padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:12px">✅ 物料全部正常</div>`
-  }
 
   <!-- 搜尋 & 篩選列 -->
   <div class="panel" style="margin-bottom:12px">
@@ -3512,28 +3524,71 @@ async function doEditStock(id, name, oldStock){
 // 公告模組
 // ══════════════════════════════════════════════════════
 function renderAnnounce(){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/e2950944dbe243f6afd5ca0ff2980f86" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📢 公告管理</a></div>';;
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/e2950944dbe243f6afd5ca0ff2980f86" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📢 公告管理</a></div>';
   const canEdit=ROLE==='manager';
-  const sorted=announces.filter(a=>canEdit||a.status==='已發佈')
-    .sort((a,b)=>{if(a.pinned&&!b.pinned)return -1;if(!a.pinned&&b.pinned)return 1;return b.date.localeCompare(a.date);});
-  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <span style="font-size:11px;color:var(--text3)">共 ${sorted.length} 則公告</span>
-    ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openEditAnnounce()">＋ 新增公告</button>`:''}
-  </div>
-  ${!sorted.length?`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有公告</div></div>`
-  :sorted.map(a=>`<div class="ann-card" style="margin-bottom:10px;position:relative">
-    <div class="ann-accent ${a.pinned?'pinned':''}"></div>
-    ${a.pinned?'<div class="ann-pin-badge">📌 置頂</div>':''}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div class="ann-title">${a.title}</div>
-      ${canEdit?`<div style="display:flex;gap:4px">
-        <button class="btn btn-ghost btn-xs" onclick="openEditAnnounce('${a.id}')">✏</button>
-        <button class="btn btn-xs ${a.status==='已發佈'?'btn-yellow':'btn-green'}" onclick="toggleAnnStatus('${a.id}','${a.status}')">${a.status==='已發佈'?'收回草稿':'發佈'}</button>
-      </div>`:''}
+  const all=announces.filter(a=>canEdit||a.status==='已發佈');
+  const pinned=all.filter(a=>a.pinned).sort((a,b)=>b.date.localeCompare(a.date));
+  const normal=all.filter(a=>!a.pinned).sort((a,b)=>b.date.localeCompare(a.date));
+
+  function annCard(a){
+    const isDraft=a.status==='草稿';
+    return `<div class="ann-card" style="margin-bottom:12px;position:relative;${isDraft?'opacity:.7':''}">
+      <div class="ann-accent ${a.pinned?'pinned':''}"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+            ${a.pinned?'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.3)">📌 置頂</span>':''}
+            ${isDraft?'<span style="display:inline-flex;padding:2px 7px;border-radius:20px;font-size:10px;background:rgba(160,160,160,.15);color:var(--text3);border:1px solid rgba(160,160,160,.2)">草稿</span>':''}
+          </div>
+          <div class="ann-title" style="margin-bottom:0">${a.title}</div>
+        </div>
+        ${canEdit?`<div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn btn-ghost btn-xs" onclick="openEditAnnounce('${a.id}')" title="編輯">✏️</button>
+          <button class="btn btn-xs ${isDraft?'btn-green':'btn-yellow'}" onclick="toggleAnnStatus('${a.id}','${a.status}')">${isDraft?'發佈':'收回'}</button>
+        </div>`:''}
+      </div>
+      <div class="ann-body" style="margin-bottom:8px">${(a.content||'').replace(/\n/g,'<br>')}</div>
+      <div class="ann-meta" style="font-size:11px;color:var(--text3)">${a.date||''}</div>
+    </div>`;
+  }
+
+  const header=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:2px">📢 公告</div>
+      <div style="font-size:12px;color:var(--text3)">共 ${all.length} 則公告${pinned.length?`，${pinned.length} 則置頂`:''}</div>
     </div>
-    <div class="ann-body">${(a.content||'').replace(/\n/g,'<br>')}</div>
-    <div class="ann-meta">${a.date||''} ${a.status==='草稿'?'<span style="color:var(--yellow);font-size:10px">（草稿）</span>':''}</div>
-  </div>`).join('')}`;
+    ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openEditAnnounce()">＋ 新增公告</button>`:''}
+  </div>`;
+
+  if(!all.length) return _notionBar+header+`<div class="panel"><div style="padding:40px;text-align:center;color:var(--text3)">目前沒有公告</div></div>`;
+
+  let content='';
+
+  // 置頂公告區塊
+  if(pinned.length){
+    content+=`<div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span style="width:20px;height:1px;background:var(--amber);opacity:.4;display:inline-block"></span>
+        📌 置頂公告
+        <span style="flex:1;height:1px;background:var(--amber);opacity:.2;display:inline-block"></span>
+      </div>
+      ${pinned.map(annCard).join('')}
+    </div>`;
+  }
+
+  // 一般公告區塊
+  if(normal.length){
+    content+=`<div>
+      ${pinned.length?`<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span style="width:20px;height:1px;background:var(--text3);opacity:.4;display:inline-block"></span>
+        最新公告
+        <span style="flex:1;height:1px;background:var(--text3);opacity:.2;display:inline-block"></span>
+      </div>`:''}
+      ${normal.map(annCard).join('')}
+    </div>`;
+  }
+
+  return _notionBar+header+content;
 }
 function openEditAnnounce(id){
   const d=id?announces.find(x=>x.id===id)||{}:{};
