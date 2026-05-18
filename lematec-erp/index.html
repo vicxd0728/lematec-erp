@@ -161,6 +161,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
    DASHBOARD
 ══════════════════════════════════════ */
 .dash-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;align-items:stretch;}
+.dash-kpi-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:16px;align-items:stretch;}
 .kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px 22px;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s;min-height:140px;display:flex;flex-direction:column;justify-content:space-between;}
 .kpi-card:hover{transform:translateY(-3px);}
 .kpi-glow{position:absolute;width:130px;height:130px;border-radius:50%;top:-30px;right:-20px;opacity:.1;filter:blur(50px);pointer-events:none;}
@@ -207,6 +208,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
 
   /* ── KPI 卡片 2欄 ── */
   .dash-kpi-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
+  .dash-kpi-grid-5{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
   .kpi-card{padding:14px 12px!important;border-radius:12px!important;}
   .kpi-num{font-size:30px!important;}
   .kpi-label{font-size:11px!important;}
@@ -413,7 +415,6 @@ tr:hover td{background:rgba(59,130,246,.04);}
     <span style="color:var(--text3);font-size:10px">ERP</span>
     <div class="topbar-right">
       <span id="syncStatus" style="font-size:10px;color:var(--text3)"></span>
-      <span id="lowWarn" style="font-size:10px;color:var(--yellow);display:none"></span>
       <span class="role-badge" id="roleBadge"></span>
       <span class="conn-dot"></span>
       <span id="onlineCount" style="display:none;align-items:center;gap:4px;font-size:11px;color:var(--text3);background:var(--bg4);border:1px solid var(--border2);border-radius:12px;padding:2px 8px">
@@ -1405,7 +1406,7 @@ function renderDashboard(){
   return`${annSection}
 
   <!-- KPI Row 1: 核心指標 -->
-  <div class="dash-kpi-grid" style="grid-template-columns:repeat(4,1fr)">
+  <div class="dash-kpi-grid">
 
     <div class="kpi-card kpi-blue" onclick="switchTab('orders')">
       <div class="kpi-glow"></div>
@@ -1441,7 +1442,7 @@ function renderDashboard(){
   </div>
 
   <!-- KPI Row 2: 次要指標 -->
-  <div class="dash-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin-bottom:16px">
+  <div class="dash-kpi-grid-5">
 
     <div class="kpi-card kpi-amber" onclick="switchTab('orders')">
       <div class="kpi-glow"></div>
