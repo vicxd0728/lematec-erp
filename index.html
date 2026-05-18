@@ -715,8 +715,6 @@ async function refreshAll(manual=false){
     }));
 
     const low=mats.filter(m=>m.stock<=m.safe);
-    const w=document.getElementById('lowWarn');
-    if(low.length){w.style.display='';w.textContent=`⚠ ${low.length}項庫存不足`;}else w.style.display='none';
 
     const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     if(syncEl)syncEl.textContent=`✓ ${now}`;
