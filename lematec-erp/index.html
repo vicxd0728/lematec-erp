@@ -9,21 +9,58 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
 
-:root{
+/* ══════════════════════════════════════════════
+   主題系統 — 三種風格，localStorage 保存，即時切換
+   ══════════════════════════════════════════════ */
+
+/* 🌌 科技風（預設） */
+:root,[data-theme="tech"]{
   --bg:#05080f;--bg2:#0a0f1e;--bg3:#0f1628;--bg4:#151d35;--bg5:#1c2640;
   --border:#1a2438;--border2:#243352;--border3:#2d4068;
   --brand:#9c1b2c;--brand2:#c5243e;
   --blue:#3b82f6;--blue2:#60a5fa;--cyan:#06b6d4;--cyan2:#22d3ee;
   --green:#10b981;--green2:#34d399;--yellow:#f59e0b;--amber:#fbbf24;
   --red:#ef4444;--red2:#f87171;--purple:#8b5cf6;
-  --text:#f0f4ff;--text2:#94a3b8;--text3:#475569;
+  --text:#f0f4ff;--text2:#a0aec0;--text3:#55657a;
   --f-ui:'Outfit','Noto Sans TC',system-ui,sans-serif;
   --f-mono:'DM Mono',monospace;
+  --shadow:0 4px 24px rgba(0,0,0,.5);
+  --radius-card:14px;
+}
+
+/* 🌿 自然風 */
+[data-theme="nature"]{
+  --bg:#0f1a12;--bg2:#162118;--bg3:#1c2e20;--bg4:#243a28;--bg5:#2c4832;
+  --border:#2a3d2e;--border2:#3a5540;--border3:#4a6e52;
+  --brand:#2d6a4f;--brand2:#40916c;
+  --blue:#52b788;--blue2:#74c69d;--cyan:#95d5b2;--cyan2:#b7e4c7;
+  --green:#2d6a4f;--green2:#40916c;--yellow:#d4a017;--amber:#e9c46a;
+  --red:#c44536;--red2:#e07a5f;--purple:#7b6d8d;
+  --text:#d8f3dc;--text2:#95b8a0;--text3:#52796f;
+  --f-ui:'Outfit','Noto Sans TC',system-ui,sans-serif;
+  --f-mono:'DM Mono',monospace;
+  --shadow:0 4px 24px rgba(0,0,0,.4);
+  --radius-card:16px;
+}
+
+/* ⬜ 極簡風（深灰）*/
+[data-theme="minimal"]{
+  --bg:#111111;--bg2:#1a1a1a;--bg3:#222222;--bg4:#2a2a2a;--bg5:#333333;
+  --border:#2c2c2c;--border2:#383838;--border3:#444444;
+  --brand:#505050;--brand2:#707070;
+  --blue:#6e9ef5;--blue2:#8fb3f8;--cyan:#5bc4d6;--cyan2:#7dd4e3;
+  --green:#5fbd8a;--green2:#79cea0;--yellow:#d4a843;--amber:#e8c56e;
+  --red:#d9534f;--red2:#e57573;--purple:#9b8ec4;
+  --text:#ebebeb;--text2:#9a9a9a;--text3:#585858;
+  --f-ui:'Outfit','Noto Sans TC',system-ui,sans-serif;
+  --f-mono:'DM Mono',monospace;
+  --shadow:0 4px 20px rgba(0,0,0,.6);
+  --radius-card:8px;
 }
 
 /* ── Reset ── */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html{font-size:15px;}
+html{font-size:16px;}
 body{background:var(--bg);color:var(--text);font-family:var(--f-ui);font-size:1rem;line-height:1.5;min-height:100vh;}
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:transparent;}
@@ -37,7 +74,7 @@ select.inp>option{background:var(--bg3);color:var(--text);}
 textarea.inp{resize:vertical;min-height:80px;line-height:1.6;}
 
 /* ── Buttons ── */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border-radius:8px;border:none;font-family:var(--f-ui);font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;touch-action:manipulation;-webkit-user-select:none;user-select:none;white-space:nowrap;letter-spacing:.2px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border-radius:8px;border:none;font-family:var(--f-ui);font-size:14px;font-weight:600;cursor:pointer;transition:all .18s;touch-action:manipulation;-webkit-user-select:none;user-select:none;white-space:nowrap;letter-spacing:.2px;}
 .btn:active{transform:scale(.97);}
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
 .btn-primary{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;box-shadow:0 4px 16px rgba(156,27,44,.35);}
@@ -204,7 +241,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
   /* ── Nav tabs 水平滑動 ── */
   .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;padding-bottom:2px;scrollbar-width:none;}
   .tabs::-webkit-scrollbar{display:none;}
-  .tab{white-space:nowrap;padding:10px 18px;font-size:14px;font-weight:500;flex-shrink:0;letter-spacing:.01em;}
+  .tab{white-space:nowrap;padding:10px 18px;font-size:15px;font-weight:500;flex-shrink:0;letter-spacing:.01em;}
 
   /* ── KPI 卡片 2欄 ── */
   .dash-kpi-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
@@ -225,7 +262,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
 
   /* ── 按鈕手機版加大，方便點擊 ── */
   .btn{min-height:40px;padding:8px 16px!important;font-size:13px!important;border-radius:10px!important;}
-  .btn-sm{min-height:36px!important;padding:8px 14px!important;font-size:12px!important;border-radius:8px!important;}
+  .btn-sm{min-height:36px!important;padding:8px 14px!important;font-size:13px!important;border-radius:8px!important;}
   .btn-xs{min-height:32px!important;padding:6px 10px!important;font-size:11px!important;}
 
   /* ── 狀態篩選按鈕 ── */
@@ -421,6 +458,8 @@ tr:hover td{background:rgba(59,130,246,.04);}
         <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;box-shadow:0 0 6px rgba(16,185,129,.6)"></span>
         <span id="onlineNum">1</span> 人在線
       </span>
+      <button id="themeBtn" onclick="toggleThemePanel()" title="切換介面風格"
+        style="width:34px;height:34px;border-radius:9px;border:1px solid var(--border2);background:var(--bg4);cursor:pointer;font-size:15px;display:inline-flex;align-items:center;justify-content:center;transition:all .18s">🎨</button>
       <button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">🔄</button>
       <button class="btn btn-ghost btn-sm" onclick="openModal('help')">❓</button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">登出</button>
@@ -434,7 +473,84 @@ tr:hover td{background:rgba(59,130,246,.04);}
   <div class="modal"><div id="modalInner"></div></div>
 </div>
 
-<script>// ═══════════════════════════════════════════════
+<script>
+// ══════════════════════════════════════════════
+// 主題系統
+// ══════════════════════════════════════════════
+const THEMES = {
+  tech:    { name:'🌌 科技風', desc:'深藍科技感' },
+  nature:  { name:'🌿 自然風', desc:'深綠自然感' },
+  minimal: { name:'⬜ 極簡風', desc:'純粹深灰' },
+};
+
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('erp_theme', t);
+  // 更新右上角圖示
+  const btn = document.getElementById('themeBtn');
+  if(btn) btn.textContent = THEMES[t]?.name.split(' ')[0]||'🎨';
+  // 更新選單狀態
+  document.querySelectorAll('[data-theme-opt]').forEach(el=>{
+    const isActive = el.dataset.themeOpt===t;
+    el.style.background = isActive?'rgba(77,142,245,.15)':'transparent';
+    el.style.color = isActive?'var(--blue)':'var(--text2)';
+    el.style.fontWeight = isActive?'700':'400';
+  });
+}
+
+function initTheme(){
+  const saved = localStorage.getItem('erp_theme')||'tech';
+  applyTheme(saved);
+}
+
+function toggleThemePanel(){
+  let panel = document.getElementById('themePanel');
+  if(panel){ panel.remove(); return; }
+  panel = document.createElement('div');
+  panel.id='themePanel';
+  panel.style.cssText=`position:fixed;top:52px;right:12px;z-index:9999;
+    background:var(--bg3);border:1px solid var(--border2);border-radius:14px;
+    padding:14px;min-width:220px;box-shadow:var(--shadow);animation:fadeIn .15s ease`;
+  panel.innerHTML=`
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">🎨 介面風格</div>
+    ${Object.entries(THEMES).map(([k,v])=>`
+    <button data-theme-opt="${k}" onclick="applyTheme('${k}')"
+      style="width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;
+      border-radius:9px;border:none;cursor:pointer;transition:all .15s;margin-bottom:4px;
+      background:transparent;text-align:left">
+      <span style="font-size:20px">${v.name.split(' ')[0]}</span>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">${v.name.split(' ').slice(1).join(' ')}</div>
+        <div style="font-size:11px;color:var(--text3)">${v.desc}</div>
+      </div>
+    </button>`).join('')}
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">🔤 字體大小</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${['14','15','16','17','18'].map(s=>`<button onclick="document.documentElement.style.fontSize='${s}px';localStorage.setItem('erp_font','${s}')"
+          style="flex:1;padding:5px;border-radius:6px;border:1px solid var(--border2);
+          background:var(--bg4);color:var(--text2);cursor:pointer;font-size:12px">${s}</button>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(panel);
+  // 套用目前主題狀態
+  const cur = document.documentElement.getAttribute('data-theme')||'tech';
+  applyTheme(cur);
+  // 點外部關閉
+  setTimeout(()=>document.addEventListener('click', function handler(e){
+    if(!panel.contains(e.target)&&e.target.id!=='themeBtn'){panel.remove();document.removeEventListener('click',handler);}
+  }),100);
+}
+
+// 初始化（頁面載入時）
+document.addEventListener('DOMContentLoaded',()=>{
+  initTheme();
+  // 恢復字體大小
+  const fs = localStorage.getItem('erp_font');
+  if(fs) document.documentElement.style.fontSize=fs+'px';
+});
+
+// ═══════════════════════════════════════════════
 // DB IDs — 客戶資料架構說明
 // ═══════════════════════════════════════════════
 // 客戶資料唯一來源：DB.custMaster（國外業務客戶總檔）
