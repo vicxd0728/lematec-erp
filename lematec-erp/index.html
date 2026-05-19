@@ -2108,8 +2108,8 @@ function renderQCTab(){
   // 4. 已檢測：入料歷史
   const tabs=`<div class="qc-tabs" style="margin-bottom:12px">
     <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="QC_SUB='pending';renderTab('qc')">📥 入料待品檢<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span></button>
-    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="QC_SUB='order_qc';loadOrders().then(()=>renderTab('qc'))">📋 訂單待檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></button>
-    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="QC_SUB='inspect';loadQCInspections().then(()=>renderTab('qc'))">🗂 檢驗紀錄<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${allInspections.length}</span></button>
+    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="QC_SUB='order_qc';renderTab('qc')">📋 訂單待檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></button>
+    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="QC_SUB='inspect';if(!window._qcInspections||!window._qcInspections.length){loadQCInspections().then(()=>renderTab('qc'));}else{renderTab('qc');}">🗂 檢驗紀錄<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${allInspections.length}</span></button>
     <button class="qc-tab${QC_SUB==='history'?' active':''}" onclick="QC_SUB='history';renderTab('qc')">✅ 入料已檢測<span class="badge" style="background:rgba(46,196,138,.1);color:var(--green)">${doneInbound.length}</span></button>
   </div>`;
 
