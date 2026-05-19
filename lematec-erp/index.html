@@ -464,6 +464,8 @@ const DB={
   // 請假管理
   leave:   '897e8784-4c2d-452c-a045-c568e175e6d5',
   leaveDS: '9fabe403-8a8a-4efe-bc30-1a814c80ddee',
+  leaveStats:   '55e54d96-4c08-48a5-b3b7-7ede813abe15',
+  leaveStatsDS: 'eb4426de-abe8-4a63-a4ee-e0fbcc521bd8',
   // 品管檢驗單
   qcInspection: '48f1a7b9-1e89-4f9c-a4db-6df8e5ee7e5f',
   // 品管檢驗單
@@ -1517,6 +1519,41 @@ function renderDashboard(){
 }
 
 function renderOrders(){
+  if(!window._ORD_SUB) window._ORD_SUB='list';
+  const OSUB = window._ORD_SUB;
+
+  // ── 交期提醒天數設定（可儲存）──
+  if(window._deadlineWarn===undefined) window._deadlineWarn=parseInt(localStorage.getItem('_deadlineWarn')||'14');
+  const warnDays = window._deadlineWarn;
+
+  // ── Tab 切換 ──
+  const now = new Date(); now.setHours(0,0,0,0);
+  const soonOrders = orders.filter(o=>{
+    if(!o.deadline) return false;
+    const dl = new Date(o.deadline); dl.setHours(0,0,0,0);
+    const diff = Math.round((dl-now)/86400000);
+    return diff>=0 && diff<=warnDays && o.status!=='已完成' && o.status!=='取消';
+  }).sort((a,b)=>a.deadline.localeCompare(b.deadline));
+
+  const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:14px">
+    ${[['list','📋 訂單列表'],['deadline','⏰ 交期提醒'+(soonOrders.length?` (${soonOrders.length})`:'')],['calendar','📅 月曆']].map(([k,l])=>`
+    <button onclick="window._ORD_SUB='${k}';renderTab('orders')"
+      style="flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:${OSUB===k?700:400};
+      background:${OSUB===k?'var(--bg)':'transparent'};
+      color:${OSUB===k?(k==='deadline'&&soonOrders.length?'var(--red)':'var(--text)'):'var(--text3)'};
+      border:${OSUB===k?'1px solid var(--border)':'1px solid transparent'};cursor:pointer;transition:all .15s;
+      box-shadow:${OSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
+  </div>`;
+
+  if(OSUB==='list') return _renderOrdersList(tabs);
+  if(OSUB==='deadline') return _renderDeadlineTab(tabs, soonOrders, warnDays);
+  return _renderOrderCalendar(tabs);
+}
+
+// ══════════════════════════════════════
+// 原有訂單列表
+// ══════════════════════════════════════
+function _renderOrdersList(tabs){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
   const canAdd=ROLE==='sales'||ROLE==='manager';
   
@@ -1526,7 +1563,7 @@ function renderOrders(){
   const sorted=SORT['orders']?applySort('orders',[...orders]):[...orders].sort((a,b)=>(b.created||'').localeCompare(a.created||''));
   let data=applyDateFilter('order',sorted,'created');
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
-  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:11px" onchange="renderTab('orders')">
         <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option>
@@ -1554,6 +1591,191 @@ function renderOrders(){
   </tr>`;}).join('')}
   </table></div></div>`;
 }
+// ══════════════════════════════════════
+// 交期提醒 Tab
+// ══════════════════════════════════════
+function _renderDeadlineTab(tabs, soonOrders, warnDays){
+  const _notionBar='';
+
+  // 設定欄：可調整提醒天數
+  const settingBar=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:10px 14px;background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.15);
+    border-radius:10px;margin-bottom:14px">
+    <span style="font-size:12px;color:var(--text2)">⏰ 提醒設定：距交期</span>
+    <input type="number" id="warnDaysInput" value="${warnDays}" min="1" max="90"
+      style="width:60px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);
+      background:var(--bg3);color:var(--text);font-size:12px;text-align:center">
+    <span style="font-size:12px;color:var(--text2)">天內自動提醒</span>
+    <button class="btn btn-blue btn-sm" onclick="
+      const v=parseInt(document.getElementById('warnDaysInput').value)||14;
+      window._deadlineWarn=v;localStorage.setItem('_deadlineWarn',v);
+      renderTab('orders');showToast('✅ 已儲存：提醒 '+v+' 天內的交期','ok')">💾 儲存</button>
+  </div>`;
+
+  if(!soonOrders.length) return tabs + settingBar +
+    `<div class="panel"><div style="padding:32px;text-align:center;color:var(--text3)">
+      ✅ 目前沒有 ${warnDays} 天內到期的訂單
+    </div></div>`;
+
+  const now = new Date(); now.setHours(0,0,0,0);
+  const statusOpts=['可如期出貨','需延期','客戶確認中','已溝通完成'];
+  const statusColor={'可如期出貨':'var(--green)','需延期':'var(--red)','客戶確認中':'var(--yellow)','已溝通完成':'var(--text3)'};
+
+  const cards = soonOrders.map(o=>{
+    const dl = new Date(o.deadline); dl.setHours(0,0,0,0);
+    const diff = Math.round((dl-now)/86400000);
+    const urgColor = diff<=3?'var(--red)':diff<=7?'var(--yellow)':'var(--amber,#f59e0b)';
+    const curStat = window._deadlineStatus?.[o.id]||'';
+    return `<div style="background:var(--bg2);border:1px solid ${diff<=3?'rgba(239,68,68,.3)':'var(--border)'};
+      border-radius:12px;padding:16px 18px;margin-bottom:10px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-size:11px;font-weight:700;font-family:monospace;
+              background:${urgColor};color:#000;padding:2px 8px;border-radius:20px">
+              ${diff===0?'今天到期':diff+'天後到期'}</span>
+            <span style="font-size:11px;color:var(--text3)">${o.no}</span>
+          </div>
+          <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:2px">${o.cust||o.customer||'—'}</div>
+          <div style="font-size:12px;color:var(--text2)">${o.product||'—'} × ${o.qty}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">交期：<span style="font-family:monospace;font-weight:600;color:${urgColor}">${o.deadline}</span></div>
+        </div>
+        <div style="min-width:200px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:6px">業務狀態更新</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+            ${statusOpts.map(s=>{
+              const a=curStat===s;
+              return `<button onclick="if(!window._deadlineStatus)window._deadlineStatus={};window._deadlineStatus['${o.id}']='${s}';renderTab('orders')"
+                style="padding:4px 10px;border-radius:20px;font-size:11px;cursor:pointer;font-weight:${a?700:400};
+                border:1px solid ${a?'var(--blue)':'var(--border)'};
+                background:${a?'rgba(77,142,245,.15)':'var(--bg3)'};
+                color:${a?'var(--blue)':'var(--text2)'}">${s}</button>`;
+            }).join('')}
+          </div>
+          ${curStat?`<div style="font-size:11px;padding:5px 10px;background:var(--bg3);border-radius:6px;color:${statusColor[curStat]||'var(--text2)'}">✓ ${curStat}</div>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return tabs + settingBar + `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">共 ${soonOrders.length} 張訂單需注意</div>` + cards;
+}
+
+// ══════════════════════════════════════
+// 訂單月曆 Tab（多月份）
+// ══════════════════════════════════════
+function _renderOrderCalendar(tabs){
+  if(!window._ORD_CAL_YEAR){
+    const t=new Date();
+    window._ORD_CAL_YEAR=t.getFullYear();
+    window._ORD_CAL_MONTH=t.getMonth()+1;
+  }
+  // 顯示 3 個月（當月 + 前後）
+  if(window._ORD_CAL_MONTHS===undefined) window._ORD_CAL_MONTHS=3;
+  const showMonths = window._ORD_CAL_MONTHS;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // 建立交期 dayMap
+  const deadlineMap={};
+  orders.filter(o=>o.deadline&&o.status!=='已完成'&&o.status!=='取消').forEach(o=>{
+    const key=o.deadline.slice(0,10);
+    if(!deadlineMap[key]) deadlineMap[key]=[];
+    deadlineMap[key].push(o);
+  });
+
+  // 月份數量選擇
+  const monthCtrl=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="btn btn-ghost btn-sm" onclick="window._ORD_CAL_MONTH--;if(window._ORD_CAL_MONTH<1){window._ORD_CAL_MONTH=12;window._ORD_CAL_YEAR--;}renderTab('orders')">← 上月</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._ORD_CAL_YEAR=new Date().getFullYear();window._ORD_CAL_MONTH=new Date().getMonth()+1;renderTab('orders')">今月</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._ORD_CAL_MONTH++;if(window._ORD_CAL_MONTH>12){window._ORD_CAL_MONTH=1;window._ORD_CAL_YEAR++;}renderTab('orders')">下月 →</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:var(--text3)">顯示月數：</span>
+      ${[1,2,3,6].map(n=>{const a=showMonths===n;return`<button onclick="window._ORD_CAL_MONTHS=${n};renderTab('orders')"
+        style="padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;
+        border:1px solid ${a?'var(--blue)':'var(--border)'};
+        background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};
+        color:${a?'var(--blue)':'var(--text2)'}">${n}個月</button>`;}).join('')}
+    </div>
+  </div>`;
+
+  // 產生每個月的月曆
+  let calHtml='';
+  for(let mi=0;mi<showMonths;mi++){
+    let yr=window._ORD_CAL_YEAR, mo=window._ORD_CAL_MONTH+mi;
+    while(mo>12){mo-=12;yr++;}
+    const monthStr=yr+'-'+String(mo).padStart(2,'0');
+    const daysInMonth=new Date(yr,mo,0).getDate();
+    const firstDay=new Date(yr,mo-1,1).getDay();
+    const wds=['日','一','二','三','四','五','六'];
+    let cells=''; let dc=1;
+    const total=Math.ceil((firstDay+daysInMonth)/7)*7;
+    for(let i=0;i<total;i++){
+      if(i<firstDay||dc>daysInMonth){
+        cells+=`<div style="min-height:60px;background:rgba(255,255,255,.01);border-radius:6px"></div>`;
+      } else {
+        const dk=monthStr+'-'+String(dc).padStart(2,'0');
+        const dl=deadlineMap[dk]||[];
+        const isT=dk===today.toISOString().slice(0,10);
+        const isW=(i%7===0||i%7===6);
+        cells+=`<div style="min-height:60px;padding:4px 5px;background:${isT?'rgba(77,142,245,.08)':'var(--bg2)'};
+          border:1px solid ${isT?'rgba(77,142,245,.3)':dl.length?'rgba(239,68,68,.25)':'var(--border)'};border-radius:6px">
+          <div style="font-size:11px;font-weight:${isT?700:400};color:${isT?'var(--blue)':isW?'rgba(239,68,68,.7)':'var(--text)'};margin-bottom:2px">${dc}</div>
+          ${dl.map(o=>`<div style="padding:1px 4px;border-radius:3px;font-size:9px;font-weight:600;
+            background:rgba(239,68,68,.12);color:#ef4444;margin-bottom:1px;
+            overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer"
+            title="${o.no} ${o.cust||o.customer||''} × ${o.qty}">
+            🔴 ${o.no.slice(-6)}</div>`).join('')}
+        </div>`;
+        dc++;
+      }
+    }
+    // 計算本月有幾張交期訂單
+    const monthDL = Object.entries(deadlineMap).filter(([k])=>k.startsWith(monthStr)).reduce((s,[,v])=>s+v.length,0);
+    calHtml+=`<div style="margin-bottom:${mi<showMonths-1?'24px':'0'}">
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px">
+        ${yr} 年 ${mo} 月
+        ${monthDL?`<span style="font-size:11px;font-weight:400;color:var(--red);margin-left:8px">🔴 ${monthDL} 張交期</span>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px">
+        ${wds.map(w=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text3);padding:3px">${w}</div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${cells}</div>
+    </div>`;
+  }
+
+  // 近期交期清單
+  const upcomingList = Object.entries(deadlineMap)
+    .sort(([a],[b])=>a.localeCompare(b))
+    .filter(([k])=>k>=today.toISOString().slice(0,10))
+    .slice(0,10);
+
+  const upcomingHtml = upcomingList.length ? `<div class="panel" style="margin-top:16px">
+    <div class="panel-hdr"><span class="panel-title">📌 近期交期清單</span></div>
+    <div class="table-wrap"><table>
+      <tr><th>交期</th><th>訂單號</th><th>客戶</th><th>品項</th><th>數量</th><th>狀態</th><th>剩餘天數</th></tr>
+      ${upcomingList.map(([dk,ords])=>ords.map(o=>{
+        const dl=new Date(dk);dl.setHours(0,0,0,0);
+        const diff=Math.round((dl-today)/86400000);
+        const urgColor=diff<=3?'var(--red)':diff<=7?'var(--yellow)':'var(--text2)';
+        return `<tr>
+          <td style="font-family:monospace;font-size:11px;font-weight:600;color:${urgColor}">${dk}</td>
+          <td style="font-family:monospace;font-size:11px">${o.no}</td>
+          <td style="font-size:11px">${o.cust||o.customer||'—'}</td>
+          <td style="font-size:11px">${o.product||'—'}</td>
+          <td style="font-family:monospace">${o.qty}</td>
+          <td>${pill(o.status||'—')}</td>
+          <td style="font-size:11px;font-weight:700;color:${urgColor}">${diff===0?'今天':diff+'天'}</td>
+        </tr>`;
+      }).join('')).join('')}
+    </table></div>
+  </div>` : '';
+
+  return tabs + monthCtrl + calHtml + upcomingHtml;
+}
+
 
 function renderCustomers(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a></div>';;
@@ -3051,6 +3273,27 @@ function openModal(type,data){
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitLeave()">📤 送出申請</button></div>`;
     document.getElementById('modalBg').classList.add('open');return;
   }
+// ── 員工請假統計載入 ──
+async function loadLeaveStats(){
+  try{
+    const r = await dbQueryAll(DB.leaveStats);
+    window._leaveStats = r.map(p=>({
+      id:           p.id,
+      name:         getTitle(p.properties,'員工姓名'),
+      title:        getRichText(p.properties,'職稱'),
+      year:         p.properties?.['年度']?.select?.name||'2026',
+      annualTotal:  p.properties?.['特休總天數']?.number??14,
+      annualRemain: p.properties?.['特休剩餘天數']?.number??14,
+      usedAnnual:   p.properties?.['已請特休']?.number??0,
+      usedPersonal: p.properties?.['已請事假']?.number??0,
+      usedSick:     p.properties?.['已請病假']?.number??0,
+      totalTimes:   p.properties?.['請假總次數']?.number??0,
+      totalDays:    p.properties?.['請假總天數']?.number??0,
+    }));
+    console.log('[請假統計] 載入', window._leaveStats.length, '筆');
+  }catch(e){ console.error('loadLeaveStats error:', e); }
+}
+
 
   // ── 新增訂單 ──
   if(type==='newOrder'){
@@ -3094,8 +3337,13 @@ function openModal(type,data){
         <input class="inp" id="m_newcust" placeholder="填入完整公司名稱">
       </div>
       <div class="field" style="margin-bottom:10px">
-        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>PI 單號</label>
-        <input class="inp" id="m_pino" placeholder="如 2602AU016-PI">
+        <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px"><span class="sn">2</span>PI 單號 <span style="color:var(--text3);font-weight:400">（可從 Notion 自動讀取）</span></label>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input class="inp" id="m_pino" placeholder="如 2602AU016-PI" style="flex:1">
+          <button type="button" id="fetchPIBtn" class="btn btn-cyan btn-sm" onclick="fetchPIFromNotion()" style="white-space:nowrap">📂 抓 Notion PI</button>
+        </div>
+        <div id="piNotionList" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:200px;overflow-y:auto;margin-bottom:6px"></div>
+        <div id="piInfo" style="font-size:11px;color:var(--text3);min-height:16px"></div>
       </div>
     </div>
 
@@ -3701,42 +3949,199 @@ async function toggleAnnStatus(id, cur){
 // 請假模組
 // ══════════════════════════════════════════════════════
 function renderLeave(){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:10px;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗓️ 請假管理</a></div>';;
-  const canApprove=ROLE==='manager';
-  const pending=leaves.filter(l=>l.status==='待審核');
-  const history=leaves.filter(l=>l.status!=='待審核');
-  const btn=`<button class="btn btn-blue btn-sm" onclick="openModal('newLeave')">＋ 申請請假</button>`;
-  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <span style="font-size:11px;color:var(--text3)">共 ${leaves.length} 筆紀錄</span>${btn}</div>
-  ${pending.length?`<div class="panel" style="margin-bottom:12px">
-    <div class="panel-hdr"><span class="panel-title">⏳ 待審核 <span class="badge">${pending.length}</span></span></div>
-    <div class="table-wrap"><table>
-    <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天數</th><th>代理人</th>${canApprove?'<th>操作</th>':''}</tr>
-    ${pending.map(l=>`<tr>
-      <td style="font-weight:600">${l.name}<div style="font-size:10px;color:var(--text3)">${l.title||''}</div></td>
-      <td>${pill(l.type)}</td>
-      <td style="font-family:monospace;font-size:11px">${l.dateFrom||'—'}</td>
-      <td style="font-family:monospace">${l.days}</td>
-      <td style="font-size:11px">${l.proxy||'—'}</td>
-      ${canApprove?`<td style="white-space:nowrap">
-        <button class="btn btn-green btn-sm" onclick="doApproveLeave('${l.id}','approved')">✓ 核准</button>
-        <button class="btn btn-red btn-sm" onclick="doApproveLeave('${l.id}','rejected')">✗ 不通過</button>
-      </td>`:''}
-    </tr>`).join('')}
-    </table></div></div>`:''}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">📋 歷史紀錄 <span class="badge">${history.length}</span></span></div>
-  ${!history.length?'<div style="padding:20px;text-align:center;color:var(--text3)">尚無歷史紀錄</div>'
-  :`<div class="table-wrap"><table>
-  <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天數</th><th>狀態</th></tr>
-  ${history.map(l=>`<tr>
-    <td style="font-weight:600">${l.name}</td>
-    <td>${pill(l.type)}</td>
-    <td style="font-family:monospace;font-size:11px">${l.dateFrom||'—'}</td>
-    <td style="font-family:monospace">${l.days}</td>
-    <td>${pill(l.status)}</td>
-  </tr>`).join('')}
-  </table></div>`}
+  if(!window._LEAVE_SUB) window._LEAVE_SUB='record';
+  if(!window._LEAVE_DATE) window._LEAVE_DATE='0';
+  const LSUB = window._LEAVE_SUB;
+  const LDATE = window._LEAVE_DATE;
+
+  const _notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
+    <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
+    <a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" style="padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗓️ 請假管理</a>
+    <a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" style="padding:3px 9px;border-radius:6px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">👤 員工統計</a>
   </div>`;
+
+  const canApprove = ROLE==='manager';
+  const pending = leaves.filter(l=>l.status==='待審核');
+
+  const now = Date.now();
+  const dateOpts=[['0','全部'],['30','近30天'],['90','近3個月'],['365','今年']];
+  function _leaveFilter(list){
+    if(LDATE==='0') return list;
+    const days = parseInt(LDATE);
+    const cutoff = now - days*86400000;
+    return list.filter(l=>{const t=new Date(l.dateFrom||'').getTime();return t&&t>=cutoff;});
+  }
+  const history = _leaveFilter(leaves.filter(l=>l.status!=='待審核'));
+
+  const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:16px">
+    ${[['record','📋 請假紀錄'],['calendar','📅 月曆'],['stats','📊 請假統計']].map(([k,l])=>`
+    <button onclick="window._LEAVE_SUB='${k}';renderTab('leave')"
+      style="flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:${LSUB===k?700:400};
+      background:${LSUB===k?'var(--bg)':'transparent'};color:${LSUB===k?'var(--text)':'var(--text3)'};
+      border:${LSUB===k?'1px solid var(--border)':'1px solid transparent'};cursor:pointer;transition:all .15s;
+      box-shadow:${LSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
+  </div>`;
+
+  if(LSUB==='record'){
+    const filterBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <span style="font-size:11px;color:var(--text3)">時間：</span>
+      ${dateOpts.map(([v,l])=>{const a=LDATE===v;return`<button onclick="window._LEAVE_DATE='${v}';renderTab('leave')"
+        style="padding:4px 12px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};
+        background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${l}</button>`;}).join('')}
+      <button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openModal('newLeave')">＋ 申請請假</button>
+    </div>`;
+
+    const pendingSection = pending.length ? `<div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--yellow);letter-spacing:.08em;margin-bottom:10px">⏳ 待審核 (${pending.length})</div>
+      ${pending.map(l=>`<div style="background:var(--bg2);border:1px solid rgba(245,185,66,.3);border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(245,185,66,.1);display:flex;align-items:center;justify-content:center;flex-shrink:0">👤</div>
+        <div style="flex:1;min-width:120px">
+          <div style="font-weight:700;font-size:14px">${l.name}</div>
+          <div style="font-size:11px;color:var(--text3)">${l.title||''}</div>
+        </div>
+        <div style="text-align:center">${pill(l.type)}<div style="font-size:11px;color:var(--text3);margin-top:4px">${l.days} 天</div></div>
+        <div style="text-align:center">
+          <div style="font-size:13px;font-weight:600;font-family:monospace">${l.dateFrom||'—'}</div>
+          <div style="font-size:10px;color:var(--text3)">起始日</div>
+        </div>
+        ${l.proxy?`<div style="font-size:12px;color:var(--text2)">代：${l.proxy}</div>`:''}
+        ${canApprove?`<div style="display:flex;gap:6px;flex-shrink:0;margin-left:auto">
+          <button class="btn btn-green btn-sm" onclick="doApproveLeave('${l.id}','approved')">✓ 核准</button>
+          <button class="btn btn-red btn-sm" onclick="doApproveLeave('${l.id}','rejected')">✗ 不通過</button>
+        </div>`:''}
+      </div>`).join('')}
+    </div>` : '';
+
+    const historySection = `<div class="panel">
+      <div class="panel-hdr"><span class="panel-title">📋 請假紀錄 <span class="badge">${history.length}</span></span></div>
+      ${!history.length ? '<div style="padding:28px;text-align:center;color:var(--text3)">目前沒有請假紀錄</div>' :
+      `<div class="table-wrap"><table>
+        <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天數</th><th>代理人</th><th>狀態</th></tr>
+        ${history.map(l=>`<tr>
+          <td><div style="font-weight:600">${l.name}</div><div style="font-size:10px;color:var(--text3)">${l.title||''}</div></td>
+          <td>${pill(l.type)}</td>
+          <td style="font-family:monospace;font-size:11px">${l.dateFrom||'—'}</td>
+          <td style="font-family:monospace;font-weight:600">${l.days}</td>
+          <td style="font-size:11px;color:var(--text2)">${l.proxy||'—'}</td>
+          <td>${pill(l.status)}</td>
+        </tr>`).join('')}
+      </table></div>`}
+    </div>`;
+    return _notionBar + tabs + filterBar + pendingSection + historySection;
+  }
+
+  if(LSUB==='calendar'){
+    const today = new Date();
+    if(!window._LEAVE_CAL_YEAR)  window._LEAVE_CAL_YEAR  = today.getFullYear();
+    if(!window._LEAVE_CAL_MONTH) window._LEAVE_CAL_MONTH = today.getMonth()+1;
+    const calYear  = window._LEAVE_CAL_YEAR;
+    const calMonth = window._LEAVE_CAL_MONTH;
+    const monthStr = calYear+'-'+String(calMonth).padStart(2,'0');
+    const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+    const firstDay = new Date(calYear, calMonth-1, 1).getDay();
+
+    const dayMap={};
+    leaves.filter(l=>l.status==='審核通過'||l.status==='核准').forEach(l=>{
+      if(!l.dateFrom) return;
+      const from=new Date(l.dateFrom), to=l.dateTo?new Date(l.dateTo):new Date(l.dateFrom);
+      for(let d=new Date(from);d<=to;d.setDate(d.getDate()+1)){
+        const key=d.toISOString().slice(0,10);
+        if(key.startsWith(monthStr)){if(!dayMap[key])dayMap[key]=[];dayMap[key].push(l);}
+      }
+    });
+
+    const monthLeaves=leaves.filter(l=>{const f=l.dateFrom||'';return f.startsWith(monthStr)&&(l.status==='審核通過'||l.status==='核準');});
+    const wds=['日','一','二','三','四','五','六'];
+    let cells=''; let dc=1;
+    const total=Math.ceil((firstDay+daysInMonth)/7)*7;
+    for(let i=0;i<total;i++){
+      if(i<firstDay||dc>daysInMonth){ cells+=`<div style="min-height:72px;background:rgba(255,255,255,.01);border-radius:8px"></div>`; }
+      else{
+        const dk=monthStr+'-'+String(dc).padStart(2,'0');
+        const dl=dayMap[dk]||[];
+        const isT=dk===today.toISOString().slice(0,10);
+        const isW=(i%7===0||i%7===6);
+        cells+=`<div style="min-height:72px;padding:6px;background:${isT?'rgba(77,142,245,.08)':'var(--bg2)'};border:1px solid ${isT?'rgba(77,142,245,.3)':'var(--border)'};border-radius:8px">
+          <div style="font-size:12px;font-weight:${isT?700:400};color:${isT?'var(--blue)':isW?'var(--red)':'var(--text)'};margin-bottom:2px">${dc}${isT?' ●':''}</div>
+          ${dl.map(l=>`<div style="padding:2px 5px;border-radius:3px;font-size:9px;font-weight:600;background:rgba(239,68,68,.12);color:#ef4444;margin-bottom:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">🔴 ${l.name}${l.proxy?' / 代:'+l.proxy:''}</div>`).join('')}
+        </div>`;
+        dc++;
+      }
+    }
+
+    const allMonthLeaves = Object.values(dayMap).flat().filter((v,i,a)=>a.findIndex(x=>x.id===v.id)===i);
+
+    return _notionBar + tabs + `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <button onclick="window._LEAVE_CAL_MONTH--;if(window._LEAVE_CAL_MONTH<1){window._LEAVE_CAL_MONTH=12;window._LEAVE_CAL_YEAR--;}renderTab('leave')" class="btn btn-ghost btn-sm">← 上月</button>
+      <div style="font-size:16px;font-weight:700">${calYear} 年 ${calMonth} 月 <span style="font-size:11px;color:var(--text3);font-weight:400">共 ${allMonthLeaves.length} 人請假</span></div>
+      <button onclick="window._LEAVE_CAL_MONTH++;if(window._LEAVE_CAL_MONTH>12){window._LEAVE_CAL_MONTH=1;window._LEAVE_CAL_YEAR++;}renderTab('leave')" class="btn btn-ghost btn-sm">下月 →</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px">
+      ${wds.map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text3);padding:4px">${d}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px">${cells}</div>
+    ${allMonthLeaves.length?`<div class="panel"><div class="panel-hdr"><span class="panel-title">本月請假人員</span></div>
+    <div style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px">
+      ${allMonthLeaves.map(l=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 12px;background:var(--bg3);border-radius:20px;border:1px solid var(--border)">
+        <span style="width:7px;height:7px;border-radius:50%;background:#ef4444;display:inline-block"></span>
+        <span style="font-weight:600;font-size:12px">${l.name}</span>
+        ${pill(l.type)}
+        <span style="font-size:11px;color:var(--text3)">${l.days}天</span>
+        ${l.proxy?`<span style="font-size:11px;color:var(--text3)">代：${l.proxy}</span>`:''}
+      </div>`).join('')}
+    </div></div>` : ''}`;
+  }
+
+  // 統計分頁
+  const leaveStats = window._leaveStats || [];
+  const yearFilter = window._LEAVE_YEAR_FILTER || '2026';
+  const statsFilterBar=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text3)">年度：</span>
+    ${['2025','2026','2027'].map(y=>{const a=yearFilter===y;return`<button onclick="window._LEAVE_YEAR_FILTER='${y}';renderTab('leave')"
+      style="padding:4px 14px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};
+      background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${y}</button>`;}).join('')}
+    <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadLeaveStats().then(()=>renderTab('leave'))">🔄 更新</button>
+    ${canApprove?`<a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="btn btn-ghost btn-sm">📊 Notion 編輯</a>`:''}
+  </div>`;
+
+  const filteredStats=leaveStats.filter(s=>s.year===yearFilter);
+  const statsSection=!filteredStats.length?`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">
+    目前沒有 ${yearFilter} 年統計資料<br>
+    <button class="btn btn-blue btn-sm" style="margin-top:12px" onclick="loadLeaveStats().then(()=>renderTab('leave'))">📥 載入統計</button>
+  </div></div>`:
+  `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
+    ${filteredStats.map(s=>{
+      const total=s.annualTotal||14;const used=s.usedAnnual||0;const remain=s.annualRemain??(total-used);const pct=Math.round((used/total)*100);
+      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(77,142,245,.1);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>
+          <div><div style="font-weight:700;font-size:15px">${s.name}</div><div style="font-size:11px;color:var(--text3)">${s.title||''} · ${yearFilter}</div></div>
+        </div>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--text3)">特休剩餘</span>
+            <span style="font-size:12px;font-weight:700;color:${remain<=3?'var(--red)':remain<=7?'var(--yellow)':'var(--green)'}">${remain}/${total} 天</span>
+          </div>
+          <div style="height:6px;border-radius:3px;background:var(--bg4);overflow:hidden">
+            <div style="height:100%;border-radius:3px;width:${pct}%;background:${pct>=80?'var(--red)':pct>=50?'var(--yellow)':'var(--blue)'}"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+          ${[['特休','var(--green)',used],['事假','var(--blue)',s.usedPersonal||0],['病假','var(--yellow)',s.usedSick||0]].map(([label,color,val])=>`
+          <div style="text-align:center;padding:8px 4px;background:var(--bg3);border-radius:8px">
+            <div style="font-size:20px;font-weight:700;color:${color}">${val}</div>
+            <div style="font-size:10px;color:var(--text3)">${label}</div>
+          </div>`).join('')}
+        </div>
+        <div style="padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
+          <span style="font-size:11px;color:var(--text3)">請假總次數</span>
+          <span style="font-size:13px;font-weight:700">${s.totalTimes||0} 次 / ${s.totalDays||0} 天</span>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+  return _notionBar + tabs + statsFilterBar + statsSection;
 }
 async function submitLeave(){
   const name=document.getElementById('lv_name').value.trim();
@@ -3781,8 +4186,85 @@ async function doApproveLeave(id, action){
   if(reason)props['不通過原因']={rich_text:[{text:{content:reason}}]};
   try{
     await updatePage(id,props);
-    await refreshAll();showToast(`✅ 已${status}`,'ok');
+
+    // ── 核准時自動更新員工統計 ──
+    if(action==='approved'){
+      const lv = leaves.find(x=>x.id===id);
+      if(lv){
+        const year = new Date().getFullYear().toString();
+        await _updateLeaveStats(lv.name, lv.type, lv.days, year);
+      }
+    }
+
+    await refreshAll(); renderTab(CURRENT_TAB);
+    showToast(`✅ 已${status}`,'ok');
   }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+// ── 核准請假後更新員工統計資料庫 ──
+async function _updateLeaveStats(empName, leaveType, days, year){
+  try{
+    // 查詢員工統計記錄
+    const r = await notionAPI('POST','databases/'+DB.leaveStats+'/query',{
+      filter:{and:[
+        {property:'員工姓名',title:{equals:empName}},
+        {property:'年度',select:{equals:year}},
+      ]},page_size:1
+    });
+
+    const dayNum = parseFloat(days)||1;
+    const isAnnual = leaveType==='特休';
+    const isPersonal = leaveType==='事假';
+    const isSick = leaveType==='病假';
+
+    if(r?.results?.length){
+      // 已有記錄 → 更新累計
+      const pg = r.results[0];
+      const cur = pg.properties;
+      const curTotal = cur['請假總天數']?.number||0;
+      const curTimes = cur['請假總次數']?.number||0;
+      const curAnnual = cur['已請特休']?.number||0;
+      const curPersonal = cur['已請事假']?.number||0;
+      const curSick = cur['已請病假']?.number||0;
+      const curRemain = cur['特休剩餘天數']?.number??14;
+
+      const updateProps={
+        '請假總天數':{number:curTotal+dayNum},
+        '請假總次數':{number:curTimes+1},
+      };
+      if(isAnnual){
+        updateProps['已請特休']={number:curAnnual+dayNum};
+        updateProps['特休剩餘天數']={number:Math.max(0,curRemain-dayNum)};
+      }
+      if(isPersonal) updateProps['已請事假']={number:curPersonal+dayNum};
+      if(isSick) updateProps['已請病假']={number:curSick+dayNum};
+      await updatePage(pg.id, updateProps);
+      console.log('[請假統計] 更新', empName, year);
+    } else {
+      // 首次 → 詢問特休天數並建立
+      let annualDays = 14;
+      if(isAnnual){
+        const input = prompt(`首次建立 ${empName} 的請假統計。\n請輸入 ${empName} 的年度特休總天數：`);
+        if(input) annualDays = parseInt(input)||14;
+      }
+      const remain = isAnnual ? Math.max(0, annualDays-dayNum) : annualDays;
+      await notionAPI('POST','pages',{parent:{database_id:DB.leaveStats}, properties:{
+        '員工姓名':{title:[{text:{content:empName}}]},
+        '年度':{select:{name:year}},
+        '特休總天數':{number:annualDays},
+        '特休剩餘天數':{number:remain},
+        '已請特休':{number:isAnnual?dayNum:0},
+        '已請事假':{number:isPersonal?dayNum:0},
+        '已請病假':{number:isSick?dayNum:0},
+        '請假總次數':{number:1},
+        '請假總天數':{number:dayNum},
+      }});
+      console.log('[請假統計] 首次建立', empName, year);
+      showToast(`✅ 已為 ${empName} 建立 ${year} 年請假統計記錄`,'ok');
+    }
+    // 重新載入統計
+    await loadLeaveStats();
+  }catch(e){ console.warn('[請假統計] 更新失敗:', e); }
 }
 
 // ══════════════════════════════════════════════════════
