@@ -113,6 +113,75 @@ textarea.inp{resize:vertical;min-height:80px;line-height:1.6;}
 .btn-sm{padding:6px 14px;font-size:12px;border-radius:7px;}
 .btn-xs{padding:4px 10px;font-size:11px;border-radius:6px;}
 .btn-full{width:100%;justify-content:center;}
+/* ════════════════════════════════════════════
+   設計配色系統 — 基於配色學原則
+   原則：
+   · 微帶色調的深色面（非純黑）減少視覺疲勞
+   · WCAG AA 對比度：文字 ≥ 4.5:1
+   · 高亮色飽和度略降，避免在暗底上震動
+   · 表面明度隨層次遞增（elevation system）
+   ════════════════════════════════════════════ */
+
+/* 🌊 深海藍（冷靜專業，數據儀表板首選）*/
+html[data-theme="ocean"]{
+  --bg:#050e1a;--bg2:#091525;--bg3:#0e1f38;--bg4:#142a4d;--bg5:#1a3562;
+  --border:#1a2e45;--border2:#254262;--border3:#305580;
+  --brand:#0e4d8a;--brand2:#1a6fc4;
+  --blue:#2196f3;--blue2:#64b5f6;--cyan:#00bcd4;--cyan2:#4dd0e1;
+  --green:#00c853;--green2:#69f0ae;--yellow:#ffca28;--amber:#ffd54f;
+  --red:#f44336;--red2:#ef9a9a;--purple:#7c4dff;
+  --text:#e3f2fd;--text2:#90b8d4;--text3:#4a6e8a;
+  --shadow:0 4px 28px rgba(0,0,0,.55);--radius-card:12px;
+}
+
+/* 🔥 暗夜紫（深沉優雅，電商/創意工具）*/
+html[data-theme="violet"]{
+  --bg:#0d0815;--bg2:#130d1f;--bg3:#1a1229;--bg4:#221834;--bg5:#2b1f42;
+  --border:#2d1f45;--border2:#3d2b5f;--border3:#4e3878;
+  --brand:#6a1b9a;--brand2:#9c27b0;
+  --blue:#7c83fd;--blue2:#a5aaf8;--cyan:#c77dff;--cyan2:#da9fff;
+  --green:#69f0ae;--green2:#b9f6ca;--yellow:#ffd740;--amber:#ffec80;
+  --red:#ff5252;--red2:#ff8a80;--purple:#ea80fc;
+  --text:#ede7f6;--text2:#b39ddb;--text3:#6e5b8a;
+  --shadow:0 4px 28px rgba(0,0,0,.6);--radius-card:14px;
+}
+
+/* 🌅 暖焦糖（溫暖工業感，製造業ERP最適）*/
+html[data-theme="amber"]{
+  --bg:#120c04;--bg2:#1c1208;--bg3:#26190d;--bg4:#322113;--bg5:#3d2a19;
+  --border:#3a2410;--border2:#4e3218;--border3:#624021;
+  --brand:#b35a00;--brand2:#e07800;
+  --blue:#4fc3f7;--blue2:#81d4fa;--cyan:#f9a825;--cyan2:#ffd54f;
+  --green:#66bb6a;--green2:#a5d6a7;--yellow:#ffb300;--amber:#ffd54f;
+  --red:#ef5350;--red2:#ef9a9a;--purple:#ab47bc;
+  --text:#fff8f0;--text2:#c8a882;--text3:#7a5c38;
+  --shadow:0 4px 24px rgba(0,0,0,.5);--radius-card:10px;
+}
+
+/* 🩶 鈦金灰（高端工業，精密感）*/
+html[data-theme="titanium"]{
+  --bg:#0c0d0f;--bg2:#131518;--bg3:#1a1d22;--bg4:#22262d;--bg5:#2b3038;
+  --border:#252930;--border2:#313740;--border3:#3e4550;
+  --brand:#37474f;--brand2:#546e7a;
+  --blue:#82b1ff;--blue2:#a4c8ff;--cyan:#64ffda;--cyan2:#9efff0;
+  --green:#69f0ae;--green2:#b9f6ca;--yellow:#ffe57f;--amber:#ffd740;
+  --red:#ff6e6e;--red2:#ffab91;--purple:#b388ff;
+  --text:#eceff1;--text2:#90a4ae;--text3:#546e7a;
+  --shadow:0 4px 20px rgba(0,0,0,.65);--radius-card:6px;
+}
+
+/* 🌸 玫瑰金（精緻商務，高端感）*/
+html[data-theme="rose"]{
+  --bg:#130b0e;--bg2:#1c1013;--bg3:#25161a;--bg4:#2e1c21;--bg5:#382228;
+  --border:#3a1e24;--border2:#4e2830;--border3:#62333c;
+  --brand:#880e4f;--brand2:#c2185b;
+  --blue:#f48fb1;--blue2:#f8bbd9;--cyan:#f06292;--cyan2:#f8bbd9;
+  --green:#a5d6a7;--green2:#c8e6c9;--yellow:#ffe082;--amber:#ffd54f;
+  --red:#ff1744;--red2:#ff80ab;--purple:#ce93d8;
+  --text:#fce4ec;--text2:#d4a0aa;--text3:#8a5562;
+  --shadow:0 4px 24px rgba(0,0,0,.55);--radius-card:16px;
+}
+
 
 /* ══════════════════════════════════════
    LOGIN PAGE
@@ -632,9 +701,14 @@ function getRichText(props,...keys){for(const k of keys){const p=props?.[k];if(!
 // 主題 & 字體系統（安全版）
 // ══════════════════════════════
 const THEMES={
-  tech:   {name:'🌌 科技風',desc:'深藍科技配色'},
-  nature: {name:'🌿 自然風',desc:'深綠自然配色'},
-  minimal:{name:'⬜ 極簡風',desc:'純淨深灰配色'},
+  tech:    {name:'🌌 科技風',  desc:'深藍科技，精準冷靜'},
+  ocean:   {name:'🌊 深海藍',  desc:'純淨冷調，資料儀表首選'},
+  violet:  {name:'🔮 暗夜紫',  desc:'深沉優雅，創意工具感'},
+  amber:   {name:'🌅 焦糖暖',  desc:'溫暖工業感，製造業最適'},
+  titanium:{name:'🩶 鈦金灰',  desc:'高端精密，極致工業風'},
+  rose:    {name:'🌸 玫瑰金',  desc:'精緻商務，高端優雅感'},
+  nature:  {name:'🌿 自然風',  desc:'深綠自然，舒緩護眼'},
+  minimal: {name:'⬜ 極簡風',  desc:'純粹深灰，零干擾'},
 };
 // 讀取已儲存的設定並套用（頁面載入時立即執行）
 (function(){
@@ -687,7 +761,7 @@ function buildThemePanel(p){
   html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">🔤 字體大小</div><div style="display:flex;gap:5px">';
   ['14','15','16','17','18'].forEach(function(s){
     const a=curF===s;
-    html+='<button onclick="document.documentElement.style.fontSize=\''+s+'px\';localStorage.setItem(\'erp_font\',\''+s+'\')" style="flex:1;padding:5px;border-radius:6px;border:1px solid var(--border2);cursor:pointer;font-size:11px;background:'+(a?'rgba(77,142,245,.2)':'var(--bg4)')+';color:'+(a?'var(--blue)':'var(--text2)')+'">'+s+'</button>';
+    html+='<button onclick="document.documentElement.style.fontSize=\''+s+'px\';localStorage.setItem(\'erp_font\',\''+s+'\');this.closest(\'.font-row\').querySelectorAll(\'button\').forEach(b=>b.style.cssText=\'flex:1;padding:5px;border-radius:6px;border:1px solid var(--border2);cursor:pointer;font-size:11px;background:var(--bg4);color:var(--text2)\');this.style.cssText=\'flex:1;padding:5px;border-radius:6px;border:1px solid var(--blue);cursor:pointer;font-size:11px;background:rgba(77,142,245,.2);color:var(--blue)\'" style="flex:1;padding:5px;border-radius:6px;border:1px solid var(--border2);cursor:pointer;font-size:11px;background:'+(a?'rgba(77,142,245,.2)':'var(--bg4)')+';color:'+(a?'var(--blue)':'var(--text2)')+'">'+s+'</button>';
   });
   html+='</div></div>';
   p.innerHTML=html;
@@ -1488,6 +1562,15 @@ function renderDashboard(){
   const done=orders.filter(o=>o.status==='已完成').length;
   const rate=orders.length?Math.round(done/orders.length*100):0;
   const pending=leaves.filter(l=>l.status==='待審核').length;
+  // 交期提醒計算
+  const warnDays = window._deadlineWarn!==undefined ? window._deadlineWarn : parseInt(localStorage.getItem('_deadlineWarn')||'14');
+  const _now = new Date(); _now.setHours(0,0,0,0);
+  const deadlineSoon = orders.filter(o=>{
+    if(!o.deadline||o.status==='已完成'||o.status==='取消') return false;
+    const dl=new Date(o.deadline); dl.setHours(0,0,0,0);
+    const diff=Math.round((dl-_now)/86400000);
+    return diff>=0 && diff<=warnDays;
+  });
   const qcPending=(orders.filter(o=>o.status==='待檢驗').length)+(inbounds.filter(i=>i.qcStatus==='待品檢').length);
 
   // 公告
@@ -1575,6 +1658,14 @@ function renderDashboard(){
 
   <!-- KPI Row 2: 次要指標 -->
   <div class="dash-kpi-grid-5">
+
+    <div class="kpi-card ${deadlineSoon.length>0?'kpi-red':'kpi-green'}" onclick="window._ORD_SUB='deadline';switchTab('orders')" title="點擊查看交期提醒">
+      <div class="kpi-glow"></div>
+      <div class="kpi-label">⏰ 交期提醒</div>
+      <div class="kpi-num">${deadlineSoon.length}</div>
+      <div class="kpi-sub">${warnDays} 天內到期</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${deadlineSoon.length>0?Math.min(100,deadlineSoon.length*20):0}%"></div></div>
+    </div>
 
     <div class="kpi-card kpi-amber" onclick="switchTab('orders')">
       <div class="kpi-glow"></div>
