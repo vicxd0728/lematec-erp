@@ -687,6 +687,115 @@ const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
 
 // ═══════════════════════════════════════════════
+// 基礎 UI 函數
+// ═══════════════════════════════════════════════
+let _toastTimer=null;
+function showToast(msg,type='ok',duration=3000){
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div');t.id='toast';t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:0.8125rem;font-weight:600;z-index:99999;max-width:90vw;text-align:center;transition:opacity .3s;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4)';document.body.appendChild(t);}
+  t.textContent=msg;
+  t.style.opacity='1';
+  if(type==='ok')    {t.style.background='rgba(16,185,129,.9)';t.style.color='#fff';}
+  else if(type==='warn'){t.style.background='rgba(245,158,11,.9)';t.style.color='#fff';}
+  else if(type==='err') {t.style.background='rgba(239,68,68,.9)';t.style.color='#fff';}
+  else               {t.style.background='rgba(59,130,246,.9)';t.style.color='#fff';}
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>{t.style.opacity='0';},duration);
+}
+
+function closeModal(){
+  document.getElementById('modalBg')?.classList.remove('open');
+}
+
+function openModal(type,data){
+  if(!type){document.getElementById('modalBg').classList.add('open');return;}
+  const mi=document.getElementById('modalInner');
+  const prods=mats.filter(m=>m.type==='成品');
+  const parts=mats.filter(m=>m.type!=='成品');
+
+  // ── 公告 ──
+  if(type==='newAnnounce'){
+    const d=data||{};
+    mi.innerHTML=`<h3>${d.id?'✏️ 編輯公告':'＋ 新增公告'}</h3>
+      <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">標題</label><input class="inp" id="ann_title" value="${(d.title||'').replace(/"/g,'&quot;')}" placeholder="公告標題"></div>
+      <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">內容</label><textarea class="inp" id="ann_body" rows="4" style="resize:vertical">${d.body||''}</textarea></div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">發佈日期</label><input class="inp" type="date" id="ann_date" value="${d.date||''}"></div>
+        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">狀態</label><select class="inp" id="ann_status"><option${d.status==='草稿'?' selected':''}>草稿</option><option${(!d.status||d.status==='發佈')?' selected':''}>發佈</option><option${d.status==='過期'?' selected':''}>過期</option></select></div>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">顯示順序（小=優先）</label><input class="inp" type="number" id="ann_order" value="${d.order||0}" min="0" style="width:100%"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:0.75rem;color:var(--text2)">📌 置頂</label></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-blue" onclick="saveAnnounce('${d.id||''}')">${d.id?'💾 更新':'＋ 發佈'}</button>
+      </div>`;
+    openModal();
+    return;
+  }
+
+  // ── 新增訂單 ──
+  if(type==='newOrder'){
+    const orderTypeTab = data?.tab||'overseas';
+    mi.innerHTML=`<h3>📋 新增訂單</h3>
+    <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
+      <button id="tabOverseas" type="button" onclick="switchOrderTab('overseas')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🌍 國外訂單</button>
+      <button id="tabDomestic" type="button" onclick="switchOrderTab('domestic')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🏠 國內訂單</button>
+      <button id="tabSfg" type="button" onclick="switchOrderTab('sfg')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">⚙️ 半成品</button>
+      <button id="tabShopee" type="button" onclick="switchOrderTab('shopee')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🛒 蝦皮</button>
+    </div>
+    <div id="blockOverseas" style="display:none"></div>
+    <div id="blockDomestic" style="display:none"></div>
+    <div id="blockSfg" style="display:none"></div>
+    <div id="blockShopee" style="display:none">
+      <div style="padding:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:10px;margin-bottom:14px">
+        <div style="font-size:0.6875rem;font-weight:700;color:var(--blue);margin-bottom:4px">🛒 蝦皮組裝單</div>
+        <div style="font-size:0.625rem;color:var(--text3)">選擇商品後自動讀取 BOM，領料時扣除主料＋配件，完成後增加 S- 成品庫存</div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">🔍 搜尋商品（輸入料號或名稱）</label>
+        <input class="inp" id="shopee_search" placeholder="輸入 S- 料號或名稱搜尋..." oninput="filterShopeeList(this.value)" autocomplete="off">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">蝦皮商品 *</label>
+        <select class="inp" id="m_shopee_sku" onchange="onShopeeSkuChange(this.value)" style="width:100%">
+          <option value="">— 選擇蝦皮商品（S-開頭）—</option>
+        </select>
+      </div>
+      <div id="shopeeSkuInfo" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:0.625rem;color:var(--text3);margin-bottom:6px">📦 BOM 組成</div>
+        <div id="shopeeSkuBom" style="font-size:0.6875rem;color:var(--text2)"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量 *</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
+        <div style="flex:2"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">買家帳號</label><input class="inp" id="m_shopee_buyer" placeholder="蝦皮買家帳號（選填）"></div>
+      </div>
+      <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_shopee_note" placeholder="備註（選填）"></div>
+    </div>
+    <div id="itemAddRow" style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end"></div>
+    <div id="dateRow" style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label><input class="inp" type="date" id="m_date"></div>
+      <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="備註"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
+    </div>`;
+    renderItems();
+    switchOrderTab(orderTypeTab);
+    document.getElementById('m_date').value=new Date().toISOString().slice(0,10);
+    openModal();
+    return;
+  }
+
+  // ── その他の type は各 open* 関数が処理 ──
+  if(!document.getElementById('modalBg').classList.contains('open')){
+    document.getElementById('modalBg').classList.add('open');
+  }
+}
+
+// ═══════════════════════════════════════════════
 // API
 // ═══════════════════════════════════════════════
 async function notionAPI(method,endpoint,body=null){
@@ -3626,38 +3735,7 @@ function parsePIFile(input){
 // ═══════════════════════════════════════════════
 // MODALS
 // ═══════════════════════════════════════════════
-function openModal(type,data){
-  if(!type){document.getElementById('modalBg').classList.add('open');return;}
-  const mi=document.getElementById('modalInner');
-  const prods=mats.filter(m=>m.type==='成品');
-  const parts=mats.filter(m=>m.type!=='成品');
 
-  // ── 公告 ──
-  if(type==='newAnnounce'){
-    const d=data||{};
-    mi.innerHTML=`<h3>${d.id?'✏️ 編輯公告':'＋ 新增公告'}</h3>
-      <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">標題</label><input class="inp" id="ann_title" value="${(d.title||'').replace(/"/g,'&quot;')}" placeholder="公告標題"></div>
-      <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">內容</label><textarea class="inp" id="ann_body" style="height:90px;resize:vertical">${d.content||''}</textarea></div>
-      <div class="form-row" style="margin-bottom:10px">
-        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">發佈日期</label><input class="inp" type="date" id="ann_date" value="${d.date||new Date().toISOString().slice(0,10)}"></div>
-        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">狀態</label><select class="inp" id="ann_status"><option value="草稿" ${d.status==='草稿'?'selected':''}>草稿</option><option value="已發佈" ${d.status==='已發佈'||!d.status?'selected':''}>已發佈</option></select></div>
-      </div>
-      <div class="form-row" style="margin-bottom:10px">
-        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">顯示順序（小=優先）</label><input class="inp" type="number" id="ann_order" value="${d.order||99}" min="1"></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:0.75rem;color:var(--text2)">📌 置頂</label></div>
-      </div>
-`;
-    openModal();
-  }
-
-  // ── newOrder/editOrder は openModal('newOrder') で別途処理 ──
-  if(type==='newOrder'||type==='editOrder'||type==='picking'||type==='inspection'||type==='inbound'){
-    // これらは各 open* 関数が直接 mi.innerHTML を設定して openModal() を呼ぶ
-    if(!document.getElementById('modalBg').classList.contains('open')){
-      document.getElementById('modalBg').classList.add('open');
-    }
-  }
-}
 
 
 function initShopeeOrderList(){
