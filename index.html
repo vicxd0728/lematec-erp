@@ -5806,37 +5806,6 @@ async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,payDate
     if(r?.object==='page') console.log('[115蝦皮] OK:',r.id);
     else console.error('[115蝦皮] 失敗:',JSON.stringify(r).slice(0,200));
   }catch(e){console.error('[115蝦皮] 例外:',e);}
-}{
-  // 115蝦皮正確欄位格式：蝦皮訂單號碼(title), 訂單號碼(text), 買家帳號(text), 備註(text)
-  // 品名/出貨方式 是嚴格 SELECT，不可任意寫，改放備註
-  const props = {
-    '蝦皮訂單號碼': {title:[{text:{content:no||''}}]},
-    '訂單號碼':     {rich_text:[{text:{content:no||''}}]},
-    '買家帳號':     {rich_text:[{text:{content:buyer||''}}]},
-    '數量':         {number:Number(qty)||0},
-    '備註':         {rich_text:[{text:{content:[matName,note].filter(Boolean).join(' / ')}}]},
-    '來源':         {multi_select:[{name:'蝦皮'}]},
-  };
-  const dateForSort = payDate||shipDate||'';
-  if(dateForSort && dateForSort.length>=10)
-    props['訂單日期'] = {date:{start:dateForSort.slice(0,10)}};
-  if(shipDate && shipDate.length>=10)
-    props['出日'] = {date:{start:shipDate.slice(0,10)}};
-  if(payDate && payDate.length>=10)
-    props['付款時間'] = {date:{start:payDate.slice(0,10)}};
-  // 出貨方式只在有對應選項時才送
-  const validShip=['蝦皮','蝦皮-澎湖','店到家','店到家-大型包裹','自取','7-11','全家','萊爾富','宅配通','SF順豐','SF順豐-代收','SF順豐-到付','新竹物流','大榮貨運','黑貓宅便','郵局包裹'];
-  if(shipMethod && validShip.includes(shipMethod))
-    props['出貨方式'] = {select:{name:shipMethod}};
-
-  try{
-    const r = await notionAPI('POST','pages',{parent:{database_id:DB.shopee115},properties:props});
-    if(r?.object==='page'){
-      console.log('[115蝦皮] 同步成功:', r.id);
-    } else {
-      console.error('[115蝦皮] 失敗:', JSON.stringify(r).slice(0,200));
-    }
-  }catch(e){ console.error('[115蝦皮] 例外:', e); }
 }
 
 async function importShopeeExcel(input){
