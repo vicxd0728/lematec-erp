@@ -1863,7 +1863,7 @@ function _renderOrdersList(tabs){
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
     <td>${pill(o.status)}</td>
     <td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button><button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${o.orderType==='shopee'&&o.status==='生產中'?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -2998,13 +2998,79 @@ function openPickPreview(orderId){
 async function doPick(orderId){
   const o=orders.find(x=>x.id===orderId);
   const prod=mats.find(m=>m.id===o.productId);
-  const items=explodeBOM(o.productId,o.qty);
-  const hasBOM = items.length > 0;
   const ds=new Date().toISOString().slice(0,10);
   const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
   closeModal();
   showToast('建立領料單中...','warn');
+
   try{
+    // ── 蝦皮訂單：從備註欄 BOM 解析扣料 ──
+    const isShopee = o.orderType==='shopee' || (o.matCode||'').startsWith('S-') || (o.product||'').startsWith('S-');
+    if(isShopee){
+      // 找 S- 料件的備註 BOM
+      const skuCode = o.matCode || o.product || '';
+      const skuMat  = mats.find(m=>m.code===skuCode);
+      const bomNote = skuMat?.note || '';
+      const mainMatMatch = bomNote.match(/主料:([^\s|]+)/);
+      const accMatch     = bomNote.match(/配件:([^|]+)/);
+      const mainMatCode  = mainMatMatch?.[1]?.trim()||'';
+      const accCodes     = accMatch?.[1]?.split(',').map(s=>s.trim()).filter(Boolean)||[];
+      const qty          = o.qty||1;
+
+      // 建立領料主單
+      const master = await notionAPI('POST','pages',{parent:{database_id:DB.pickMaster},properties:{
+        '領料單號':  {title:[{text:{content:no}}]},
+        '訂單號碼':  {rich_text:[{text:{content:o.no||''}}]},
+        '狀態':      {select:{name:'已確認扣料'}},
+        '備註':      {rich_text:[{text:{content:`蝦皮訂單 ${skuCode}`}}]},
+      }});
+      if(!master||master.object!=='page') throw new Error('領料主單建立失敗');
+
+      let stockErrors=[];
+
+      // 扣主料件
+      if(mainMatCode){
+        const mainMat = mats.find(m=>m.code===mainMatCode);
+        if(mainMat){
+          const latest = await notionAPI('GET','pages/'+mainMat.id);
+          const latestStock = latest?.properties?.['目前庫存']?.number ?? mainMat.qty ?? 0;
+          const newStock = Math.max(0, latestStock - qty);
+          await updatePage(mainMat.id,{'目前庫存':{number:newStock}});
+          await logStockChange(mainMat.id, mainMatCode, mainMat.code||'', '蝦皮領料', -qty, latestStock, newStock, no, ROLE);
+          mainMat.qty = newStock;
+        } else { stockErrors.push(`找不到主料件 ${mainMatCode}`); }
+      }
+
+      // 扣配件
+      for(const accCode of accCodes){
+        let code=accCode, deductQty=qty;
+        const xMatch = accCode.match(/(.+)x(\d+)$/i);
+        if(xMatch){ code=xMatch[1].trim(); deductQty=qty*parseInt(xMatch[2]); }
+        const accMat = mats.find(m=>m.code===code);
+        if(accMat){
+          const latest = await notionAPI('GET','pages/'+accMat.id);
+          const latestStock = latest?.properties?.['目前庫存']?.number ?? accMat.qty ?? 0;
+          const newStock = Math.max(0, latestStock - deductQty);
+          await updatePage(accMat.id,{'目前庫存':{number:newStock}});
+          await logStockChange(accMat.id, code, accMat.code||'', '蝦皮領料配件', -deductQty, latestStock, newStock, no, ROLE);
+          accMat.qty = newStock;
+        } else { stockErrors.push(`找不到配件 ${code}`); }
+      }
+
+      // 更新訂單狀態
+      await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+      await refreshAll(); await loadPicks();
+      if(stockErrors.length){
+        showToast(`⚠ 領料完成，部分失敗：${stockErrors.join('、')}`,'warn');
+      } else {
+        showToast(`✅ 蝦皮領料單 ${no} 建立，已扣除主料+${accCodes.length}種配件`,'ok');
+      }
+      return;
+    }
+
+    // ── 一般訂單：原有 BOM 展開邏輯 ──
+    const items=explodeBOM(o.productId,o.qty);
+    const hasBOM = items.length > 0;
     // 1. 建立領料主單
     const master=await createPage(DB.pickMaster,{
       '領料主單號':{title:[{text:{content:no}}]},
@@ -4878,6 +4944,8 @@ function switchOrderTab(type){
     if(sel) sel.style.display='block';
   }
   if(type==='shopee'){
+    if(itemAddRow) itemAddRow.style.display='none';
+    if(dateRow)    dateRow.style.display='none';
     initShopeeOrderList();
   }
 }
@@ -5020,8 +5088,9 @@ async function submitAllOrders(){
   const btn = document.getElementById('orderSubmitBtn');
   if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
 
-  // ── 判斷是否為蝦皮訂單
-  const isShopee   = document.getElementById('blockShopee')?.style.display !== 'none';
+  // ── 判斷是否為蝦皮訂單（更可靠的判斷）
+  const shopeeBlock = document.getElementById('blockShopee');
+  const isShopee = shopeeBlock && shopeeBlock.style.display !== 'none';
   if(isShopee){ await submitShopeeOrder(); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
 
   // ── 先讀取所有表單值（在關閉 modal 之前）
@@ -6056,7 +6125,7 @@ async function submitShopeeOrder(){
   closeModal();
 
   try{
-    // ── 1. 建立客戶訂單 ──
+    // ── 1. 建立客戶訂單（狀態：生產中）──
     const orderProps = {
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
       '料件編號':   {rich_text:[{text:{content:mat.code||''}}]},
@@ -6070,50 +6139,20 @@ async function submitShopeeOrder(){
     const ordResult = await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:orderProps});
     if(!ordResult||ordResult.object!=='page') throw new Error('訂單建立失敗');
 
-    // ── 2. 解析 BOM 並建立領料單 ──
+    // ── 2. 建立領料主單（待領料）──
+    // 注意：扣料庫存在「🗂 領料」按鈕時才執行，不在這裡扣
     const bomNote = mat.note||'';
-    // 解析 備註欄位的 BOM：主料:XXX | 配件:A, B, C
-    const mainMatMatch  = bomNote.match(/主料:([^\s|]+)/);
-    const accMatch      = bomNote.match(/配件:([^|]+)/);
-    const mainMatCode   = mainMatMatch?.[1]?.trim()||'';
-    const accCodes      = accMatch?.[1]?.split(',').map(s=>s.trim()).filter(Boolean)||[];
-
-    // 建立領料主單
     const pickNo = `PK-${yr}${mo}-S${Math.floor(Math.random()*900+100)}`;
     const pickMasterProps = {
       '領料單號':   {title:[{text:{content:pickNo}}]},
       '訂單號碼':   {rich_text:[{text:{content:orderNo}}]},
       '狀態':       {select:{name:'待領料'}},
+      '備註':       {rich_text:[{text:{content:bomNote}}]},
     };
     await notionAPI('POST','pages',{parent:{database_id:DB.pickMaster},properties:pickMasterProps});
 
-    // ── 3. 扣除庫存：主料 × qty ──
-    if(mainMatCode){
-      const mainMat = mats.find(m=>m.code===mainMatCode);
-      if(mainMat){
-        const newQty = Math.max(0,(mainMat.qty||0)-qty);
-        await updatePage(mainMat.id,{'目前庫存':{number:newQty}});
-        await logStockChange(mainMat.id, mainMatCode, -qty, `蝦皮訂單領料:${orderNo}`);
-        mainMat.qty = newQty;
-      }
-    }
-
-    // ── 4. 扣除配件庫存（解析數量，如 x2）──
-    for(const accCode of accCodes){
-      let code=accCode, deductQty=qty;
-      const xMatch = accCode.match(/(.+)x(\d+)$/i);
-      if(xMatch){ code=xMatch[1].trim(); deductQty=qty*parseInt(xMatch[2]); }
-      const accMat = mats.find(m=>m.code===code);
-      if(accMat){
-        const newQty = Math.max(0,(accMat.qty||0)-deductQty);
-        await updatePage(accMat.id,{'目前庫存':{number:newQty}});
-        await logStockChange(accMat.id, code, -deductQty, `蝦皮訂單配件:${orderNo}`);
-        accMat.qty = newQty;
-      }
-    }
-
     await refreshAll();
-    showToast(`✅ 蝦皮訂單 ${orderNo} 建立完成（狀態：生產中）`,'ok');
+    showToast(`✅ 蝦皮訂單 ${orderNo} 建立完成 — 請至「🗂 領料」執行扣料`,'ok');
 
   }catch(e){
     showToast('❌ 蝦皮訂單建立失敗：'+e.message,'err');
@@ -6121,22 +6160,23 @@ async function submitShopeeOrder(){
   }
 }
 
-async function completeShopeeOrder(orderId, orderNo, skuCode){
-  // 蝦皮訂單完成時：增加 S- 料件庫存（因為是成品出貨統計）
-  if(!confirm(`確認完成訂單 ${orderNo}？\n完成後將增加 ${skuCode} 的出貨統計。`)) return;
+async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
+  if(!confirm(`確認完成訂單 ${orderNo}？\n完成後將增加 ${skuCode} 庫存 ${qty||1} 個（成品入庫）。`)) return;
   try{
     await updatePage(orderId,{'狀態':{select:{name:'已完成'}}});
     const ord = orders.find(o=>o.id===orderId);
     if(ord) ord.status='已完成';
-    // 扣除 S- 商品的庫存（出貨）
+    // 完成蝦皮訂單 → S- 成品庫存增加（生產完入庫）
     const sku = mats.find(m=>m.code===skuCode);
-    if(sku && sku.qty>0){
-      const newQty = Math.max(0,(sku.qty||0)-1);
+    if(sku){
+      const addQty = qty||1;
+      const newQty = (sku.qty||0) + addQty;
       await updatePage(sku.id,{'目前庫存':{number:newQty}});
-      sku.qty=newQty;
+      await logStockChange(sku.id, skuCode, addQty, `蝦皮訂單完成入庫:${orderNo}`);
+      sku.qty = newQty;
     }
     await refreshAll(); renderTab(CURRENT_TAB);
-    showToast(`✅ 訂單 ${orderNo} 已完成`,'ok');
+    showToast(`✅ 訂單 ${orderNo} 已完成，${skuCode} 庫存已更新`,'ok');
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
 
