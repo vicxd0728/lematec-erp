@@ -28,6 +28,34 @@
   --shadow:0 4px 24px rgba(0,0,0,.5);
   --radius-card:14px;
 }
+/* ══════════════════════════════
+   主題覆蓋（不影響 :root 預設值）
+   選擇後即時覆蓋，不選則用科技風
+   ══════════════════════════════ */
+
+/* 🌿 自然風 */
+html[data-theme="nature"]{
+  --bg:#0f1a12;--bg2:#162118;--bg3:#1c2e20;--bg4:#243a28;--bg5:#2c4832;
+  --border:#2a3d2e;--border2:#3a5540;--border3:#4a6e52;
+  --brand:#2d6a4f;--brand2:#40916c;
+  --blue:#52b788;--blue2:#74c69d;--cyan:#95d5b2;--cyan2:#b7e4c7;
+  --green:#2d6a4f;--green2:#40916c;--yellow:#d4a017;--amber:#e9c46a;
+  --red:#c44536;--red2:#e07a5f;--purple:#7b6d8d;
+  --text:#d8f3dc;--text2:#95b8a0;--text3:#52796f;
+  --shadow:0 4px 24px rgba(0,0,0,.4);--radius-card:16px;
+}
+/* ⬜ 極簡風（深灰）*/
+html[data-theme="minimal"]{
+  --bg:#111111;--bg2:#1a1a1a;--bg3:#222222;--bg4:#2a2a2a;--bg5:#333333;
+  --border:#2c2c2c;--border2:#383838;--border3:#444444;
+  --brand:#505050;--brand2:#707070;
+  --blue:#6e9ef5;--blue2:#8fb3f8;--cyan:#5bc4d6;--cyan2:#7dd4e3;
+  --green:#5fbd8a;--green2:#79cea0;--yellow:#d4a843;--amber:#e8c56e;
+  --red:#d9534f;--red2:#e57573;--purple:#9b8ec4;
+  --text:#ebebeb;--text2:#9a9a9a;--text3:#585858;
+  --shadow:0 4px 20px rgba(0,0,0,.6);--radius-card:8px;
+}
+
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    🌌 科技深藍（預設）- 深邃宇宙藍，高對比
@@ -451,6 +479,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
         <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;box-shadow:0 0 6px rgba(16,185,129,.6)"></span>
         <span id="onlineNum">1</span> 人在線
       </span>
+      <button id="themeBtn" onclick="toggleThemePanel()" title="介面風格" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--border2);background:var(--bg4);cursor:pointer;font-size:15px;display:inline-flex;align-items:center;justify-content:center">🎨</button>
       <button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">🔄</button>
       <button class="btn btn-ghost btn-sm" onclick="openModal('help')">❓</button>
       <button class="btn btn-ghost btn-sm" onclick="logout()">登出</button>
@@ -599,6 +628,74 @@ function getRichText(props,...keys){for(const k of keys){const p=props?.[k];if(!
 // ═══════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════
+// ══════════════════════════════
+// 主題 & 字體系統（安全版）
+// ══════════════════════════════
+const THEMES={
+  tech:   {name:'🌌 科技風',desc:'深藍科技配色'},
+  nature: {name:'🌿 自然風',desc:'深綠自然配色'},
+  minimal:{name:'⬜ 極簡風',desc:'純淨深灰配色'},
+};
+// 讀取已儲存的設定並套用（頁面載入時立即執行）
+(function(){
+  const t=localStorage.getItem('erp_theme');
+  const f=localStorage.getItem('erp_font');
+  if(t&&t!=='tech') document.documentElement.setAttribute('data-theme',t);
+  if(f) document.documentElement.style.fontSize=f+'px';
+})();
+
+function applyTheme(t){
+  if(t==='tech') document.documentElement.removeAttribute('data-theme');
+  else           document.documentElement.setAttribute('data-theme',t);
+  localStorage.setItem('erp_theme',t);
+  const panel=document.getElementById('themePanel');
+  if(panel) buildThemePanel(panel);
+}
+
+function toggleThemePanel(){
+  let p=document.getElementById('themePanel');
+  if(p){p.remove();return;}
+  p=document.createElement('div');
+  p.id='themePanel';
+  p.style.cssText='position:fixed;top:52px;right:12px;z-index:9999;'+
+    'background:var(--bg3);border:1px solid var(--border2);border-radius:14px;'+
+    'padding:14px;min-width:220px;box-shadow:var(--shadow)';
+  buildThemePanel(p);
+  document.body.appendChild(p);
+  setTimeout(()=>document.addEventListener('click',function h(e){
+    if(!p.contains(e.target)&&e.target.id!=='themeBtn'){
+      p.remove();document.removeEventListener('click',h);
+    }
+  }),100);
+}
+
+function buildThemePanel(p){
+  const cur=document.documentElement.getAttribute('data-theme')||'tech';
+  const curF=localStorage.getItem('erp_font')||'16';
+  const themeKeys=Object.keys(THEMES);
+  let html='<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:10px">🎨 介面風格</div>';
+  themeKeys.forEach(function(k){
+    const v=THEMES[k];
+    const a=cur===k;
+    const btn=document.createElement('button');
+    btn.setAttribute('data-tk',k);
+    btn.style.cssText='width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;border:none;cursor:pointer;margin-bottom:4px;text-align:left;background:'+(a?'rgba(77,142,245,.15)':'transparent')+';color:'+(a?'var(--blue)':'var(--text2)')+';font-weight:'+(a?700:400);
+    btn.innerHTML='<span style="font-size:18px">'+v.name.split(' ')[0]+'</span><div><div style="font-size:13px;font-weight:600;color:var(--text)">'+v.name.split(' ').slice(1).join(' ')+'</div><div style="font-size:11px;color:var(--text3)">'+v.desc+'</div></div>';
+    btn.onclick=function(){applyTheme(k);};
+    html+=btn.outerHTML;
+  });
+  html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">🔤 字體大小</div><div style="display:flex;gap:5px">';
+  ['14','15','16','17','18'].forEach(function(s){
+    const a=curF===s;
+    html+='<button onclick="document.documentElement.style.fontSize=\''+s+'px\';localStorage.setItem(\'erp_font\',\''+s+'\')" style="flex:1;padding:5px;border-radius:6px;border:1px solid var(--border2);cursor:pointer;font-size:11px;background:'+(a?'rgba(77,142,245,.2)':'var(--bg4)')+';color:'+(a?'var(--blue)':'var(--text2)')+'">'+s+'</button>';
+  });
+  html+='</div></div>';
+  p.innerHTML=html;
+  p.querySelectorAll('[data-tk]').forEach(function(btn){
+    btn.onclick=function(){applyTheme(btn.getAttribute('data-tk'));};
+  });
+}
+
 async function login(){
   const t=document.getElementById('tokenInput').value.trim().replace(/\s+/g,'');
   const r=document.getElementById('roleSelect').value;
