@@ -631,6 +631,10 @@ const DB={
   qcInspectDS: 'd771ab41-1cc3-4baa-b306-273550d58685',
   // 庫存異動記錄
   stockLog:   '0aa78528-a5bb-4a0d-8005-c0c1e0aaf8a3',
+  stockLogDS: '0aa78528-a5bb-4a0d-8005-c0c1e0aaf8a3',
+  // 庫存修改原因記錄（新）
+  stockEditLog:   '808d789e-e9d3-4e6d-88d2-d58daa9aba4f',
+  stockEditLogDS: 'b17a7b63-2725-4258-ba55-71dbb4c24f7e',
   stockLogDS: '3bda3fab-943f-4a38-bf96-dc0384d228e9',
   // 生產排程
   schedule:   'c66f324d-59c6-4276-bdc5-b0ec915c9c20',
@@ -1813,8 +1817,31 @@ function _renderOrdersList(tabs){
   const sorted=SORT['orders']?applySort('orders',[...orders]):[...orders].sort((a,b)=>(b.created||'').localeCompare(a.created||''));
   let data=applyDateFilter('order',sorted,'created');
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
+
+  // ── 搜尋過濾 ──
+  const _ordQ = (document.getElementById('ordSearchQ')?.value||'').toLowerCase().trim();
+  const _ordType = document.getElementById('ordTypeFilter')?.value||'all';
+  if(_ordQ) data=data.filter(o=>(o.no||'').toLowerCase().includes(_ordQ)||(o.cust||'').toLowerCase().includes(_ordQ)||(o.product||'').toLowerCase().includes(_ordQ));
+  if(_ordType!=='all') data=data.filter(o=>{
+    if(_ordType==='shopee') return (o.orderType==='shopee'||(o.product||'').startsWith('S-')||(o.matCode||'').startsWith('S-'));
+    if(_ordType==='overseas') return (!o.orderType||o.orderType==='overseas');
+    if(_ordType==='domestic') return o.orderType==='domestic';
+    if(_ordType==='sfg') return o.orderType==='sfg';
+    return true;
+  });
+
   return _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="inp" id="ordSearchQ" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${_ordQ}"
+        oninput="renderTab('orders')"
+        style="min-width:180px;padding:5px 10px;font-size:0.6875rem">
+      <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('orders')">
+        <option value="all" ${_ordType==='all'?'selected':''}>全部類型</option>
+        <option value="overseas" ${_ordType==='overseas'?'selected':''}>🌍 國外</option>
+        <option value="domestic" ${_ordType==='domestic'?'selected':''}>🏠 國內</option>
+        <option value="sfg" ${_ordType==='sfg'?'selected':''}>📦 SFG</option>
+        <option value="shopee" ${_ordType==='shopee'?'selected':''}>🛒 蝦皮</option>
+      </select>
       <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('orders')">
         <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option>
       </select>
@@ -2104,7 +2131,7 @@ function renderCustomers(){
 }
 
 function renderInventory(){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
   const low=mats.filter(m=>m.stock<=m.safe);
   const canEdit=ROLE==='warehouse'||ROLE==='manager';
 
@@ -2410,8 +2437,7 @@ function _invRender(){
 }
 
 function renderPicking(){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📄 領料主單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;
-  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
+  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📄 領料主單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
   const data=applySort('picking',applyDateFilter('pick',picks,'date'));
   return _notionBar + `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
     <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
@@ -2805,6 +2831,10 @@ function openEditMat(mid){
       </div>
     </div>
     <div style="font-size:0.625rem;color:var(--text3);margin-bottom:10px">⚠ 儲存後同步更新 Notion 料件主檔</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:0.625rem;color:var(--red);display:block;margin-bottom:4px">✳ 修改原因（必填）</label>
+      <input class="inp" id="em_reason" placeholder="請填寫修改原因，不可空白或只有特殊符號" style="border-color:rgba(239,68,68,.3)">
+    </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="doEditMat('${mid}')">💾 儲存更新</button>
@@ -2812,12 +2842,55 @@ function openEditMat(mid){
   openModal();
 }
 
+// ══════════════════════════════════════════════
+// 庫存修改記錄：寫入 Notion 📝 庫存修改記錄 資料庫
+// ══════════════════════════════════════════════
+async function _writeStockEditLog({matId, matName, matCode, changeType, before, after, delta, reason, operator}){
+  try{
+    const today = new Date();
+    const yr = today.getFullYear().toString().slice(2);
+    const mo = String(today.getMonth()+1).padStart(2,'0');
+    const dd = String(today.getDate()).padStart(2,'0');
+    const hh = String(today.getHours()).padStart(2,'0');
+    const mm = String(today.getMinutes()).padStart(2,'0');
+    const recNo = `LOG-${yr}${mo}${dd}-${hh}${mm}-${Math.floor(Math.random()*90+10)}`;
+
+    const props = {
+      '記錄編號':  {title:[{text:{content:recNo}}]},
+      '料件名稱':  {rich_text:[{text:{content:matName||''}}]},
+      '料件編號':  {rich_text:[{text:{content:matCode||''}}]},
+      '修改類型':  {select:{name:changeType||'其他修改'}},
+      '修改前數值':{rich_text:[{text:{content:String(before??'')}}]},
+      '修改後數值':{rich_text:[{text:{content:String(after??'')}}]},
+      '修改原因':  {rich_text:[{text:{content:reason||''}}]},
+      '修改人員':  {rich_text:[{text:{content:operator||ROLE||''}}]},
+    };
+    if(typeof delta === 'number' && !isNaN(delta)) props['變化量']={number:delta};
+    if(matId) props['料件連結']={url:`https://www.notion.so/${matId.replace(/-/g,'')}`};
+
+    await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:props});
+    console.log('[庫存記錄] 已寫入:', recNo, changeType, reason);
+  }catch(e){
+    console.warn('[庫存記錄] 寫入失敗（不影響主功能）:', e);
+  }
+}
+
 async function doEditMat(mid){
   const name=document.getElementById('em_name').value.trim();
   const code=document.getElementById('em_code').value.trim();
   const type=document.getElementById('em_type').value;
   const safe=parseInt(document.getElementById('em_safe').value)||0;
+  const reason=(document.getElementById('em_reason')?.value||'').trim();
   if(!name){showToast('請填入料件名稱','warn');return;}
+  // 原因驗證
+  if(!reason || !/[\u4e00-\u9fa5a-zA-Z0-9]/.test(reason)){
+    showToast('⚠ 請填寫修改原因（需包含中文或英數字）','warn');
+    document.getElementById('em_reason')?.focus();
+    return;
+  }
+  const oldMat = mats.find(x=>x.id===mid);
+  const oldName = oldMat?.name||'';
+  const oldSafe = oldMat?.safe||0;
   closeModal();showToast('更新中...','warn');
   try{
     const props={
@@ -2827,8 +2900,16 @@ async function doEditMat(mid){
     };
     if(code!==undefined)props['料件編號']={rich_text:[{text:{content:code}}]};
     await updatePage(mid,props);
+    // 判斷修改類型
+    const changeType = name!==oldName ? '料件名稱修改' : safe!==oldSafe ? '安全庫存修改' : '其他修改';
+    const before = name!==oldName ? oldName : String(oldSafe);
+    const after  = name!==oldName ? name : String(safe);
+    await _writeStockEditLog({
+      matId:mid, matName:name, matCode:code,
+      changeType, before, after, delta:0, reason, operator:ROLE,
+    });
     await refreshAll();
-    showToast('✅ 料件「'+name+'」已更新至 Notion','ok');
+    showToast('✅ 料件「'+name+'」已更新（原因已記錄）','ok');
   }catch(e){showToast('❌ 更新失敗：'+e.message,'err');}
 }
 
@@ -3495,7 +3576,19 @@ function openModal(type,data){
         <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">顯示順序（小=優先）</label><input class="inp" type="number" id="ann_order" value="${d.order||99}" min="1"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:20px"><input type="checkbox" id="ann_pin" ${d.pinned?'checked':''} style="accent-color:var(--blue);width:16px;height:16px"><label style="font-size:0.75rem;color:var(--text2)">📌 置頂</label></div>
       </div>
-      <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitAnnounce(${d.id?`'${d.id}'`:'null'})">💾 儲存</button></div>`;
+      <div class="
+      <div id="blockShopee" style="display:none">
+        <div style="margin-bottom:12px">
+          <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">🛒 蝦皮商品</label>
+          <select class="inp" id="m_shopee_sku" onchange="onShopeeSkuChange(this.value)" style="margin-bottom:8px"><option value="">— 選擇蝦皮商品（S-開頭）—</option></select>
+          <div id="shopeeSkuInfo" style="font-size:0.6875rem;color:var(--text3);padding:8px;background:var(--bg3);border-radius:8px;display:none"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">買家帳號</label><input class="inp" id="m_shopee_buyer" placeholder="蝦皮買家帳號"></div>
+          <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
+        </div>
+        <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_shopee_note" placeholder="備註（選填）"></div>
+      </div>form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="submitAnnounce(${d.id?`'${d.id}'`:'null'})">💾 儲存</button></div>`;
     document.getElementById('modalBg').classList.add('open');return;
   }
 
@@ -3568,6 +3661,7 @@ async function loadLeaveStats(){
         class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🏭 國內訂單</button>
       <button id="tabSfg" type="button" onclick="switchOrderTab('sfg')"
         class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">⚙️ 半成品</button>
+        <button id=\'tabShopee\' type=\'button\' onclick=\'switchOrderTab(\\\"shopee\\\")\' class=\'btn btn-ghost\' style=\'flex:1;justify-content:center;font-size:0.75rem\'>🛒 蝦皮</button>
     </div>
 
     <div id="blockOverseas" style="display:none">
@@ -4046,8 +4140,15 @@ async function doUpdateStatus(id, s){
 function openEditStock(id, name, cur){
   document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3>
   <div style="font-size:0.8125rem;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:1.25rem">${cur}</b> 個</div>
-  <input class="inp" type="number" id="newStock" value="${cur}" min="0" style="margin-bottom:12px">
-  <div style="font-size:0.625rem;color:var(--text3);margin-bottom:12px">⚠ 修改後自動寫入庫存異動記錄</div>
+  <div style="margin-bottom:10px">
+    <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">修改後數量</label>
+    <input class="inp" type="number" id="newStock" value="${cur}" min="0">
+  </div>
+  <div style="margin-bottom:12px">
+    <label style="font-size:0.625rem;color:var(--red);display:block;margin-bottom:4px">✳ 修改原因（必填）</label>
+    <input class="inp" id="editStockReason" placeholder="請填寫修改原因，不可空白或只有特殊符號" style="border-color:rgba(239,68,68,.3)">
+    <div style="font-size:0.625rem;color:var(--text3);margin-top:4px">⚠ 修改後自動寫入庫存修改記錄，留存備查</div>
+  </div>
   <div class="form-actions">
     <button class="btn btn-ghost" onclick="closeModal()">取消</button>
     <button class="btn btn-blue" onclick="doEditStock('${id}','${name}',${cur})">💾 確認修改</button>
@@ -4055,14 +4156,28 @@ function openEditStock(id, name, cur){
   openModal();
 }
 async function doEditStock(id, name, oldStock){
-  const newVal=parseInt(document.getElementById('newStock').value);
+  const newVal = parseInt(document.getElementById('newStock').value);
+  const reason = (document.getElementById('editStockReason')?.value||'').trim();
   if(isNaN(newVal)||newVal<0){showToast('請輸入有效數字','warn');return;}
+  // 原因驗證：不可空白、不可只有特殊符號
+  if(!reason || !/[\u4e00-\u9fa5a-zA-Z0-9]/.test(reason)){
+    showToast('⚠ 請填寫修改原因（需包含中文或英數字）','warn');
+    document.getElementById('editStockReason')?.focus();
+    return;
+  }
   closeModal();showToast('更新庫存中...','warn');
   try{
     await updatePage(id,{'目前庫存':{number:newVal}});
     await logStockChange(id,name,'','手動調整',newVal-oldStock,oldStock,newVal,'手動',ROLE);
+    // 寫入庫存修改記錄
+    await _writeStockEditLog({
+      matId:id, matName:name, matCode:'',
+      changeType:'庫存數量修改',
+      before:String(oldStock), after:String(newVal),
+      delta:newVal-oldStock, reason, operator:ROLE,
+    });
     await refreshAll();
-    showToast(`✅ ${name} 庫存 ${oldStock} → ${newVal}`,'ok');
+    showToast(`✅ ${name} 庫存 ${oldStock} → ${newVal}（原因已記錄）`,'ok');
   }catch(e){showToast('❌ 失敗：'+e.message,'err');}
 }
 
@@ -4738,7 +4853,7 @@ const DOMESTIC_NAMES=['双玉','欣定昶','晶元','鹿特','聞鼎','程岱','
   '越崎','福訊','齊茂','華佑','加璽','禾穎','昌特(亨爵)','西建'];
 
 function switchOrderTab(type){
-  const tabs = ['overseas','domestic','sfg'];
+  const tabs = ['overseas','domestic','sfg','shopee'];
   tabs.forEach(t=>{
     const block = document.getElementById('block'+t.charAt(0).toUpperCase()+t.slice(1));
     const tab   = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
@@ -4761,6 +4876,9 @@ function switchOrderTab(type){
   if(type==='sfg'){
     const sel=document.getElementById('m_sfg_sel');
     if(sel) sel.style.display='block';
+  }
+  if(type==='shopee'){
+    initShopeeOrderList();
   }
 }
 
@@ -4901,6 +5019,10 @@ async function submitAllOrders(){
   // ── 按鈕立即鎖定，給使用者視覺回饋
   const btn = document.getElementById('orderSubmitBtn');
   if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
+
+  // ── 判斷是否為蝦皮訂單
+  const isShopee   = document.getElementById('blockShopee')?.style.display !== 'none';
+  if(isShopee){ await submitShopeeOrder(); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
 
   // ── 先讀取所有表單值（在關閉 modal 之前）
   const isSfg      = document.getElementById('blockSfg')?.style.display !== 'none';
@@ -5882,6 +6004,140 @@ async function submitOrderInspection(orderId, orderNo){
     showToast('❌ 提交失敗：'+e.message,'err');
     console.error('submitOrderInspection error:', e);
   }
+}
+
+// ══════════════════════════════════════════════════
+// 蝦皮訂單函數
+// ══════════════════════════════════════════════════
+function initShopeeOrderList(){
+  const sel = document.getElementById('m_shopee_sku');
+  if(!sel) return;
+  // 清空並重填（只顯示 S- 開頭的料件）
+  sel.innerHTML = '<option value="">— 選擇蝦皮商品（S-開頭）—</option>';
+  const shopeeItems = mats.filter(m=>m.code&&m.code.startsWith('S-')).sort((a,b)=>a.code.localeCompare(b.code));
+  shopeeItems.forEach(m=>{
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.code + (m.name&&m.name!==m.code?' / '+m.name:'');
+    sel.appendChild(opt);
+  });
+}
+
+function onShopeeSkuChange(matId){
+  const info = document.getElementById('shopeeSkuInfo');
+  if(!info) return;
+  if(!matId){ info.style.display='none'; return; }
+  const mat = mats.find(m=>m.id===matId);
+  if(!mat){ info.style.display='none'; return; }
+  // 從備註解析 BOM 資訊（格式：對外:XX | 主料:XX | 配件:XX）
+  const note = mat.note || mat.備註 || '';
+  info.innerHTML = `<div style="font-weight:600;margin-bottom:4px">${mat.code}</div>
+    <div style="color:var(--text2)">${note}</div>
+    <div style="margin-top:4px;color:var(--text3)">目前庫存：${mat.qty??0}</div>`;
+  info.style.display='';
+}
+
+async function submitShopeeOrder(){
+  const skuId  = document.getElementById('m_shopee_sku')?.value;
+  const buyer  = document.getElementById('m_shopee_buyer')?.value?.trim()||'';
+  const qty    = parseInt(document.getElementById('m_shopee_qty')?.value)||1;
+  const note   = document.getElementById('m_shopee_note')?.value?.trim()||'';
+
+  if(!skuId){ showToast('請選擇蝦皮商品','warn'); return; }
+  const mat = mats.find(m=>m.id===skuId);
+  if(!mat){ showToast('找不到料件資訊','err'); return; }
+
+  const today = new Date().toISOString().slice(0,10);
+  const yr = today.slice(2,4);
+  const mo = today.slice(5,7);
+  const orderNo = `ORD-${yr}${mo}-S${Math.floor(Math.random()*900+100)}`;
+
+  showToast('⏳ 建立蝦皮訂單...','ok');
+  closeModal();
+
+  try{
+    // ── 1. 建立客戶訂單 ──
+    const orderProps = {
+      '訂單號碼':   {title:[{text:{content:orderNo}}]},
+      '料件編號':   {rich_text:[{text:{content:mat.code||''}}]},
+      '客戶名稱':   {rich_text:[{text:{content:buyer||'蝦皮'}}]},
+      '數量':       {number:qty},
+      '狀態':       {select:{name:'生產中'}},
+      '訂單類型':   {select:{name:'蝦皮'}},
+      '備註':       {rich_text:[{text:{content:[`買家:${buyer}`,note].filter(Boolean).join(' | ')}}]},
+    };
+    if(today) orderProps['建立日期']={date:{start:today}};
+    const ordResult = await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:orderProps});
+    if(!ordResult||ordResult.object!=='page') throw new Error('訂單建立失敗');
+
+    // ── 2. 解析 BOM 並建立領料單 ──
+    const bomNote = mat.note||'';
+    // 解析 備註欄位的 BOM：主料:XXX | 配件:A, B, C
+    const mainMatMatch  = bomNote.match(/主料:([^\s|]+)/);
+    const accMatch      = bomNote.match(/配件:([^|]+)/);
+    const mainMatCode   = mainMatMatch?.[1]?.trim()||'';
+    const accCodes      = accMatch?.[1]?.split(',').map(s=>s.trim()).filter(Boolean)||[];
+
+    // 建立領料主單
+    const pickNo = `PK-${yr}${mo}-S${Math.floor(Math.random()*900+100)}`;
+    const pickMasterProps = {
+      '領料單號':   {title:[{text:{content:pickNo}}]},
+      '訂單號碼':   {rich_text:[{text:{content:orderNo}}]},
+      '狀態':       {select:{name:'待領料'}},
+    };
+    await notionAPI('POST','pages',{parent:{database_id:DB.pickMaster},properties:pickMasterProps});
+
+    // ── 3. 扣除庫存：主料 × qty ──
+    if(mainMatCode){
+      const mainMat = mats.find(m=>m.code===mainMatCode);
+      if(mainMat){
+        const newQty = Math.max(0,(mainMat.qty||0)-qty);
+        await updatePage(mainMat.id,{'目前庫存':{number:newQty}});
+        await logStockChange(mainMat.id, mainMatCode, -qty, `蝦皮訂單領料:${orderNo}`);
+        mainMat.qty = newQty;
+      }
+    }
+
+    // ── 4. 扣除配件庫存（解析數量，如 x2）──
+    for(const accCode of accCodes){
+      let code=accCode, deductQty=qty;
+      const xMatch = accCode.match(/(.+)x(\d+)$/i);
+      if(xMatch){ code=xMatch[1].trim(); deductQty=qty*parseInt(xMatch[2]); }
+      const accMat = mats.find(m=>m.code===code);
+      if(accMat){
+        const newQty = Math.max(0,(accMat.qty||0)-deductQty);
+        await updatePage(accMat.id,{'目前庫存':{number:newQty}});
+        await logStockChange(accMat.id, code, -deductQty, `蝦皮訂單配件:${orderNo}`);
+        accMat.qty = newQty;
+      }
+    }
+
+    await refreshAll();
+    showToast(`✅ 蝦皮訂單 ${orderNo} 建立完成（狀態：生產中）`,'ok');
+
+  }catch(e){
+    showToast('❌ 蝦皮訂單建立失敗：'+e.message,'err');
+    console.error('submitShopeeOrder error:',e);
+  }
+}
+
+async function completeShopeeOrder(orderId, orderNo, skuCode){
+  // 蝦皮訂單完成時：增加 S- 料件庫存（因為是成品出貨統計）
+  if(!confirm(`確認完成訂單 ${orderNo}？\n完成後將增加 ${skuCode} 的出貨統計。`)) return;
+  try{
+    await updatePage(orderId,{'狀態':{select:{name:'已完成'}}});
+    const ord = orders.find(o=>o.id===orderId);
+    if(ord) ord.status='已完成';
+    // 扣除 S- 商品的庫存（出貨）
+    const sku = mats.find(m=>m.code===skuCode);
+    if(sku && sku.qty>0){
+      const newQty = Math.max(0,(sku.qty||0)-1);
+      await updatePage(sku.id,{'目前庫存':{number:newQty}});
+      sku.qty=newQty;
+    }
+    await refreshAll(); renderTab(CURRENT_TAB);
+    showToast(`✅ 訂單 ${orderNo} 已完成`,'ok');
+  }catch(e){ showToast('❌ '+e.message,'err'); }
 }
 
 async function cancelCorder(id, matId, qty){
