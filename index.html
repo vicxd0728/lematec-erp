@@ -738,6 +738,13 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     const orderTypeTab = data?.tab||'overseas';
+    // 國外客戶清單
+    const overseaOpts = overseasCustomers.map(c=>`<option value="${c.id}" data-code="${c.code||''}" data-name="${c.name||''}">${c.code||''} — ${c.name||''}</option>`).join('');
+    // 國內客戶清單
+    const domOpts = domesticCustomers.map(c=>`<option value="${c.id}">${c.name||''}</option>`).join('');
+    // SFG 半成品清單
+    const sfgOpts = mats.filter(m=>m.type==='半成品'||m.type==='成品').sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(m=>`<option value="${m.id}" data-code="${m.code||''}">${m.code||''} ${m.name&&m.name!==m.code?'— '+m.name:''}</option>`).join('');
+
     mi.innerHTML=`<h3>📋 新增訂單</h3>
     <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
       <button id="tabOverseas" type="button" onclick="switchOrderTab('overseas')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🌍 國外訂單</button>
@@ -745,9 +752,61 @@ function openModal(type,data){
       <button id="tabSfg" type="button" onclick="switchOrderTab('sfg')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">⚙️ 半成品</button>
       <button id="tabShopee" type="button" onclick="switchOrderTab('shopee')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🛒 蝦皮</button>
     </div>
-    <div id="blockOverseas" style="display:none"></div>
-    <div id="blockDomestic" style="display:none"></div>
-    <div id="blockSfg" style="display:none"></div>
+
+    <!-- 國外訂單 block -->
+    <div id="blockOverseas" style="display:none">
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px"><span style="background:var(--blue);color:#fff;border-radius:3px;padding:1px 5px;font-size:0.5625rem;margin-right:4px">1</span>客戶代號 / 名稱搜尋</label>
+        <input class="inp" id="m_code" placeholder="輸入代號或名稱..." oninput="onCustCodeInput(this.value)" autocomplete="off">
+        <div id="codeMsg" style="font-size:0.6875rem;margin-top:4px;min-height:16px"></div>
+      </div>
+      <div id="custSuggest" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
+      <div id="custMatch" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:0.8125rem;display:flex;align-items:center;justify-content:space-between">
+        <span id="custMatchText" style="color:var(--green)"></span>
+        <button type="button" onclick="clearCustSelect()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.75rem">✕ 重選</button>
+      </div>
+      <input type="hidden" id="m_cust" value="">
+      <div id="newCustRow" style="display:none;margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--amber);display:block;margin-bottom:4px">⚠ 新客戶 — 請填入資料</label>
+        <input class="inp" id="m_newcust_name" placeholder="客戶名稱 *" style="margin-bottom:6px">
+        <input class="inp" id="m_newcust_country" placeholder="國家 / 地區">
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px"><span style="background:var(--blue);color:#fff;border-radius:3px;padding:1px 5px;font-size:0.5625rem;margin-right:4px">2</span>讀取 PI（選填）</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button type="button" class="btn btn-ghost btn-sm" id="fetchPIBtn" onclick="fetchPIFromNotion()">📂 抓 Notion PI</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('piFileInput').click()">📁 上傳 Excel PI</button>
+          <input type="file" id="piFileInput" accept=".xlsx,.xls" style="display:none" onchange="parsePIFile(this)">
+        </div>
+        <div id="piNotionList" style="display:none;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;max-height:140px;overflow-y:auto;margin-top:6px"></div>
+      </div>
+    </div>
+
+    <!-- 國內訂單 block -->
+    <div id="blockDomestic" style="display:none">
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">國內客戶</label>
+        <select class="inp" id="m_dom_cust"><option value="">— 選擇客戶 —</option>${domOpts}</select>
+      </div>
+    </div>
+
+    <!-- 半成品 block -->
+    <div id="blockSfg" style="display:none">
+      <div style="padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;margin-bottom:12px;font-size:0.6875rem;color:var(--amber)">⚙️ 半成品生產單 — QC 通過後自動入庫，不需填寫客戶及包材</div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">半成品料號 *</label>
+        <input class="inp" id="m_sfg_search" placeholder="搜尋半成品..." oninput="filterSfgList(this.value)" autocomplete="off">
+        <select class="inp" id="m_sfg_sel" size="1" style="margin-top:6px;width:100%">
+          <option value="">— 選擇半成品 —</option>${sfgOpts}
+        </select>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">品項清單</label>
+        <div id="sfgBomList" style="font-size:0.6875rem;color:var(--text3);padding:8px;background:var(--bg3);border-radius:6px">尚未加入品項，請從上方 PI 讀取或手動新增</div>
+      </div>
+    </div>
+
+    <!-- 蝦皮 block -->
     <div id="blockShopee" style="display:none">
       <div style="padding:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:10px;margin-bottom:14px">
         <div style="font-size:0.6875rem;font-weight:700;color:var(--blue);margin-bottom:4px">🛒 蝦皮組裝單</div>
@@ -773,6 +832,7 @@ function openModal(type,data){
       </div>
       <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_shopee_note" placeholder="備註（選填）"></div>
     </div>
+
     <div id="itemAddRow" style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end"></div>
     <div id="dateRow" style="display:flex;gap:8px;margin-bottom:10px">
       <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label><input class="inp" type="date" id="m_date"></div>
