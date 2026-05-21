@@ -4774,11 +4774,13 @@ function clearCustSelect(){
 }
 
 function initDomesticList(){
-  const list=document.getElementById('domCustList');
-  if(!list) return;
+  const sel=document.getElementById('m_dom_cust');
+  if(!sel) return;
   const domCusts=customers.filter(c=>c.type==='domestic');
-  list.innerHTML='<option value="">— 選擇國內客戶 —</option>'
-    +domCusts.map(c=>`<option value="${c.id}">${c.name||''}</option>`).join('');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">— 選擇國內客戶 —</option>'
+    +domCusts.sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .map(c=>`<option value="${c.id}" ${c.id===prev?'selected':''}>${c.name||''} ${c.code?'('+c.code+')':''}</option>`).join('');
 }
 
 function filterSfgList(q){
@@ -5081,24 +5083,22 @@ async function submitShopeeOrder(){
     const accMatch     = bomNote.match(/配件:([^|]+)/);
     const mainMatCode  = mainMatMatch?.[1]?.trim()||'';
     const accCodesStr  = accMatch?.[1]?.trim()||'';
-    // 建立客戶訂單（寫到 DB.orders 和 DB.shopeeOrders）
+    // 建立客戶訂單（正確欄位名稱）
     const orderProps = {
-      '訂單號碼':   {title:[{text:{content:orderNo}}]},
-      '料件編號':   {rich_text:[{text:{content:mat.code||''}}]},
-      '客戶名稱':   {rich_text:[{text:{content:buyer||'蝦皮'}}]},
-      '數量':       {number:qty},
+      '訂單號':     {title:[{text:{content:orderNo}}]},
+      '客戶名稱':   {select:{name:'蝦皮'}},
+      '訂購數量':   {number:qty},
       '狀態':       {select:{name:'生產中'}},
       '訂單類型':   {select:{name:'蝦皮'}},
-      '備註':       {rich_text:[{text:{content:[`買家:${buyer}`,note].filter(Boolean).join(' | ')}}]},
+      '業務備註':   {rich_text:[{text:{content:note||''}}]},
     };
-    if(today) orderProps['建立日期']={date:{start:today}};
+    if(today) orderProps['交期']={date:{start:today}};
     const ordResult = await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:orderProps});
     if(!ordResult||ordResult.object!=='page') throw new Error('訂單建立失敗');
     // 寫入蝦皮訂單資料庫
     const shopeeProps = {
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
       '蝦皮商品':   {rich_text:[{text:{content:mat.code||''}}]},
-      '買家帳號':   {rich_text:[{text:{content:buyer||''}}]},
       '數量':       {number:qty},
       '狀態':       {select:{name:'生產中'}},
       '備註':       {rich_text:[{text:{content:note||''}}]},
@@ -5141,9 +5141,14 @@ async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
 
-window.onload=()=>{
+window.onload=async ()=>{
   const t=localStorage.getItem('lt');const r=localStorage.getItem('lr');
-  if(t&&r){TOKEN=t;ROLE=r;document.getElementById('tokenInput').value=t;document.getElementById('roleSelect').value=r;startApp();}
+  if(t&&r){
+    TOKEN=t;ROLE=r;
+    document.getElementById('tokenInput').value=t;
+    document.getElementById('roleSelect').value=r;
+    await startApp();
+  }
 };
 
 // 初始化（頁面載入時）
