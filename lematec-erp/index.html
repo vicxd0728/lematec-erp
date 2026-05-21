@@ -604,6 +604,31 @@ html[data-theme="warm"]{
 </div>
 
 <script>
+function openStatusModal(id, cur){
+  const statuses=['待排程','生產中','待檢驗','待品檢','待出貨','已完成','取消'];
+  document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+    ${statuses.map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}"
+      onclick="doUpdateStatus('${id}','${s}')"
+      style="justify-content:flex-start;font-size:13px">${pill(s)}&nbsp;&nbsp;${s}</button>`).join('')}
+  </div>
+  <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
+  openModal();
+}
+
+async function doUpdateStatus(id, s){
+  closeModal();
+  const o = orders.find(x=>x.id===id);
+  if(o){ o.status=s; renderTab(CURRENT_TAB); }
+  showToast('更新狀態中...','warn');
+  try{
+    await updatePage(id,{'狀態':{select:{name:s}}});
+    showToast('✅ 狀態→「'+s+'」','ok');
+    setTimeout(()=>refreshAll().catch(()=>{}), 1000);
+  }catch(e){ showToast('❌ '+e.message,'err'); }
+}
+
+
 function openEditStock(id, name, cur){
   document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3>
   <div style="font-size:0.8125rem;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:1.25rem">${cur}</b> 個</div>
@@ -3132,6 +3157,55 @@ function renderLeave(){
   </div>`;
 
   return _notionBar + tabs + statsFilterBar + statsSection;
+}
+
+
+// ══════════════════════════════════════════════════
+// C端訂單操作函數
+// ══════════════════════════════════════════════════
+async function cancelCorder(id, matId, qty){
+  const doReturn = confirm('是否需要回料？\n\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 不回料（直接取消）');
+  try{
+    if(doReturn && matId){
+      const matData = await notionAPI('GET','pages/'+matId);
+      const curStock = matData?.properties?.['目前庫存']?.number??0;
+      const newStock = curStock + parseInt(qty);
+      await updatePage(matId,{'目前庫存':{number:newStock}});
+      await logStockChange(matId,'','','C端退料',parseInt(qty),curStock,newStock,id,ROLE);
+    }
+    await updatePage(id,{'狀態':{select:{name:'已取消'}}});
+    const o = (window.corders||[]).find(x=>x.id===id);
+    if(o) o.status='已取消';
+    await refreshAll(); renderTab(CURRENT_TAB);
+    showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（不回料）','ok');
+  }catch(e){ showToast('錯誤：'+e.message,'err'); }
+}
+
+async function loadLeaveStats(){
+  try{
+    const r = await dbQueryAll(DB.leaveStats);
+    window.leaveStats = r.map(p=>({
+      id:p.id,
+      name:getTitle(p.properties,'員工姓名')||getTitle(p.properties,'Name'),
+      annual:p.properties?.['年假剩餘']?.number??0,
+      sick:p.properties?.['病假剩餘']?.number??0,
+      personal:p.properties?.['事假剩餘']?.number??0,
+      used:p.properties?.['已用天數']?.number??0,
+    }));
+  }catch(e){ window.leaveStats=[]; }
+}
+
+async function _updateLeaveStats(name, type, days){
+  try{
+    const stats = (window.leaveStats||[]).find(s=>s.name===name);
+    if(!stats) return;
+    const props = {};
+    if(type==='年假') props['年假剩餘']={number:Math.max(0,(stats.annual||0)-days)};
+    else if(type==='病假') props['病假剩餘']={number:Math.max(0,(stats.sick||0)-days)};
+    else if(type==='事假') props['事假剩餘']={number:Math.max(0,(stats.personal||0)-days)};
+    props['已用天數']={number:(stats.used||0)+days};
+    if(Object.keys(props).length) await updatePage(stats.id, props);
+  }catch(e){ console.warn('_updateLeaveStats 失敗:', e); }
 }
 
 async function syncCordersFromShopee115(){
