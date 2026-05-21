@@ -2370,6 +2370,15 @@ async function dbQueryAll(dbId){
   return all;
 }
 const createPage=(dbId,props)=>notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+function assertNotionPage(r, action='Notion 寫入'){
+  if(!r||r.object==='error'){
+    throw new Error(`${action}失敗：${r?.message||r?.code||'未知錯誤'}`);
+  }
+  if(r.object&&r.object!=='page'){
+    throw new Error(`${action}回傳異常：${r.object}`);
+  }
+  return r;
+}
 async function updatePage(id,props){
   for(let i=0;i<3;i++){
     const r=await notionAPI('PATCH',`pages/${id}`,{properties:props});
@@ -2555,12 +2564,17 @@ async function refreshAll(manual=false){
       stock:p.properties?.['目前庫存']?.number??0,
       safe:p.properties?.['安全庫存']?.number??0,
       note:getRichText(p.properties,'備註'),
+      created:p.created_time||'',
+      url:p.url||'',
     }));
 
     boms=bR.map(p=>({
+      id:p.id,
+      url:p.url||'',
       parentId:p.properties?.['母件']?.relation?.[0]?.id||'',
       childId:p.properties?.['子件']?.relation?.[0]?.id||'',
       qty:p.properties?.['每台用量']?.number??1,
+      name:getTitle(p.properties,'BOM項目'),
     }));
 
     orders=oR.map(p=>({
@@ -2689,6 +2703,139 @@ function explodeBOM(pid,qty){
     const child=findMatBySku(r.code);
     return child?{...child,needed:(parseInt(r.qty)||1)*qty}:{id:'',code:r.code,name:r.code,stock:0,needed:(parseInt(r.qty)||1)*qty,missing:true};
   });
+}
+function normalizeSku(v){
+  return String(v||'')
+    .toUpperCase()
+    .replace(/[　\s]/g,'')
+    .replace(/[＿_]/g,'-')
+    .replace(/[－–—]/g,'-')
+    .trim();
+}
+function materialKey(m){
+  return normalizeSku(m?.code||m?.name||'');
+}
+function requiresBOMMaterial(m, orderType=''){
+  const code=normalizeSku(m?.code||m?.name||'');
+  const type=m?.type||'';
+  const ot=String(orderType||'').toLowerCase();
+  return type==='半成品'||type==='蝦皮用'||type==='蝦皮用(S-)'||code.startsWith('S-')||ot==='蝦皮'||ot==='shopee';
+}
+function analyzeInventoryDeep(){
+  const refs={};
+  mats.forEach(m=>{refs[m.id]={asParent:0,asChild:0,orders:0,total:0};});
+  boms.forEach(b=>{
+    if(refs[b.parentId]) refs[b.parentId].asParent++;
+    if(refs[b.childId]) refs[b.childId].asChild++;
+  });
+  orders.forEach(o=>{if(refs[o.productId]) refs[o.productId].orders++;});
+  Object.keys(refs).forEach(id=>refs[id].total=refs[id].asParent+refs[id].asChild+refs[id].orders);
+
+  function keeperScore(m){
+    const r=refs[m.id]||{total:0,asParent:0,asChild:0,orders:0};
+    return r.total*10000 + (r.asParent>0?2500:0) + (r.asChild>0?1500:0) + (Number(m.stock)||0) + (m.code?25:0) + (m.created?1:0);
+  }
+  const groups={};
+  mats.forEach(m=>{
+    const k=materialKey(m);
+    if(!k) return;
+    (groups[k]||(groups[k]=[])).push(m);
+  });
+  const duplicateGroups=Object.entries(groups)
+    .filter(([k,list])=>list.length>1)
+    .map(([key,list])=>{
+      const sorted=[...list].sort((a,b)=>keeperScore(b)-keeperScore(a));
+      return {key, keep:sorted[0], remove:sorted.slice(1), list:sorted};
+    });
+
+  const bomParentSet=new Set(boms.map(b=>b.parentId).filter(Boolean));
+  const orderItems=mats
+    .filter(m=>['成品','半成品','蝦皮用','蝦皮用(S-)'].includes(m.type)||normalizeSku(m.code||m.name).startsWith('S-'))
+    .map(m=>{
+      const hasBom=bomParentSet.has(m.id)||getShopeeBomRows(m).length>0;
+      return {mat:m, hasBom, required:requiresBOMMaterial(m), refs:refs[m.id]||{total:0,asParent:0,asChild:0,orders:0}};
+    });
+  const mustFix=orderItems.filter(x=>x.required&&!x.hasBom);
+  const externalCandidates=orderItems.filter(x=>!x.required&&!x.hasBom);
+  const okBom=orderItems.filter(x=>x.hasBom);
+
+  const near=[];
+  const arr=mats.filter(m=>materialKey(m));
+  for(let i=0;i<arr.length;i++){
+    for(let j=i+1;j<arr.length;j++){
+      const a=arr[i], b=arr[j], ak=materialKey(a), bk=materialKey(b);
+      if(ak===bk) continue;
+      const short=ak.length<bk.length?ak:bk, long=ak.length<bk.length?bk:ak;
+      const sameCore=short.length>=5&&(long.includes(short)||levenshteinLite(short,long)<=2);
+      if(sameCore) near.push({a,b,ak,bk,score:levenshteinLite(ak,bk)});
+      if(near.length>120) break;
+    }
+    if(near.length>120) break;
+  }
+  return {refs, duplicateGroups, mustFix, externalCandidates, okBom, near:near.slice(0,80)};
+}
+function levenshteinLite(a,b){
+  a=String(a||'');b=String(b||'');
+  if(Math.abs(a.length-b.length)>3) return 9;
+  const dp=Array(b.length+1).fill(0).map((_,i)=>i);
+  for(let i=1;i<=a.length;i++){
+    let prev=dp[0]; dp[0]=i;
+    for(let j=1;j<=b.length;j++){
+      const tmp=dp[j];
+      dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));
+      prev=tmp;
+    }
+  }
+  return dp[b.length];
+}
+function openDeepInventoryAudit(){
+  const a=analyzeInventoryDeep();
+  function matLine(m){
+    const r=a.refs[m.id]||{asParent:0,asChild:0,orders:0,total:0};
+    const url=m.url||`https://www.notion.so/${m.id.replace(/-/g,'')}`;
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <a href="${url}" target="_blank" style="font-family:var(--f-mono);color:var(--cyan2);text-decoration:none">${m.code||m.name||'—'}</a>
+        <span style="font-size:0.75rem;color:var(--text2)">${m.name||''}</span>
+        ${pill(m.type||'未分類')}
+        <span style="font-size:0.75rem;color:var(--text3)">庫存 ${m.stock??0}</span>
+      </div>
+      <div style="font-size:0.6875rem;color:var(--text3);margin-top:3px">BOM母件 ${r.asParent} / BOM子件 ${r.asChild} / 訂單引用 ${r.orders}</div>
+    </div>`;
+  }
+  const dupHtml=a.duplicateGroups.length?a.duplicateGroups.map(g=>`
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="font-weight:800;color:var(--amber);margin-bottom:6px">重複料號：${g.key}</div>
+      <div style="font-size:0.75rem;color:var(--green2);margin-bottom:4px">建議保留（優先有 BOM/訂單關聯、庫存、料號完整者）</div>
+      ${matLine(g.keep)}
+      <div style="font-size:0.75rem;color:var(--red2);margin:8px 0 4px">建議檢查 / 可優先封存</div>
+      ${g.remove.map(matLine).join('')}
+    </div>`).join(''):'<div class="info-ok">沒有找到完全重複料號。</div>';
+  const mustFixHtml=a.mustFix.length?a.mustFix.map(x=>matLine(x.mat)).join(''):'<div class="info-ok">需要 BOM 的品項目前都有可展開來源。</div>';
+  const extHtml=a.externalCandidates.slice(0,80).map(x=>matLine(x.mat)).join('')||'<div class="info-ok">沒有外購候選項。</div>';
+  const nearHtml=a.near.length?a.near.map(x=>`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:9px;margin-bottom:7px">
+      ${matLine(x.a)}${matLine(x.b)}
+    </div>`).join(''):'<div class="info-ok">沒有明顯相近料號。</div>';
+  document.getElementById('modalInner').innerHTML=`<h3>🧪 庫存 / BOM 深度檢視</h3>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div class="dash-status-card"><strong>${a.duplicateGroups.length}</strong><span>完全重複料號</span></div>
+      <div class="dash-status-card"><strong style="color:${a.mustFix.length?'var(--red2)':'var(--green2)'}">${a.mustFix.length}</strong><span>需 BOM 但未關聯</span></div>
+      <div class="dash-status-card"><strong>${a.externalCandidates.length}</strong><span>外購/直接扣庫存候選</span></div>
+      <div class="dash-status-card"><strong>${a.near.length}</strong><span>相近料號</span></div>
+    </div>
+    <div class="qc-tabs" style="overflow-x:auto">
+      <button class="qc-tab active" onclick="document.querySelectorAll('._audit_sec').forEach(s=>s.style.display='none');document.getElementById('audit_dup').style.display='';this.parentNode.querySelectorAll('.qc-tab').forEach(b=>b.classList.remove('active'));this.classList.add('active')">重複</button>
+      <button class="qc-tab" onclick="document.querySelectorAll('._audit_sec').forEach(s=>s.style.display='none');document.getElementById('audit_missing').style.display='';this.parentNode.querySelectorAll('.qc-tab').forEach(b=>b.classList.remove('active'));this.classList.add('active')">需補BOM</button>
+      <button class="qc-tab" onclick="document.querySelectorAll('._audit_sec').forEach(s=>s.style.display='none');document.getElementById('audit_external').style.display='';this.parentNode.querySelectorAll('.qc-tab').forEach(b=>b.classList.remove('active'));this.classList.add('active')">外購候選</button>
+      <button class="qc-tab" onclick="document.querySelectorAll('._audit_sec').forEach(s=>s.style.display='none');document.getElementById('audit_near').style.display='';this.parentNode.querySelectorAll('.qc-tab').forEach(b=>b.classList.remove('active'));this.classList.add('active')">相近</button>
+    </div>
+    <div id="audit_dup" class="_audit_sec">${dupHtml}</div>
+    <div id="audit_missing" class="_audit_sec" style="display:none"><div class="info-box info-warn">這些品項被判定需要 BOM（半成品 / 蝦皮用 / S-料號），但目前沒有 BOM 或備註可展開，領料時應阻擋。</div>${mustFixHtml}</div>
+    <div id="audit_external" class="_audit_sec" style="display:none"><div class="info-box info-tip">這些成品目前沒有 BOM，會被視為外購品，領料時直接扣成品庫存。請確認是否正確。</div>${extHtml}</div>
+    <div id="audit_near" class="_audit_sec" style="display:none"><div class="info-box info-warn">這些不是完全重複，但料號很接近，可能是命名錯或重複建檔。先人工確認，不建議自動刪。</div>${nearHtml}</div>
+    <div class="form-actions"><button class="btn btn-blue" onclick="closeModal()">關閉</button></div>`;
+  openModal();
 }
 function getShopeeBomRows(mat){
   const parsed=[];
@@ -4005,6 +4152,7 @@ function renderInventory(){
       <!-- 清除篩選 -->
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
+        ${ROLE==='manager'?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${ROLE==='manager'?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
         ${ROLE==='manager'?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
@@ -5538,7 +5686,7 @@ function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);
   const prod=mats.find(m=>m.id===o.productId);
   const items=explodeBOM(o.productId,o.qty);
-  const isShopeeOrder=o?.orderType==='蝦皮'||o?.orderType==='shopee'||/^S-/i.test(prod?.code||prod?.name||'');
+  const mustHaveBom=requiresBOMMaterial(prod,o?.orderType);
   const missing=items.filter(i=>i.missing||!i.id);
   const short=items.filter(i=>i.type!=='半成品'&&!i.missing&&i.stock<i.needed);
   // ★ BOM 診斷：清楚告知用戶狀況
@@ -5555,10 +5703,10 @@ function openPickPreview(orderId){
     <div style="font-size:0.625rem;color:var(--text3)">BOM 子件：${bomCount} 筆 → 展開料件：${items.length} 項${!prod?.name?'<span style="color:var(--red2);margin-left:8px">⚠ 訂單未關聯成品料件</span>':''}</div>
   </div>
   ${!items.length?
-    isShopeeOrder?
+    mustHaveBom?
     `<div class="info-box info-warn">
-      ⚠ 此蝦皮用料號尚未設定 BOM 或「主料/配件」備註，不能直接扣 S-成品庫存。<br>
-      請先在料件主檔備註填入「主料:料號 | 配件:料號, 料號x2」，或在 BOM 清單建立母件/子件後再領料。
+      ⚠ 此品項被判定為必須有 BOM（半成品 / 蝦皮用 / S-料號），目前尚未設定 BOM 或「主料/配件」備註，不能直接扣成品庫存。<br>
+      請先在 BOM 清單建立母件/子件關係；蝦皮 S-料號也可用 Excel BOM 匯入建立。
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
@@ -5668,6 +5816,9 @@ async function doPick(orderId){
     // ── 一般訂單：原有 BOM 展開邏輯 ──
     const items=explodeBOM(o.productId,o.qty);
     const hasBOM = items.length > 0;
+    if(!hasBOM&&requiresBOMMaterial(prod,o?.orderType)){
+      throw new Error('此品項必須設定 BOM 才能領料，避免誤扣成品庫存。請先補 BOM 關係。');
+    }
     // 1. 建立領料主單
     const master=await createPage(DB.pickMaster,{
       '領料主單號':{title:[{text:{content:no}}]},
@@ -6329,10 +6480,11 @@ async function submitBatchInbound(){
   const today=new Date().toISOString().slice(0,10);
   const yr=today.slice(2,4); const mo=today.slice(5,7);
   closeModal(); showToast(`⏳ 建立 ${window._ibItems.length} 筆入料中...`,'warn');
-  let ok=0, fail=0;
+  let ok=0, fail=0, failMsgs=[];
   for(const item of window._ibItems){
     try{
       let matId = item.matId;
+      const inboundType = ['零件','半成品','成品'].includes(item.newType) ? item.newType : '零件';
       // 若是新料號，先建立料件主檔
       if(item.isNew || !matId){
         const newMat = await notionAPI('POST','pages',{parent:{database_id:DB.materials},properties:{
@@ -6342,38 +6494,35 @@ async function submitBatchInbound(){
           '目前庫存':{number:0},
           '安全庫存':{number:0},
         }});
-        matId = newMat?.id;
+        matId = assertNotionPage(newMat,'建立料件').id;
       }
       // 建立入料單
       const inbNo=`IB-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
-      await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:{
+      const inboundProps={
         '入料單號':  {title:[{text:{content:inbNo}}]},
-        '料件編號':  {rich_text:[{text:{content:item.code||''}}]},
         '入料數量':  {number:item.qty},
         '品管狀態':  {select:{name:'待品檢'}},
         '入庫狀態':  {select:{name:'待入庫'}},
+        '料件類型':  {select:{name:inboundType}},
         '備註':      {rich_text:[{text:{content:note||''}}]},
         '入料日期':  {date:{start:today}},
-        ...(matId?{'料件':{relation:[{id:matId}]}}:{}),
-      }});
+      };
+      if(matId) inboundProps['料件']={relation:[{id:matId}]};
+      const inbResult = await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:inboundProps});
+      assertNotionPage(inbResult,'建立入料單');
       logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);
-      // 同步到品管待檢驗
-      const qcNo=`QC-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
-      await notionAPI('POST','pages',{parent:{database_id:DB.qcInspect},properties:{
-        '檢驗單號':  {title:[{text:{content:qcNo}}]},
-        '料件編號':  {rich_text:[{text:{content:item.code||''}}]},
-        '入料數量':  {number:item.qty},
-        '狀態':      {select:{name:'待檢驗'}},
-        '入料日期':  {date:{start:today}},
-        ...(matId?{'料件':{relation:[{id:matId}]}}:{}),
-      }});
       ok++;
-    }catch(e){fail++; console.error('入料失敗:',item.code,e);}
+    }catch(e){
+      fail++;
+      failMsgs.push(`${item.code||'未命名'}：${e.message}`);
+      console.error('入料失敗:',item.code,e);
+    }
   }
-  await refreshAll();
+  await refreshAll(true);
   await loadInbounds();
   if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc') renderTab(CURRENT_TAB);
-  showToast(`✅ 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管待檢驗已同步建立）`,'ok');
+  showToast(`${fail?'⚠':'✅'} 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管頁會讀取入料待品檢）`,fail?'warn':'ok');
+  if(failMsgs.length) alert('以下入料建立失敗：\n\n'+failMsgs.join('\n'));
   window._ibItems=[];
 }
 
