@@ -422,6 +422,29 @@ tr:hover td{background:rgba(59,130,246,.04);}
   .corder-row-mobile .corder-cb{position:absolute;top:12px;right:12px;}
   .corder-row-mobile .corder-status{display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;}
 }
+.corder-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px;background:linear-gradient(180deg,rgba(59,130,246,.06),transparent);border-bottom:1px solid var(--border);}
+.corder-toolbar .inp{font-size:0.9375rem;min-height:42px;}
+.corder-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.corder-stat{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+.corder-stat strong{display:block;font-size:1.75rem;line-height:1;font-family:var(--f-mono);margin-bottom:4px;}
+.corder-stat span{font-size:0.8125rem;color:var(--text2);font-weight:600;}
+.corder-table th{font-size:0.75rem;padding:12px 14px;}
+.corder-table td{font-size:0.9375rem;padding:14px;}
+.corder-sku-main{font-weight:700;color:var(--text);font-size:0.9375rem;}
+.corder-sku-sub{font-family:var(--f-mono);font-size:0.75rem;color:var(--text3);margin-top:2px;}
+.corder-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.corder-actions .btn-sm{font-size:0.8125rem;min-height:34px;}
+.corder-warn{color:var(--amber);font-size:0.75rem;margin-top:3px;}
+@media(max-width:599px){
+  .corder-stats{grid-template-columns:repeat(2,1fr);}
+  .corder-stat{padding:12px;}
+  .corder-stat strong{font-size:1.5rem;}
+  .corder-row-mobile{border-radius:14px;padding:14px 16px;}
+  .corder-row-mobile .corder-no{font-size:0.8125rem;color:var(--cyan2);font-weight:700;}
+  .corder-row-mobile .corder-sku{font-size:1rem;line-height:1.35;margin:7px 0;}
+  .corder-row-mobile .corder-meta{font-size:0.8125rem;line-height:1.5;}
+  .corder-row-mobile .corder-status{font-size:0.8125rem;padding:4px 10px;}
+}
 .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px 16px 0 0;padding:22px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 -20px 60px rgba(0,0,0,.6);}
 .modal h3{font-size:0.9375rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;color:var(--text);}
 
@@ -1028,14 +1051,35 @@ function openModal(type,data){
 
   // ── C端訂單新增 ──
   if(type==='newCorder'){
+    const shopeeMats=mats.filter(m=>isShopeeMat(m)).sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
+    const today=new Date().toISOString().slice(0,10);
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
-    <div style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">買家帳號</label><input class="inp" id="co_buyer" placeholder="買家帳號"></div>
-    <div style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">品項</label><input class="inp" id="co_product" placeholder="品項料號"></div>
-    <div style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">數量</label><input class="inp" type="number" id="co_qty" value="1" min="1"></div>
-    <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">備註</label><input class="inp" id="co_note" placeholder="備註"></div>
+    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇料號的庫存。取消時可選擇回料或報銷。</div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空自動產生"></div>
+      <div><label class="field-label">買家帳號</label><input class="inp" id="co_buyer" placeholder="蝦皮買家帳號"></div>
+    </div>
+    <div style="margin-bottom:10px">
+      <label class="field-label">蝦皮料號 *</label>
+      <input class="inp" id="co_sku_search" placeholder="搜尋 S- 料號 / 商品名稱..." oninput="filterCorderMatOptions(this.value)" style="margin-bottom:6px">
+      <select class="inp" id="co_mat" onchange="previewCorderMatStock()">
+        <option value="">— 選擇蝦皮用料號 —</option>
+        ${shopeeMats.map(m=>`<option value="${m.id}" data-code="${(m.code||'').replace(/"/g,'&quot;')}" data-name="${(m.name||'').replace(/"/g,'&quot;')}" data-stock="${m.stock??0}">${m.code||m.name}｜${m.name||''}｜庫存 ${m.stock??0}</option>`).join('')}
+      </select>
+      <div id="co_stock_hint" style="font-size:0.8125rem;color:var(--text3);margin-top:6px">目前只列出類型為「蝦皮用 / 蝦皮用(S-)」或料號 S- 開頭的料件。</div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label class="field-label">數量 *</label><input class="inp" type="number" id="co_qty" value="1" min="1" oninput="previewCorderMatStock()"></div>
+      <div><label class="field-label">出貨方式</label><input class="inp" id="co_ship" placeholder="蝦皮 / 7-11 / 新竹物流..."></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label class="field-label">出日</label><input class="inp" type="date" id="co_ship_date" value="${today}"></div>
+      <div><label class="field-label">付款時間</label><input class="inp" type="date" id="co_pay_date" value="${today}"></div>
+    </div>
+    <div style="margin-bottom:12px"><label class="field-label">備註</label><input class="inp" id="co_note" placeholder="選填"></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitCorder()">＋ 建立</button>
+      <button class="btn btn-blue" onclick="submitCorder()">🛒 建立並扣庫存</button>
     </div>`;
     openModal(); return;
   }
@@ -3165,22 +3209,119 @@ function renderLeave(){
 // ══════════════════════════════════════════════════
 // C端訂單操作函數
 // ══════════════════════════════════════════════════
-async function cancelCorder(id, matId, qty){
-  const doReturn = confirm('是否需要回料？\n\n確定 = 回料（庫存增加 '+qty+' 個）\n取消 = 不回料（直接取消）');
+function isShopeeMat(m){
+  const t=m?.type||'';
+  const code=m?.code||m?.name||'';
+  return t==='蝦皮用'||t==='蝦皮用(S-)'||/^S-/i.test(code);
+}
+function findMatBySku(sku){
+  const key=(sku||'').trim().toLowerCase();
+  if(!key) return null;
+  return mats.find(m=>
+    (m.code||'').trim().toLowerCase()===key||
+    (m.name||'').trim().toLowerCase()===key
+  )||null;
+}
+function makeCorderNo(){
+  const today=new Date().toISOString().slice(0,10);
+  return 'CO-'+today.slice(2,7).replace('-','')+'-'+Math.floor(Math.random()*9000+1000);
+}
+function parseCorderStockRefs(raw, fallbackQty){
+  const text=String(raw||'').trim();
+  if(!text) return [];
+  if(text.includes(':')){
+    return text.split(/[;,]/).map(x=>x.trim()).filter(Boolean).map(x=>{
+      const [id,qty]=x.split(':');
+      return {id:id.trim(),qty:parseInt(qty)||fallbackQty||1};
+    });
+  }
+  return text.split(',').map(x=>x.trim()).filter(Boolean).map(id=>({id,qty:fallbackQty||1}));
+}
+function corderStockRef(id, qty){return id?`${id}:${parseInt(qty)||1}`:'';}
+function filterCorderMatOptions(q){
+  const sel=document.getElementById('co_mat');
+  if(!sel) return;
+  const v=(q||'').toLowerCase();
+  Array.from(sel.options).forEach(opt=>{
+    if(!opt.value){opt.style.display='';return;}
+    const text=(opt.textContent||'').toLowerCase();
+    opt.style.display=(!v||text.includes(v))?'':'none';
+  });
+}
+function previewCorderMatStock(){
+  const sel=document.getElementById('co_mat');
+  const hint=document.getElementById('co_stock_hint');
+  if(!sel||!hint) return;
+  const opt=sel.options[sel.selectedIndex];
+  if(!opt||!opt.value){hint.textContent='目前只列出類型為「蝦皮用 / 蝦皮用(S-)」或料號 S- 開頭的料件。';return;}
+  const stock=parseInt(opt.dataset.stock)||0;
+  const qty=parseInt(document.getElementById('co_qty')?.value)||1;
+  const after=stock-qty;
+  hint.innerHTML=`庫存 ${stock}，本次扣 ${qty}，建立後剩 <b style="color:${after<0?'var(--red)':'var(--green)'}">${after}</b>`;
+}
+async function deductCorderStock(mat, qty, refNo, operator){
+  const latest=await notionAPI('GET','pages/'+mat.id);
+  const cur=latest?.properties?.['目前庫存']?.number??mat.stock??0;
+  const next=cur-(parseInt(qty)||1);
+  await updatePage(mat.id,{'目前庫存':{number:next}});
+  await logStockChange(mat.id,mat.name||'',mat.code||'','C端出貨',-(parseInt(qty)||1),cur,next,refNo,operator||ROLE);
+  mat.stock=next;
+  return {before:cur,after:next};
+}
+async function returnCorderStock(refs, refNo){
+  for(const r of refs){
+    const mat=mats.find(m=>m.id===r.id);
+    const latest=await notionAPI('GET','pages/'+r.id);
+    const cur=latest?.properties?.['目前庫存']?.number??mat?.stock??0;
+    const next=cur+(parseInt(r.qty)||1);
+    await updatePage(r.id,{'目前庫存':{number:next}});
+    await logStockChange(r.id,mat?.name||'',mat?.code||'','C端退料',parseInt(r.qty)||1,cur,next,refNo,ROLE);
+    if(mat) mat.stock=next;
+  }
+}
+async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,payDate,note}){
+  if(!DB.shopee115) return;
   try{
-    if(doReturn && matId){
-      const matData = await notionAPI('GET','pages/'+matId);
-      const curStock = matData?.properties?.['目前庫存']?.number??0;
-      const newStock = curStock + parseInt(qty);
-      await updatePage(matId,{'目前庫存':{number:newStock}});
-      await logStockChange(matId,'','','C端退料',parseInt(qty),curStock,newStock,id,ROLE);
-    }
-    await updatePage(id,{'狀態':{select:{name:'已取消'}}});
+    const props={
+      '蝦皮訂單號碼':{title:[{text:{content:no||''}}]},
+      '訂單號碼':{rich_text:[{text:{content:no||''}}]},
+      '買家帳號':{rich_text:[{text:{content:buyer||''}}]},
+      '數量':{number:Number(qty)||0},
+      '備註':{rich_text:[{text:{content:[matName,note].filter(Boolean).join(' / ')}}]},
+    };
+    if((shipDate||'').length>=10) props['出日']={date:{start:shipDate.slice(0,10)}};
+    if((payDate||'').length>=10) props['付款時間']={date:{start:payDate.slice(0,10)}};
+    if(shipMethod) props['出貨方式']={select:{name:shipMethod}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.shopee115},properties:props});
+  }catch(e){
+    console.warn('[115蝦皮] 同步略過:',e);
+  }
+}
+
+async function cancelCorder(id, matId, qty){
+  const doReturn = confirm('取消訂單要如何處理庫存？\n\n確定 = 回料（加回庫存）\n取消 = 報銷／不回料（庫存不變）');
+  try{
     const o = (window.corders||[]).find(x=>x.id===id);
+    if(doReturn) await returnCorderStock(parseCorderStockRefs(matId,qty), o?.no||id);
+    await updatePage(id,{'狀態':{select:{name:'已取消'}}});
     if(o) o.status='已取消';
     await refreshAll(); renderTab(CURRENT_TAB);
-    showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（不回料）','ok');
+    showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（報銷不回料）','ok');
   }catch(e){ showToast('錯誤：'+e.message,'err'); }
+}
+
+async function completeCorder(id){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o) return;
+  const today=new Date().toISOString().slice(0,10);
+  try{
+    const props={'狀態':{select:{name:'已完成'}}};
+    if(!o.shipDate) props['出日']={date:{start:today}};
+    await updatePage(id,props);
+    o.status='已完成'; if(!o.shipDate) o.shipDate=today;
+    renderTab(CURRENT_TAB);
+    showToast('✅ C端訂單已完成','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
 }
 
 async function loadLeaveStats(){
@@ -3217,42 +3358,7 @@ async function syncCordersFromShopee115(){
 }
 
 async function uploadCorderFile(input){
-  const file=input.files?.[0]; if(!file) return;
-  showToast('讀取中...','warn');
-  try{
-    const text=await file.text();
-    const lines=text.split('\n').filter(l=>l.trim());
-    if(lines.length<2){showToast('檔案無資料','warn');return;}
-    const headers=lines[0].split(',').map(s=>s.trim().replace(/"/g,''));
-    const skuCol=headers.indexOf('商品選項貨號');
-    const buyerCol=headers.findIndex(h=>h.includes('買家'));
-    const qtyCol=headers.findIndex(h=>h.includes('數量'));
-    let created=0,failed=0;
-    for(let i=1;i<lines.length;i++){
-      const cols=lines[i].split(',').map(s=>s.trim().replace(/"/g,''));
-      const sku=skuCol>=0?cols[skuCol]:''; if(!sku) continue;
-      let matId=null;
-      const mat=mats.find(m=>m.code===sku);
-      if(mat){matId=mat.id;}
-      else{try{const nm=await notionAPI('POST','pages',{parent:{database_id:DB.materials},properties:{'料件名稱':{title:[{text:{content:sku}}]},'料件編號':{rich_text:[{text:{content:sku}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:0}}});matId=nm?.id;}catch(e){}}
-      const today=new Date().toISOString().slice(0,10);
-      const yr=today.slice(2,4);const mo=today.slice(5,7);
-      const orderNo='CO-'+yr+mo+'-'+Math.floor(Math.random()*9000+1000);
-      try{
-        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:{
-          '訂單號碼':{title:[{text:{content:orderNo}}]},
-          '買家帳號':{rich_text:[{text:{content:buyerCol>=0?cols[buyerCol]:''}}]},
-          '料件編號':{rich_text:[{text:{content:sku}}]},
-          '數量':{number:qtyCol>=0?parseInt(cols[qtyCol])||1:1},
-          '狀態':{select:{name:'出貨中'}},
-        }});
-        created++;
-      }catch(e){failed++;}
-    }
-    await loadCorders();renderTab('corders');
-    showToast('✅ 上傳完成：'+created+'筆'+(failed?'，'+failed+'筆失敗':''),'ok');
-  }catch(e){showToast('❌ '+e.message,'err');}
-  input.value='';
+  await importShopeeExcel(input);
 }
 
 function renderCorders(){
@@ -3274,7 +3380,7 @@ function renderCorders(){
   let filtered=data.filter(o=>{
     if(STATUS&&o.status!==STATUS) return false;
     if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
-    if(Q){const q=Q.toLowerCase();if(!(o.no||'').toLowerCase().includes(q)&&!(o.buyer||'').toLowerCase().includes(q)&&!(o.matCode||o.matName||'').toLowerCase().includes(q)) return false;}
+    if(Q){const q=Q.toLowerCase();if(!(o.no||'').toLowerCase().includes(q)&&!(o.buyer||'').toLowerCase().includes(q)&&!(o.matCode||o.matName||'').toLowerCase().includes(q)&&!(o.shipMethod||'').toLowerCase().includes(q)) return false;}
     return true;
   });
   filtered.sort((a,b)=>{
@@ -3285,33 +3391,68 @@ function renderCorders(){
     else if(SORT==='qty'){av=a.qty??0;bv=b.qty??0;}
     return DIR*(av>bv?1:av<bv?-1:0);
   });
-  const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<span onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')" style="cursor:pointer;color:${a?'var(--blue)':'var(--text3)'};font-size:11px;margin-left:4px">${label}${arrow}</span>`;};
+  const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
   const statusOpts=['','出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
-  let html=notionBar+`<div class="panel">
+  const countShip=data.filter(o=>o.status==='出貨中').length;
+  const countDone=data.filter(o=>o.status==='已完成').length;
+  const countCancel=data.filter(o=>o.status==='已取消').length;
+  const countWarn=data.filter(o=>!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
+  let html=notionBar+`
+  <div class="corder-stats">
+    <div class="corder-stat"><strong style="color:var(--blue2)">${countShip}</strong><span>出貨中</span></div>
+    <div class="corder-stat"><strong style="color:var(--green2)">${countDone}</strong><span>已完成</span></div>
+    <div class="corder-stat"><strong style="color:var(--red2)">${countCancel}</strong><span>已取消</span></div>
+    <div class="corder-stat"><strong style="color:var(--amber)">${countWarn}</strong><span>需確認</span></div>
+  </div>
+  <div class="panel">
     <div class="panel-hdr">
       <span class="panel-title">🛒 C端訂單 <span class="badge">${filtered.length}/${data.length}</span></span>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:''}
-        <label class="btn btn-ghost btn-sm" style="cursor:pointer">📤 上傳<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadCorderFile(this)"></label>
-        <button class="btn btn-ghost btn-sm" onclick="syncCordersFromShopee115()">🔄 同步蝦皮</button>
+        <label class="btn btn-cyan btn-sm" style="cursor:pointer">📤 匯入 Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadCorderFile(this)"></label>
+        <button class="btn btn-ghost btn-sm" onclick="syncCordersFromShopee115()">🔄 重新讀取</button>
       </div>
     </div>
-    <div style="display:flex;gap:6px;padding:8px;flex-wrap:wrap">
+    <div class="corder-toolbar">
       <input class="inp" id="co_search" placeholder="🔍 訂單號/買家/品項..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;renderTab('corders')" style="flex:1;min-width:150px">
-      <select class="inp" style="width:100px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
-      <select class="inp" style="width:90px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
+      <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
+      <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
-    <div style="padding:2px 8px 6px;font-size:11px;color:var(--text3)">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('mat','品項')} ${sb('qty','數量')}</div>`;
+    <div style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。建立後立即扣庫存，取消時可選回料或報銷。</div>`;
   if(!filtered.length){
-    html+=`<div class="info-box" style="margin:8px">無符合訂單</div>`;
+    html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
   }else{
+    const isMobile=window.innerWidth<600;
     const rows=filtered.map(o=>{
       const bg=o.status==='已完成'?'rgba(16,185,129,.15)':o.status==='已取消'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
       const fg=o.status==='已完成'?'var(--green)':o.status==='已取消'?'var(--red)':'var(--amber)';
-      return `<tr><td style="font-family:monospace;font-size:11px">${o.no||'—'}</td><td style="font-size:12px">${o.buyer||'—'}</td><td style="font-size:12px">${o.matCode||o.matName||'—'}</td><td style="text-align:right;font-size:12px">${o.qty||0}</td><td><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:${bg};color:${fg}">${o.status||'—'}</span></td><td style="font-size:11px;color:var(--text2)">${o.created||'—'}</td></tr>`;
+      const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
+      const actions=o.status==='出貨中'?`<div class="corder-actions">
+        <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
+        <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
+      </div>`:'';
+      if(isMobile){
+        return `<div class="corder-row-mobile">
+          <div class="corder-no">${o.no||'—'}</div>
+          <div class="corder-sku">${o.matCode||o.matName||'—'} <span style="color:var(--text3);font-weight:400">× ${o.qty||0}</span></div>
+          <div class="corder-meta">${o.buyer||'—'}${o.shipMethod?' · '+o.shipMethod:''}${o.shipDate?' · 出日 '+o.shipDate:''}</div>
+          <div class="corder-actions" style="margin-top:10px"><span class="corder-status" style="background:${bg};color:${fg}">${o.status||'—'}</span>${actions}</div>
+          ${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件，庫存可能未扣除'}</div>`:''}
+        </div>`;
+      }
+      return `<tr>
+        <td><div style="font-family:var(--f-mono);font-weight:700;color:var(--cyan2)">${o.no||'—'}</div><div class="corder-sku-sub">${o.created||'—'}</div></td>
+        <td>${o.buyer||'—'}</td>
+        <td><div class="corder-sku-main">${o.matCode||o.matName||'—'}</div>${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件'}</div>`:''}</td>
+        <td style="text-align:right;font-family:var(--f-mono);font-weight:700">${o.qty||0}</td>
+        <td><span class="pill" style="background:${bg};color:${fg}">${o.status||'—'}</span></td>
+        <td><div>${o.shipMethod||'—'}</div><div class="corder-sku-sub">${o.shipDate||''}</div></td>
+        <td>${actions||'<span style="color:var(--text3)">—</span>'}</td>
+      </tr>`;
     }).join('');
-    html+=`<div class="table-wrap"><table><tr><th>訂單號</th><th>買家</th><th>品項</th><th>數量</th><th>狀態</th><th>建立日期</th></tr>${rows}</table></div>`;
+    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th>訂單號</th><th>買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th><th>操作</th></tr>${rows}</table></div>`;
   }
   return html+'</div>';
 }
@@ -4615,24 +4756,40 @@ async function submitNewCustomer(){
 }
 
 async function submitCorder(){
+  const manualNo=(document.getElementById('co_no')?.value||'').trim();
   const buyer=(document.getElementById('co_buyer')?.value||'').trim();
-  const product=(document.getElementById('co_product')?.value||'').trim();
+  const matId=(document.getElementById('co_mat')?.value||'').trim();
   const qty=parseInt(document.getElementById('co_qty')?.value)||1;
+  const shipMethod=(document.getElementById('co_ship')?.value||'').trim();
+  const shipDate=(document.getElementById('co_ship_date')?.value||'').trim();
+  const payDate=(document.getElementById('co_pay_date')?.value||'').trim();
   const note=(document.getElementById('co_note')?.value||'').trim();
-  const today=new Date().toISOString().slice(0,10);
-  const yr=today.slice(2,4); const mo=today.slice(5,7);
-  const orderNo=`CO-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
+  if(!matId){showToast('請選擇蝦皮料號','warn');return;}
+  const mat=mats.find(m=>m.id===matId);
+  if(!mat){showToast('找不到料件','err');return;}
+  const orderNo=manualNo||makeCorderNo();
   closeModal(); showToast('建立 C端訂單中...','warn');
   try{
-    await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:{
+    await deductCorderStock(mat,qty,orderNo,ROLE);
+    const props={
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
       '買家帳號':   {rich_text:[{text:{content:buyer||''}}]},
-      '料件編號':   {rich_text:[{text:{content:product||''}}]},
+      '品名':       {rich_text:[{text:{content:mat.code||mat.name||''}}]},
       '數量':       {number:qty},
-      '狀態':       {select:{name:'生產中'}},
+      '出貨方式':   {rich_text:[{text:{content:shipMethod||''}}]},
+      '狀態':       {select:{name:'出貨中'}},
+      '來源':       {select:{name:'手動'}},
+      '料件ID':     {rich_text:[{text:{content:corderStockRef(mat.id,qty)}}]},
       '備註':       {rich_text:[{text:{content:note||''}}]},
+    };
+    if(shipDate) props['出日']={date:{start:shipDate}};
+    if(payDate)  props['付款時間']={date:{start:payDate}};
+    await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:{
+      ...props,
     }});
-    await refreshAll(); showToast(`✅ C端訂單 ${orderNo} 建立完成`,'ok');
+    await syncToShopee115({no:orderNo,buyer,matName:mat.code||mat.name,qty,shipMethod,shipDate,payDate,note});
+    await refreshAll(); await loadCorders(); renderTab('corders');
+    showToast(`✅ C端訂單 ${orderNo} 已建立並扣庫存`,'ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -4640,10 +4797,10 @@ async function importShopeeExcel(input){
   const file = input.files[0];
   if(!file) return;
   input.value='';
-  showToast('\u23f3 \u4e0a\u50b3\u89e3\u5bc6\u4e2d...','ok');
+  showToast('⏳ 上傳解析中...','ok');
 
   try{
-    // \u2500\u2500 \u628a\u52a0\u5bc6 xlsx \u50b3\u7d66 Worker \u89e3\u5bc6 \u2500\u2500
+    // 蝦皮匯出的 Excel 可能加密，先交給 Worker 處理；未加密檔也會回傳可讀資料。
     const formData = new FormData();
     formData.append('file', file);
     formData.append('password', '576313');
@@ -4654,13 +4811,13 @@ async function importShopeeExcel(input){
     });
 
     if(!workerRes.ok){
-      showToast('\u274c Worker \u56de\u61c9\u7570\u5e38: '+workerRes.status,'err');
+      showToast('❌ Worker 回應異常: '+workerRes.status,'err');
       return;
     }
 
     const { base64, encrypted, error } = await workerRes.json();
     if(error){
-      showToast('\u274c \u89e3\u5bc6\u5931\u6557: '+error,'err');
+      showToast('❌ 解密失敗: '+error,'err');
       return;
     }
 
@@ -4672,132 +4829,110 @@ async function importShopeeExcel(input){
     const wb = XLSX.read(buf, {type:'array', cellDates:true});
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
-    if(!rows.length){ showToast('Excel \u6c92\u6709\u8cc7\u6599','warn'); return; }
+    if(!rows.length){ showToast('Excel 沒有資料','warn'); return; }
 
-    showToast('\u23f3 \u89e3\u6790\u8a02\u55ae\u4e2d...','ok');
+    showToast('⏳ 解析訂單中...','ok');
 
-    // \u51fa\u8ca8\u65b9\u5f0f\u5c0d\u61c9
     const SHIP_MAP = {
-      '\u65b0\u7af9\u7269\u6d41':'\u65b0\u7af9\u7269\u6d41','\u8766\u76ae':'\u8766\u76ae','\u5e97\u5230\u5bb6\u5b85\u914d':'\u5e97\u5230\u5bb6','\u5e97\u5230\u5bb6':'\u5e97\u5230\u5bb6',
-      '7-11':'7-11','\u5168\u5bb6':'\u5168\u5bb6','\u9ed1\u8c93\u5b85\u4fbf':'\u9ed1\u8c93\u5b85\u4fbf',
-      'SF\u9806\u8c50':'SF\u9806\u8c50','\u5927\u69ae\u8ca8\u904b':'\u5927\u69ae\u8ca8\u904b','\u90f5\u5c40\u5305\u88f9':'\u90f5\u5c40\u5305\u88f9',
+      '新竹物流':'新竹物流','蝦皮':'蝦皮','店到家宅配':'店到家','店到家':'店到家',
+      '7-11':'7-11','全家':'全家','黑貓宅便':'黑貓宅便',
+      'SF順豐':'SF順豐','大榮貨運':'大榮貨運','郵局包裹':'郵局包裹',
     };
     function mapShip(v){
       for(const k in SHIP_MAP){ if(v&&v.toString().includes(k)) return SHIP_MAP[k]; }
       return v||'';
     }
-
-    // \u5408\u4f75\u540c\u4e00\u8a02\u55ae\u591a\u54c1\u9805
-    const ordersMap = {};
-    for(const row of rows){
-      const no    = (row['\u8a02\u55ae\u7de8\u865f']||'').toString().trim();
-      if(!no) continue;
-      const sku   = (row['\u4e3b\u5546\u54c1\u8ca8\u865f']||'').toString().trim();
-      const qty   = parseInt(row['\u6578\u91cf'])||1;
-      const buyer = (row['\u8cb7\u5bb6\u5e33\u865f']||'').toString().trim();
-      const rawShip = (row['\u5bc4\u9001\u65b9\u5f0f']||'').toString().trim();
-      const shipDate= (row['\u5be6\u969b\u51fa\u8ca8\u6642\u9593']||'').toString().slice(0,10).replace(/\\//g,'-');
-      const payDate = (row['\u8cb7\u5bb6\u4ed8\u6b3e\u6642\u9593']||'').toString().slice(0,10).replace(/\\//g,'-');
-      const prodName= (row['\u5546\u54c1\u540d\u7a31']||'').toString().slice(0,40);
-      if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
-      ordersMap[no].items.push({sku, qty, prodName});
+    function rowVal(row, names){
+      for(const n of names){
+        if(row[n]!==undefined&&row[n]!==null&&String(row[n]).trim()!=='') return String(row[n]).trim();
+      }
+      return '';
+    }
+    function dateVal(v){
+      const s=String(v||'').trim();
+      if(!s) return '';
+      return s.slice(0,10).replace(/\//g,'-');
     }
 
-    const orders = Object.values(ordersMap);
-    if(!orders.length){ showToast('\u6c92\u6709\u6709\u6548\u8a02\u55ae\u8cc7\u6599','warn'); return; }
+    const incoming=[];
+    for(const row of rows){
+      const no=rowVal(row,['訂單編號','訂單號碼','蝦皮訂單號碼']);
+      if(!no) continue;
+      const sku=rowVal(row,['商品選項貨號']);
+      const qty=parseInt(rowVal(row,['數量','商品數量']))||1;
+      const buyer=rowVal(row,['買家帳號']);
+      const shipMethod=mapShip(rowVal(row,['寄送方式','出貨方式']));
+      const shipDate=dateVal(rowVal(row,['實際出貨時間','出日']));
+      const payDate=dateVal(rowVal(row,['買家付款時間','付款時間','訂單成立時間']));
+      const prodName=rowVal(row,['商品名稱','商品選項名稱']).slice(0,60);
+      incoming.push({no,sku,qty,buyer,shipMethod,shipDate,payDate,prodName});
+    }
+    if(!incoming.length){ showToast('沒有有效訂單資料','warn'); return; }
 
-    showToast('\u23f3 \u532f\u5165 '+orders.length+' \u7b46\u8a02\u55ae...','ok');
-    let ok=0, skip=0, noSkuOrders=[];
+    showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
+    let ok=0, skip=0, warn=0, failed=0;
+    const warnList=[];
 
-    for(const o of orders){
-      if(corders.find(c=>c.no===o.no)){ skip++; continue; }
+    for(const item of incoming){
+      const dup=(window.corders||[]).find(c=>c.no===item.no&&(c.matCode===item.sku||c.matName===item.sku));
+      if(dup){skip++;continue;}
 
-      const stockResults=[], noSkuItems=[];
-
-      for(const item of o.items){
-        if(!item.sku){ noSkuItems.push(item.prodName||'(\u7121\u54c1\u540d)'); continue; }
-
-        let mat = mats.find(m=>
-          m.name===item.sku || m.code===item.sku ||
-          (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
-          (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
-        );
-
-        if(!mat){
+      let mat=null, stockRef='', note='';
+      if(!item.sku){
+        note='⚠ Excel 商品選項貨號空白，庫存未扣除';
+        warnList.push(item.no+'：無料號');
+        warn++;
+      }else{
+        mat=findMatBySku(item.sku);
+        if(mat){
           try{
-            const created = await notionAPI('POST','pages',{
-              parent:{database_id:DB.materials},
-              properties:{
-                '\u6599\u4ef6\u540d\u7a31':{title:[{text:{content:item.sku}}]},
-                '\u985e\u578b':{select:{name:'\u6210\u54c1'}},
-                '\u76ee\u524d\u5eab\u5b58':{number:20},
-                '\u5b89\u5168\u5eab\u5b58':{number:20},
-              }
-            });
-            if(created&&created.object==='page'){
-              mat={id:created.id,name:item.sku,code:item.sku,type:'\u6210\u54c1',stock:20,safe:20};
-              mats.push(mat);
-              console.log('[\u81ea\u52d5\u5efa\u7acb\u6599\u4ef6]', item.sku);
-            }
-          }catch(e2){
-            noSkuItems.push(item.sku+' (\u5efa\u7acb\u5931\u6557)');
-            continue;
+            await deductCorderStock(mat,item.qty,item.no,ROLE);
+            stockRef=corderStockRef(mat.id,item.qty);
+          }catch(eStock){
+            note='⚠ 找到料件但扣庫存失敗：'+eStock.message;
+            warnList.push(item.no+'：'+item.sku+' 扣庫存失敗');
+            warn++;
           }
-        }
-
-        try{
-          const matData = await notionAPI('GET','pages/'+mat.id);
-          const curStock = matData?.properties?.['\u76ee\u524d\u5eab\u5b58']?.number??0;
-          const newStock = curStock - item.qty;
-          await updatePage(mat.id,{'\u76ee\u524d\u5eab\u5b58':{number:newStock}});
-          await logStockChange(mat.id,mat.name,mat.code||'','C\u7aef\u51fa\u8ca8',-item.qty,curStock,newStock,o.no,ROLE);
-          mat.stock=newStock;
-          stockResults.push({sku:item.sku,qty:item.qty,matId:mat.id,matName:mat.name,ok:true});
-        }catch(e3){
-          console.error('\u6263\u5eab\u5b58\u5931\u6557:',item.sku,e3);
+        }else{
+          note='⚠ 找不到庫存料號，庫存未扣除：'+item.sku;
+          warnList.push(item.no+'：找不到 '+item.sku);
+          warn++;
         }
       }
 
-      if(noSkuItems.length) noSkuOrders.push({no:o.no, items:noSkuItems});
-
-      const allSkus = o.items.map(i=>
-        i.sku ? i.sku+(i.qty>1?'\u00d7'+i.qty:'') : ('('+( i.prodName||'\u7121\u8ca8\u865f')+')'+(i.qty>1?'\u00d7'+i.qty:''))
-      ).join(' / ');
-      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
-      const matIds   = stockResults.filter(r=>r.ok).map(r=>r.matId).join(',');
-
+      const displaySku=item.sku||item.prodName||'(無貨號)';
       const cProps={
-        '\u8a02\u55ae\u865f\u78bc':{title:[{text:{content:o.no}}]},
-        '\u8cb7\u5bb6\u5e33\u865f':{rich_text:[{text:{content:o.buyer}}]},
-        '\u54c1\u540d':{rich_text:[{text:{content:allSkus}}]},
-        '\u6578\u91cf':{number:totalQty},
-        '\u51fa\u8ca8\u65b9\u5f0f':{rich_text:[{text:{content:o.shipMethod}}]},
-        '\u72c0\u614b':{select:{name:'\u51fa\u8ca8\u4e2d'}},
-        '\u4f86\u6e90':{select:{name:'\u8766\u76ae'}},
-        '\u6599\u4ef6ID':{rich_text:[{text:{content:matIds}}]},
-        '\u5099\u8a3b':{rich_text:[{text:{content:noSkuItems.length?'\u26a0 \u9700\u624b\u52d5\u88dc\u6263\u6599\uff1a'+noSkuItems.join('\u3001'):''}}]},
+        '訂單號碼':{title:[{text:{content:item.no}}]},
+        '買家帳號':{rich_text:[{text:{content:item.buyer||''}}]},
+        '品名':{rich_text:[{text:{content:displaySku}}]},
+        '數量':{number:item.qty},
+        '出貨方式':{rich_text:[{text:{content:item.shipMethod||''}}]},
+        '狀態':{select:{name:'出貨中'}},
+        '來源':{select:{name:'蝦皮'}},
+        '料件ID':{rich_text:[{text:{content:stockRef}}]},
+        '備註':{rich_text:[{text:{content:note}}]},
       };
-      if(o.shipDate&&o.shipDate.length===10) cProps['\u51fa\u65e5']={date:{start:o.shipDate}};
-      if(o.payDate&&o.payDate.length===10) cProps['\u4ed8\u6b3e\u6642\u9593']={date:{start:o.payDate}};
-      await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
-
-      await syncToShopee115({no:o.no,buyer:o.buyer,matName:allSkus,qty:totalQty,
-        shipMethod:o.shipMethod,shipDate:o.shipDate,payDate:o.payDate||'',note:''});
-      ok++;
+      if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
+      if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
+      try{
+        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+        await syncToShopee115({no:item.no,buyer:item.buyer,matName:displaySku,qty:item.qty,
+          shipMethod:item.shipMethod,shipDate:item.shipDate,payDate:item.payDate||'',note});
+        ok++;
+      }catch(eCreate){
+        failed++;
+        console.error('C端訂單建立失敗:',item,eCreate);
+      }
     }
 
     await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
-    showToast('\u2705 \u532f\u5165\u5b8c\u6210\uff1a\u65b0\u589e '+ok+' \u7b46'+(skip?' / \u8df3\u904e '+skip+' \u7b46':''), 'ok');
-    if(noSkuOrders.length){
-      const detail = noSkuOrders.map(o=>'\u8a02\u55ae '+o.no+'\uff1a'+o.items.join('\u3001')).join('\
-');
-      alert('\u26a0 \u4ee5\u4e0b\u54c1\u9805\u7121\u6599\u865f\uff08\u5eab\u5b58\u672a\u6263\u9664\uff0c\u8acb\u624b\u52d5\u8655\u7406\uff09\uff1a\
-\
-'+detail);
+    showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn?'warn':'ok');
+    if(warnList.length){
+      alert('⚠ 以下品項庫存未完整扣除，請確認料件主檔：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
     }
 
   }catch(e){
-    showToast('\u274c \u532f\u5165\u5931\u6557\uff1a'+e.message,'err');
+    showToast('❌ 匯入失敗：'+e.message,'err');
     console.error('importShopeeExcel error:',e);
   }
 }
@@ -5077,12 +5212,16 @@ async function loadCorders(){
       id:p.id,
       no:getTitle(p.properties,'訂單號碼')||getTitle(p.properties,'Name'),
       buyer:getRichText(p.properties,'買家帳號')||getRichText(p.properties,'客戶'),
-      matCode:getRichText(p.properties,'料件編號')||getRichText(p.properties,'商品'),
+      matCode:getRichText(p.properties,'料件編號')||getRichText(p.properties,'商品')||getRichText(p.properties,'品名'),
       matName:getRichText(p.properties,'商品名稱')||getRichText(p.properties,'品名'),
       qty:p.properties?.['數量']?.number??0,
       status:p.properties?.['狀態']?.select?.name||'出貨中',
       shipMethod:getRichText(p.properties,'出貨方式'),
-      shipDate:p.properties?.['出貨日期']?.date?.start||'',
+      shipDate:p.properties?.['出日']?.date?.start||p.properties?.['出貨日期']?.date?.start||'',
+      payDate:p.properties?.['付款時間']?.date?.start||'',
+      source:p.properties?.['來源']?.select?.name||'',
+      matId:getRichText(p.properties,'料件ID'),
+      note:getRichText(p.properties,'備註'),
       created:p.created_time?.slice(0,10)||'',
     }));
   }catch(e){window.corders=[];console.warn('loadCorders 失敗:',e);}
