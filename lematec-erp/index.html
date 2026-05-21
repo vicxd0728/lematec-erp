@@ -592,6 +592,51 @@ html[data-theme="warm"]{
 </div>
 
 <script>
+function openEditStock(id, name, cur){
+  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3>
+  <div style="font-size:0.8125rem;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:1.25rem">${cur}</b> 個</div>
+  <div style="margin-bottom:10px">
+    <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">修改後數量</label>
+    <input class="inp" type="number" id="newStock" value="${cur}" min="0">
+  </div>
+  <div style="margin-bottom:12px">
+    <label style="font-size:0.625rem;color:var(--red);display:block;margin-bottom:4px">✳ 修改原因（必填）</label>
+    <input class="inp" id="editStockReason" placeholder="請填寫修改原因，不可空白或只有特殊符號" style="border-color:rgba(239,68,68,.3)">
+    <div style="font-size:0.625rem;color:var(--text3);margin-top:4px">⚠ 修改後自動寫入庫存修改記錄</div>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+    <button class="btn btn-blue" onclick="doEditStock('${id}','${name}',${cur})">💾 確認修改</button>
+  </div>`;
+  openModal();
+}
+
+async function doEditStock(id, name, oldStock){
+  const newVal = parseInt(document.getElementById('newStock')?.value);
+  const reason = (document.getElementById('editStockReason')?.value||'').trim();
+  if(isNaN(newVal)||newVal<0){showToast('請輸入有效數字','warn');return;}
+  if(!reason || !/[一-龥a-zA-Z0-9]/.test(reason)){
+    showToast('⚠ 請填寫修改原因（需包含中文或英數字）','warn');
+    document.getElementById('editStockReason')?.focus();
+    return;
+  }
+  closeModal(); showToast('更新庫存中...','warn');
+  try{
+    await updatePage(id,{'目前庫存':{number:newVal}});
+    await _writeStockEditLog({
+      matId:id, matName:name, matCode:'',
+      changeType:'庫存數量修改',
+      before:String(oldStock), after:String(newVal),
+      delta:newVal-oldStock, reason, operator:ROLE,
+    });
+    const mat = mats.find(m=>m.id===id);
+    if(mat){mat.qty=newVal; mat.stock=newVal;}
+    await refreshAll();
+    showToast(`✅ ${name} 庫存 ${oldStock} → ${newVal}（原因已記錄）`,'ok');
+  }catch(e){showToast('❌ 失敗：'+e.message,'err');}
+}
+
+
 // ═══════════════════════════════════════════════
 // DB IDs — 客戶資料架構說明
 // ═══════════════════════════════════════════════
@@ -1051,8 +1096,10 @@ async function refreshAll(manual=false){
       code:getRichText(p.properties,'料件編號'),
       type:p.properties?.['類型']?.select?.name||'',
       unit:p.properties?.['單位']?.select?.name||'個',
+      qty:p.properties?.['目前庫存']?.number??0,
       stock:p.properties?.['目前庫存']?.number??0,
       safe:p.properties?.['安全庫存']?.number??0,
+      note:getRichText(p.properties,'備註'),
     }));
 
     boms=bR.map(p=>({
@@ -1063,15 +1110,17 @@ async function refreshAll(manual=false){
 
     orders=oR.map(p=>({
       id:p.id,
-      no:getTitle(p.properties,'訂單號'),
-      customer:p.properties?.['客戶名稱']?.select?.name||'',
-      productId:p.properties?.['成品']?.relation?.[0]?.id||'',
-      qty:p.properties?.['訂購數量']?.number??0,
-      deadline:p.properties?.['交期']?.date?.start||'',
+      no:getTitle(p.properties,'訂單號碼'),
+      cust:getRichText(p.properties,'客戶名稱'),
+      customer:getRichText(p.properties,'客戶名稱'),
+      matCode:getRichText(p.properties,'料件編號'),
+      product:getRichText(p.properties,'料件編號'),
+      qty:p.properties?.['數量']?.number??0,
+      deadline:p.properties?.['交期']?.date?.start||p.properties?.['交期日期']?.date?.start||'',
       status:p.properties?.['狀態']?.select?.name||'',
-      note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
+      note:getRichText(p.properties,'備註'),
       orderType:p.properties?.['訂單類型']?.select?.name||'',
-      created:p.created_time?.slice(0,10)||'',
+      created:p.properties?.['建立日期']?.date?.start||p.created_time?.slice(0,10)||'',
     }));
 
     // 國外客戶
