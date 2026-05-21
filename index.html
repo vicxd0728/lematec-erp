@@ -91,6 +91,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--f-ui);font-size:1r
 .inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;font-family:var(--f-ui);font-size:0.875rem;outline:none;transition:border-color .2s,box-shadow .2s;}
 .inp:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.18);}
 .inp::placeholder{color:var(--text3)!important;-webkit-text-fill-color:var(--text3)!important;}
+select.inp{-webkit-appearance:none;appearance:none;cursor:pointer;height:auto;}
 select.inp>option{background:var(--bg3);color:var(--text);}
 textarea.inp{resize:vertical;min-height:80px;line-height:1.6;}
 
@@ -189,10 +190,16 @@ html[data-theme="rose"]{
 .login-screen{
   position:fixed;inset:0;background:var(--bg);
   display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:20px;z-index:100;padding:16px;
-  overflow-y:auto;
+  flex-direction:column;gap:16px;z-index:100;
+  padding:16px;box-sizing:border-box;overflow-y:auto;
 }
+.login-screen>*{width:100%;max-width:400px;box-sizing:border-box;}
 .login-screen img{
+  width:64px!important;height:64px!important;max-width:64px!important;
+  border-radius:50%;display:block;margin:0 auto;
+}
+.login-screen h1{font-size:1.5rem;text-align:center;}
+.login-screen .brand{text-align:center;}
   width:72px;height:72px;object-fit:contain;border-radius:50%;
   box-shadow:0 4px 24px rgba(0,0,0,.4);
 }
@@ -202,15 +209,15 @@ html[data-theme="rose"]{
 /* Login card */
 .card{
   background:var(--bg2);border:1px solid var(--border2);border-radius:16px;
-  padding:24px;width:100%;max-width:400px;box-sizing:border-box;
+  padding:24px;width:100%;max-width:400px;box-sizing:border-box;overflow:hidden;
   box-shadow:0 24px 60px rgba(0,0,0,.6);
 }
 .card .field{margin-bottom:14px;}
 .card .field>label{display:block;font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;font-weight:600;}
 
 /* Token input + 清除按鈕 */
-.token-wrap{position:relative;}
-.token-wrap .inp{padding-right:54px;}
+.token-wrap{position:relative;width:100%;overflow:hidden;}
+.token-wrap .inp{padding-right:54px;box-sizing:border-box;width:100%;}
 .show-btn{
   position:absolute;right:8px;top:50%;transform:translateY(-50%);
   background:var(--bg4);border:1px solid var(--border2);border-radius:5px;
@@ -548,7 +555,7 @@ html[data-theme="warm"]{
 <body>
 
 <div class="login-screen" id="loginScreen">
-  <img src="data:image/png;base64,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" style="width:56px;height:56px;border-radius:50%;border:1px solid var(--border2);background:var(--bg2);padding:4px" alt="LEMATEC">
+  <img src="data:image/png;base64,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" alt="LEMATEC">
   <div class="brand">LEMATEC · ERP</div>
   <h1>製造管理系統</h1>
   <div class="card">
@@ -788,9 +795,10 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     const orderTypeTab = data?.tab||'overseas';
-    // 國外客戶清單
+    // 從全域 customers 陣列篩出國外/國內客戶
+    const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
+    const domesticCustomers = customers.filter(c=>c.type==='domestic');
     const overseaOpts = overseasCustomers.map(c=>`<option value="${c.id}" data-code="${c.code||''}" data-name="${c.name||''}">${c.code||''} — ${c.name||''}</option>`).join('');
-    // 國內客戶清單
     const domOpts = domesticCustomers.map(c=>`<option value="${c.id}">${c.name||''}</option>`).join('');
     // SFG 半成品清單
     const sfgOpts = mats.filter(m=>m.type==='半成品'||m.type==='成品').sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(m=>`<option value="${m.id}" data-code="${m.code||''}">${m.code||''} ${m.name&&m.name!==m.code?'— '+m.name:''}</option>`).join('');
@@ -1180,12 +1188,15 @@ async function startApp(){
   const badge=document.getElementById('roleBadge');
   badge.textContent=ri.label;
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:700;background:${ri.color}20;color:${ri.color}`;
-  buildNav();showTab('dashboard');initOnlineTracking();
+  buildNav(); showTab('dashboard'); initOnlineTracking();
+
+  // 立即顯示同步中
+  const syncEl=document.getElementById('syncStatus');
+  if(syncEl) syncEl.textContent='⟳ 同步中...';
 
   const mc = document.getElementById('mainContent');
   mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入資料中，請稍候...</div>`;
 
-  // 直接呼叫 refreshAll，確保所有資料完整載入後才渲染
   await refreshAll();
 }
 
