@@ -548,24 +548,33 @@ tr:hover td{background:rgba(59,130,246,.04);}
 
 /* ── 2026 UI redesign: command-center ERP ── */
 :root{
-  --nav-bg:rgba(8,13,25,.82);
-  --surface-glass:rgba(12,19,36,.76);
-  --surface-glass-2:rgba(18,29,52,.82);
-  --line-soft:rgba(148,163,184,.16);
-  --accent-a:#22d3ee;
-  --accent-b:#10b981;
-  --accent-c:#f59e0b;
+  --nav-bg:rgba(6,12,16,.9);
+  --surface-glass:rgba(10,18,22,.84);
+  --surface-glass-2:rgba(16,29,34,.88);
+  --line-soft:rgba(170,194,180,.18);
+  --accent-a:#2dd4bf;
+  --accent-b:#a3e635;
+  --accent-c:#fbbf24;
+}
+html:not([data-theme]){
+  --bg:#050908;--bg2:#09110f;--bg3:#0e1917;--bg4:#14231f;--bg5:#1b302a;
+  --border:#18312a;--border2:#254a40;--border3:#3b6c5d;
+  --brand:#0f766e;--brand2:#14b8a6;
+  --blue:#38bdf8;--blue2:#7dd3fc;--cyan:#14b8a6;--cyan2:#5eead4;
+  --green:#84cc16;--green2:#bef264;--yellow:#f59e0b;--amber:#fbbf24;
+  --red:#f43f5e;--red2:#fb7185;--purple:#a78bfa;
+  --text:#f8fafc;--text2:#bfd0c8;--text3:#72877f;
 }
 body{
   background:
-    linear-gradient(135deg,rgba(34,211,238,.06),transparent 26%),
-    radial-gradient(circle at 18% -8%, rgba(34,211,238,.16), transparent 30rem),
-    radial-gradient(circle at 100% 0%, rgba(16,185,129,.12), transparent 30rem),
-    radial-gradient(circle at 55% 0%, rgba(59,130,246,.10), transparent 22rem),
+    linear-gradient(135deg,rgba(45,212,191,.08),transparent 28%),
+    radial-gradient(circle at 16% -10%, rgba(45,212,191,.16), transparent 34rem),
+    radial-gradient(circle at 100% 4%, rgba(163,230,53,.13), transparent 28rem),
+    radial-gradient(circle at 58% 0%, rgba(251,191,36,.07), transparent 20rem),
     var(--bg);
-  font-size:17px;
+  font-size:18px;
 }
-.topbar{height:68px;padding:0 24px;background:rgba(5,8,15,.88);border-bottom-color:rgba(148,163,184,.14);}
+.topbar{height:70px;padding:0 24px;background:rgba(5,9,8,.9);border-bottom-color:rgba(170,194,180,.15);}
 .topbar::after{height:2px;opacity:.75;background:linear-gradient(90deg,transparent,var(--accent-a),var(--accent-b),transparent);}
 .topbar-brand{font-size:17px;letter-spacing:5px;font-weight:600;}
 .topbar-sub,.topbar span[style*="ERP"]{font-size:12px!important;}
@@ -580,19 +589,19 @@ body{
   padding:11px 16px;
   min-height:44px;
   font-size:15px;
-  color:#8fa2bf;
-  background:rgba(15,23,42,.58);
-  border:1px solid rgba(148,163,184,.12);
-  border-radius:12px;
+  color:#9fb4aa;
+  background:rgba(13,25,22,.72);
+  border:1px solid rgba(170,194,180,.14);
+  border-radius:14px;
   margin:0;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
-.tab-btn:hover{color:var(--text);background:rgba(30,41,59,.78);border-color:rgba(34,211,238,.25);}
+.tab-btn:hover{color:var(--text);background:rgba(27,48,42,.86);border-color:rgba(45,212,191,.28);}
 .tab-btn.active{
-  color:#ecfeff;
-  border-color:rgba(34,211,238,.42);
-  background:linear-gradient(135deg,rgba(34,211,238,.18),rgba(16,185,129,.10));
-  box-shadow:0 10px 28px rgba(6,182,212,.12), inset 0 1px 0 rgba(255,255,255,.08);
+  color:#f7fee7;
+  border-color:rgba(163,230,53,.42);
+  background:linear-gradient(135deg,rgba(20,184,166,.24),rgba(163,230,53,.12));
+  box-shadow:0 10px 28px rgba(20,184,166,.16), inset 0 1px 0 rgba(255,255,255,.08);
 }
 .tab-ico{font-size:18px;line-height:1;}
 .tab-text{font-weight:750;letter-spacing:.2px;}
@@ -601,20 +610,20 @@ body{
   border-radius:18px;
   background:linear-gradient(180deg,var(--surface-glass),rgba(8,13,25,.84));
   border-color:var(--line-soft);
-  box-shadow:0 20px 60px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035);
+  box-shadow:0 20px 60px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.035);
 }
 .panel-hdr,.panel-head{
   padding:17px 20px;
   background:linear-gradient(180deg,rgba(30,41,59,.58),rgba(15,23,42,.22));
 }
 .panel-title{font-size:17px;font-weight:800;letter-spacing:.15px;}
-.badge{font-size:12px;padding:4px 11px;background:rgba(34,211,238,.13);color:#67e8f9;border-color:rgba(34,211,238,.28);}
+.badge{font-size:12px;padding:4px 11px;background:rgba(45,212,191,.14);color:#5eead4;border-color:rgba(45,212,191,.28);}
 .inp{font-size:16px;padding:12px 15px;border-radius:12px;background:rgba(15,23,42,.86);border-color:rgba(148,163,184,.18);}
 .btn{min-height:44px;font-size:15px;border-radius:12px;padding:11px 19px;font-weight:750;}
 .btn-sm{min-height:39px;font-size:14px;padding:9px 15px;}
 .btn-xs{min-height:32px;font-size:12px;padding:6px 11px;}
-th{font-size:12px;padding:14px 16px;color:#8ea3c1;background:rgba(2,6,23,.78);}
-td{font-size:15px;padding:15px 16px;}
+th{font-size:13px;padding:15px 17px;color:#9fb4aa;background:rgba(3,9,8,.82);}
+td{font-size:16px;padding:16px 17px;}
 .pill{font-size:13px;padding:5px 12px;}
 .dash-kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px;}
 .dash-kpi-grid-5{grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;margin-bottom:18px;}
@@ -622,13 +631,13 @@ td{font-size:15px;padding:15px 16px;}
   border-radius:20px;
   min-height:170px;
   padding:24px;
-  background:linear-gradient(145deg,rgba(15,23,42,.94),rgba(8,13,25,.98));
-  border-color:rgba(148,163,184,.14);
+  background:linear-gradient(145deg,rgba(12,25,22,.96),rgba(6,12,10,.98));
+  border-color:rgba(170,194,180,.15);
 }
 .kpi-card:hover{transform:translateY(-4px) scale(1.01);}
-.kpi-label{font-size:12px;color:#91a4c1;letter-spacing:1.4px;}
+.kpi-label{font-size:13px;color:#9fb4aa;letter-spacing:1.2px;}
 .kpi-num{font-size:52px;letter-spacing:-1px;}
-.kpi-sub{font-size:13px;color:#8fa2bf;}
+.kpi-sub{font-size:14px;color:#a9beb5;line-height:1.42;}
 .kpi-bar{height:5px;background:rgba(148,163,184,.13);}
 .info-box,.info-ok,.info-warn,.help-box{font-size:15px;border-radius:14px;padding:14px 17px;}
 .dash-hero{
@@ -640,44 +649,59 @@ td{font-size:15px;padding:15px 16px;}
 .dash-hero-main{
   position:relative;overflow:hidden;border-radius:24px;
   padding:26px 28px;
-  border:1px solid rgba(34,211,238,.18);
-  background:linear-gradient(135deg,rgba(12,19,36,.98),rgba(15,23,42,.78) 52%,rgba(6,78,59,.32));
+  border:1px solid rgba(45,212,191,.22);
+  background:linear-gradient(135deg,rgba(9,17,15,.98),rgba(14,25,23,.82) 52%,rgba(63,98,18,.26));
   box-shadow:0 24px 70px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.06);
 }
 .dash-hero-main::after{
   content:'';position:absolute;right:-80px;top:-90px;width:260px;height:260px;border-radius:50%;
-  background:radial-gradient(circle,rgba(34,211,238,.25),transparent 62%);
+  background:radial-gradient(circle,rgba(163,230,53,.22),transparent 62%);
   pointer-events:none;
 }
-.dash-hero-kicker{font-size:13px;color:#67e8f9;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+.dash-hero-kicker{font-size:13px;color:#bef264;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
 .dash-hero-title{font-size:32px;line-height:1.15;font-weight:850;color:#f8fbff;letter-spacing:.2px;margin-bottom:10px;}
-.dash-hero-sub{font-size:15px;color:#a8b6cc;max-width:680px;}
+.dash-hero-sub{font-size:16px;color:#b8c8c0;max-width:680px;}
 .dash-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}
 .dash-hero-side{
   border-radius:24px;padding:18px;
-  border:1px solid rgba(148,163,184,.14);
-  background:rgba(12,19,36,.72);
+  border:1px solid rgba(170,194,180,.15);
+  background:rgba(10,18,16,.78);
 }
 .dash-status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
 .dash-status-card{
-  padding:15px;border-radius:16px;background:rgba(15,23,42,.76);
-  border:1px solid rgba(148,163,184,.12);
+  padding:16px;border-radius:16px;background:rgba(14,25,23,.82);
+  border:1px solid rgba(170,194,180,.13);
 }
 .dash-status-card strong{display:block;font-family:var(--f-mono);font-size:28px;line-height:1;color:var(--text);margin-bottom:5px;}
-.dash-status-card span{font-size:12px;color:#8fa2bf;font-weight:700;}
+.dash-status-card span{font-size:13px;color:#a9beb5;font-weight:700;}
 @media(max-width:600px){
-  .topbar{height:56px;padding:0 10px;}
-  .content,#mainContent{padding:12px;}
-  .role-nav{padding:8px;gap:6px;}
-  .tab-btn{padding:10px 12px;font-size:13px;min-height:40px;}
-  .tab-ico{font-size:16px;}
+  body{font-size:17px;}
+  .topbar{height:58px;padding:0 10px;}
+  .topbar-brand{font-size:15px;letter-spacing:3px;}
+  #syncStatus,.role-badge{display:none!important;}
+  .topbar-right{gap:5px;max-width:66vw;overflow-x:auto;scrollbar-width:none;}
+  .topbar-right::-webkit-scrollbar{display:none;}
+  .content,#mainContent{padding:12px 10px 18px;}
+  .role-nav{padding:9px 10px;gap:8px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(112px,max-content);overflow-x:auto;scroll-snap-type:x proximity;}
+  .tab-btn{scroll-snap-align:start;padding:11px 13px;font-size:14px;min-height:48px;justify-content:center;}
+  .tab-ico{font-size:18px;}
+  .tab-text{font-size:14px;}
   .panel-hdr{padding:12px 14px;}
-  th,td{font-size:13px!important;}
+  .table-wrap,.tbl-wrap,.corder-table-wrap{margin-left:-6px;margin-right:-6px;padding-left:6px;padding-right:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{min-width:720px;}
+  th,td{font-size:14px!important;line-height:1.45;}
   .dash-hero{grid-template-columns:1fr;}
-  .dash-hero-title{font-size:24px;}
+  .dash-hero-main{padding:20px 18px;border-radius:20px;}
+  .dash-hero-title{font-size:28px;}
+  .dash-hero-sub{font-size:15px;}
+  .dash-status-grid{grid-template-columns:1fr 1fr;}
   .dash-kpi-grid,.dash-kpi-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
-  .kpi-card{min-height:140px;padding:16px!important;}
-  .kpi-num{font-size:38px!important;}
+  .kpi-card{min-height:150px;padding:18px!important;border-radius:18px;}
+  .kpi-num{font-size:42px!important;}
+  .kpi-label{font-size:12px!important;}
+  .kpi-sub{font-size:13px!important;}
+  .btn,.inp{font-size:16px!important;}
+  .modal,.modal-box{font-size:16px;}
 }
 
 /* ════════════════════════════════════════════
@@ -777,10 +801,12 @@ function openStatusModal(id, cur){
 async function doUpdateStatus(id, s){
   closeModal();
   const o = orders.find(x=>x.id===id);
+  const oldStatus = o?.status||'';
   if(o){ o.status=s; renderTab(CURRENT_TAB); }
   showToast('更新狀態中...','warn');
   try{
     await updatePage(id,{'狀態':{select:{name:s}}});
+    logUserAction('訂單狀態更新',o?.no||id,`${oldStatus||'—'} → ${s}`,ROLE);
     showToast('✅ 狀態→「'+s+'」','ok');
     setTimeout(()=>refreshAll().catch(()=>{}), 1000);
   }catch(e){ showToast('❌ '+e.message,'err'); }
@@ -1978,6 +2004,49 @@ function openModal(type,data){
   const prods=mats.filter(m=>m.type==='成品');
   const parts=mats.filter(m=>m.type!=='成品');
 
+  if(type==='help'){
+    mi.innerHTML=`<h3>❓ LEMATEC ERP 快速說明</h3>
+      <div class="help-box">
+        <b>核心原則</b><br>
+        新增訂單不動庫存；確認領料才扣 BOM 子件；入料建立後只進待品檢；品管通過才自動入庫並增加庫存。
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div class="info-box info-tip" style="margin:0">
+          <b>📥 入料流程</b><br>
+          1. 倉管/採購建立入料單<br>
+          2. 狀態：待品檢 / 待入庫<br>
+          3. 品管通過：品檢通過 / 已入庫<br>
+          4. 庫存自動增加，並寫入異動記錄
+        </div>
+        <div class="info-box info-tip" style="margin:0">
+          <b>🗂️ 領料流程</b><br>
+          1. 訂單待排程<br>
+          2. 領料預覽展開 BOM<br>
+          3. 確認後扣子件庫存<br>
+          4. 訂單改為生產中
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div class="info-box info-tip" style="margin:0">
+          <b>🛒 蝦皮 / S-料號</b><br>
+          S-料號可手動新增；若 Excel BOM 有資料，會自動補 BOM。建立後仍走領料確認，不會建立訂單就直接扣料。
+        </div>
+        <div class="info-box info-tip" style="margin:0">
+          <b>📊 異動記錄</b><br>
+          領料、入料、品管、手動調整、訂單狀態更新、刪除、請假審核等人為操作都會寫入紀錄。
+        </div>
+      </div>
+      <div class="info-box info-warn">
+        若按鈕看起來沒反應，先看右上角同步狀態與 toast 提示；Notion API 偶爾會延遲，重新整理可再次拉最新資料。
+      </div>
+      <div class="form-actions">
+        <a class="btn btn-ghost" target="_blank" href="https://www.notion.so/352ff6f424bb81bf9618c9de3dbb2111">📋 開啟完整說明書</a>
+        <button class="btn btn-blue" onclick="closeModal()">我知道了</button>
+      </div>`;
+    openModal();
+    return;
+  }
+
   // ── 公告 ──
   if(type==='newAnnounce'){
     const d=data||{};
@@ -2590,7 +2659,22 @@ async function loadPicks(){
 }
 async function loadInbounds(){
   const r=await dbQueryAll(DB.inbound);
-  inbounds=r.map(p=>({id:p.id,no:getTitle(p.properties,'入料單號'),matId:p.properties?.['料件']?.relation?.[0]?.id||'',qty:p.properties?.['入料數量']?.number??0,date:p.properties?.['入料日期']?.date?.start||'',supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫'}));
+  inbounds=r.map(p=>{
+    const matId=p.properties?.['料件']?.relation?.[0]?.id||'';
+    const mat=mats.find(x=>x.id===matId);
+    return {
+      id:p.id,
+      no:getTitle(p.properties,'入料單號'),
+      matId,
+      matName:mat?.name||getRichText(p.properties,'料件名稱','品項名稱'),
+      matCode:mat?.code||getRichText(p.properties,'料件編號'),
+      qty:p.properties?.['入料數量']?.number??0,
+      date:p.properties?.['入料日期']?.date?.start||'',
+      supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',
+      qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',
+      stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫',
+    };
+  });
 }
 
 function explodeBOM(pid,qty){
@@ -5132,7 +5216,6 @@ function renderQCTab(){
             <td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap">
               <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button>
               <button class="btn btn-red btn-sm" onclick="rejectQC('${i.id}')">✗ 退回</button>
-              <button class="btn btn-cyan btn-sm" onclick="syncInboundStock('${i.id}','${i.matId}',${i.qty})" title="同步庫存">🔄</button>
               <a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">📷</a>
             </div>`:'—'}</td>
           </tr>`;
@@ -5276,6 +5359,7 @@ async function deleteOrder(oid, no){
     // ★ 同步到 Notion：先 archive，確認後不再出現在 query 結果
     const r = await notionAPI('PATCH','pages/'+oid,{archived:true});
     if(r.object==='error') throw new Error(r.message);
+    logUserAction('刪除訂單',no||oid,'訂單已刪除',ROLE);
 
     showToast('✅ 訂單「'+no+'」已刪除','ok');
 
@@ -5571,6 +5655,7 @@ async function doPick(orderId){
 
       // 更新訂單狀態
       await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+      logUserAction('確認領料',no,o?.no||orderId,ROLE);
       await refreshAll(); await loadPicks();
       if(stockErrors.length){
         showToast(`⚠ 領料完成，部分失敗：${stockErrors.join('、')}`,'warn');
@@ -5657,6 +5742,7 @@ async function doPick(orderId){
 
     // 3. 更新訂單狀態為「生產中」
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+    logUserAction('確認領料',no,`${o?.no||orderId} ${hasBOM?'BOM展開':'直接扣料'}`,ROLE);
 
     // 4. 重新整理資料
     await refreshAll();
@@ -5691,6 +5777,7 @@ async function doPickNoDeduct(orderId){
       '領料日期':{date:{start:ds}}
     });
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
+    logUserAction('建立領料單未扣料',no,o?.no||orderId,ROLE);
     await refreshAll();await loadPicks();
     showToast(`⚠ 領料單 ${no} 已建立（無 BOM，未扣料），請手動調整庫存`,'warn');
   }catch(e){showToast('❌ 失敗：'+e.message,'err');}
@@ -5704,6 +5791,9 @@ async function syncInboundStock(id, matId, qty){
 
   if(inbound.qcStatus!=='品檢通過'){
     showToast('⚠ 品管狀態尚未通過，無法同步庫存','warn'); return;
+  }
+  if(inbound.stStatus==='已入庫'){
+    showToast('⚠ 此入料單已是「已入庫」，避免重複增加庫存','warn'); return;
   }
 
   const mat = mats.find(m=>m.id===matId);
@@ -5721,6 +5811,7 @@ async function syncInboundStock(id, matId, qty){
     await updatePage(matId, {'目前庫存':{number: newStock}});
     // 確保入庫狀態也是已入庫
     await updatePage(id, {'入庫狀態':{select:{name:'已入庫'}}});
+    await logStockChange(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),mat.stock||0,newStock,id,ROLE);
     await refreshAll();
     showToast(`✅ ${mat.name} 庫存已同步：${mat.stock} → ${newStock}`,'ok');
   }catch(e){ showToast('❌ 同步失敗：'+e.message,'err'); }
@@ -5732,6 +5823,9 @@ async function logStockChange(matId, matName, matCode, changeType, qty, beforeSt
   _logQueue.push({matId,matName,matCode,changeType,qty,beforeStock,afterStock,refNo,operator,
     operator2:operator||ROLE||''});
   if(!_logFlushing) _flushLogQueue();
+}
+function logUserAction(action, refNo='', detail='', operator=''){
+  logStockChange('', detail||action, '', action, 0, 0, 0, refNo, operator||ROLE||'');
 }
 
 // 佇列逐一寫入（避免同時大量 API 請求）
@@ -5774,9 +5868,8 @@ async function approveQC(id,matId,qty){
 
   // ★ 驗證 matId
   if(!matId){
-    showToast('❌ 入料單未關聯料件，無法自動加庫存。品管狀態仍會更新。','err');
-    try{await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});}catch(e2){}
-    await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+    showToast('❌ 入料單未關聯料件，無法品檢通過與入庫。請先補上料件關聯。','err');
+    logUserAction('品管通過失敗',ibNo,'入料單未關聯料件',ROLE);
     return;
   }
   try{
@@ -5801,6 +5894,7 @@ async function approveQC(id,matId,qty){
 
     // 2. 更新入料單品管狀態
     await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
+    logUserAction('品管通過',ibNo,ibMat||ibCode,ROLE);
     // 3. 重新從 Notion 讀最新庫存
     const matData=await notionAPI('GET','pages/'+matId);
     const curStock=matData?.properties?.['目前庫存']?.number??0;
@@ -5867,6 +5961,7 @@ async function rejectQC(id){
     }catch(e2){ console.warn('品管不合格記錄建立失敗:', e2); }
 
     await updatePage(id,{'品管狀態':{select:{name:'品檢不合格'}},'入庫狀態':{select:{name:'退回供應商'}}});
+    logUserAction('品管退回',ibNo,ibMat||ibCode,ROLE);
     await loadInbounds();renderTab(CURRENT_TAB);
     showToast('已標記不合格，檢驗單及不合格記錄已建立','warn');
   }catch(e){showToast('錯誤：'+e.message,'err');}
@@ -6255,11 +6350,13 @@ async function submitBatchInbound(){
         '入料單號':  {title:[{text:{content:inbNo}}]},
         '料件編號':  {rich_text:[{text:{content:item.code||''}}]},
         '入料數量':  {number:item.qty},
-        '狀態':      {select:{name:'待檢驗'}},
+        '品管狀態':  {select:{name:'待品檢'}},
+        '入庫狀態':  {select:{name:'待入庫'}},
         '備註':      {rich_text:[{text:{content:note||''}}]},
         '入料日期':  {date:{start:today}},
         ...(matId?{'料件':{relation:[{id:matId}]}}:{}),
       }});
+      logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);
       // 同步到品管待檢驗
       const qcNo=`QC-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
       await notionAPI('POST','pages',{parent:{database_id:DB.qcInspect},properties:{
@@ -6274,6 +6371,8 @@ async function submitBatchInbound(){
     }catch(e){fail++; console.error('入料失敗:',item.code,e);}
   }
   await refreshAll();
+  await loadInbounds();
+  if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc') renderTab(CURRENT_TAB);
   showToast(`✅ 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管待檢驗已同步建立）`,'ok');
   window._ibItems=[];
 }
@@ -6301,6 +6400,7 @@ async function submitLeave(){
       '請假原因':      {rich_text:[{text:{content:reason||''}}]},
       '審核狀態':      {select:{name:'待審核'}},
     }});
+    logUserAction('送出請假',name,`${type} ${days}天`,ROLE);
     await refreshAll();
     showToast('✅ 請假申請已送出','ok');
   }catch(e){showToast('❌ 送出失敗：'+e.message,'err');}
@@ -6310,6 +6410,7 @@ async function doApproveLeave(id, status){
   try{
     await updatePage(id,{'審核狀態':{select:{name:status}}});
     const l=leaves.find(x=>x.id===id); if(l) l.status=status;
+    logUserAction('請假審核',l?.name||id,status,ROLE);
     renderTab('leave');
     showToast(`✅ 已${status}`,'ok');
   }catch(e){showToast('❌ '+e.message,'err');}
@@ -6327,6 +6428,7 @@ async function submitNewCustomer(){
       '客戶編號':     {rich_text:[{text:{content:code||''}}]},
       '國家':         region?{select:{name:region}}:undefined,
     }});
+    logUserAction('建立客戶',name,code||region||'',ROLE);
     await refreshAll(); showToast('✅ 客戶建立完成','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
@@ -6750,6 +6852,7 @@ async function submitNormalOrder(isDomestic){
     if(productId) props['成品']={relation:[{id:productId}]};
     if(deadline)  props['交期']={date:{start:deadline}};
     await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+    logUserAction('建立訂單',orderNo,`${custName||'未知'} ${product?.code||product?.name||''} x ${qty}`,ROLE);
     await refreshAll();
     showToast(`✅ 訂單 ${orderNo} 建立完成`,'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
@@ -6776,6 +6879,7 @@ async function submitSFGOrder(){
     };
     if(sfgId) props['成品']={relation:[{id:sfgId}]};
     await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+    logUserAction('建立半成品單',orderNo,`${sfgMat?.code||sfgMat?.name||''} x ${qty}`,ROLE);
     await refreshAll();
     showToast(`✅ 半成品生產單 ${orderNo} 建立完成`,'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
@@ -6898,6 +7002,7 @@ async function submitShopeeOrdersV2(){
       props['交期']={date:{start:today}};
       const r=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
       if(!r||r.object!=='page') throw new Error(r?.message||'訂單建立失敗');
+      logUserAction('建立蝦皮訂單',orderNo,`${mat.code||mat.name} x ${it.qty}`,ROLE);
       ok++;
     }catch(e){
       fail++;
@@ -6985,6 +7090,7 @@ async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
       const newQty = curQty + addQty;
       await updatePage(sku.id,{'目前庫存':{number:newQty}});
       await logStockChange(sku.id, sku.name||skuCode, sku.code||skuCode, '蝦皮完成入庫', addQty, curQty, newQty, orderNo, ROLE);
+      logUserAction('完成蝦皮訂單',orderNo,`${skuCode} x ${addQty}`,ROLE);
       sku.qty = newQty;
       sku.stock = newQty;
     }
