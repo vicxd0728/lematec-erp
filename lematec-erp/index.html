@@ -1181,6 +1181,11 @@ function logout(){localStorage.removeItem('lu');localStorage.removeItem('lr');lo
 // ═══════════════════════════════════════════════
 // APP START
 // ═══════════════════════════════════════════════
+function initOnlineTracking(){
+  const el=document.getElementById('onlineCount');
+  if(el) el.style.display='inline-flex';
+}
+
 async function startApp(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').style.display='flex';
@@ -3129,37 +3134,110 @@ function renderLeave(){
   return _notionBar + tabs + statsFilterBar + statsSection;
 }
 
+async function syncCordersFromShopee115(){
+  showToast('同步中...','warn');
+  try{await loadCorders();renderTab('corders');showToast('✅ 同步完成','ok');}
+  catch(e){showToast('❌ '+e.message,'err');}
+}
+
+async function uploadCorderFile(input){
+  const file=input.files?.[0]; if(!file) return;
+  showToast('讀取中...','warn');
+  try{
+    const text=await file.text();
+    const lines=text.split('\n').filter(l=>l.trim());
+    if(lines.length<2){showToast('檔案無資料','warn');return;}
+    const headers=lines[0].split(',').map(s=>s.trim().replace(/"/g,''));
+    const skuCol=headers.indexOf('商品選項貨號');
+    const buyerCol=headers.findIndex(h=>h.includes('買家'));
+    const qtyCol=headers.findIndex(h=>h.includes('數量'));
+    let created=0,failed=0;
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split(',').map(s=>s.trim().replace(/"/g,''));
+      const sku=skuCol>=0?cols[skuCol]:''; if(!sku) continue;
+      let matId=null;
+      const mat=mats.find(m=>m.code===sku);
+      if(mat){matId=mat.id;}
+      else{try{const nm=await notionAPI('POST','pages',{parent:{database_id:DB.materials},properties:{'料件名稱':{title:[{text:{content:sku}}]},'料件編號':{rich_text:[{text:{content:sku}}]},'類型':{select:{name:'成品'}},'目前庫存':{number:0}}});matId=nm?.id;}catch(e){}}
+      const today=new Date().toISOString().slice(0,10);
+      const yr=today.slice(2,4);const mo=today.slice(5,7);
+      const orderNo='CO-'+yr+mo+'-'+Math.floor(Math.random()*9000+1000);
+      try{
+        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:{
+          '訂單號碼':{title:[{text:{content:orderNo}}]},
+          '買家帳號':{rich_text:[{text:{content:buyerCol>=0?cols[buyerCol]:''}}]},
+          '料件編號':{rich_text:[{text:{content:sku}}]},
+          '數量':{number:qtyCol>=0?parseInt(cols[qtyCol])||1:1},
+          '狀態':{select:{name:'出貨中'}},
+        }});
+        created++;
+      }catch(e){failed++;}
+    }
+    await loadCorders();renderTab('corders');
+    showToast('✅ 上傳完成：'+created+'筆'+(failed?'，'+failed+'筆失敗':''),'ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
+  input.value='';
+}
+
 function renderCorders(){
-  const canAdd = ROLE==='manager'||ROLE==='sales';
-  const _notionBar = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a></div>';
-  
-  if(!window.corders||!window.corders.length){
-    return _notionBar + '<div class="panel"><div class="panel-hdr"><span class="panel-title">🛒 C端訂單</span>'
-      +(canAdd?`<label class="btn btn-green btn-sm" style="cursor:pointer">📊 匯入蝦皮Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importShopeeExcel(this)"></label>
-        <button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:'')
-      +'</div><div class="info-box" style="margin:8px">目前沒有 C端訂單</div></div>';
-  }
-  
-  const rows = window.corders.map(o=>`<tr>
-    <td>${o.no||''}</td>
-    <td>${o.buyer||''}</td>
-    <td>${o.product||o.matCode||''}</td>
-    <td style="text-align:center">${o.qty||0}</td>
-    <td><span class="badge" style="background:${o.status==='已完成'?'rgba(16,185,129,.15)':o.status==='取消'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)'};color:${o.status==='已完成'?'var(--green)':o.status==='取消'?'var(--red)':'var(--amber)'}">${o.status||'—'}</span></td>
-    <td>${o.created||''}</td>
-  </tr>`).join('');
-  
-  return _notionBar + `<div class="panel">
-    <div class="panel-hdr">
-      <span class="panel-title">🛒 C端訂單 <span class="badge">${window.corders.length}</span></span>
-      ${canAdd?`<label class="btn btn-green btn-sm" style="cursor:pointer">📊 匯入蝦皮Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importShopeeExcel(this)"></label>
-        <button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:''}
-    </div>
-    <div class="table-wrap"><table>
-      <tr><th>訂單號</th><th>買家</th><th>品項</th><th>數量</th><th>狀態</th><th>建立日期</th></tr>
-      ${rows}
-    </table></div>
+  const canAdd=ROLE==='manager'||ROLE==='sales';
+  if(!window._CO_STATUS) window._CO_STATUS='';
+  if(!window._CO_DAYS)   window._CO_DAYS='0';
+  if(!window._CO_SORT)   window._CO_SORT='created';
+  if(!window._CO_DIR)    window._CO_DIR=-1;
+  if(!window._CO_Q)      window._CO_Q='';
+  const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS;
+  const SORT=window._CO_SORT, DIR=window._CO_DIR, Q=window._CO_Q;
+  const notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
+    <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
+    <a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a>
+    <a href="https://www.notion.so/276ff6f424bb80248a2ad39aff6800db" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛍 115年蝦皮訂單</a>
   </div>`;
+  const data=window.corders||[];
+  const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
+  let filtered=data.filter(o=>{
+    if(STATUS&&o.status!==STATUS) return false;
+    if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
+    if(Q){const q=Q.toLowerCase();if(!(o.no||'').toLowerCase().includes(q)&&!(o.buyer||'').toLowerCase().includes(q)&&!(o.matCode||o.matName||'').toLowerCase().includes(q)) return false;}
+    return true;
+  });
+  filtered.sort((a,b)=>{
+    let av='',bv='';
+    if(SORT==='created'){av=a.created||'';bv=b.created||'';}
+    else if(SORT==='status'){av=a.status||'';bv=b.status||'';}
+    else if(SORT==='mat'){av=a.matCode||a.matName||'';bv=b.matCode||b.matName||'';}
+    else if(SORT==='qty'){av=a.qty??0;bv=b.qty??0;}
+    return DIR*(av>bv?1:av<bv?-1:0);
+  });
+  const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<span onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')" style="cursor:pointer;color:${a?'var(--blue)':'var(--text3)'};font-size:11px;margin-left:4px">${label}${arrow}</span>`;};
+  const statusOpts=['','出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
+  const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
+  let html=notionBar+`<div class="panel">
+    <div class="panel-hdr">
+      <span class="panel-title">🛒 C端訂單 <span class="badge">${filtered.length}/${data.length}</span></span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:''}
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">📤 上傳<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadCorderFile(this)"></label>
+        <button class="btn btn-ghost btn-sm" onclick="syncCordersFromShopee115()">🔄 同步蝦皮</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;padding:8px;flex-wrap:wrap">
+      <input class="inp" id="co_search" placeholder="🔍 訂單號/買家/品項..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;renderTab('corders')" style="flex:1;min-width:150px">
+      <select class="inp" style="width:100px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
+      <select class="inp" style="width:90px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
+    </div>
+    <div style="padding:2px 8px 6px;font-size:11px;color:var(--text3)">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('mat','品項')} ${sb('qty','數量')}</div>`;
+  if(!filtered.length){
+    html+=`<div class="info-box" style="margin:8px">無符合訂單</div>`;
+  }else{
+    const rows=filtered.map(o=>{
+      const bg=o.status==='已完成'?'rgba(16,185,129,.15)':o.status==='已取消'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
+      const fg=o.status==='已完成'?'var(--green)':o.status==='已取消'?'var(--red)':'var(--amber)';
+      return `<tr><td style="font-family:monospace;font-size:11px">${o.no||'—'}</td><td style="font-size:12px">${o.buyer||'—'}</td><td style="font-size:12px">${o.matCode||o.matName||'—'}</td><td style="text-align:right;font-size:12px">${o.qty||0}</td><td><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:${bg};color:${fg}">${o.status||'—'}</span></td><td style="font-size:11px;color:var(--text2)">${o.created||'—'}</td></tr>`;
+    }).join('');
+    html+=`<div class="table-wrap"><table><tr><th>訂單號</th><th>買家</th><th>品項</th><th>數量</th><th>狀態</th><th>建立日期</th></tr>${rows}</table></div>`;
+  }
+  return html+'</div>';
 }
 
 function openPickModal(orderId){
@@ -4922,9 +5000,11 @@ async function loadCorders(){
       no:getTitle(p.properties,'訂單號碼')||getTitle(p.properties,'Name'),
       buyer:getRichText(p.properties,'買家帳號')||getRichText(p.properties,'客戶'),
       matCode:getRichText(p.properties,'料件編號')||getRichText(p.properties,'商品'),
-      product:getRichText(p.properties,'料件編號')||getRichText(p.properties,'商品'),
+      matName:getRichText(p.properties,'商品名稱')||getRichText(p.properties,'品名'),
       qty:p.properties?.['數量']?.number??0,
-      status:p.properties?.['狀態']?.select?.name||'',
+      status:p.properties?.['狀態']?.select?.name||'出貨中',
+      shipMethod:getRichText(p.properties,'出貨方式'),
+      shipDate:p.properties?.['出貨日期']?.date?.start||'',
       created:p.created_time?.slice(0,10)||'',
     }));
   }catch(e){window.corders=[];console.warn('loadCorders 失敗:',e);}
