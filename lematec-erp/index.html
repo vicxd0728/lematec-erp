@@ -190,6 +190,11 @@ html[data-theme="rose"]{
   position:fixed;inset:0;background:var(--bg);
   display:flex;align-items:center;justify-content:center;
   flex-direction:column;gap:20px;z-index:100;padding:16px;
+  overflow-y:auto;
+}
+.login-screen img{
+  width:72px;height:72px;object-fit:contain;border-radius:50%;
+  box-shadow:0 4px 24px rgba(0,0,0,.4);
 }
 .brand{font-family:var(--f-mono);font-size:0.75rem;font-weight:400;letter-spacing:5px;color:var(--text3);}
 .login-screen h1{font-family:var(--f-ui);font-size:1.625rem;font-weight:800;color:var(--text);letter-spacing:.3px;margin-top:-8px;text-align:center;}
@@ -197,7 +202,7 @@ html[data-theme="rose"]{
 /* Login card */
 .card{
   background:var(--bg2);border:1px solid var(--border2);border-radius:16px;
-  padding:24px;width:100%;max-width:400px;
+  padding:24px;width:100%;max-width:400px;box-sizing:border-box;
   box-shadow:0 24px 60px rgba(0,0,0,.6);
 }
 .card .field{margin-bottom:14px;}
@@ -2843,52 +2848,274 @@ function renderAnnounce(){
 }
 
 function renderLeave(){
+  if(!window._LEAVE_SUB) window._LEAVE_SUB='record';
+  if(!window._LEAVE_DATE) window._LEAVE_DATE='0';
+  const LSUB = window._LEAVE_SUB;
+  const LDATE = window._LEAVE_DATE;
+
+  const _notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
+    <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
+    <a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" class="notion-link">🗓️ 請假管理</a>
+    <a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="notion-link">👤 員工統計</a>
+  </div>`;
+
   const canApprove = ROLE==='manager';
   const pending = leaves.filter(l=>l.status==='待審核');
-  const approved = leaves.filter(l=>l.status==='核准');
-  const rejected = leaves.filter(l=>l.status==='不通過');
-  
-  let html = '<div class="panel"><div class="panel-hdr">'
-    + '<span class="panel-title">🗓️ 請假管理</span>'
-    + '<button class="btn btn-blue btn-sm" onclick="openModal(\'newLeave\')">＋ 申請請假</button>'
-    + '</div>';
-  
-  // 待審核
-  if(pending.length){
-    html += '<div style="padding:8px"><div style="font-size:0.75rem;font-weight:700;color:var(--amber);margin-bottom:8px">⏳ 待審核（'+pending.length+'）</div>';
-    pending.forEach(l=>{
-      html += `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:10px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between">
-          <div><b style="color:var(--text)">${l.name}</b> <span style="font-size:0.75rem;color:var(--text2)">${l.type}</span></div>
-          ${canApprove?`<div style="display:flex;gap:4px">
-            <button class="btn btn-green btn-sm" onclick="doApproveLeave('${l.id}','核准')">✅ 核准</button>
-            <button class="btn btn-red btn-sm" onclick="doApproveLeave('${l.id}','不通過')">✗ 拒絕</button>
-          </div>`:''}
+
+  // ── 時間過濾 ──
+  const now = Date.now();
+  const dateOpts=[['0','全部'],['30','近30天'],['90','近3個月'],['365','今年']];
+  function _applyLeaveFilter(list){
+    if(LDATE==='0') return list;
+    const days = parseInt(LDATE);
+    const cutoff = now - days*86400000;
+    return list.filter(l=>{
+      const t = new Date(l.dateFrom||'').getTime();
+      return t && t >= cutoff;
+    });
+  }
+
+  const history = _applyLeaveFilter(leaves.filter(l=>l.status!=='待審核'));
+
+  // ── Tab 標籤 ──
+  const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:16px">
+    ${[['record','📋 請假紀錄'],['calendar','📅 月曆'],['stats','📊 請假統計']].map(([k,l])=>`
+    <button onclick="window._LEAVE_SUB='${k}';renderTab('leave')"
+      style="flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:${LSUB===k?700:400};
+      background:${LSUB===k?'var(--bg)':'transparent'};color:${LSUB===k?'var(--text)':'var(--text3)'};
+      border:${LSUB===k?'1px solid var(--border)':'1px solid transparent'};
+      cursor:pointer;transition:all .15s;box-shadow:${LSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
+  </div>`;
+
+  // ═══════════════════════════
+  // Tab 1：請假紀錄
+  // ═══════════════════════════
+  if(LSUB==='record'){
+    const filterBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <span style="font-size:11px;color:var(--text3)">時間：</span>
+      ${dateOpts.map(([v,l])=>{const a=LDATE===v;return`<button onclick="window._LEAVE_DATE='${v}';renderTab('leave')"
+        style="padding:4px 12px;border-radius:20px;font-size:11px;cursor:pointer;
+        border:1px solid ${a?'var(--blue)':'var(--border)'};
+        background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};
+        color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${l}</button>`;}).join('')}
+      <button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openModal('newLeave')">＋ 申請請假</button>
+    </div>`;
+
+    // 待審核卡片
+    const pendingSection = pending.length ? `
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--yellow);letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(245,185,66,.15);font-size:10px">${pending.length}</span>
+        ⏳ 待審核
+      </div>
+      ${pending.map(l=>`
+      <div style="background:var(--bg2);border:1px solid rgba(245,185,66,.3);border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(245,185,66,.1);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">👤</div>
+        <div style="flex:1;min-width:120px">
+          <div style="font-weight:700;font-size:14px;color:var(--text)">${l.name}</div>
+          <div style="font-size:11px;color:var(--text3)">${l.title||''}</div>
         </div>
-        <div style="font-size:0.75rem;color:var(--text2);margin-top:4px">${l.dateFrom||''} ~ ${l.dateTo||''} (${l.days||0}天) | 代理：${l.proxy||'—'}</div>
-        ${l.reason?`<div style="font-size:0.75rem;color:var(--text3);margin-top:4px">${l.reason}</div>`:''}
-      </div>`;
-    });
-    html += '</div>';
+        <div style="text-align:center;min-width:60px">
+          ${pill(l.type)}
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">${l.days} 天</div>
+        </div>
+        <div style="text-align:center;min-width:90px">
+          <div style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text)">${l.dateFrom||'—'}</div>
+          <div style="font-size:10px;color:var(--text3)">起始日</div>
+        </div>
+        ${l.proxy?`<div style="text-align:center;min-width:80px">
+          <div style="font-size:12px;color:var(--text2)">代：${l.proxy}</div>
+          <div style="font-size:10px;color:var(--text3)">代理人</div>
+        </div>`:''}
+        ${canApprove?`<div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-green btn-sm" onclick="doApproveLeave('${l.id}','approved')">✓ 核准</button>
+          <button class="btn btn-red btn-sm" onclick="doApproveLeave('${l.id}','rejected')">✗ 不通過</button>
+        </div>`:''}
+      </div>`).join('')}
+    </div>` : '';
+
+    // 請假紀錄表格
+    const historySection = `
+    <div class="panel">
+      <div class="panel-hdr">
+        <span class="panel-title">📋 請假紀錄 <span class="badge">${history.length}</span></span>
+      </div>
+      ${!history.length ? '<div style="padding:28px;text-align:center;color:var(--text3)">目前沒有請假紀錄</div>' :
+      `<div class="table-wrap"><table>
+        <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天數</th><th>代理人</th><th>狀態</th></tr>
+        ${history.map(l=>`<tr>
+          <td>
+            <div style="font-weight:600;font-size:13px">${l.name}</div>
+            <div style="font-size:10px;color:var(--text3)">${l.title||''}</div>
+          </td>
+          <td>${pill(l.type)}</td>
+          <td style="font-family:monospace;font-size:11px">${l.dateFrom||'—'}</td>
+          <td style="font-family:monospace;font-weight:600">${l.days}</td>
+          <td style="font-size:11px;color:var(--text2)">${l.proxy||'—'}</td>
+          <td>${pill(l.status)}</td>
+        </tr>`).join('')}
+      </table></div>`}
+    </div>`;
+
+    return _notionBar + tabs + filterBar + pendingSection + historySection;
   }
-  
-  // 歷史記錄
-  const history = [...approved,...rejected].sort((a,b)=>(b.applyDate||'').localeCompare(a.applyDate||''));
-  if(history.length){
-    html += '<div style="padding:8px"><div style="font-size:0.75rem;font-weight:700;color:var(--text3);margin-bottom:8px">📋 歷史記錄</div>';
-    history.slice(0,20).forEach(l=>{
-      const c = l.status==='核准'?'var(--green)':'var(--red)';
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
-        <div><b style="font-size:0.8125rem">${l.name}</b> <span style="font-size:0.75rem;color:var(--text2)">${l.type} ${l.days||0}天</span></div>
-        <span style="font-size:0.625rem;color:${c}">${l.status}</span>
-      </div>`;
+
+  // ═══════════════════════════
+  // Tab 2：月曆（當月）
+  // ═══════════════════════════
+  if(LSUB==='calendar'){
+    const today = new Date();
+    const calYear  = window._LEAVE_CAL_YEAR  || today.getFullYear();
+    const calMonth = window._LEAVE_CAL_MONTH || (today.getMonth()+1);
+    window._LEAVE_CAL_YEAR  = calYear;
+    window._LEAVE_CAL_MONTH = calMonth;
+
+    const monthStr = `${calYear}-${String(calMonth).padStart(2,'0')}`;
+    const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+    const firstDay    = new Date(calYear, calMonth-1, 1).getDay(); // 0=Sun
+
+    // 篩選當月請假（審核通過或核准）
+    const monthLeaves = leaves.filter(l=>{
+      const from = l.dateFrom||'';
+      return from.startsWith(monthStr) && (l.status==='審核通過'||l.status==='核准');
     });
-    html += '</div>';
+
+    // 建立日期 → 請假清單的 map
+    const dayMap={};
+    leaves.filter(l=>l.status==='審核通過'||l.status==='核准').forEach(l=>{
+      if(!l.dateFrom) return;
+      const from = new Date(l.dateFrom);
+      const dateTo = l.dateTo ? new Date(l.dateTo) : from;
+      for(let d=new Date(from); d<=dateTo; d.setDate(d.getDate()+1)){
+        const key = d.toISOString().slice(0,10);
+        if(key.startsWith(monthStr)){
+          if(!dayMap[key]) dayMap[key]=[];
+          dayMap[key].push(l);
+        }
+      }
+    });
+
+    // 月曆 HTML
+    const weekDays=['日','一','二','三','四','五','六'];
+    let calCells='';
+    let dayCount=1;
+    const totalCells = Math.ceil((firstDay+daysInMonth)/7)*7;
+    for(let i=0;i<totalCells;i++){
+      if(i<firstDay||dayCount>daysInMonth){
+        calCells+=`<div style="min-height:80px;background:rgba(255,255,255,.01);border-radius:8px"></div>`;
+      } else {
+        const dateKey=`${monthStr}-${String(dayCount).padStart(2,'0')}`;
+        const dayLeaves=dayMap[dateKey]||[];
+        const isToday=dateKey===today.toISOString().slice(0,10);
+        const isWeekend=((i%7===0)||(i%7===6));
+        calCells+=`<div style="min-height:80px;padding:8px;background:${isToday?'rgba(77,142,245,.08)':'var(--bg2)'};
+          border:1px solid ${isToday?'rgba(77,142,245,.3)':'var(--border)'};border-radius:8px;position:relative">
+          <div style="font-size:13px;font-weight:${isToday?700:400};color:${isToday?'var(--blue)':isWeekend?'var(--red)':'var(--text)'}">
+            ${dayCount}${isToday?'<span style="font-size:9px;margin-left:4px;color:var(--blue)">今</span>':''}
+          </div>
+          ${dayLeaves.map(l=>`<div style="margin-top:4px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;
+            background:rgba(239,68,68,.12);color:#ef4444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            🔴 ${l.name}${l.proxy?` / 代:${l.proxy}`:''}
+          </div>`).join('')}
+        </div>`;
+        dayCount++;
+      }
+    }
+
+    const calNav=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <button onclick="window._LEAVE_CAL_MONTH=window._LEAVE_CAL_MONTH-1;if(window._LEAVE_CAL_MONTH<1){window._LEAVE_CAL_MONTH=12;window._LEAVE_CAL_YEAR--;}renderTab('leave')"
+        class="btn btn-ghost btn-sm">← 上月</button>
+      <div style="font-size:16px;font-weight:700;color:var(--text)">${calYear} 年 ${calMonth} 月
+        <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">共 ${monthLeaves.length} 筆請假</span>
+      </div>
+      <button onclick="window._LEAVE_CAL_MONTH=window._LEAVE_CAL_MONTH+1;if(window._LEAVE_CAL_MONTH>12){window._LEAVE_CAL_MONTH=1;window._LEAVE_CAL_YEAR++;}renderTab('leave')"
+        class="btn btn-ghost btn-sm">下月 →</button>
+    </div>`;
+
+    const calGrid=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:8px">
+      ${weekDays.map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text3);padding:4px">${d}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${calCells}</div>`;
+
+    const legend=monthLeaves.length?`<div style="margin-top:12px;padding:10px 14px;background:var(--bg2);border-radius:10px;border:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">本月請假人員</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${monthLeaves.map(l=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg3);border-radius:20px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>
+          <span style="font-size:12px;font-weight:600">${l.name}</span>
+          <span style="font-size:11px;color:var(--text3)">${pill(l.type)} ${l.days}天</span>
+          ${l.proxy?`<span style="font-size:11px;color:var(--text3)">代：${l.proxy}</span>`:''}
+        </div>`).join('')}
+      </div>
+    </div>` : '';
+
+    return _notionBar + tabs + calNav + calGrid + legend;
   }
-  
-  if(!pending.length&&!history.length) html+='<div class="info-box" style="margin:8px">目前沒有請假記錄</div>';
-  html += '</div>';
-  return html;
+
+  // ═══════════════════════════
+  // Tab 3：請假統計
+  // ═══════════════════════════
+  const leaveStats = window._leaveStats || [];
+  const yearFilter = window._LEAVE_YEAR_FILTER || '2026';
+
+  const statsFilterBar=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text3)">年度：</span>
+    ${['2025','2026','2027'].map(y=>{const a=yearFilter===y;return`<button onclick="window._LEAVE_YEAR_FILTER='${y}';renderTab('leave')"
+      style="padding:4px 14px;border-radius:20px;font-size:11px;cursor:pointer;
+      border:1px solid ${a?'var(--blue)':'var(--border)'};
+      background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${y}</button>`;}).join('')}
+    <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadLeaveStats().then(()=>renderTab('leave'))">🔄 更新</button>
+    ${ROLE==='manager'?`<a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="btn btn-ghost btn-sm">📊 Notion 編輯</a>`:''}
+  </div>`;
+
+  const filteredStats = leaveStats.filter(s=>s.year===yearFilter);
+
+  const statsSection = !filteredStats.length ? `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">
+    目前沒有 ${yearFilter} 年統計資料<br>
+    <button class="btn btn-blue btn-sm" style="margin-top:12px" onclick="loadLeaveStats().then(()=>renderTab('leave'))">📥 載入統計</button>
+  </div></div>` :
+  `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
+    ${filteredStats.map(s=>{
+      const annualTotal = s.annualTotal || 14;
+      const used = s.usedAnnual || 0;
+      const remain = s.annualRemain ?? (annualTotal - used);
+      const pct = Math.round((used/annualTotal)*100);
+      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(77,142,245,.1);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>
+          <div>
+            <div style="font-weight:700;font-size:15px;color:var(--text)">${s.name}</div>
+            <div style="font-size:11px;color:var(--text3)">${s.title||''} · ${yearFilter} 年</div>
+          </div>
+        </div>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--text3)">特休剩餘</span>
+            <span style="font-size:12px;font-weight:700;color:${remain<=3?'var(--red)':remain<=7?'var(--yellow)':'var(--green)'}">${remain}/${annualTotal} 天</span>
+          </div>
+          <div style="height:6px;border-radius:3px;background:var(--bg4);overflow:hidden">
+            <div style="height:100%;border-radius:3px;width:${pct}%;background:${pct>=80?'var(--red)':pct>=50?'var(--yellow)':'var(--blue)'}"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          ${[
+            ['特休','var(--green)',s.usedAnnual||0],
+            ['事假','var(--blue)',s.usedPersonal||0],
+            ['病假','var(--yellow)',s.usedSick||0],
+          ].map(([label,color,val])=>`<div style="text-align:center;padding:8px 4px;background:var(--bg3);border-radius:8px">
+            <div style="font-size:18px;font-weight:700;color:${color}">${val}</div>
+            <div style="font-size:10px;color:var(--text3)">${label}</div>
+          </div>`).join('')}
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
+          <span style="font-size:11px;color:var(--text3)">請假總次數</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">${s.totalTimes||0} 次 / ${s.totalDays||0} 天</span>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  return _notionBar + tabs + statsFilterBar + statsSection;
 }
 
 function renderCorders(){
@@ -2897,7 +3124,8 @@ function renderCorders(){
   
   if(!window.corders||!window.corders.length){
     return _notionBar + '<div class="panel"><div class="panel-hdr"><span class="panel-title">🛒 C端訂單</span>'
-      +(canAdd?'<button class="btn btn-blue btn-sm" onclick="openModal(\'newCorder\')">＋ 新增</button>':'')
+      +(canAdd?`<label class="btn btn-green btn-sm" style="cursor:pointer">📊 匯入蝦皮Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importShopeeExcel(this)"></label>
+        <button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:'')
       +'</div><div class="info-box" style="margin:8px">目前沒有 C端訂單</div></div>';
   }
   
@@ -2913,7 +3141,8 @@ function renderCorders(){
   return _notionBar + `<div class="panel">
     <div class="panel-hdr">
       <span class="panel-title">🛒 C端訂單 <span class="badge">${window.corders.length}</span></span>
-      ${canAdd?'<button class="btn btn-blue btn-sm" onclick="openModal(\'newCorder\')">＋ 新增</button>':''}
+      ${canAdd?`<label class="btn btn-green btn-sm" style="cursor:pointer">📊 匯入蝦皮Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importShopeeExcel(this)"></label>
+        <button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:''}
     </div>
     <div class="table-wrap"><table>
       <tr><th>訂單號</th><th>買家</th><th>品項</th><th>數量</th><th>狀態</th><th>建立日期</th></tr>
@@ -4242,6 +4471,173 @@ async function submitCorder(){
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
+async function importShopeeExcel(input){
+  const file = input.files[0];
+  if(!file) return;
+  input.value='';
+  showToast('\u23f3 \u4e0a\u50b3\u89e3\u5bc6\u4e2d...','ok');
+
+  try{
+    // \u2500\u2500 \u628a\u52a0\u5bc6 xlsx \u50b3\u7d66 Worker \u89e3\u5bc6 \u2500\u2500
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', '576313');
+
+    const workerRes = await fetch(PROXY, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if(!workerRes.ok){
+      showToast('\u274c Worker \u56de\u61c9\u7570\u5e38: '+workerRes.status,'err');
+      return;
+    }
+
+    const { base64, encrypted, error } = await workerRes.json();
+    if(error){
+      showToast('\u274c \u89e3\u5bc6\u5931\u6557: '+error,'err');
+      return;
+    }
+
+    // \u2500\u2500 \u7528 SheetJS \u8b80\u53d6\u89e3\u5bc6\u5f8c\u7684 xlsx \u2500\u2500
+    const binStr = atob(base64);
+    const buf = new Uint8Array(binStr.length);
+    for(let i=0;i<binStr.length;i++) buf[i]=binStr.charCodeAt(i);
+
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
+    if(!rows.length){ showToast('Excel \u6c92\u6709\u8cc7\u6599','warn'); return; }
+
+    showToast('\u23f3 \u89e3\u6790\u8a02\u55ae\u4e2d...','ok');
+
+    // \u51fa\u8ca8\u65b9\u5f0f\u5c0d\u61c9
+    const SHIP_MAP = {
+      '\u65b0\u7af9\u7269\u6d41':'\u65b0\u7af9\u7269\u6d41','\u8766\u76ae':'\u8766\u76ae','\u5e97\u5230\u5bb6\u5b85\u914d':'\u5e97\u5230\u5bb6','\u5e97\u5230\u5bb6':'\u5e97\u5230\u5bb6',
+      '7-11':'7-11','\u5168\u5bb6':'\u5168\u5bb6','\u9ed1\u8c93\u5b85\u4fbf':'\u9ed1\u8c93\u5b85\u4fbf',
+      'SF\u9806\u8c50':'SF\u9806\u8c50','\u5927\u69ae\u8ca8\u904b':'\u5927\u69ae\u8ca8\u904b','\u90f5\u5c40\u5305\u88f9':'\u90f5\u5c40\u5305\u88f9',
+    };
+    function mapShip(v){
+      for(const k in SHIP_MAP){ if(v&&v.toString().includes(k)) return SHIP_MAP[k]; }
+      return v||'';
+    }
+
+    // \u5408\u4f75\u540c\u4e00\u8a02\u55ae\u591a\u54c1\u9805
+    const ordersMap = {};
+    for(const row of rows){
+      const no    = (row['\u8a02\u55ae\u7de8\u865f']||'').toString().trim();
+      if(!no) continue;
+      const sku   = (row['\u4e3b\u5546\u54c1\u8ca8\u865f']||'').toString().trim();
+      const qty   = parseInt(row['\u6578\u91cf'])||1;
+      const buyer = (row['\u8cb7\u5bb6\u5e33\u865f']||'').toString().trim();
+      const rawShip = (row['\u5bc4\u9001\u65b9\u5f0f']||'').toString().trim();
+      const shipDate= (row['\u5be6\u969b\u51fa\u8ca8\u6642\u9593']||'').toString().slice(0,10).replace(/\\//g,'-');
+      const payDate = (row['\u8cb7\u5bb6\u4ed8\u6b3e\u6642\u9593']||'').toString().slice(0,10).replace(/\\//g,'-');
+      const prodName= (row['\u5546\u54c1\u540d\u7a31']||'').toString().slice(0,40);
+      if(!ordersMap[no]) ordersMap[no]={no,buyer,shipMethod:mapShip(rawShip),shipDate,payDate,items:[]};
+      ordersMap[no].items.push({sku, qty, prodName});
+    }
+
+    const orders = Object.values(ordersMap);
+    if(!orders.length){ showToast('\u6c92\u6709\u6709\u6548\u8a02\u55ae\u8cc7\u6599','warn'); return; }
+
+    showToast('\u23f3 \u532f\u5165 '+orders.length+' \u7b46\u8a02\u55ae...','ok');
+    let ok=0, skip=0, noSkuOrders=[];
+
+    for(const o of orders){
+      if(corders.find(c=>c.no===o.no)){ skip++; continue; }
+
+      const stockResults=[], noSkuItems=[];
+
+      for(const item of o.items){
+        if(!item.sku){ noSkuItems.push(item.prodName||'(\u7121\u54c1\u540d)'); continue; }
+
+        let mat = mats.find(m=>
+          m.name===item.sku || m.code===item.sku ||
+          (m.name&&m.name.toLowerCase()===item.sku.toLowerCase()) ||
+          (m.code&&m.code.toLowerCase()===item.sku.toLowerCase())
+        );
+
+        if(!mat){
+          try{
+            const created = await notionAPI('POST','pages',{
+              parent:{database_id:DB.materials},
+              properties:{
+                '\u6599\u4ef6\u540d\u7a31':{title:[{text:{content:item.sku}}]},
+                '\u985e\u578b':{select:{name:'\u6210\u54c1'}},
+                '\u76ee\u524d\u5eab\u5b58':{number:20},
+                '\u5b89\u5168\u5eab\u5b58':{number:20},
+              }
+            });
+            if(created&&created.object==='page'){
+              mat={id:created.id,name:item.sku,code:item.sku,type:'\u6210\u54c1',stock:20,safe:20};
+              mats.push(mat);
+              console.log('[\u81ea\u52d5\u5efa\u7acb\u6599\u4ef6]', item.sku);
+            }
+          }catch(e2){
+            noSkuItems.push(item.sku+' (\u5efa\u7acb\u5931\u6557)');
+            continue;
+          }
+        }
+
+        try{
+          const matData = await notionAPI('GET','pages/'+mat.id);
+          const curStock = matData?.properties?.['\u76ee\u524d\u5eab\u5b58']?.number??0;
+          const newStock = curStock - item.qty;
+          await updatePage(mat.id,{'\u76ee\u524d\u5eab\u5b58':{number:newStock}});
+          await logStockChange(mat.id,mat.name,mat.code||'','C\u7aef\u51fa\u8ca8',-item.qty,curStock,newStock,o.no,ROLE);
+          mat.stock=newStock;
+          stockResults.push({sku:item.sku,qty:item.qty,matId:mat.id,matName:mat.name,ok:true});
+        }catch(e3){
+          console.error('\u6263\u5eab\u5b58\u5931\u6557:',item.sku,e3);
+        }
+      }
+
+      if(noSkuItems.length) noSkuOrders.push({no:o.no, items:noSkuItems});
+
+      const allSkus = o.items.map(i=>
+        i.sku ? i.sku+(i.qty>1?'\u00d7'+i.qty:'') : ('('+( i.prodName||'\u7121\u8ca8\u865f')+')'+(i.qty>1?'\u00d7'+i.qty:''))
+      ).join(' / ');
+      const totalQty = o.items.reduce((s,i)=>s+i.qty,0);
+      const matIds   = stockResults.filter(r=>r.ok).map(r=>r.matId).join(',');
+
+      const cProps={
+        '\u8a02\u55ae\u865f\u78bc':{title:[{text:{content:o.no}}]},
+        '\u8cb7\u5bb6\u5e33\u865f':{rich_text:[{text:{content:o.buyer}}]},
+        '\u54c1\u540d':{rich_text:[{text:{content:allSkus}}]},
+        '\u6578\u91cf':{number:totalQty},
+        '\u51fa\u8ca8\u65b9\u5f0f':{rich_text:[{text:{content:o.shipMethod}}]},
+        '\u72c0\u614b':{select:{name:'\u51fa\u8ca8\u4e2d'}},
+        '\u4f86\u6e90':{select:{name:'\u8766\u76ae'}},
+        '\u6599\u4ef6ID':{rich_text:[{text:{content:matIds}}]},
+        '\u5099\u8a3b':{rich_text:[{text:{content:noSkuItems.length?'\u26a0 \u9700\u624b\u52d5\u88dc\u6263\u6599\uff1a'+noSkuItems.join('\u3001'):''}}]},
+      };
+      if(o.shipDate&&o.shipDate.length===10) cProps['\u51fa\u65e5']={date:{start:o.shipDate}};
+      if(o.payDate&&o.payDate.length===10) cProps['\u4ed8\u6b3e\u6642\u9593']={date:{start:o.payDate}};
+      await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+
+      await syncToShopee115({no:o.no,buyer:o.buyer,matName:allSkus,qty:totalQty,
+        shipMethod:o.shipMethod,shipDate:o.shipDate,payDate:o.payDate||'',note:''});
+      ok++;
+    }
+
+    await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
+    showToast('\u2705 \u532f\u5165\u5b8c\u6210\uff1a\u65b0\u589e '+ok+' \u7b46'+(skip?' / \u8df3\u904e '+skip+' \u7b46':''), 'ok');
+    if(noSkuOrders.length){
+      const detail = noSkuOrders.map(o=>'\u8a02\u55ae '+o.no+'\uff1a'+o.items.join('\u3001')).join('\
+');
+      alert('\u26a0 \u4ee5\u4e0b\u54c1\u9805\u7121\u6599\u865f\uff08\u5eab\u5b58\u672a\u6263\u9664\uff0c\u8acb\u624b\u52d5\u8655\u7406\uff09\uff1a\
+\
+'+detail);
+    }
+
+  }catch(e){
+    showToast('\u274c \u532f\u5165\u5931\u6557\uff1a'+e.message,'err');
+    console.error('importShopeeExcel error:',e);
+  }
+}
+
+
 // ──────────────────────────────────────────
 function onCustCodeInput(v){
   const suggest=document.getElementById('custSuggest');
@@ -4324,8 +4720,123 @@ function renderItems(){
   </div>`;
 }
 
-async function fetchPIFromNotion(){ showToast('PI 讀取功能開發中','warn'); }
-function parsePIFile(input){ showToast('PI 讀取功能開發中','warn'); }
+// ──────────────────────────────────────────
+// PI 相關函數（Notion 抓取 + Excel 解密上傳）
+// ──────────────────────────────────────────
+async function fetchPIFromNotion(){
+  const btn=document.getElementById('fetchPIBtn');
+  const list=document.getElementById('piNotionList');
+  if(!btn||!list) return;
+  btn.disabled=true; btn.textContent='⏳ 載入中...';
+  list.style.display=''; list.innerHTML='<div style="padding:8px;font-size:0.75rem;color:var(--text3)">搜尋中...</div>';
+  try{
+    const r=await notionSearch('PI');
+    const pages=(r?.results||[]).filter(p=>p.object==='page');
+    if(!pages.length){list.innerHTML='<div style="padding:8px;font-size:0.75rem;color:var(--text3)">無 PI 記錄</div>';return;}
+    list.innerHTML=pages.map((p,i)=>{
+      const t=getTitle(p.properties)||p.properties?.Name?.title?.[0]?.plain_text||p.id;
+      return `<div class="pi-item" id="pii_${i}" onclick="selectAndLoadPI('${p.id}','${t.replace(/'/g,"\\'")}',${i})"
+        style="padding:8px 12px;cursor:pointer;font-size:0.8125rem;border-bottom:1px solid var(--border)"
+        onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''">
+        📄 ${t}
+      </div>`;
+    }).join('');
+  }catch(e){
+    list.innerHTML=`<div style="padding:8px;font-size:0.75rem;color:var(--red)">❌ ${e.message}</div>`;
+  }finally{
+    btn.textContent='📂 抓 Notion PI'; btn.disabled=false;
+  }
+}
+
+
+
+function parsePIFile(input){
+  const file=input.files?.[0]; if(!file) return;
+  const info=document.getElementById('piInfo');
+  if(info) info.textContent='⏳ 解析 PI Excel 中...';
+
+  // 先嘗試直接讀取（未加密 Excel）
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      parsePIRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null}), file.name.replace(/\.xlsx?$/i,''));
+    }catch(err){
+      // 可能是加密，嘗試送 Worker 解密
+      if(info) info.textContent='⏳ 上傳解密中（約 5-15 秒）...';
+      try{
+        const formData=new FormData();
+        formData.append('file', file);
+        formData.append('password','576313');
+        const controller=new AbortController();
+        const tid=setTimeout(()=>controller.abort(), 60000);
+        let res;
+        try{
+          res=await fetch(PROXY,{method:'POST',body:formData,signal:controller.signal});
+        }catch(fe){
+          clearTimeout(tid);
+          if(info) info.textContent=fe.name==='AbortError'?'❌ 解密超時（60秒），請重試':'❌ 無法連線 Worker：'+fe.message;
+          input.value=''; return;
+        }
+        clearTimeout(tid);
+        if(!res.ok){if(info)info.textContent='❌ Worker 錯誤：HTTP '+res.status; input.value=''; return;}
+        const json=await res.json();
+        if(json.error){if(info)info.textContent='❌ 解密失敗：'+json.error; input.value=''; return;}
+        if(!json.base64){if(info)info.textContent='❌ Worker 未回傳資料'; input.value=''; return;}
+        // 解碼 base64
+        const binary=atob(json.base64);
+        const bytes=new Uint8Array(binary.length);
+        for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+        const wb2=XLSX.read(bytes,{type:'array'});
+        parsePIRows(XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]],{header:1,defval:null}), file.name.replace(/\.xlsx?$/i,''));
+      }catch(e2){
+        if(info) info.textContent='❌ 解密失敗：'+e2.message;
+        input.value='';
+      }
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  input.value='';
+}
+
+function parsePIRows(rows, piName){
+  const info=document.getElementById('piInfo');
+  try{
+    const piNo=rows[6]&&rows[6][9]?String(rows[6][9]).trim():'';
+    let piDate='';
+    if(rows[7]&&rows[7][8]) piDate=String(rows[7][8]).replace('Date:','').trim().replace(/\./g,'-');
+    const items=[];
+    for(let i=12;i<rows.length-2;i++){
+      const row=rows[i]; if(!row) continue;
+      const col1=row[1]?String(row[1]).trim():'';
+      if(col1&&/^\d+\.?$/.test(col1)){
+        const qty=row[6]?parseInt(row[6]):0;
+        const model=(rows[i+1]||[])[2]?String((rows[i+1]||[])[2]).trim():'';
+        if(model) items.push({model,qty}); i++;
+      }
+    }
+    if(piNo&&document.getElementById('m_note')) document.getElementById('m_note').value='PI No: '+piNo;
+    if(piDate&&document.getElementById('m_date')) document.getElementById('m_date').value=piDate;
+    // 把品項加入訂單品項清單
+    if(items.length){
+      const prodSel=document.getElementById('m_product');
+      if(prodSel&&items[0]){
+        const mat=mats.find(m=>m.code===items[0].model||m.name===items[0].model);
+        if(mat) prodSel.value=mat.id;
+        if(document.getElementById('m_qty')) document.getElementById('m_qty').value=items[0].qty||1;
+      }
+    }
+    if(info) info.innerHTML=`✅ PI 解析完成：<b>${piNo||piName}</b>，${piDate}，共 ${items.length} 種品項`;
+  }catch(e){
+    if(info) info.textContent='❌ PI 解析失敗：'+e.message;
+  }
+}
+
+function onPIFile(input){
+  parsePIFile(input);
+}
+
+// ──────────────────────────────────────────
 
 async function submitNormalOrder(isDomestic){
   const btn=document.getElementById('orderSubmitBtn');
