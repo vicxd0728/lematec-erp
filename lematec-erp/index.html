@@ -546,6 +546,41 @@ tr:hover td{background:rgba(59,130,246,.04);}
 .sel-row { background: rgba(77,142,245,.06) !important; }
 .sel-row:hover { background: rgba(77,142,245,.10) !important; }
 
+/* ── 2026 UI polish: 放大、清楚、科技感後台 ── */
+body{
+  background:
+    radial-gradient(circle at 20% -10%, rgba(34,211,238,.08), transparent 28rem),
+    radial-gradient(circle at 100% 0%, rgba(16,185,129,.06), transparent 24rem),
+    var(--bg);
+}
+.topbar{height:60px;padding:0 18px;background:rgba(5,8,15,.92);}
+.topbar-brand{font-size:14px;letter-spacing:4.5px;}
+.role-nav{padding:0 12px;background:rgba(5,8,15,.86);}
+.tab-btn{padding:14px 18px;font-size:14px;border-bottom-width:3px;}
+.content,#mainContent{padding:18px 20px;}
+.panel{border-radius:14px;border-color:rgba(96,165,250,.16);box-shadow:0 16px 50px rgba(0,0,0,.22);}
+.panel-hdr{padding:15px 18px;background:linear-gradient(180deg,rgba(15,22,40,.84),rgba(10,15,30,.48));}
+.panel-title{font-size:15px;letter-spacing:.1px;}
+.badge{font-size:11px;padding:3px 10px;background:rgba(34,211,238,.12);color:var(--cyan2);border-color:rgba(34,211,238,.24);}
+.inp{font-size:15px;padding:11px 14px;border-radius:10px;background:rgba(21,29,53,.92);}
+.btn{min-height:40px;font-size:14px;border-radius:10px;padding:10px 18px;}
+.btn-sm{min-height:36px;font-size:13px;padding:8px 14px;}
+.btn-xs{min-height:30px;font-size:12px;padding:5px 10px;}
+th{font-size:11px;padding:12px 15px;color:#7d8da8;background:rgba(5,8,15,.82);}
+td{font-size:14px;padding:13px 15px;}
+.pill{font-size:12px;padding:4px 11px;}
+.kpi-card{border-radius:16px;min-height:150px;padding:22px 24px;background:linear-gradient(180deg,rgba(15,22,40,.96),rgba(10,15,30,.96));}
+.kpi-label{font-size:11px;color:#7d8da8;}
+.kpi-num{font-size:44px;}
+.info-box,.info-ok,.info-warn,.help-box{font-size:14px;border-radius:11px;padding:12px 15px;}
+@media(max-width:600px){
+  .topbar{height:56px;padding:0 10px;}
+  .content,#mainContent{padding:12px;}
+  .tab-btn{padding:12px 14px;font-size:13px;}
+  .panel-hdr{padding:12px 14px;}
+  th,td{font-size:13px!important;}
+}
+
 /* ════════════════════════════════════════════
    淺色主題（白底）— 深色文字
    原則：低飽和背景色 + 高對比文字 + 鮮明強調色
@@ -793,6 +828,973 @@ const ANN_COUNT_KEY='lm_ann_count';
 const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
 
+const SHOPEE_BOM_FALLBACK={
+  'S-FLT-B-C4':[
+    {code:'FLT-B',qty:1},
+    {code:'Y-SPA-14-1',qty:1},
+    {code:'Y-IS502-1',qty:1},
+    {code:'Y-IS502-2A',qty:1},
+  ],
+};
+
+const SHOPEE_BOM_EXCEL=[
+  {
+    "parent": "S-FLT-C1",
+    "children": [
+      {
+        "code": "FLT",
+        "qty": 1
+      },
+      {
+        "code": "Y-SPA-14-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-FLT-C4",
+    "children": [
+      {
+        "code": "FLT",
+        "qty": 1
+      },
+      {
+        "code": "Y-SPA-14-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-2A",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-FLT-B-C1",
+    "children": [
+      {
+        "code": "FLT-B",
+        "qty": 1
+      },
+      {
+        "code": "Y-SPA-14-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-FLT-B-C4",
+    "children": [
+      {
+        "code": "FLT-B",
+        "qty": 1
+      },
+      {
+        "code": "Y-SPA-14-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-2A",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SKC-A-8AS",
+    "children": [
+      {
+        "code": "SKC-A-8AS",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SKC-A-8AS-P3",
+    "children": [
+      {
+        "code": "SKC-A-8AS",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC04-3",
+        "qty": 1
+      },
+      {
+        "code": "LE-18",
+        "qty": 2
+      },
+      {
+        "code": "Y-SKC-20+21",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SKC-A-11AS",
+    "children": [
+      {
+        "code": "SKC-A-8AS",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SKC-A-11AS-P3",
+    "children": [
+      {
+        "code": "SKC-A-8AS",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC04-3",
+        "qty": 1
+      },
+      {
+        "code": "LE-18",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC-04-5",
+        "qty": 1
+      },
+      {
+        "code": "DTB-09B-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC-20+21",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-VBG",
+    "children": [
+      {
+        "code": "Z-VBG",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SDG-02C",
+    "children": [
+      {
+        "code": "Z-SDG-02C",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SDG-03BD",
+    "children": [
+      {
+        "code": "SDG-03BD",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-SDG-03CD",
+    "children": [
+      {
+        "code": "SDG-03CD",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-F-GAB-03D-B",
+    "children": [
+      {
+        "code": "F-GAB-03D-B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-F-GAB-03D-B-1",
+    "children": [
+      {
+        "code": "F-GAB-03D-B",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-19",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTC-06D-5",
+    "children": [
+      {
+        "code": "DTC-06D-5",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-GAB-06D",
+    "children": [
+      {
+        "code": "GAB-06D",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTC-06D-7",
+    "children": [
+      {
+        "code": "DTC-06D-7",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DD-02DH",
+    "children": [
+      {
+        "code": "DD-02DH",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DD-02DG",
+    "children": [
+      {
+        "code": "DD-02DG",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DF",
+    "children": [
+      {
+        "code": "DTCG-12DF",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DF-3",
+    "children": [
+      {
+        "code": "DTCG-12DF-3",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DF-CD",
+    "children": [
+      {
+        "code": "DTCG-12DF",
+        "qty": 1
+      },
+      {
+        "code": "FDTC",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DG",
+    "children": [
+      {
+        "code": "DTCG-12DG",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DG-3",
+    "children": [
+      {
+        "code": "DTCG-12DG-3",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-12DG-CD",
+    "children": [
+      {
+        "code": "DTCG-12DG",
+        "qty": 1
+      },
+      {
+        "code": "FDTC",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-05D-2",
+    "children": [
+      {
+        "code": "DTCG-05D-2",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-05-2",
+    "children": [
+      {
+        "code": "DTCG-05-2",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-04-6D-2",
+    "children": [
+      {
+        "code": "DTCG-04-6D",
+        "qty": 1
+      },
+      {
+        "code": "DTC-02-2",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-04-5DG",
+    "children": [
+      {
+        "code": "DTCG-04-5DG",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-DTCG-04-7",
+    "children": [
+      {
+        "code": "DTCG-04-7",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-ORG-05A",
+    "children": [
+      {
+        "code": "F-BRGK-2(LE)",
+        "qty": 1
+      },
+      {
+        "code": "AR-05",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-ORG-05A-G",
+    "children": []
+  },
+  {
+    "parent": "S-ORG-03A",
+    "children": []
+  },
+  {
+    "parent": "S-ORG-04A",
+    "children": []
+  },
+  {
+    "parent": "S-ORG-07A",
+    "children": []
+  },
+  {
+    "parent": "S-ORG-05D-B",
+    "children": [
+      {
+        "code": "F-BRGK-2(LE)",
+        "qty": 1
+      },
+      {
+        "code": "F-GAB-03D-B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-ORG-05D-B-G",
+    "children": [
+      {
+        "code": "F-BRGK-3(LE)",
+        "qty": 1
+      },
+      {
+        "code": "F-GAB-03D-B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-ORG-03D-B",
+    "children": [
+      {
+        "code": "F-SRG",
+        "qty": 1
+      },
+      {
+        "code": "F-GAB-03D-B",
+        "qty": 1
+      },
+      {
+        "code": "Y-SP-20-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-OSP-20A",
+        "qty": 1
+      },
+      {
+        "code": "Y-OSP-21",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-ORG-04D-B",
+    "children": [
+      {
+        "code": "F-SRG-2-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-D3WQC",
+    "children": [
+      {
+        "code": "D3WQC",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G200",
+    "children": [
+      {
+        "code": "LE-G200",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G210",
+    "children": [
+      {
+        "code": "LE-G210",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-K200",
+    "children": [
+      {
+        "code": "LE-K200",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-R2150",
+    "children": [
+      {
+        "code": "LE-R2150",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-R2550",
+    "children": [
+      {
+        "code": "LE-R2550",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-AN324K",
+    "children": [
+      {
+        "code": "LE-AN324K",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-TH4260",
+    "children": [
+      {
+        "code": "LE-TH4260",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-IWT-R102",
+    "children": [
+      {
+        "code": "LE-IWT-R102",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G1045R",
+    "children": [
+      {
+        "code": "LE-G1045R",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G2043R",
+    "children": [
+      {
+        "code": "LE-G2043R",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G2044R",
+    "children": [
+      {
+        "code": "LE-G2044R",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-G2543R",
+    "children": [
+      {
+        "code": "LE-G2543R",
+        "qty": 1
+      },
+      {
+        "code": "Y-AB-25B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08+1+2",
+    "children": [
+      {
+        "code": "LEI-08",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08",
+    "children": [
+      {
+        "code": "LEI-08",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08-1",
+    "children": [
+      {
+        "code": "LEI-08-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08-2",
+    "children": [
+      {
+        "code": "LEI-08-2",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08-4",
+    "children": [
+      {
+        "code": "LEI-08-4",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08-5",
+    "children": [
+      {
+        "code": "LEI-08-5",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-08-6",
+    "children": [
+      {
+        "code": "LEI-08-6",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-S-LEI-18",
+    "children": [
+      {
+        "code": "LEI-18",
+        "qty": 1
+      },
+      {
+        "code": "Y-SKC-26",
+        "qty": 2
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+01+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+01A+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01A",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+01+01A+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01A",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+01B+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01B",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-22+01+01B+04",
+    "children": [
+      {
+        "code": "Y-VH-22",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-01B",
+        "qty": 1
+      },
+      {
+        "code": "Y-VH-04",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-01",
+    "children": [
+      {
+        "code": "Y-VH-01",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-01A",
+    "children": [
+      {
+        "code": "Y-VH-01A",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-Y-VH-01B",
+    "children": [
+      {
+        "code": "Y-VH-01B",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-19-1",
+    "children": [
+      {
+        "code": "LEI-19-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-12",
+    "children": [
+      {
+        "code": "LEI-12",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LEI-12-1",
+    "children": [
+      {
+        "code": "LEI-12-1",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-HR250H",
+    "children": [
+      {
+        "code": "LE-HR250H",
+        "qty": 1
+      }
+    ]
+  },
+  {
+    "parent": "S-LE-HR830A",
+    "children": [
+      {
+        "code": "LE-HR830A",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-1",
+        "qty": 1
+      },
+      {
+        "code": "Y-IS502-2",
+        "qty": 1
+      }
+    ]
+  }
+];
+const SHOPEE_BOM_MAP=SHOPEE_BOM_EXCEL.reduce((acc,row)=>{acc[row.parent]=row.children||[];return acc;},{});
+
 // ═══════════════════════════════════════════════
 // 基礎 UI 函數
 // ═══════════════════════════════════════════════
@@ -812,6 +1814,63 @@ function showToast(msg,type='ok',duration=3000){
 
 function closeModal(){
   document.getElementById('modalBg')?.classList.remove('open');
+}
+
+async function saveAnnounce(id){
+  const title=(document.getElementById('ann_title')?.value||'').trim();
+  const body=document.getElementById('ann_body')?.value||'';
+  const date=document.getElementById('ann_date')?.value||'';
+  const status=document.getElementById('ann_status')?.value||'草稿';
+  const order=parseInt(document.getElementById('ann_order')?.value)||0;
+  const pinned=!!document.getElementById('ann_pin')?.checked;
+  if(!title){showToast('請填寫公告標題','warn');return;}
+  closeModal(); showToast('公告儲存中...','warn');
+  const props={
+    '標題':{title:[{text:{content:title}}]},
+    '內容':{rich_text:[{text:{content:body}}]},
+    '狀態':{select:{name:status}},
+    '顯示順序':{number:order},
+    '置頂':{checkbox:pinned},
+  };
+  if(date) props['發佈日期']={date:{start:date}};
+  try{
+    if(id) await updatePage(id,props);
+    else await createPage(DB.announce,props);
+    await refreshAll();
+    showToast('✅ 公告已儲存','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+async function deleteAnnounce(id){
+  if(!confirm('確定刪除此公告？')) return;
+  try{
+    await archivePage(id);
+    announces=announces.filter(a=>a.id!==id);
+    renderTab('announce');
+    showToast('✅ 公告已刪除','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+async function saveSchedule(id){
+  const name=(document.getElementById('sc_name')?.value||'').trim();
+  const start=document.getElementById('sc_start')?.value||'';
+  const end=document.getElementById('sc_end')?.value||'';
+  const note=(document.getElementById('sc_note')?.value||'').trim();
+  if(!name){showToast('請填寫排程名稱','warn');return;}
+  closeModal(); showToast('排程儲存中...','warn');
+  const props={
+    '排程名稱':{title:[{text:{content:name}}]},
+    '備註':{rich_text:[{text:{content:note}}]},
+    '狀態':{select:{name:'待開始'}},
+  };
+  if(start) props['開始日期']={date:{start}};
+  if(end) props['結束日期']={date:{start:end}};
+  try{
+    if(id) await updatePage(id,props);
+    else await createPage(DB.schedule,props);
+    await loadSchedule(); renderTab('schedule');
+    showToast('✅ 排程已儲存','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
 }
 
 function openModal(type,data){
@@ -930,13 +1989,19 @@ function openModal(type,data){
           <option value="">— 選擇蝦皮商品（S-開頭）—</option>
         </select>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
+        <div style="width:110px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
+        <button type="button" class="btn btn-green" onclick="addShopeeOrderItem()">＋ 加入清單</button>
+      </div>
       <div id="shopeeSkuInfo" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
         <div style="font-size:0.625rem;color:var(--text3);margin-bottom:6px">📦 BOM 組成</div>
         <div id="shopeeSkuBom" style="font-size:0.6875rem;color:var(--text2)"></div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量 *</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
-        <div style="flex:2"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">買家帳號</label><input class="inp" id="m_shopee_buyer" placeholder="蝦皮買家帳號（選填）"></div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">批量建立清單</label>
+        <div id="shopeeOrderItems" style="min-height:42px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:0.75rem;color:var(--text3)">尚未加入 S-料號</div>
+        </div>
       </div>
       <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_shopee_note" placeholder="備註（選填）"></div>
     </div>
@@ -1424,7 +2489,67 @@ async function loadInbounds(){
 function explodeBOM(pid,qty){
   const res={};const q=[{pid,mult:qty}];const seen=new Set();
   while(q.length){const{pid:p,mult:m}=q.shift();boms.filter(b=>b.parentId===p).forEach(b=>{const mat=mats.find(x=>x.id===b.childId);if(!mat)return;const n=b.qty*m;if(!res[b.childId])res[b.childId]={...mat,needed:0};res[b.childId].needed+=n;if(mat.type==='半成品'&&!seen.has(b.childId)){seen.add(b.childId);q.push({pid:b.childId,mult:n});}});}
-  return Object.values(res);
+  const notionItems=Object.values(res);
+  if(notionItems.length) return notionItems;
+  const mat=mats.find(m=>m.id===pid);
+  if(!mat) return [];
+  const rows=getShopeeBomRows(mat);
+  return rows.map(r=>{
+    const child=findMatBySku(r.code);
+    return child?{...child,needed:(parseInt(r.qty)||1)*qty}:{id:'',code:r.code,name:r.code,stock:0,needed:(parseInt(r.qty)||1)*qty,missing:true};
+  });
+}
+function getShopeeBomRows(mat){
+  const parsed=[];
+  const note=mat.note||'';
+  const main=note.match(/主料:([^\s|]+)/);
+  const acc=note.match(/配件:([^|]+)/);
+  if(main) parsed.push({code:main[1].trim(),qty:1});
+  if(acc){
+    acc[1].split(',').map(s=>s.trim()).filter(Boolean).forEach(raw=>{
+      const m=raw.match(/^(.+?)(?:[xX×*](\d+))?$/);
+      parsed.push({code:(m?.[1]||raw).trim(),qty:parseInt(m?.[2])||1});
+    });
+  }
+  return parsed.length?parsed:(SHOPEE_BOM_MAP[mat.code]||SHOPEE_BOM_MAP[mat.name]||SHOPEE_BOM_FALLBACK[mat.code]||SHOPEE_BOM_FALLBACK[mat.name]||[]);
+}
+function getShopeeBomItems(mat, qty){
+  const orderQty=parseInt(qty)||1;
+  const fromNotion=explodeBOM(mat.id,orderQty);
+  if(fromNotion.length) return fromNotion.map(x=>({...x,source:x.missing?'missing':'bom'}));
+
+  const parsed=[];
+  const note=mat.note||'';
+  const main=note.match(/主料:([^\s|]+)/);
+  const acc=note.match(/配件:([^|]+)/);
+  if(main) parsed.push({code:main[1].trim(),qty:1});
+  if(acc){
+    acc[1].split(',').map(s=>s.trim()).filter(Boolean).forEach(raw=>{
+      const m=raw.match(/^(.+?)(?:[xX×*](\d+))?$/);
+      parsed.push({code:(m?.[1]||raw).trim(),qty:parseInt(m?.[2])||1});
+    });
+  }
+  const fallback=SHOPEE_BOM_MAP[mat.code]||SHOPEE_BOM_MAP[mat.name]||SHOPEE_BOM_FALLBACK[mat.code]||SHOPEE_BOM_FALLBACK[mat.name]||[];
+  const rows=parsed.length?parsed:fallback;
+  return rows.map(r=>{
+    const child=findMatBySku(r.code);
+    return child?{...child,needed:(parseInt(r.qty)||1)*orderQty,source:parsed.length?'note':'fallback'}:{id:'',code:r.code,name:r.code,stock:0,needed:(parseInt(r.qty)||1)*orderQty,missing:true,source:parsed.length?'note':'fallback'};
+  });
+}
+async function deductShopeeBom(mat, qty, orderNo){
+  const items=getShopeeBomItems(mat,qty);
+  const missing=items.filter(x=>x.missing||!x.id);
+  if(missing.length) throw new Error('找不到 BOM 子料號：'+missing.map(x=>x.code||x.name).join('、'));
+  for(const item of items){
+    const latest=await notionAPI('GET','pages/'+item.id);
+    const cur=latest?.properties?.['目前庫存']?.number??item.stock??0;
+    const next=cur-item.needed;
+    await updatePage(item.id,{'目前庫存':{number:next}});
+    await logStockChange(item.id,item.name||'',item.code||'','蝦皮組裝扣料',-item.needed,cur,next,orderNo,ROLE);
+    const local=mats.find(m=>m.id===item.id);
+    if(local){local.stock=next;local.qty=next;}
+  }
+  return items;
 }
 
 // ═══════════════════════════════════════════════
@@ -1930,6 +3055,12 @@ function openNewInspection(orderId, orderNo, matName, qty){
     <button class="btn btn-blue" onclick="submitInspection('${orderId||''}')">🔬 建立檢驗單</button>
   </div>`;
   openModal();
+}
+
+function openInspectionModal(orderId, orderNo){
+  const o=orders.find(x=>x.id===orderId);
+  const product=mats.find(m=>m.id===o?.productId);
+  openNewInspection(orderId,orderNo,product?.name||o?.product||'',o?.qty||0);
 }
 
 function toggleInspectionBad(result){
@@ -2657,6 +3788,7 @@ function renderInventory(){
       <!-- 清除篩選 -->
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
+        ${ROLE==='manager'?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
@@ -2788,7 +3920,16 @@ function checkDupMat(val){
 }
 
 // 切換到「從主檔選擇」模式並自動選中指定料件
-// [removed duplicate]
+function ibSwitchToExistAndSelect(matId){
+  const mat=mats.find(m=>m.id===matId);
+  if(!mat){showToast('找不到料件','err');return;}
+  const q=document.getElementById(`ib_qty_${matId}`);
+  if(q) q.value=q.value||'1';
+  addInboundItem(mat.id,mat.code||mat.name||'',mat.name||mat.code||'');
+  const search=document.getElementById('ib_search');
+  if(search) search.value=mat.code||mat.name||'';
+  filterInboundList(search?.value||'');
+}
 
 // ═══════════════════════════════════════════════
 // 新增客戶：輸入時檢查重複
@@ -3222,6 +4363,54 @@ function findMatBySku(sku){
     (m.name||'').trim().toLowerCase()===key
   )||null;
 }
+
+async function importShopeeBomToNotion(){
+  if(ROLE!=='manager'){showToast('只有廠長可以匯入 BOM','warn');return;}
+  const totalRows=SHOPEE_BOM_EXCEL.reduce((sum,row)=>sum+(row.children||[]).length,0);
+  if(!confirm(`準備把 Excel 蝦皮 BOM 匯入 Notion BOM 清單。\n\n母件：${SHOPEE_BOM_EXCEL.length} 個\nBOM關係：${totalRows} 筆\n\n系統會略過已存在的母件/子件關係。要開始嗎？`)) return;
+  showToast('⏳ 重新同步 Notion 資料中...','warn',6000);
+  await refreshAll(true);
+  let created=0, skipped=0, noParent=[], noChild=[], failed=[];
+  const existing=new Set(boms.map(b=>b.parentId+'|'+b.childId));
+  for(const row of SHOPEE_BOM_EXCEL){
+    const parent=findMatBySku(row.parent);
+    if(!parent){noParent.push(row.parent);continue;}
+    for(const ch of (row.children||[])){
+      const child=findMatBySku(ch.code);
+      if(!child){noChild.push(row.parent+' → '+ch.code);continue;}
+      const key=parent.id+'|'+child.id;
+      if(existing.has(key)){skipped++;continue;}
+      try{
+        const title=`${row.parent} → ${ch.code}`;
+        const r=await createPage(DB.bom,{
+          'BOM項目':{title:[{text:{content:title}}]},
+          '母件':{relation:[{id:parent.id}]},
+          '子件':{relation:[{id:child.id}]},
+          '每台用量':{number:Number(ch.qty)||1},
+          '備註':{rich_text:[{text:{content:'Shopee Excel import'}}]},
+        });
+        if(r?.object==='error') throw new Error(r.message||'Notion 建立失敗');
+        existing.add(key);
+        boms.push({parentId:parent.id,childId:child.id,qty:Number(ch.qty)||1});
+        created++;
+        if(created%20===0) showToast(`⏳ 蝦皮 BOM 匯入中：已新增 ${created} 筆`,'warn',5000);
+      }catch(e){
+        failed.push(title+': '+e.message);
+      }
+    }
+  }
+  await refreshAll(true);
+  const msg=`✅ BOM匯入完成：新增 ${created} 筆，略過 ${skipped} 筆`
+    +(noParent.length?`，找不到母件 ${noParent.length} 個`:'')
+    +(noChild.length?`，找不到子件 ${noChild.length} 筆`:'')
+    +(failed.length?`，失敗 ${failed.length} 筆`:'');
+  showToast(msg,failed.length||noParent.length||noChild.length?'warn':'ok',9000);
+  if(noParent.length||noChild.length||failed.length){
+    alert(msg+'\n\n找不到母件：\n'+noParent.slice(0,30).join('\n')+
+      '\n\n找不到子件：\n'+noChild.slice(0,50).join('\n')+
+      '\n\n失敗：\n'+failed.slice(0,30).join('\n'));
+  }
+}
 function makeCorderNo(){
   const today=new Date().toISOString().slice(0,10);
   return 'CO-'+today.slice(2,7).replace('-','')+'-'+Math.floor(Math.random()*9000+1000);
@@ -3299,7 +4488,8 @@ async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,payDate
 }
 
 async function cancelCorder(id, matId, qty){
-  const doReturn = confirm('取消訂單要如何處理庫存？\n\n確定 = 回料（加回庫存）\n取消 = 報銷／不回料（庫存不變）');
+  if(!confirm('確定要取消這筆 C端訂單嗎？\n\n按「取消」會保留訂單，不做任何變更。')) return;
+  const doReturn = confirm('請選擇取消後的庫存處理方式：\n\n確定 = 回料（加回庫存）\n取消 = 報銷／不回料（庫存不變）');
   try{
     const o = (window.corders||[]).find(x=>x.id===id);
     if(doReturn) await returnCorderStock(parseCorderStockRefs(matId,qty), o?.no||id);
@@ -3322,6 +4512,72 @@ async function completeCorder(id){
     renderTab(CURRENT_TAB);
     showToast('✅ C端訂單已完成','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+function openEditCorder(id){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>✏️ 編輯 C端訂單</h3>
+  <div style="font-family:var(--f-mono);font-size:0.8125rem;color:var(--cyan2);margin-bottom:12px">${o.no||''}</div>
+  <div class="form-row" style="margin-bottom:10px">
+    <div><label class="field-label">買家帳號</label><input class="inp" id="eco_buyer" value="${(o.buyer||'').replace(/"/g,'&quot;')}"></div>
+    <div><label class="field-label">狀態</label><select class="inp" id="eco_status">${['出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+  </div>
+  <div class="form-row" style="margin-bottom:10px">
+    <div><label class="field-label">品名/料號</label><input class="inp" id="eco_mat" value="${(o.matCode||o.matName||'').replace(/"/g,'&quot;')}"></div>
+    <div><label class="field-label">數量</label><input class="inp" type="number" id="eco_qty" value="${o.qty||1}" min="1"></div>
+  </div>
+  <div class="form-row" style="margin-bottom:10px">
+    <div><label class="field-label">出貨方式</label><input class="inp" id="eco_ship" value="${(o.shipMethod||'').replace(/"/g,'&quot;')}"></div>
+    <div><label class="field-label">出日</label><input class="inp" type="date" id="eco_ship_date" value="${o.shipDate||''}"></div>
+  </div>
+  <div style="margin-bottom:12px"><label class="field-label">備註</label><input class="inp" id="eco_note" value="${(o.note||'').replace(/"/g,'&quot;')}"></div>
+  <div class="form-actions">
+    <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+    <button class="btn btn-blue" onclick="saveEditCorder('${id}')">💾 儲存</button>
+  </div>`;
+  openModal();
+}
+
+async function saveEditCorder(id){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  const buyer=(document.getElementById('eco_buyer')?.value||'').trim();
+  const matName=(document.getElementById('eco_mat')?.value||'').trim();
+  const qty=parseInt(document.getElementById('eco_qty')?.value)||1;
+  const status=document.getElementById('eco_status')?.value||'出貨中';
+  const ship=(document.getElementById('eco_ship')?.value||'').trim();
+  const shipDate=document.getElementById('eco_ship_date')?.value||'';
+  const note=(document.getElementById('eco_note')?.value||'').trim();
+  closeModal(); showToast('C端訂單更新中...','warn');
+  try{
+    const props={
+      '買家帳號':{rich_text:[{text:{content:buyer}}]},
+      '品名':{rich_text:[{text:{content:matName}}]},
+      '數量':{number:qty},
+      '狀態':{select:{name:status}},
+      '出貨方式':{rich_text:[{text:{content:ship}}]},
+      '備註':{rich_text:[{text:{content:note}}]},
+    };
+    if(shipDate) props['出日']={date:{start:shipDate}};
+    await updatePage(id,props);
+    if(o){Object.assign(o,{buyer,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
+    renderTab('corders');
+    showToast('✅ C端訂單已更新','ok');
+  }catch(e){showToast('❌ '+e.message,'err');}
+}
+
+async function deleteCorder(id, matId, qty, status){
+  if(!confirm('確定要刪除這筆 C端訂單嗎？\n\n會一併封存 Notion 資料，無法在 ERP 畫面復原。')) return;
+  const doReturn=status==='出貨中'&&confirm('這筆訂單仍是出貨中，刪除前是否回料？\n\n確定 = 回料後刪除\n取消 = 直接刪除不回料');
+  const o=(window.corders||[]).find(x=>x.id===id);
+  try{
+    if(doReturn) await returnCorderStock(parseCorderStockRefs(matId,qty),o?.no||id);
+    await archivePage(id);
+    window.corders=(window.corders||[]).filter(x=>x.id!==id);
+    renderTab('corders');
+    showToast(doReturn?'✅ 已回料並刪除':'✅ C端訂單已刪除','ok');
+  }catch(e){showToast('❌ 刪除失敗：'+e.message,'err');}
 }
 
 async function loadLeaveStats(){
@@ -3433,12 +4689,17 @@ function renderCorders(){
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
       </div>`:'';
+      const manage=`<div class="corder-actions">
+        ${actions}
+        <button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
+        <button class="btn btn-red btn-sm" onclick="deleteCorder('${o.id}','${o.matId||''}',${o.qty||0},'${o.status||''}')">刪除</button>
+      </div>`;
       if(isMobile){
         return `<div class="corder-row-mobile">
           <div class="corder-no">${o.no||'—'}</div>
           <div class="corder-sku">${o.matCode||o.matName||'—'} <span style="color:var(--text3);font-weight:400">× ${o.qty||0}</span></div>
           <div class="corder-meta">${o.buyer||'—'}${o.shipMethod?' · '+o.shipMethod:''}${o.shipDate?' · 出日 '+o.shipDate:''}</div>
-          <div class="corder-actions" style="margin-top:10px"><span class="corder-status" style="background:${bg};color:${fg}">${o.status||'—'}</span>${actions}</div>
+          <div class="corder-actions" style="margin-top:10px"><span class="corder-status" style="background:${bg};color:${fg}">${o.status||'—'}</span>${manage}</div>
           ${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件，庫存可能未扣除'}</div>`:''}
         </div>`;
       }
@@ -3449,7 +4710,7 @@ function renderCorders(){
         <td style="text-align:right;font-family:var(--f-mono);font-weight:700">${o.qty||0}</td>
         <td><span class="pill" style="background:${bg};color:${fg}">${o.status||'—'}</span></td>
         <td><div>${o.shipMethod||'—'}</div><div class="corder-sku-sub">${o.shipDate||''}</div></td>
-        <td>${actions||'<span style="color:var(--text3)">—</span>'}</td>
+        <td>${manage}</td>
       </tr>`;
     }).join('');
     html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th>訂單號</th><th>買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th><th>操作</th></tr>${rows}</table></div>`;
@@ -3960,7 +5221,9 @@ function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);
   const prod=mats.find(m=>m.id===o.productId);
   const items=explodeBOM(o.productId,o.qty);
-  const short=items.filter(i=>i.type!=='半成品'&&i.stock<i.needed);
+  const isShopeeOrder=o?.orderType==='蝦皮'||o?.orderType==='shopee'||/^S-/i.test(prod?.code||prod?.name||'');
+  const missing=items.filter(i=>i.missing||!i.id);
+  const short=items.filter(i=>i.type!=='半成品'&&!i.missing&&i.stock<i.needed);
   // ★ BOM 診斷：清楚告知用戶狀況
   const hasBOM = items.length > 0;
   const bomCount = boms.filter(b=>b.parentId===o.productId).length;
@@ -3975,6 +5238,14 @@ function openPickPreview(orderId){
     <div style="font-size:0.625rem;color:var(--text3)">BOM 子件：${bomCount} 筆 → 展開料件：${items.length} 項${!prod?.name?'<span style="color:var(--red2);margin-left:8px">⚠ 訂單未關聯成品料件</span>':''}</div>
   </div>
   ${!items.length?
+    isShopeeOrder?
+    `<div class="info-box info-warn">
+      ⚠ 此蝦皮用料號尚未設定 BOM 或「主料/配件」備註，不能直接扣 S-成品庫存。<br>
+      請先在料件主檔備註填入「主料:料號 | 配件:料號, 料號x2」，或在 BOM 清單建立母件/子件後再領料。
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+    </div>`:
     // ══ 無 BOM：直接扣成品本身庫存 ══
     `<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:12px;margin-bottom:12px">
       <div style="font-weight:700;margin-bottom:5px;color:var(--blue2)">📦 無 BOM 設定 — 將直接扣除成品庫存</div>
@@ -3996,11 +5267,11 @@ function openPickPreview(orderId){
       <button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認扣除成品庫存</button>
     </div>`:
     // ══ 有 BOM：展開子件顯示 ══
-    `${short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-ok" style="padding:8px 12px;border-radius:8px;font-size:0.8125rem;margin-bottom:10px">✅ 庫存充足，可執行領料</div>`}
+    `${missing.length?`<div class="info-box info-warn">⚠ BOM 子料號尚未建檔：${missing.map(s=>s.code||s.name).join('、')}。請先補進料件主檔再扣料。</div>`:short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-ok" style="padding:8px 12px;border-radius:8px;font-size:0.8125rem;margin-bottom:10px">✅ 庫存充足，可執行領料</div>`}
     <div class="tbl-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
-    ${items.map(i=>`<tr><td>${i.name} ${pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.stock}</td></tr>`).join('')}
+    ${items.map(i=>`<tr><td>${i.name} ${i.missing?'<span class="pill" style="background:rgba(239,68,68,.12);color:var(--red2)">未建檔</span>':pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.missing||i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.missing?'—':i.stock}</td></tr>`).join('')}
     </table></div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`}`;
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" ${missing.length?'disabled':''} onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`}`;
   openModal();
 }
 async function doPick(orderId){
@@ -4013,7 +5284,7 @@ async function doPick(orderId){
 
   try{
     // ── 蝦皮訂單：從備註欄 BOM 解析扣料 ──
-    const isShopee = o.orderType==='shopee' || o.orderType==='蝦皮' || (o.matCode||'').startsWith('S-') || (o.product||'').startsWith('S-');
+    const isShopee = false;
     if(isShopee){
       // 找 S- 料件的備註 BOM
       const skuCode = o.matCode || o.product || '';
@@ -4095,6 +5366,10 @@ async function doPick(orderId){
     if(hasBOM){
       // ══ 有 BOM：展開子件逐項扣庫存 ══
       for(const item of items){
+        if(item.missing||!item.id){
+          stockErrors.push((item.code||item.name)+': BOM 子料號尚未建檔');
+          continue;
+        }
         try{
           await createPage(DB.pickDetail,{
             '料件名稱':{title:[{text:{content:item.name}}]},
@@ -4515,7 +5790,9 @@ async function submitMultiOrders(){
 
 
 function initShopeeOrderList(){
+  window._shopeeOrderItems=[];
   _renderShopeeList('');
+  renderShopeeOrderItems();
 }
 
 function filterShopeeList(q){
@@ -4553,21 +5830,50 @@ function onShopeeSkuChange(matId){
   if(!matId){info.style.display='none';return;}
   const mat = mats.find(m=>m.id===matId);
   if(!mat){info.style.display='none';return;}
-  const note = mat.note||'';
-  // 解析 BOM 顯示
-  const mainMatch = note.match(/主料:([^\s|]+)/);
-  const accMatch  = note.match(/配件:([^|]+)/);
-  const priceMatch= note.match(/售價:(\d+)/);
-  let html = '';
-  if(mainMatch) html+=`<div style="margin-bottom:4px">🔧 主料件：<b style="color:var(--text)">${mainMatch[1]}</b></div>`;
-  if(accMatch){
-    const accs = accMatch[1].split(',').map(s=>s.trim()).filter(Boolean);
-    html+=`<div style="margin-bottom:4px">📎 配件（${accs.length}種）：<b style="color:var(--text)">${accs.join('、')}</b></div>`;
-  }
-  if(priceMatch) html+=`<div style="color:var(--text3)">💰 蝦皮售價：NT$ ${priceMatch[1]}</div>`;
-  if(!html) html=`<div style="color:var(--text3)">${note||'（備註中無 BOM 資訊）'}</div>`;
+  const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
+  const items=getShopeeBomItems(mat,qty);
+  let html = items.length
+    ? items.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
+        <span>${x.missing?'⚠ ':''}${x.code||x.name}</span>
+        <b style="color:${x.missing?'var(--red)':'var(--amber)'}">扣 ${x.needed}</b>
+      </div>`).join('')
+    : `<div style="color:var(--red)">未找到 BOM。請在 Notion BOM 或程式對照表建立 ${mat.code||mat.name} 的扣料規則。</div>`;
+  const source=items[0]?.source==='notion'?'Notion BOM':items[0]?.source==='note'?'料件備註':'程式暫存對照';
+  html+=items.length?`<div style="font-size:0.625rem;color:var(--text3);margin-top:6px">來源：${source}</div>`:'';
   bom.innerHTML=html;
   info.style.display='';
+}
+
+function addShopeeOrderItem(){
+  const matId=document.getElementById('m_shopee_sku')?.value||'';
+  const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
+  if(!matId){showToast('請先選擇 S-料號','warn');return;}
+  const mat=mats.find(m=>m.id===matId);
+  if(!mat){showToast('找不到料件','err');return;}
+  window._shopeeOrderItems=window._shopeeOrderItems||[];
+  const ex=window._shopeeOrderItems.find(x=>x.matId===matId);
+  if(ex) ex.qty+=qty;
+  else window._shopeeOrderItems.push({matId,qty,code:mat.code||mat.name,name:mat.name||mat.code});
+  renderShopeeOrderItems();
+  showToast('✅ 已加入 '+(mat.code||mat.name),'ok');
+}
+function removeShopeeOrderItem(idx){
+  window._shopeeOrderItems=window._shopeeOrderItems||[];
+  window._shopeeOrderItems.splice(idx,1);
+  renderShopeeOrderItems();
+}
+function renderShopeeOrderItems(){
+  const box=document.getElementById('shopeeOrderItems');
+  if(!box) return;
+  const items=window._shopeeOrderItems||[];
+  if(!items.length){
+    box.innerHTML='<div style="font-size:0.75rem;color:var(--text3)">尚未加入 S-料號</div>';
+    return;
+  }
+  box.innerHTML=items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border)">
+    <div><b style="font-family:var(--f-mono);color:var(--cyan2)">${it.code}</b><span style="color:var(--text2);margin-left:8px">× ${it.qty}</span><div style="font-size:0.6875rem;color:var(--text3)">${it.name||''}</div></div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="removeShopeeOrderItem(${i})">✕</button>
+  </div>`).join('');
 }
 
 // ──────────────────────────────────────────
@@ -5259,7 +6565,7 @@ async function submitAllOrders(){
   if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
   const shopeeBlock = document.getElementById('blockShopee');
   const isShopee = shopeeBlock && shopeeBlock.style.display !== 'none';
-  if(isShopee){ await submitShopeeOrder(); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
+  if(isShopee){ await submitShopeeOrdersV2(); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
   const isSfg      = document.getElementById('blockSfg')?.style.display !== 'none';
   const isDomestic = !isSfg && document.getElementById('blockDomestic')?.style.display !== 'none';
   const orderTypeTab = isSfg?'sfg':isDomestic?'domestic':'overseas';
@@ -5274,6 +6580,54 @@ async function submitAllOrders(){
     console.error('submitAllOrders error:',e);
   }
   if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}
+}
+
+async function submitShopeeOrdersV2(){
+  const note=document.getElementById('m_shopee_note')?.value?.trim()||'';
+  let items=window._shopeeOrderItems||[];
+  const selected=document.getElementById('m_shopee_sku')?.value;
+  if(!items.length&&selected){
+    const mat=mats.find(m=>m.id===selected);
+    if(mat) items=[{matId:mat.id,qty:parseInt(document.getElementById('m_shopee_qty')?.value)||1,code:mat.code||mat.name,name:mat.name||mat.code}];
+  }
+  if(!items.length){showToast('請至少加入一個 S-料號','warn');return;}
+  const today=new Date().toISOString().slice(0,10);
+  const yr=today.slice(2,4), mo=today.slice(5,7);
+  closeModal(); showToast('⏳ 建立蝦皮待排程訂單...','ok');
+  let ok=0, fail=0, messages=[];
+  for(let i=0;i<items.length;i++){
+    const it=items[i];
+    const mat=mats.find(m=>m.id===it.matId);
+    if(!mat){fail++;messages.push((it.code||'')+'：找不到料件');continue;}
+    const orderNo=`ORD-${yr}${mo}-S${String(i+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+    try{
+      const bomItems=explodeBOM(mat.id,it.qty);
+      if(!bomItems.length) throw new Error('此 S-料號尚未設定 BOM 或主料/配件備註，無法建立可領料訂單');
+      const missing=bomItems.filter(x=>x.missing||!x.id);
+      if(missing.length) throw new Error('BOM 子料號未建檔：'+missing.map(x=>x.code||x.name).join('、'));
+      const props={
+        '訂單號':{title:[{text:{content:orderNo}}]},
+        '客戶名稱':{select:{name:'蝦皮'}},
+        '成品':{relation:[{id:mat.id}]},
+        '料件編號':{rich_text:[{text:{content:mat.code||''}}]},
+        '訂購數量':{number:it.qty},
+        '狀態':{select:{name:'待排程'}},
+        '訂單類型':{select:{name:'蝦皮'}},
+        '業務備註':{rich_text:[{text:{content:[note,'預計扣料：'+bomItems.map(x=>(x.code||x.name)+'×'+x.needed).join('、')].filter(Boolean).join(' / ')}}]},
+      };
+      props['交期']={date:{start:today}};
+      const r=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+      if(!r||r.object!=='page') throw new Error(r?.message||'訂單建立失敗');
+      ok++;
+    }catch(e){
+      fail++;
+      messages.push((mat.code||mat.name)+'：'+e.message);
+    }
+  }
+  window._shopeeOrderItems=[];
+  await refreshAll();
+  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}`,fail?'warn':'ok');
+  if(messages.length) alert('以下 S-料號未完成建立：\n\n'+messages.join('\n'));
 }
 
 async function submitShopeeOrder(){
@@ -5380,3 +6734,5 @@ window.onload=async ()=>{
 </script>
 </body>
 </html>
+
+
