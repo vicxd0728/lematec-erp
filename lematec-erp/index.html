@@ -546,39 +546,138 @@ tr:hover td{background:rgba(59,130,246,.04);}
 .sel-row { background: rgba(77,142,245,.06) !important; }
 .sel-row:hover { background: rgba(77,142,245,.10) !important; }
 
-/* ── 2026 UI polish: 放大、清楚、科技感後台 ── */
+/* ── 2026 UI redesign: command-center ERP ── */
+:root{
+  --nav-bg:rgba(8,13,25,.82);
+  --surface-glass:rgba(12,19,36,.76);
+  --surface-glass-2:rgba(18,29,52,.82);
+  --line-soft:rgba(148,163,184,.16);
+  --accent-a:#22d3ee;
+  --accent-b:#10b981;
+  --accent-c:#f59e0b;
+}
 body{
   background:
-    radial-gradient(circle at 20% -10%, rgba(34,211,238,.08), transparent 28rem),
-    radial-gradient(circle at 100% 0%, rgba(16,185,129,.06), transparent 24rem),
+    linear-gradient(135deg,rgba(34,211,238,.06),transparent 26%),
+    radial-gradient(circle at 18% -8%, rgba(34,211,238,.16), transparent 30rem),
+    radial-gradient(circle at 100% 0%, rgba(16,185,129,.12), transparent 30rem),
+    radial-gradient(circle at 55% 0%, rgba(59,130,246,.10), transparent 22rem),
     var(--bg);
+  font-size:17px;
 }
-.topbar{height:60px;padding:0 18px;background:rgba(5,8,15,.92);}
-.topbar-brand{font-size:14px;letter-spacing:4.5px;}
-.role-nav{padding:0 12px;background:rgba(5,8,15,.86);}
-.tab-btn{padding:14px 18px;font-size:14px;border-bottom-width:3px;}
-.content,#mainContent{padding:18px 20px;}
-.panel{border-radius:14px;border-color:rgba(96,165,250,.16);box-shadow:0 16px 50px rgba(0,0,0,.22);}
-.panel-hdr{padding:15px 18px;background:linear-gradient(180deg,rgba(15,22,40,.84),rgba(10,15,30,.48));}
-.panel-title{font-size:15px;letter-spacing:.1px;}
-.badge{font-size:11px;padding:3px 10px;background:rgba(34,211,238,.12);color:var(--cyan2);border-color:rgba(34,211,238,.24);}
-.inp{font-size:15px;padding:11px 14px;border-radius:10px;background:rgba(21,29,53,.92);}
-.btn{min-height:40px;font-size:14px;border-radius:10px;padding:10px 18px;}
-.btn-sm{min-height:36px;font-size:13px;padding:8px 14px;}
-.btn-xs{min-height:30px;font-size:12px;padding:5px 10px;}
-th{font-size:11px;padding:12px 15px;color:#7d8da8;background:rgba(5,8,15,.82);}
-td{font-size:14px;padding:13px 15px;}
-.pill{font-size:12px;padding:4px 11px;}
-.kpi-card{border-radius:16px;min-height:150px;padding:22px 24px;background:linear-gradient(180deg,rgba(15,22,40,.96),rgba(10,15,30,.96));}
-.kpi-label{font-size:11px;color:#7d8da8;}
-.kpi-num{font-size:44px;}
-.info-box,.info-ok,.info-warn,.help-box{font-size:14px;border-radius:11px;padding:12px 15px;}
+.topbar{height:68px;padding:0 24px;background:rgba(5,8,15,.88);border-bottom-color:rgba(148,163,184,.14);}
+.topbar::after{height:2px;opacity:.75;background:linear-gradient(90deg,transparent,var(--accent-a),var(--accent-b),transparent);}
+.topbar-brand{font-size:17px;letter-spacing:5px;font-weight:600;}
+.topbar-sub,.topbar span[style*="ERP"]{font-size:12px!important;}
+.role-nav{
+  padding:10px 16px 12px;
+  gap:8px;
+  background:var(--nav-bg);
+  border-bottom:1px solid rgba(148,163,184,.14);
+}
+.tab-btn{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:11px 16px;
+  min-height:44px;
+  font-size:15px;
+  color:#8fa2bf;
+  background:rgba(15,23,42,.58);
+  border:1px solid rgba(148,163,184,.12);
+  border-radius:12px;
+  margin:0;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+.tab-btn:hover{color:var(--text);background:rgba(30,41,59,.78);border-color:rgba(34,211,238,.25);}
+.tab-btn.active{
+  color:#ecfeff;
+  border-color:rgba(34,211,238,.42);
+  background:linear-gradient(135deg,rgba(34,211,238,.18),rgba(16,185,129,.10));
+  box-shadow:0 10px 28px rgba(6,182,212,.12), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.tab-ico{font-size:18px;line-height:1;}
+.tab-text{font-weight:750;letter-spacing:.2px;}
+.content,#mainContent{padding:22px 24px;}
+.panel{
+  border-radius:18px;
+  background:linear-gradient(180deg,var(--surface-glass),rgba(8,13,25,.84));
+  border-color:var(--line-soft);
+  box-shadow:0 20px 60px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035);
+}
+.panel-hdr,.panel-head{
+  padding:17px 20px;
+  background:linear-gradient(180deg,rgba(30,41,59,.58),rgba(15,23,42,.22));
+}
+.panel-title{font-size:17px;font-weight:800;letter-spacing:.15px;}
+.badge{font-size:12px;padding:4px 11px;background:rgba(34,211,238,.13);color:#67e8f9;border-color:rgba(34,211,238,.28);}
+.inp{font-size:16px;padding:12px 15px;border-radius:12px;background:rgba(15,23,42,.86);border-color:rgba(148,163,184,.18);}
+.btn{min-height:44px;font-size:15px;border-radius:12px;padding:11px 19px;font-weight:750;}
+.btn-sm{min-height:39px;font-size:14px;padding:9px 15px;}
+.btn-xs{min-height:32px;font-size:12px;padding:6px 11px;}
+th{font-size:12px;padding:14px 16px;color:#8ea3c1;background:rgba(2,6,23,.78);}
+td{font-size:15px;padding:15px 16px;}
+.pill{font-size:13px;padding:5px 12px;}
+.dash-kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px;}
+.dash-kpi-grid-5{grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;margin-bottom:18px;}
+.kpi-card{
+  border-radius:20px;
+  min-height:170px;
+  padding:24px;
+  background:linear-gradient(145deg,rgba(15,23,42,.94),rgba(8,13,25,.98));
+  border-color:rgba(148,163,184,.14);
+}
+.kpi-card:hover{transform:translateY(-4px) scale(1.01);}
+.kpi-label{font-size:12px;color:#91a4c1;letter-spacing:1.4px;}
+.kpi-num{font-size:52px;letter-spacing:-1px;}
+.kpi-sub{font-size:13px;color:#8fa2bf;}
+.kpi-bar{height:5px;background:rgba(148,163,184,.13);}
+.info-box,.info-ok,.info-warn,.help-box{font-size:15px;border-radius:14px;padding:14px 17px;}
+.dash-hero{
+  display:grid;
+  grid-template-columns:minmax(280px,1.15fr) minmax(320px,.85fr);
+  gap:18px;
+  margin-bottom:20px;
+}
+.dash-hero-main{
+  position:relative;overflow:hidden;border-radius:24px;
+  padding:26px 28px;
+  border:1px solid rgba(34,211,238,.18);
+  background:linear-gradient(135deg,rgba(12,19,36,.98),rgba(15,23,42,.78) 52%,rgba(6,78,59,.32));
+  box-shadow:0 24px 70px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.dash-hero-main::after{
+  content:'';position:absolute;right:-80px;top:-90px;width:260px;height:260px;border-radius:50%;
+  background:radial-gradient(circle,rgba(34,211,238,.25),transparent 62%);
+  pointer-events:none;
+}
+.dash-hero-kicker{font-size:13px;color:#67e8f9;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+.dash-hero-title{font-size:32px;line-height:1.15;font-weight:850;color:#f8fbff;letter-spacing:.2px;margin-bottom:10px;}
+.dash-hero-sub{font-size:15px;color:#a8b6cc;max-width:680px;}
+.dash-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}
+.dash-hero-side{
+  border-radius:24px;padding:18px;
+  border:1px solid rgba(148,163,184,.14);
+  background:rgba(12,19,36,.72);
+}
+.dash-status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.dash-status-card{
+  padding:15px;border-radius:16px;background:rgba(15,23,42,.76);
+  border:1px solid rgba(148,163,184,.12);
+}
+.dash-status-card strong{display:block;font-family:var(--f-mono);font-size:28px;line-height:1;color:var(--text);margin-bottom:5px;}
+.dash-status-card span{font-size:12px;color:#8fa2bf;font-weight:700;}
 @media(max-width:600px){
   .topbar{height:56px;padding:0 10px;}
   .content,#mainContent{padding:12px;}
-  .tab-btn{padding:12px 14px;font-size:13px;}
+  .role-nav{padding:8px;gap:6px;}
+  .tab-btn{padding:10px 12px;font-size:13px;min-height:40px;}
+  .tab-ico{font-size:16px;}
   .panel-hdr{padding:12px 14px;}
   th,td{font-size:13px!important;}
+  .dash-hero{grid-template-columns:1fr;}
+  .dash-hero-title{font-size:24px;}
+  .dash-kpi-grid,.dash-kpi-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+  .kpi-card{min-height:140px;padding:16px!important;}
+  .kpi-num{font-size:38px!important;}
 }
 
 /* ════════════════════════════════════════════
@@ -1989,6 +2088,14 @@ function openModal(type,data){
           <option value="">— 選擇蝦皮商品（S-開頭）—</option>
         </select>
       </div>
+      <div style="margin-bottom:12px;padding:10px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.18);border-radius:10px">
+        <label style="font-size:0.625rem;color:var(--cyan2);display:block;margin-bottom:5px">手動新增 S-料號</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="inp" id="m_shopee_manual" placeholder="例如 S-FLT-B-C4；若主檔沒有會自動建檔，預設庫存 20">
+          <button type="button" class="btn btn-cyan btn-sm" onclick="addShopeeOrderItem(true)">建立/加入</button>
+        </div>
+        <div style="font-size:0.6875rem;color:var(--text3);margin-top:6px">若 Excel BOM 有這個 S-料號，系統會自動補 BOM 關係。</div>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
         <div style="width:110px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
         <button type="button" class="btn btn-green" onclick="addShopeeOrderItem()">＋ 加入清單</button>
@@ -2511,7 +2618,7 @@ function getShopeeBomRows(mat){
       parsed.push({code:(m?.[1]||raw).trim(),qty:parseInt(m?.[2])||1});
     });
   }
-  return parsed.length?parsed:(SHOPEE_BOM_MAP[mat.code]||SHOPEE_BOM_MAP[mat.name]||SHOPEE_BOM_FALLBACK[mat.code]||SHOPEE_BOM_FALLBACK[mat.name]||[]);
+  return parsed.length?parsed:shopeeBomRowsForSku(mat.code||mat.name);
 }
 function getShopeeBomItems(mat, qty){
   const orderQty=parseInt(qty)||1;
@@ -2529,7 +2636,7 @@ function getShopeeBomItems(mat, qty){
       parsed.push({code:(m?.[1]||raw).trim(),qty:parseInt(m?.[2])||1});
     });
   }
-  const fallback=SHOPEE_BOM_MAP[mat.code]||SHOPEE_BOM_MAP[mat.name]||SHOPEE_BOM_FALLBACK[mat.code]||SHOPEE_BOM_FALLBACK[mat.name]||[];
+  const fallback=shopeeBomRowsForSku(mat.code||mat.name);
   const rows=parsed.length?parsed:fallback;
   return rows.map(r=>{
     const child=findMatBySku(r.code);
@@ -2587,7 +2694,7 @@ function applyDateFilter(filterId,data,dateKey='created'){
 // ═══════════════════════════════════════════════
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
-function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');btn.textContent=TAB_LABELS[tab];btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
+function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
 function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='stocklog')loadStockLog().then(()=>renderTab('stocklog'));if(tab==='schedule')loadSchedule().then(()=>renderTab('schedule'));if(tab==='corders')loadCorders().then(()=>renderTab('corders'));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
@@ -3221,7 +3328,33 @@ function renderDashboard(){
     })()}
   </div>`:'';
 
-  return`${annSection}
+  const dashHero=`
+  <div class="dash-hero">
+    <div class="dash-hero-main">
+      <div class="dash-hero-kicker">LEMATEC ERP COMMAND</div>
+      <div class="dash-hero-title">今日營運總覽</div>
+      <div class="dash-hero-sub">訂單、生產、庫存、品管與人員審核集中在同一個畫面，先看異常，再進模組處理。</div>
+      <div class="dash-hero-actions">
+        <button class="btn btn-blue" onclick="switchTab('orders')">查看訂單</button>
+        <button class="btn btn-cyan" onclick="switchTab('inventory')">庫存主檔</button>
+        <button class="btn btn-green" onclick="switchTab('picking')">領料作業</button>
+      </div>
+    </div>
+    <div class="dash-hero-side">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="panel-title">狀態雷達</div>
+        <span style="font-size:12px;color:var(--text3);font-family:var(--f-mono)">${new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+      <div class="dash-status-grid">
+        <div class="dash-status-card" onclick="switchTab('orders')" style="cursor:pointer"><strong style="color:${deadlineSoon.length?'var(--red2)':'var(--green2)'}">${deadlineSoon.length}</strong><span>交期提醒</span></div>
+        <div class="dash-status-card" onclick="switchTab('inventory')" style="cursor:pointer"><strong style="color:${low.length?'var(--red2)':'var(--green2)'}">${low.length}</strong><span>庫存警示</span></div>
+        <div class="dash-status-card" onclick="switchTab('qc')" style="cursor:pointer"><strong style="color:${qcPending?'var(--amber)':'var(--green2)'}">${qcPending}</strong><span>品管待檢</span></div>
+        <div class="dash-status-card" onclick="switchTab('leave')" style="cursor:pointer"><strong style="color:${pending?'var(--amber)':'var(--green2)'}">${pending}</strong><span>請假審核</span></div>
+      </div>
+    </div>
+  </div>`;
+
+  return`${dashHero}${annSection}
 
   <!-- KPI Row 1: 核心指標 -->
   <div class="dash-kpi-grid">
@@ -3788,6 +3921,7 @@ function renderInventory(){
       <!-- 清除篩選 -->
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
+        ${ROLE==='manager'?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
         ${ROLE==='manager'?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
@@ -4355,12 +4489,15 @@ function isShopeeMat(m){
   const code=m?.code||m?.name||'';
   return t==='蝦皮用'||t==='蝦皮用(S-)'||/^S-/i.test(code);
 }
+function normSku(v){return String(v||'').trim().replace(/\s+/g,'').toUpperCase();}
 function findMatBySku(sku){
-  const key=(sku||'').trim().toLowerCase();
+  const key=normSku(sku);
   if(!key) return null;
+  const byId=mats.find(m=>m.id===sku);
+  if(byId) return byId;
   return mats.find(m=>
-    (m.code||'').trim().toLowerCase()===key||
-    (m.name||'').trim().toLowerCase()===key
+    normSku(m.code)===key||
+    normSku(m.name)===key
   )||null;
 }
 
@@ -4410,6 +4547,102 @@ async function importShopeeBomToNotion(){
       '\n\n找不到子件：\n'+noChild.slice(0,50).join('\n')+
       '\n\n失敗：\n'+failed.slice(0,30).join('\n'));
   }
+}
+function shopeeBomRowsForSku(sku){
+  const key=normSku(sku);
+  return SHOPEE_BOM_MAP[key]||SHOPEE_BOM_FALLBACK[key]||[];
+}
+function shopeeBomNoteForSku(sku){
+  const rows=shopeeBomRowsForSku(sku);
+  if(!rows.length) return 'Shopee Excel import';
+  const main=rows[0]?.code||'';
+  const acc=rows.slice(1).map(x=>x.code+(Number(x.qty)>1?'x'+x.qty:'')).join(', ');
+  return ['來源:Shopee Excel BOM',main?'主料:'+main:'',acc?'配件:'+acc:''].filter(Boolean).join(' | ');
+}
+async function createMaterialFromSku(sku,type='零件',stock=0,safe=0,note=''){
+  const code=(sku||'').trim();
+  if(!code) throw new Error('料號空白');
+  const props={
+    '料件名稱':{title:[{text:{content:code}}]},
+    '料件編號':{rich_text:[{text:{content:code}}]},
+    '類型':{select:{name:type}},
+    '單位':{select:{name:'個'}},
+    '目前庫存':{number:Number(stock)||0},
+    '安全庫存':{number:Number(safe)||0},
+    '備註':{rich_text:[{text:{content:note||''}}]},
+  };
+  const r=await createPage(DB.materials,props);
+  if(r?.object==='error') throw new Error(r.message||'料件建檔失敗');
+  const mat={id:r.id,name:code,code,type,unit:'個',qty:Number(stock)||0,stock:Number(stock)||0,safe:Number(safe)||0,note:note||''};
+  mats.push(mat);
+  return mat;
+}
+async function ensureShopeeParentMaterial(sku){
+  const code=(sku||'').trim().toUpperCase();
+  if(!code) throw new Error('請輸入 S-料號');
+  if(!code.startsWith('S-')) throw new Error('蝦皮料號需 S- 開頭');
+  let mat=findMatBySku(code);
+  if(mat) return mat;
+  showToast('⏳ 建立蝦皮料號 '+code+'...','warn',5000);
+  mat=await createMaterialFromSku(code,'蝦皮用',20,10,shopeeBomNoteForSku(code));
+  return mat;
+}
+async function ensureShopeeBomRows(parentMat){
+  const sku=parentMat.code||parentMat.name;
+  const rows=shopeeBomRowsForSku(sku);
+  if(!rows.length) return {created:0,missing:0,total:0};
+  const existing=new Set(boms.map(b=>b.parentId+'|'+b.childId));
+  let created=0, childCreated=0;
+  for(const row of rows){
+    let child=findMatBySku(row.code);
+    if(!child){
+      child=await createMaterialFromSku(row.code,'零件',0,0,'Shopee Excel BOM 自動建檔');
+      childCreated++;
+    }
+    const key=parentMat.id+'|'+child.id;
+    if(existing.has(key)) continue;
+    const title=`${sku} → ${row.code}`;
+    const r=await createPage(DB.bom,{
+      'BOM項目':{title:[{text:{content:title}}]},
+      '母件':{relation:[{id:parentMat.id}]},
+      '子件':{relation:[{id:child.id}]},
+      '每台用量':{number:Number(row.qty)||1},
+      '備註':{rich_text:[{text:{content:'Shopee Excel BOM 自動建立'}}]},
+    });
+    if(r?.object==='error') throw new Error(title+'：'+(r.message||'BOM 建立失敗'));
+    boms.push({parentId:parentMat.id,childId:child.id,qty:Number(row.qty)||1});
+    existing.add(key);
+    created++;
+  }
+  return {created,childCreated,total:rows.length};
+}
+async function auditShopeeBomInventory(){
+  await refreshAll(true);
+  const matCodes=new Set();
+  mats.forEach(m=>{
+    if(m.code) matCodes.add(m.code.trim().toLowerCase());
+    if(m.name) matCodes.add(m.name.trim().toLowerCase());
+  });
+  const missingParents=[], missingChildren=[];
+  SHOPEE_BOM_EXCEL.forEach(row=>{
+    if(!matCodes.has(row.parent.toLowerCase())) missingParents.push(row.parent);
+    (row.children||[]).forEach(ch=>{
+      if(!matCodes.has(ch.code.toLowerCase())) missingChildren.push(row.parent+' → '+ch.code);
+    });
+  });
+  document.getElementById('modalInner').innerHTML=`<h3>🔍 蝦皮 BOM 庫存建檔審查</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center"><div style="font-size:1.5rem;color:var(--cyan2);font-weight:800">${SHOPEE_BOM_EXCEL.length}</div><div style="font-size:.75rem;color:var(--text3)">Excel S-母件</div></div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center"><div style="font-size:1.5rem;color:${missingParents.length?'var(--red)':'var(--green)'};font-weight:800">${missingParents.length}</div><div style="font-size:.75rem;color:var(--text3)">缺母件</div></div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center"><div style="font-size:1.5rem;color:${missingChildren.length?'var(--red)':'var(--green)'};font-weight:800">${missingChildren.length}</div><div style="font-size:.75rem;color:var(--text3)">缺子件</div></div>
+    </div>
+    <div class="info-box ${missingParents.length||missingChildren.length?'info-warn':'info-ok'}">${missingParents.length||missingChildren.length?'有料號尚未在庫存主檔建檔，可用手動新增 S-料號或匯入 BOM 時自動補齊。':'Excel BOM 料號皆已在庫存主檔找到。'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="panel" style="margin:0"><div class="panel-hdr"><span class="panel-title">缺母件 <span class="badge">${missingParents.length}</span></span></div><div style="padding:10px;max-height:260px;overflow:auto;font-family:var(--f-mono);font-size:.8rem;color:var(--text2)">${missingParents.length?missingParents.map(x=>`<div>${x}</div>`).join(''):'<span style="color:var(--green)">全部已建檔</span>'}</div></div>
+      <div class="panel" style="margin:0"><div class="panel-hdr"><span class="panel-title">缺子件 <span class="badge">${missingChildren.length}</span></span></div><div style="padding:10px;max-height:260px;overflow:auto;font-family:var(--f-mono);font-size:.8rem;color:var(--text2)">${missingChildren.length?missingChildren.map(x=>`<div>${x}</div>`).join(''):'<span style="color:var(--green)">全部已建檔</span>'}</div></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;
+  openModal();
 }
 function makeCorderNo(){
   const today=new Date().toISOString().slice(0,10);
@@ -5803,22 +6036,32 @@ function _renderShopeeList(q){
   const sel = document.getElementById('m_shopee_sku');
   if(!sel) return;
   const prev = sel.value;
+  const rawQ=(q||'').trim();
+  const qKey=rawQ.toLowerCase();
+  const newCode=normSku(rawQ);
   sel.innerHTML = '<option value="">— 選擇蝦皮商品（S-開頭）—</option>';
   const items = mats
-    .filter(m=>m.code&&m.code.startsWith('S-'))
-    .filter(m=>!q || m.code.toLowerCase().includes(q) || (m.name||'').toLowerCase().includes(q))
-    .sort((a,b)=>a.code.localeCompare(b.code));
+    .filter(m=>/^S-/i.test((m.code||m.name||'').trim()) || isShopeeMat(m))
+    .filter(m=>!qKey || (m.code||'').toLowerCase().includes(qKey) || (m.name||'').toLowerCase().includes(qKey))
+    .sort((a,b)=>(a.code||a.name||'').localeCompare(b.code||b.name||''));
   items.forEach(m=>{
     const opt=document.createElement('option');
     opt.value=m.id;
-    opt.textContent=m.code+(m.name&&m.name!==m.code?' — '+m.name:'');
+    opt.textContent=(m.code||m.name)+(m.name&&m.name!==m.code?' — '+m.name:'');
     if(m.id===prev) opt.selected=true;
     sel.appendChild(opt);
   });
+  if(newCode.startsWith('S-')&&!findMatBySku(newCode)){
+    const opt=document.createElement('option');
+    opt.value='NEW::'+newCode;
+    opt.textContent='＋ 建立新蝦皮料號：'+newCode;
+    opt.selected=true;
+    sel.appendChild(opt);
+  }
   if(items.length===0){
     const opt=document.createElement('option');
     opt.disabled=true;
-    opt.textContent='（無符合結果）';
+    opt.textContent=newCode.startsWith('S-')?'可選擇上方建立新料號':'（無符合結果，輸入 S-料號可建立）';
     sel.appendChild(opt);
   }
 }
@@ -5828,6 +6071,15 @@ function onShopeeSkuChange(matId){
   const bom  = document.getElementById('shopeeSkuBom');
   if(!info||!bom){return;}
   if(!matId){info.style.display='none';return;}
+  if(matId.startsWith('NEW::')){
+    const sku=matId.slice(5);
+    const rows=shopeeBomRowsForSku(sku);
+    bom.innerHTML=rows.length
+      ? rows.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${x.code}</span><b style="color:var(--amber)">扣 ${x.qty}</b></div>`).join('')+'<div style="font-size:0.625rem;color:var(--text3);margin-top:6px">來源：Excel BOM，建立時會自動補進 Notion</div>'
+      : `<div style="color:var(--red)">Excel BOM 找不到 ${sku}，建立後需手動補 BOM。</div>`;
+    info.style.display='';
+    return;
+  }
   const mat = mats.find(m=>m.id===matId);
   if(!mat){info.style.display='none';return;}
   const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
@@ -5844,12 +6096,30 @@ function onShopeeSkuChange(matId){
   info.style.display='';
 }
 
-function addShopeeOrderItem(){
-  const matId=document.getElementById('m_shopee_sku')?.value||'';
+async function addShopeeOrderItem(manual=false){
+  let matId=document.getElementById('m_shopee_sku')?.value||'';
   const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
-  if(!matId){showToast('請先選擇 S-料號','warn');return;}
-  const mat=mats.find(m=>m.id===matId);
+  let mat=null;
+  const manualSku=(document.getElementById('m_shopee_manual')?.value||document.getElementById('shopee_search')?.value||'').trim();
+  const newSkuFromSelect=(document.getElementById('m_shopee_sku')?.value||'').startsWith('NEW::')?(document.getElementById('m_shopee_sku')?.value||'').slice(5):'';
+  if(newSkuFromSelect) matId='';
+  if(manual||newSkuFromSelect||(!matId&&manualSku)){
+    try{
+      mat=await ensureShopeeParentMaterial(newSkuFromSelect||manualSku);
+      const bomInfo=await ensureShopeeBomRows(mat);
+      matId=mat.id;
+      _renderShopeeList('');
+      const sel=document.getElementById('m_shopee_sku');
+      if(sel) sel.value=matId;
+      const man=document.getElementById('m_shopee_manual');
+      if(man) man.value='';
+      if(bomInfo.total) showToast(`✅ ${mat.code||mat.name} 已建檔，BOM補 ${bomInfo.created} 筆`,'ok',6000);
+    }catch(e){showToast('❌ '+e.message,'err');return;}
+  }
+  if(!matId){showToast('請先選擇或輸入 S-料號','warn');return;}
+  mat=mat||mats.find(m=>m.id===matId)||findMatBySku(matId);
   if(!mat){showToast('找不到料件','err');return;}
+  try{await ensureShopeeBomRows(mat);}catch(e){showToast('⚠ BOM補建失敗：'+e.message,'warn',7000);}
   window._shopeeOrderItems=window._shopeeOrderItems||[];
   const ex=window._shopeeOrderItems.find(x=>x.matId===matId);
   if(ex) ex.qty+=qty;
@@ -6587,7 +6857,13 @@ async function submitShopeeOrdersV2(){
   let items=window._shopeeOrderItems||[];
   const selected=document.getElementById('m_shopee_sku')?.value;
   if(!items.length&&selected){
-    const mat=mats.find(m=>m.id===selected);
+    let mat=null;
+    if(selected.startsWith('NEW::')){
+      mat=await ensureShopeeParentMaterial(selected.slice(5));
+      await ensureShopeeBomRows(mat);
+    }else{
+      mat=mats.find(m=>m.id===selected)||findMatBySku(selected);
+    }
     if(mat) items=[{matId:mat.id,qty:parseInt(document.getElementById('m_shopee_qty')?.value)||1,code:mat.code||mat.name,name:mat.name||mat.code}];
   }
   if(!items.length){showToast('請至少加入一個 S-料號','warn');return;}
@@ -6597,10 +6873,14 @@ async function submitShopeeOrdersV2(){
   let ok=0, fail=0, messages=[];
   for(let i=0;i<items.length;i++){
     const it=items[i];
-    const mat=mats.find(m=>m.id===it.matId);
-    if(!mat){fail++;messages.push((it.code||'')+'：找不到料件');continue;}
+    let mat=mats.find(m=>m.id===it.matId)||findMatBySku(it.code||it.name||it.matId);
+    if(!mat){
+      try{mat=await ensureShopeeParentMaterial(it.code||it.name||it.matId);}
+      catch(e){fail++;messages.push((it.code||it.name||'')+'：'+e.message);continue;}
+    }
     const orderNo=`ORD-${yr}${mo}-S${String(i+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
     try{
+      await ensureShopeeBomRows(mat);
       const bomItems=explodeBOM(mat.id,it.qty);
       if(!bomItems.length) throw new Error('此 S-料號尚未設定 BOM 或主料/配件備註，無法建立可領料訂單');
       const missing=bomItems.filter(x=>x.missing||!x.id);
