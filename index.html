@@ -2571,7 +2571,7 @@ async function login(){
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-function logout(){localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
+function logout(){stopAutoSync();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ═══════════════════════════════════════════════
 // APP START
@@ -2667,6 +2667,7 @@ async function startApp(){
   }
 
   await refreshAll();
+  initAutoSync();
 }
 
 
@@ -2701,6 +2702,45 @@ function hydrateAppCache(){
 function clearAppCache(){
   localStorage.removeItem(CACHE_KEY);
   showToast('✅ 本機快取已清除，下次會完整重新同步','ok');
+}
+const AUTO_SYNC_DEFAULT_MS=3*60*1000;
+let _autoSyncTimer=null,_lastAutoSync=0;
+function getAutoSyncMs(){
+  const saved=parseInt(localStorage.getItem('erp_auto_sync_ms')||'',10);
+  return Number.isFinite(saved)&&saved>=60000?saved:AUTO_SYNC_DEFAULT_MS;
+}
+function isModalOpen(){
+  return !!document.querySelector('.modal-bg.open,.modal-overlay.open');
+}
+function isEditingNow(){
+  const el=document.activeElement;
+  if(!el) return false;
+  const tag=(el.tagName||'').toLowerCase();
+  return tag==='input'||tag==='textarea'||tag==='select'||el.isContentEditable;
+}
+function shouldDelayAutoSync(){
+  return isModalOpen()||isEditingNow()||document.body?.dataset?.busy==='1';
+}
+function initAutoSync(){
+  stopAutoSync();
+  const ms=getAutoSyncMs();
+  _autoSyncTimer=setInterval(autoSyncTick,ms);
+  const syncEl=document.getElementById('syncStatus');
+  if(syncEl) syncEl.title=`自動同步：每 ${Math.round(ms/60000)} 分鐘，操作中會延後`;
+}
+function stopAutoSync(){
+  if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
+}
+async function autoSyncTick(){
+  if(!TOKEN||_refreshing||document.hidden) return;
+  const syncEl=document.getElementById('syncStatus');
+  if(shouldDelayAutoSync()){
+    if(syncEl) syncEl.textContent='⏸ 操作中';
+    return;
+  }
+  _lastAutoSync=Date.now();
+  if(syncEl) syncEl.textContent='⟳ 自動同步...';
+  await refreshAll(false);
 }
 
 async function refreshAll(manual=false){
