@@ -1048,7 +1048,7 @@ const DB={
 };
 const ROLES={
   // 廠長：全功能
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','health','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
   sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','orders','corders','customers','leave']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
@@ -3217,27 +3217,43 @@ function renderOpsBoard(){
   const qcList=orders.filter(o=>o.status==='待檢驗'||o.status==='品檢異常');
   const inboundQC=inbounds.filter(i=>i.qcStatus==='待品檢');
   const low=mats.filter(m=>m.stock<=m.safe);
-  const blocks=[
-    {title:'🚚 今日出貨',count:todayShip.length,color:'var(--green2)',items:todayShip.map(o=>compactOrderCard(o))},
-    {title:'📦 待出貨',count:readyShip.length,color:'var(--amber)',items:readyShip.map(o=>compactOrderCard(o,`<button class="btn btn-green btn-xs" onclick="openShipOrderModal('${o.id}')">填出貨日</button>`))},
-    {title:'🗂 待領料',count:pendingPick.length,color:'var(--yellow)',items:pendingPick.map(o=>compactOrderCard(o,`<button class="btn btn-blue btn-xs" onclick="openPickPreview('${o.id}')">領料</button>`))},
-    {title:'✅ 品管待檢',count:qcList.length+inboundQC.length,color:'var(--purple)',items:[
-      ...qcList.map(o=>compactOrderCard(o)),
-      ...inboundQC.map(i=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:8px"><b>${i.no}</b><div style="font-size:.78rem;color:var(--text3);margin-top:4px">${i.matName||'—'} × ${i.qty||0}</div></div>`)
-    ]},
-    {title:'⚠ 庫存不足',count:low.length,color:'var(--red2)',items:low.slice(0,8).map(m=>`<div style="display:flex;justify-content:space-between;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px"><b>${m.name}</b><span style="font-family:var(--f-mono);color:var(--red2)">${m.stock}/${m.safe}</span></div>`)}
+  const overdue=orders.filter(o=>o.deadline&&o.deadline<today&&o.status!=='已完成'&&o.status!=='取消');
+  const cShip=(window.corders||[]).filter(o=>o.status==='出貨中');
+  const pendingLeave=leaves.filter(l=>l.status==='待審核');
+  const totalAction=readyShip.length+pendingPick.length+qcList.length+inboundQC.length+low.length+overdue.length+cShip.length+pendingLeave.length;
+  const statusColor=totalAction===0?'var(--green2)':totalAction<=8?'var(--amber)':'var(--red2)';
+  const cards=[
+    {label:'今日出貨',icon:'🚚',count:todayShip.length,color:'var(--green2)',sub:'已填實際出貨日'},
+    {label:'待出貨',icon:'📦',count:readyShip.length,color:readyShip.length?'var(--amber)':'var(--green2)',sub:'需填出貨日'},
+    {label:'待領料',icon:'🗂️',count:pendingPick.length,color:pendingPick.length?'var(--yellow)':'var(--green2)',sub:'訂單待轉領料'},
+    {label:'生產中',icon:'⚙️',count:production.length,color:'var(--blue2)',sub:'現場製作'},
+    {label:'品管待檢',icon:'✅',count:qcList.length+inboundQC.length,color:(qcList.length+inboundQC.length)?'var(--purple)':'var(--green2)',sub:`訂單 ${qcList.length} / 入料 ${inboundQC.length}`},
+    {label:'庫存警示',icon:'⚠️',count:low.length,color:low.length?'var(--red2)':'var(--green2)',sub:'低於安全庫存'},
+    {label:'交期逾期',icon:'⏰',count:overdue.length,color:overdue.length?'var(--red2)':'var(--green2)',sub:'未完成且過交期'},
+    {label:'C端出貨中',icon:'🛒',count:cShip.length,color:cShip.length?'var(--cyan2)':'var(--green2)',sub:'C端尚未完成'},
+    {label:'請假待審',icon:'🗓️',count:pendingLeave.length,color:pendingLeave.length?'var(--amber)':'var(--green2)',sub:'人員審核'}
   ];
-  const shipDays=[...Array(14)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10);});
-  return `<div class="notion-bar" style="margin-bottom:14px"><span style="color:var(--text3)">現場投放看板</span><button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">立即同步</button><button class="btn btn-blue btn-sm" onclick="switchTab('orders')">訂單管理</button></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px">
-    ${blocks.map(b=>`<div class="kpi-card" style="min-height:118px;cursor:default"><div class="kpi-label">${b.title}</div><div class="kpi-num" style="color:${b.color}">${b.count}</div><div class="kpi-sub">點擊卡片內操作處理</div></div>`).join('')}
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px">
-    ${blocks.map(b=>`<div class="panel"><div class="panel-hdr"><span class="panel-title">${b.title}<span class="badge">${b.count}</span></span></div><div style="padding:12px">${b.items.length?b.items.join(''):`<div style="padding:22px;text-align:center;color:var(--text3)">目前無資料</div>`}</div></div>`).join('')}
-  </div>
-  <div class="panel" style="margin-top:14px"><div class="panel-hdr"><span class="panel-title">🗓️ 未來 14 天出貨日曆</span></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:12px">
-      ${shipDays.map(d=>{const items=orders.filter(o=>o.shipDate===d||(o.status==='待出貨'&&o.deadline===d));return`<div style="min-height:96px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px"><div style="font-family:var(--f-mono);font-weight:700;color:${d===today?'var(--cyan2)':'var(--text2)'}">${d}</div>${items.slice(0,3).map(o=>`<div style="font-size:.75rem;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.no} · ${orderProductName(o)}</div>`).join('')}${items.length>3?`<div style="font-size:.72rem;color:var(--text3);margin-top:4px">+${items.length-3} 筆</div>`:''}</div>`;}).join('')}
+  return `<div style="height:calc(100vh - 105px);overflow:hidden;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(16,185,129,.06));border:1px solid var(--border2);border-radius:16px;padding:18px 22px">
+      <div>
+        <div style="font-size:.78rem;color:var(--text3);font-family:var(--f-mono);letter-spacing:.12em">LEMATEC LIVE BOARD</div>
+        <div style="font-size:1.7rem;font-weight:800;color:var(--text);margin-top:4px">現場營運看板</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:2.5rem;font-family:var(--f-mono);font-weight:800;color:${statusColor};line-height:1">${totalAction}</div>
+        <div style="font-size:.86rem;color:var(--text2);margin-top:3px">待處理事項</div>
+        <div style="font-size:.78rem;color:var(--text3);font-family:var(--f-mono);margin-top:5px">${new Date().toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:14px;flex:1;min-height:0">
+      ${cards.map(c=>`<div style="background:var(--bg2);border:1px solid ${c.count?'rgba(245,158,11,.28)':'var(--border)'};border-radius:16px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;min-height:0">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:1.05rem;font-weight:800;color:var(--text)">${c.icon} ${c.label}</div>
+          <div style="width:10px;height:10px;border-radius:50%;background:${c.count?c.color:'var(--green2)'};box-shadow:0 0 18px ${c.count?c.color:'var(--green2)'}"></div>
+        </div>
+        <div style="font-size:4rem;font-family:var(--f-mono);font-weight:800;line-height:1;color:${c.color};text-align:center">${c.count}</div>
+        <div style="font-size:.9rem;color:var(--text3);text-align:center">${c.sub}</div>
+      </div>`).join('')}
     </div>
   </div>`;
 }
