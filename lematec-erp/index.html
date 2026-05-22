@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -648,6 +649,66 @@ td{font-size:16px;padding:16px 17px;}
 .kpi-sub{font-size:14px;color:#a9beb5;line-height:1.42;}
 .kpi-bar{height:5px;background:rgba(148,163,184,.13);}
 .info-box,.info-ok,.info-warn,.help-box{font-size:15px;border-radius:14px;padding:14px 17px;}
+.notion-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-bottom:14px;padding:10px 13px;
+  background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(163,230,53,.035));
+  border:1px solid rgba(94,234,212,.18);
+  border-radius:14px;
+}
+.notion-bar-label{font-size:13px;color:#8aa29a;font-weight:700;letter-spacing:.02em;}
+.notion-link{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:7px 12px;border-radius:10px;
+  font-size:15px;font-weight:750;
+  color:#d8fff5;text-decoration:none;
+  background:rgba(15,23,42,.55);
+  border:1px solid rgba(94,234,212,.2);
+}
+.notion-link:hover{color:#ffffff;background:rgba(20,184,166,.18);border-color:rgba(94,234,212,.38);}
+.module-tabs{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;padding:6px;margin-bottom:18px;
+  background:rgba(3,9,8,.55);
+  border:1px solid rgba(170,194,180,.12);
+  border-radius:16px;
+}
+.module-tab{
+  min-height:46px;border-radius:12px;border:1px solid transparent;
+  background:transparent;color:#8aa29a;cursor:pointer;
+  font-size:16px;font-weight:750;
+  transition:background .18s,border-color .18s,color .18s,box-shadow .18s;
+}
+.module-tab:hover{color:var(--text);background:rgba(255,255,255,.04);}
+.module-tab.active{
+  color:#ecfeff;
+  background:linear-gradient(135deg,rgba(45,212,191,.2),rgba(56,189,248,.1));
+  border-color:rgba(94,234,212,.32);
+  box-shadow:0 10px 24px rgba(20,184,166,.12);
+}
+.filter-bar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+.filter-label{font-size:15px;color:#a9beb5;font-weight:700;}
+.filter-chip{
+  min-height:36px;padding:7px 15px;border-radius:999px;
+  border:1px solid rgba(170,194,180,.16);
+  background:rgba(15,23,42,.48);
+  color:#bfd0c8;cursor:pointer;
+  font-size:15px;font-weight:750;
+}
+.filter-chip:hover{color:var(--text);border-color:rgba(94,234,212,.28);}
+.filter-chip.active{background:rgba(45,212,191,.16);border-color:rgba(94,234,212,.45);color:#67e8f9;}
+.qc-tabs{
+  gap:8px;padding:6px;margin-bottom:18px;
+  background:rgba(3,9,8,.55);
+  border:1px solid rgba(170,194,180,.12);
+  border-radius:16px;
+  overflow-x:auto;
+}
+.qc-tab{
+  min-height:46px;padding:10px 17px;border-radius:12px;
+  font-size:15px;font-weight:800;
+}
+.qc-tab.active{background:rgba(45,212,191,.15);border-bottom-color:transparent;border-color:rgba(94,234,212,.35);color:#ecfeff;}
 .dash-hero{
   display:grid;
   grid-template-columns:minmax(280px,1.15fr) minmax(320px,.85fr);
@@ -3811,7 +3872,7 @@ function renderDashboard(){
     </div>
   </div>
 
-  ${low.length?`<div class="info-warn">⚠️ 庫存不足：${low.map(m=>`<b>${m.name}</b>(現有${m.stock}，安全${m.safe})`).join('、')}</div>`:''}`;
+  ${low.length?`<div class="info-warn" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⚠️ 庫存不足：${low.slice(0,3).map(m=>`<b>${m.name}</b>(現有${m.stock}，安全${m.safe})`).join('、')}${low.length>3?` 等 ${low.length} 項，請至庫存分頁查詢`:''}</div>`:''}`;
 }
 
 function renderOrders(){
@@ -4557,8 +4618,8 @@ function renderLeave(){
   const LSUB = window._LEAVE_SUB;
   const LDATE = window._LEAVE_DATE;
 
-  const _notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
-    <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
+  const _notionBar=`<div class="notion-bar">
+    <span class="notion-bar-label">📌 Notion：</span>
     <a href="https://www.notion.so/897e87844c2d452ca045c568e175e6d5" target="_blank" class="notion-link">🗓️ 請假管理</a>
     <a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="notion-link">👤 員工統計</a>
   </div>`;
@@ -4582,26 +4643,19 @@ function renderLeave(){
   const history = _applyLeaveFilter(leaves.filter(l=>l.status!=='待審核'));
 
   // ── Tab 標籤 ──
-  const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:16px">
+  const tabs=`<div class="module-tabs">
     ${[['record','📋 請假紀錄'],['calendar','📅 月曆'],['stats','📊 請假統計']].map(([k,l])=>`
-    <button onclick="window._LEAVE_SUB='${k}';renderTab('leave')"
-      style="flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:${LSUB===k?700:400};
-      background:${LSUB===k?'var(--bg)':'transparent'};color:${LSUB===k?'var(--text)':'var(--text3)'};
-      border:${LSUB===k?'1px solid var(--border)':'1px solid transparent'};
-      cursor:pointer;transition:all .15s;box-shadow:${LSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
+    <button class="module-tab${LSUB===k?' active':''}" onclick="window._LEAVE_SUB='${k}';renderTab('leave')">${l}</button>`).join('')}
   </div>`;
 
   // ═══════════════════════════
   // Tab 1：請假紀錄
   // ═══════════════════════════
   if(LSUB==='record'){
-    const filterBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <span style="font-size:11px;color:var(--text3)">時間：</span>
+    const filterBar=`<div class="filter-bar">
+      <span class="filter-label">時間：</span>
       ${dateOpts.map(([v,l])=>{const a=LDATE===v;return`<button onclick="window._LEAVE_DATE='${v}';renderTab('leave')"
-        style="padding:4px 12px;border-radius:20px;font-size:11px;cursor:pointer;
-        border:1px solid ${a?'var(--blue)':'var(--border)'};
-        background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};
-        color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${l}</button>`;}).join('')}
+        class="filter-chip${a?' active':''}">${l}</button>`;}).join('')}
       <button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openModal('newLeave')">＋ 申請請假</button>
     </div>`;
 
@@ -4762,12 +4816,10 @@ function renderLeave(){
   const leaveStats = window._leaveStats || [];
   const yearFilter = window._LEAVE_YEAR_FILTER || '2026';
 
-  const statsFilterBar=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    <span style="font-size:11px;color:var(--text3)">年度：</span>
+  const statsFilterBar=`<div class="filter-bar">
+    <span class="filter-label">年度：</span>
     ${['2025','2026','2027'].map(y=>{const a=yearFilter===y;return`<button onclick="window._LEAVE_YEAR_FILTER='${y}';renderTab('leave')"
-      style="padding:4px 14px;border-radius:20px;font-size:11px;cursor:pointer;
-      border:1px solid ${a?'var(--blue)':'var(--border)'};
-      background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'};font-weight:${a?600:400}">${y}</button>`;}).join('')}
+      class="filter-chip${a?' active':''}">${y}</button>`;}).join('')}
     <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadLeaveStats().then(()=>renderTab('leave'))">🔄 更新</button>
     ${ROLE==='manager'?`<a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="btn btn-ghost btn-sm">📊 Notion 編輯</a>`:''}
   </div>`;
