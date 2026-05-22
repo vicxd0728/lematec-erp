@@ -3233,26 +3233,28 @@ function renderOpsBoard(){
     {label:'C端出貨中',icon:'🛒',count:cShip.length,color:cShip.length?'var(--cyan2)':'var(--green2)',sub:'C端尚未完成'},
     {label:'請假待審',icon:'🗓️',count:pendingLeave.length,color:pendingLeave.length?'var(--amber)':'var(--green2)',sub:'人員審核'}
   ];
-  return `<div style="height:calc(100vh - 105px);overflow:hidden;display:flex;flex-direction:column;gap:14px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(16,185,129,.06));border:1px solid var(--border2);border-radius:16px;padding:18px 22px">
+  return `<div style="height:calc(100vh - 178px);overflow:hidden;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(16,185,129,.06));border:1px solid var(--border2);border-radius:16px;padding:14px 22px;min-height:92px">
       <div>
         <div style="font-size:.78rem;color:var(--text3);font-family:var(--f-mono);letter-spacing:.12em">LEMATEC LIVE BOARD</div>
-        <div style="font-size:1.7rem;font-weight:800;color:var(--text);margin-top:4px">現場營運看板</div>
+        <div style="font-size:1.55rem;font-weight:800;color:var(--text);margin-top:4px">現場營運看板</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:2.5rem;font-family:var(--f-mono);font-weight:800;color:${statusColor};line-height:1">${totalAction}</div>
-        <div style="font-size:.86rem;color:var(--text2);margin-top:3px">待處理事項</div>
-        <div style="font-size:.78rem;color:var(--text3);font-family:var(--f-mono);margin-top:5px">${new Date().toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+        <div style="font-size:2rem;font-family:var(--f-mono);font-weight:800;color:${statusColor};line-height:1.05">${totalAction}</div>
+        <div style="font-size:.84rem;color:var(--text2);margin-top:2px">待處理事項</div>
+        <div style="font-size:.74rem;color:var(--text3);font-family:var(--f-mono);margin-top:4px">${new Date().toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:14px;flex:1;min-height:0">
-      ${cards.map(c=>`<div style="background:var(--bg2);border:1px solid ${c.count?'rgba(245,158,11,.28)':'var(--border)'};border-radius:16px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;min-height:0">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div style="font-size:1.05rem;font-weight:800;color:var(--text)">${c.icon} ${c.label}</div>
-          <div style="width:10px;height:10px;border-radius:50%;background:${c.count?c.color:'var(--green2)'};box-shadow:0 0 18px ${c.count?c.color:'var(--green2)'}"></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(0,1fr));gap:12px;flex:1;min-height:0">
+      ${cards.map(c=>`<div style="background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));border:1px solid ${c.count?'rgba(245,158,11,.28)':'var(--border)'};border-radius:16px;padding:15px 18px;display:grid;grid-template-rows:auto 1fr auto;min-height:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0">
+          <div style="font-size:1rem;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.icon} ${c.label}</div>
+          <div style="width:9px;height:9px;border-radius:50%;background:${c.count?c.color:'var(--green2)'};box-shadow:0 0 16px ${c.count?c.color:'var(--green2)'};flex-shrink:0"></div>
         </div>
-        <div style="font-size:4rem;font-family:var(--f-mono);font-weight:800;line-height:1;color:${c.color};text-align:center">${c.count}</div>
-        <div style="font-size:.9rem;color:var(--text3);text-align:center">${c.sub}</div>
+        <div style="display:flex;align-items:center;justify-content:center;min-height:0">
+          <div style="font-size:3.15rem;font-family:var(--f-mono);font-weight:800;line-height:1;color:${c.color};text-align:center">${c.count}</div>
+        </div>
+        <div style="font-size:.8rem;color:var(--text3);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.2em">${c.sub}</div>
       </div>`).join('')}
     </div>
   </div>`;
