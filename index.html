@@ -1023,6 +1023,7 @@ const PILL={
   '待檢驗':['rgba(139,92,246,.15)','#a78bfa'],
   '待出貨':['rgba(155,127,245,.12)','#9b7ff5'],'已完成':['rgba(46,196,138,.12)','#2ec48a'],
   '取消':['rgba(245,101,101,.12)','#f56565'],'已確認扣料':['rgba(46,196,138,.12)','#2ec48a'],
+  '待領料':['rgba(245,185,66,.12)','#f5b942'],'已領料':['rgba(46,196,138,.12)','#2ec48a'],
   '待品檢':['rgba(245,185,66,.12)','#f5b942'],'品檢通過':['rgba(46,196,138,.12)','#2ec48a'],
   '品檢不合格':['rgba(245,101,101,.12)','#f56565'],'已入庫':['rgba(46,196,138,.12)','#2ec48a'],
   '待入庫':['#1f2640','#313d5a'],'退回供應商':['rgba(245,101,101,.12)','#f56565'],
@@ -2880,7 +2881,7 @@ async function refreshAll(manual=false){
 }
 async function loadPicks(){
   const r=await dbQueryAll(DB.pickMaster);
-  picks=r.map(p=>({id:p.id,no:getTitle(p.properties,'領料主單號'),orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',created:p.created_time?.slice(0,10)||''}));
+  picks=r.map(p=>({id:p.id,no:getTitle(p.properties,'領料主單號'),orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',person:getRichText(p.properties,'領料人員'),note:getRichText(p.properties,'備註'),created:p.created_time?.slice(0,10)||''}));
 }
 async function loadInbounds(){
   const r=await dbQueryAll(DB.inbound);
@@ -4591,16 +4592,178 @@ function _invRender(){
   }
 }
 
+let _mpItems=[];
+function openManualPickModal(){
+  _mpItems=[];
+  const mi=document.getElementById('modalInner');
+  const typeOpts=['零件','半成品','成品','蝦皮用(S-)','蝦皮用'].map(t=>`<option value="${t}">${t}</option>`).join('');
+  mi.innerHTML=`<h3>🧰 建立臨時補料單</h3>
+    <div class="help-box">用於組裝現場臨時補料、瑕疵替換、少料補領。建立後狀態為「待領料」，按「已領料」才會扣庫存。</div>
+    <div class="field" style="margin-bottom:10px">
+      <label class="field-label">搜尋料號</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="inp" id="mp_search" placeholder="輸入料號或名稱..." oninput="filterManualPickList(this.value)" style="flex:1;min-width:220px">
+        <select class="inp" id="mp_type" style="width:150px" onchange="filterManualPickList(document.getElementById('mp_search').value)">
+          <option value="">全部類型</option>${typeOpts}
+        </select>
+      </div>
+    </div>
+    <div id="mp_list" style="max-height:210px;overflow:auto;border:1px solid var(--border);border-radius:12px;margin-bottom:12px;background:var(--bg3)"></div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">手動新增料號</div>
+      <div class="form-row">
+        <input class="inp" id="mp_new_code" placeholder="料號，例如 Y-XXX-01">
+        <input class="inp" id="mp_new_name" placeholder="料件名稱（可同料號）">
+      </div>
+      <div class="form-row" style="margin-top:8px">
+        <select class="inp" id="mp_new_type">${typeOpts}</select>
+        <input class="inp" type="number" id="mp_new_qty" value="1" min="1" placeholder="數量">
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="addManualPickNewItem()">＋ 加入手動料號</button>
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label class="field-label">已選料號</label>
+      <div id="mp_items"></div>
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label class="field-label">備註 / 用途</label>
+      <textarea class="inp" id="mp_note" placeholder="例如：組裝缺料、瑕疵替換、產線補領..." style="min-height:72px"></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" onclick="submitManualPick()">建立待領料單</button>
+    </div>`;
+  openModal();
+  filterManualPickList('');
+  renderManualPickItems();
+}
+function filterManualPickList(q){
+  const list=document.getElementById('mp_list'); if(!list) return;
+  const type=document.getElementById('mp_type')?.value||'';
+  const s=(q||'').toLowerCase().trim();
+  const data=mats.filter(m=>(!type||m.type===type)&&(!s||(m.code||'').toLowerCase().includes(s)||(m.name||'').toLowerCase().includes(s))).slice(0,80);
+  if(!data.length){list.innerHTML='<div style="padding:14px;color:var(--text3);font-size:14px">找不到符合料號，可用下方手動新增</div>';return;}
+  list.innerHTML=data.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
+    <div style="flex:1;min-width:0"><div style="font-weight:800;color:var(--text);font-size:14px">${m.code||m.name}</div><div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.name||''} · ${m.type||'—'} · 庫存 ${m.stock??0}</div></div>
+    <input class="inp" type="number" id="mp_qty_${m.id}" value="1" min="1" style="width:86px">
+    <button class="btn btn-blue btn-sm" onclick="addManualPickItem('${m.id}')">加入</button>
+  </div>`).join('');
+}
+function addManualPickItem(matId){
+  const m=mats.find(x=>x.id===matId); if(!m) return;
+  const qty=parseInt(document.getElementById('mp_qty_'+matId)?.value)||1;
+  const ex=_mpItems.find(x=>x.matId===matId);
+  if(ex) ex.qty+=qty; else _mpItems.push({matId:m.id,code:m.code||m.name,name:m.name||m.code,type:m.type||'零件',qty});
+  renderManualPickItems();
+}
+async function addManualPickNewItem(){
+  const code=(document.getElementById('mp_new_code')?.value||'').trim();
+  const name=(document.getElementById('mp_new_name')?.value||'').trim()||code;
+  const type=document.getElementById('mp_new_type')?.value||'零件';
+  const qty=parseInt(document.getElementById('mp_new_qty')?.value)||1;
+  if(!code){showToast('請輸入料號','warn');return;}
+  const found=findMatBySku(code)||mats.find(m=>(m.name||'').toLowerCase()===name.toLowerCase());
+  if(found){addManualPickItem(found.id);return;}
+  showToast('建立新料號中...','warn');
+  try{
+    const created=await createMaterialFromSku(code,type,0,0,'臨時補料手動建檔');
+    created.name=name||created.name;
+    addManualPickItem(created.id);
+    filterManualPickList(document.getElementById('mp_search')?.value||'');
+  }catch(e){showToast('❌ 建立料號失敗：'+e.message,'err');}
+}
+function renderManualPickItems(){
+  const box=document.getElementById('mp_items'); if(!box) return;
+  if(!_mpItems.length){box.innerHTML='<div style="padding:12px;color:var(--text3);font-size:14px;background:var(--bg3);border-radius:10px">尚未選擇料號</div>';return;}
+  box.innerHTML=_mpItems.map((it,i)=>`<div style="display:flex;align-items:center;gap:10px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:7px">
+    <div style="flex:1"><b>${it.code}</b><span style="color:var(--text3);font-size:12px;margin-left:8px">${it.name} · ${it.type}</span></div>
+    <input class="inp" type="number" value="${it.qty}" min="1" style="width:86px" oninput="_mpItems[${i}].qty=parseInt(this.value)||1">
+    <button class="btn btn-red btn-sm" onclick="_mpItems.splice(${i},1);renderManualPickItems()">移除</button>
+  </div>`).join('');
+}
+async function submitManualPick(){
+  if(!_mpItems.length){showToast('請至少加入一個料號','warn');return;}
+  const note=(document.getElementById('mp_note')?.value||'').trim();
+  const today=new Date().toISOString().slice(0,10);
+  const no='MP-'+today.slice(2).replace(/-/g,'')+'-'+Math.floor(Math.random()*900+100);
+  closeModal(); showToast('建立臨時領料單中...','warn');
+  try{
+    const master=await createPage(DB.pickMaster,{
+      '領料主單號':{title:[{text:{content:no}}]},
+      '成品品號':{rich_text:[{text:{content:'臨時補料'}}]},
+      '生產數量':{number:_mpItems.reduce((s,x)=>s+(parseInt(x.qty)||0),0)},
+      '領料日期':{date:{start:today}},
+      '領料人員':{rich_text:[{text:{content:ROLE||''}}]},
+      '狀態':{select:{name:'待領料'}},
+      '備註':{rich_text:[{text:{content:note}}]},
+    });
+    for(const it of _mpItems){
+      await createPage(DB.pickDetail,{
+        '料件名稱':{title:[{text:{content:it.code||it.name}}]},
+        '領料主單':{relation:[{id:master.id}]},
+        '料件':{relation:[{id:it.matId}]},
+        '類型':{select:{name:it.type||'零件'}},
+        '需求數量':{number:parseInt(it.qty)||1},
+        '實領數量':{number:0},
+        '狀態':{select:{name:'足夠'}},
+        '備註':{rich_text:[{text:{content:note}}]},
+      });
+    }
+    logUserAction('建立臨時補料單',no,note||'臨時補料',ROLE);
+    await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
+    showToast('✅ 臨時補料單已建立，待領料確認扣庫存','ok');
+  }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
+}
+async function completeManualPick(masterId){
+  const pick=picks.find(p=>p.id===masterId);
+  if(!pick){showToast('找不到領料單','err');return;}
+  if(!confirm('確認此臨時補料單已領料？\n確認後會依明細扣除庫存。')) return;
+  showToast('扣除臨時補料庫存中...','warn');
+  try{
+    const details=(await dbQueryAll(DB.pickDetail)).filter(p=>p.properties?.['領料主單']?.relation?.some(r=>r.id===masterId));
+    if(!details.length) throw new Error('找不到領料明細');
+    for(const d of details){
+      const matId=d.properties?.['料件']?.relation?.[0]?.id||'';
+      const qty=d.properties?.['需求數量']?.number||d.properties?.['實領數量']?.number||0;
+      if(!matId||!qty) continue;
+      const mat=mats.find(m=>m.id===matId);
+      const latest=await notionAPI('GET','pages/'+matId);
+      const cur=latest?.properties?.['目前庫存']?.number??mat?.stock??0;
+      const next=Math.max(0,cur-qty);
+      await updatePage(matId,{'目前庫存':{number:next}});
+      await updatePage(d.id,{'實領數量':{number:qty},'狀態':{select:{name:cur>=qty?'足夠':'缺料'}}});
+      await logStockChange(matId,mat?.name||getTitle(d.properties,'料件名稱'),mat?.code||'','臨時補料領料',-qty,cur,next,pick.no,ROLE);
+      if(mat) mat.stock=next;
+    }
+    await updatePage(masterId,{'狀態':{select:{name:'已領料'}}});
+    logUserAction('完成臨時補料領料',pick.no,pick.note||'',ROLE);
+    await refreshAll(true); await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
+    showToast('✅ 已領料並完成扣庫存','ok');
+  }catch(e){showToast('❌ 扣庫存失敗：'+e.message,'err');}
+}
+
 function renderPicking(){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📄 領料主單</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🔩 BOM清單</a></div>';;  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
-  const data=applySort('picking',applyDateFilter('pick',picks,'date'));
-  return _notionBar + `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-    <select class="inp" id="pickDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
+  if(!window._PICK_SUB) window._PICK_SUB='auto';
+  const sub=window._PICK_SUB;
+  const _notionBar='<div class="notion-bar"><span class="notion-bar-label">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" class="notion-link">📄 領料主單</a><a href="https://www.notion.so/267f16cfe88a41ed8049d39d618a1275" target="_blank" class="notion-link">📝 領料明細</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" class="notion-link">🔩 BOM清單</a></div>';
+  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
+  const allData=applySort('picking',applyDateFilter('pick',picks,'date'));
+  const autoData=allData.filter(p=>p.orderId);
+  const manualData=allData.filter(p=>!p.orderId);
+  const data=sub==='manual'?manualData:autoData;
+  const tabs=`<div class="module-tabs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+    <button class="module-tab${sub==='auto'?' active':''}" onclick="window._PICK_SUB='auto';renderTab('picking')">🧾 訂單領料</button>
+    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';renderTab('picking')">🧰 臨時補料</button>
+  </div>`;
+  return _notionBar + tabs + `<div class="filter-bar">
+    <span class="filter-label">時間：</span>
+    <select class="inp" id="pickDateFilter" style="width:130px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
+    ${sub==='manual'?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">領料主單 <span class="badge">${data.length}</span></span></div>
-  ${!picks.length?'<div class="loading-row">尚無領料記錄，從訂單頁面產出</div>':`<div class="table-wrap"><table>
-  <tr>${TH('picking','no','領料單號')}${TH('picking','product','成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}</tr>
-  ${data.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${p.no}</td><td class="hide-m" style="font-size:0.6875rem">${p.product}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${p.date||'—'}</td><td>${pill(p.status)}</td></tr>`).join('')}
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span></div>
+  ${!data.length?`<div class="loading-row">${sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
+  <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}<th>操作</th></tr>
+  ${data.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${p.no}</td><td class="hide-m" style="font-size:0.8125rem">${p.product||p.note||'—'}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${p.date||p.created||'—'}</td><td>${pill(p.status)}</td><td>${sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'?`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`:'—'}</td></tr>`).join('')}
   </table></div>`}
   </div>`;
 }
