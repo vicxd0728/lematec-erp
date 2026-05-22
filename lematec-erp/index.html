@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -83,7 +82,8 @@ html
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 html
 html{font-size:1rem;}
-body{background:var(--bg);color:var(--text);font-family:var(--f-ui);font-size:1rem;line-height:1.5;min-height:100vh;}
+*,*::before,*::after{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--f-ui);font-size:1rem;line-height:1.5;min-height:100vh;}
 ::-webkit-scrollbar{width:8px;height:8px;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:linear-gradient(90deg,var(--cyan),var(--green2));border-radius:999px;border:2px solid transparent;background-clip:padding-box;}
@@ -939,6 +939,8 @@ const DB={
   // 115年蝦皮（C端訂單同步目標）
   shopee115:    '276ff6f4-24bb-8024-8a2a-d39aff6800db',
   shopee115DS:  '276ff6f4-24bb-8194-bc1e-000bc6ccd4e1',
+  // 跨裝置線上人數心跳
+  online: 'c0cc5500-b599-422a-97c9-af0ae6faad11',
 };
 const ROLES={
   // 廠長：全功能
@@ -2050,6 +2052,7 @@ function openModal(type,data){
         若按鈕看起來沒反應，先看右上角同步狀態與 toast 提示；Notion API 偶爾會延遲，重新整理可再次拉最新資料。
       </div>
       <div class="form-actions">
+        <button class="btn btn-ghost" onclick="clearAppCache()">清除本機快取</button>
         <a class="btn btn-ghost" target="_blank" href="https://www.notion.so/352ff6f424bb81bf9618c9de3dbb2111">📋 開啟完整說明書</a>
         <button class="btn btn-blue" onclick="closeModal()">我知道了</button>
       </div>`;
@@ -2507,14 +2510,78 @@ async function login(){
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-function logout(){localStorage.removeItem('lu');localStorage.removeItem('lr');localStorage.removeItem('ldn');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
+function logout(){localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ═══════════════════════════════════════════════
 // APP START
 // ═══════════════════════════════════════════════
-function initOnlineTracking(){
+const ONLINE_TTL_MS=65000;
+let _onlineTimer=null,_onlinePageId='',_onlineBusy=false;
+function getOnlineSessionId(){
+  let id=sessionStorage.getItem('lm_online_session');
+  if(!id){
+    id='erp-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+    sessionStorage.setItem('lm_online_session',id);
+  }
+  return id;
+}
+function setOnlineCount(n, active=true){
   const el=document.getElementById('onlineCount');
+  const num=document.getElementById('onlineNum');
+  if(num) num.textContent=Math.max(1,n||1);
   if(el) el.style.display='inline-flex';
+  const dot=el?.querySelector('span');
+  if(dot) dot.style.opacity=active?1:.35;
+}
+function onlineDeviceLabel(){
+  const kind=window.innerWidth<720?'mobile':'desktop';
+  const ua=(navigator.userAgent||'').includes('Safari')&&!/Chrome|Chromium|Edg/.test(navigator.userAgent||'')?'Safari':'Browser';
+  return `${kind} / ${ua}`;
+}
+async function syncOnlineHeartbeat(){
+  if(_onlineBusy||!TOKEN||!DB.online) return;
+  _onlineBusy=true;
+  try{
+    const sid=getOnlineSessionId();
+    const nowIso=new Date().toISOString();
+    const props={
+      'Session':{title:[{text:{content:sid}}]},
+      '最後心跳':{date:{start:nowIso}},
+      '角色':{select:{name:ROLE||'manager'}},
+      '裝置':{rich_text:[{text:{content:onlineDeviceLabel()}}]},
+    };
+    if(!_onlinePageId){
+      const q=await notionAPI('POST',`databases/${DB.online}/query`,{
+        filter:{property:'Session',title:{equals:sid}},
+        page_size:1
+      });
+      _onlinePageId=q?.results?.[0]?.id||'';
+      if(!_onlinePageId){
+        const created=await createPage(DB.online,props);
+        _onlinePageId=created?.id||'';
+      }
+    }else{
+      await updatePage(_onlinePageId,props);
+    }
+    const rows=await dbQueryAll(DB.online);
+    const cutoff=Date.now()-ONLINE_TTL_MS;
+    const active=rows.filter(p=>{
+      const t=p.properties?.['最後心跳']?.date?.start||'';
+      return t&&new Date(t).getTime()>=cutoff;
+    }).length;
+    setOnlineCount(active,true);
+  }catch(e){
+    console.warn('online heartbeat failed:',e);
+    setOnlineCount(1,false);
+  }finally{
+    _onlineBusy=false;
+  }
+}
+function initOnlineTracking(){
+  if(_onlineTimer) clearInterval(_onlineTimer);
+  setOnlineCount(1,true);
+  syncOnlineHeartbeat();
+  _onlineTimer=setInterval(syncOnlineHeartbeat,20000);
 }
 
 async function startApp(){
@@ -2533,6 +2600,11 @@ async function startApp(){
   const mc = document.getElementById('mainContent');
   mc.innerHTML=`<div class="loading-row"><div class="spin"></div>載入資料中，請稍候...</div>`;
 
+  if(hydrateAppCache()){
+    if(syncEl) syncEl.textContent='快取資料';
+    renderTab(CURRENT_TAB);
+  }
+
   await refreshAll();
 }
 
@@ -2542,6 +2614,33 @@ async function startApp(){
 // ═══════════════════════════════════════════════
 let _refreshTimer=null,_refreshing=false;
 function scheduleRefresh(ms=800){clearTimeout(_refreshTimer);_refreshTimer=setTimeout(()=>refreshAll(),ms);}
+const CACHE_KEY='lematec_erp_cache_v5';
+function saveAppCache(){
+  try{
+    localStorage.setItem(CACHE_KEY,JSON.stringify({
+      ts:Date.now(),mats,boms,orders,customers,announces,leaves
+    }));
+  }catch(e){console.warn('cache save skipped:',e);}
+}
+function hydrateAppCache(){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    if(!raw) return false;
+    const c=JSON.parse(raw);
+    if(!c?.ts||Date.now()-c.ts>6*60*60*1000) return false;
+    mats=Array.isArray(c.mats)?c.mats:[];
+    boms=Array.isArray(c.boms)?c.boms:[];
+    orders=Array.isArray(c.orders)?c.orders:[];
+    customers=Array.isArray(c.customers)?c.customers:[];
+    announces=Array.isArray(c.announces)?c.announces:[];
+    leaves=Array.isArray(c.leaves)?c.leaves:[];
+    return mats.length||orders.length||customers.length;
+  }catch(e){console.warn('cache hydrate skipped:',e);return false;}
+}
+function clearAppCache(){
+  localStorage.removeItem(CACHE_KEY);
+  showToast('✅ 本機快取已清除，下次會完整重新同步','ok');
+}
 
 async function refreshAll(manual=false){
   if(_refreshing&&!manual){scheduleRefresh(1500);return;}
@@ -2664,6 +2763,7 @@ async function refreshAll(manual=false){
     const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     if(syncEl)syncEl.textContent=`✓ ${now}`;
 
+    saveAppCache();
     renderTab(CURRENT_TAB);
     if(manual)showToast('✅ 資料已同步最新','ok');
   }catch(e){
@@ -2939,9 +3039,9 @@ function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='
 function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===TAB_LABELS[tab]));renderTab(tab);if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='stocklog')loadStockLog().then(()=>renderTab('stocklog'));if(tab==='schedule')loadSchedule().then(()=>renderTab('schedule'));if(tab==='corders')loadCorders().then(()=>renderTab('corders'));}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){loadStockLog().then(()=>c.innerHTML=renderStockLog());}
-  else if(tab==='schedule'){loadSchedule().then(()=>c.innerHTML=renderSchedule());}
-  else if(tab==='corders'){loadCorders().then(()=>c.innerHTML=renderCorders());}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
+  else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
+  else if(tab==='corders'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入 C端訂單...</div>';loadCorders().then(()=>{if(CURRENT_TAB==='corders')c.innerHTML=renderCorders();});}
   }
 
 // ══════════════════════════════════════════════
@@ -4414,9 +4514,9 @@ function renderInbound(){
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span></div>
-  ${!inbounds.length?'<div class="loading-row">尚無入料記錄</div>':`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}</tr>
-  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${i.no}</td><td style="font-size:0.6875rem">${mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:0.6875rem">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td></tr>`;}).join('')}
+  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${i.no}</td><td style="font-size:0.6875rem">${i.matName||mat?.name||'—'}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:0.6875rem">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td></tr>`;}).join('')}
   </table></div>`}
   </div>`;
 }
@@ -7039,7 +7139,7 @@ async function loadCorders(){
       shipMethod:getRichText(p.properties,'出貨方式'),
       shipDate:p.properties?.['出日']?.date?.start||p.properties?.['出貨日期']?.date?.start||'',
       payDate:p.properties?.['付款時間']?.date?.start||'',
-      source:p.properties?.['來源']?.select?.name||'',
+      source:p.properties?.['來源']?.select?.name||p.properties?.['來源']?.multi_select?.map(x=>x.name).join('、')||'',
       matId:getRichText(p.properties,'料件ID'),
       note:getRichText(p.properties,'備註'),
       created:p.created_time?.slice(0,10)||'',
