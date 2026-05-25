@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v2';
+const CACHE_NAME = 'lematec-erp-v3';
 const CORE_ASSETS = [
   './',
   './index.html',
