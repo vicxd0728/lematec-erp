@@ -1,9 +1,10 @@
 {
   "name": "LEMATEC ERP",
   "short_name": "LEMATEC",
+  "id": "https://vicxd0728.github.io/lematec-erp/",
   "description": "LEMATEC ERP web app",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "https://vicxd0728.github.io/lematec-erp/",
+  "scope": "https://vicxd0728.github.io/lematec-erp/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#b51226",
