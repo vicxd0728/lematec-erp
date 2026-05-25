@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v1';
+const CACHE_NAME = 'lematec-erp-v2';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -33,19 +33,20 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   event.respondWith(
-    fetch(request)
-      .then((response) => {
+    caches.match(request).then((cached) => {
+      const fetchPromise = fetch(request).then((response) => {
         const responseCopy = response.clone();
         if (new URL(request.url).origin === self.location.origin) {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, responseCopy));
         }
         return response;
-      })
-      .catch(() => {
-        if (request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
-        return caches.match(request);
-      })
+      }).catch(() => cached || (request.mode === 'navigate' ? caches.match('./index.html') : undefined));
+
+      if (request.mode === 'navigate') {
+        return cached || caches.match('./index.html') || fetchPromise;
+      }
+
+      return cached || fetchPromise;
+    })
   );
 });
