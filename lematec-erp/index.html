@@ -2194,7 +2194,7 @@ function openModal(type,data){
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
     const domesticCustomers = customers.filter(c=>c.type==='domestic');
     const overseaOpts = overseasCustomers.map(c=>`<option value="${c.id}" data-code="${c.code||''}" data-name="${c.name||''}">${c.code||''} — ${c.name||''}</option>`).join('');
-    const domOpts = domesticCustomers.map(c=>`<option value="${c.id}">${c.name||''}</option>`).join('');
+    const domOpts = domesticCustomers.map(c=>`<option value="${c.id}" data-name="${(c.name||'').replace(/"/g,'&quot;')}" data-code="${(c.code||'').replace(/"/g,'&quot;')}">${c.name||''}${c.code?' ('+c.code+')':''}</option>`).join('');
     // SFG 半成品清單
     const sfgOpts = mats.filter(m=>m.type==='半成品'||m.type==='成品').sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(m=>`<option value="${m.id}" data-code="${m.code||''}">${m.code||''} ${m.name&&m.name!==m.code?'— '+m.name:''}</option>`).join('');
 
@@ -2238,8 +2238,10 @@ function openModal(type,data){
     <!-- 國內訂單 block -->
     <div id="blockDomestic" style="display:none">
       <div style="margin-bottom:10px">
-        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">國內客戶</label>
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">國內客戶（同步 115年貿易商）</label>
         <select class="inp" id="m_dom_cust"><option value="">— 選擇客戶 —</option>${domOpts}</select>
+        <div style="font-size:0.625rem;color:var(--text3);margin:6px 0;text-align:center">或</div>
+        <input class="inp" id="m_dom_manual" placeholder="手動輸入國內客戶名稱，例如：福桑、晶元、齊萌">
       </div>
     </div>
 
@@ -2859,11 +2861,31 @@ async function refreshAll(manual=false){
       type:'overseas',
     })).filter(c=>c.name);
 
-    // 同步載入國內客戶
+    // 同步載入國內客戶：以 115年貿易商的「客戶 / 客編 / 客戶編號」作為主要來源
     let domesticCustomers=[];
     try{
+      const tradeR=await dbQueryAll(DB.domesticTrade);
+      const seenDom=new Map();
+      tradeR.forEach(p=>{
+        const name=p.properties?.['客戶']?.select?.name||'';
+        if(!name)return;
+        const code=p.properties?.['客編']?.select?.name||p.properties?.['客戶編號']?.select?.name||getRichText(p.properties,'客編','客戶編號')||'';
+        if(!seenDom.has(name))seenDom.set(name,{
+          id:'domtrade-'+name,
+          name,
+          code,
+          region:p.properties?.['出貨國家']?.select?.name||'',
+          shipped:p.properties?.['出貨']?.status?.name||p.properties?.['出貨']?.select?.name||'',
+          grade:'',
+          area:p.properties?.['出貨國家']?.select?.name||'',
+          type:'domestic',
+          source:'domesticTrade',
+        });
+      });
+      domesticCustomers=[...seenDom.values()];
+      // 保留 ERP 內部手動建立的國內客戶作為補充來源
       const domR=await dbQueryAll(DB.custDomestic);
-      domesticCustomers=domR.map(p=>({
+      domR.map(p=>({
         id:p.id,
         name:getTitle(p.properties,'客戶名稱'),
         code:getRichText(p.properties,'客戶編號'),
@@ -2872,7 +2894,8 @@ async function refreshAll(manual=false){
         grade:p.properties?.['客戶等級']?.select?.name||'',
         area:p.properties?.['地區']?.select?.name||'',
         type:'domestic',
-      })).filter(c=>c.name);
+        source:'custDomestic',
+      })).filter(c=>c.name).forEach(c=>{if(!seenDom.has(c.name))domesticCustomers.push(c);});
     }catch(e){console.warn('國內客戶載入失敗:',e);}
 
     customers=[...overseasCustomers,...domesticCustomers];
@@ -5531,7 +5554,7 @@ async function syncToShopee115({no,buyer,matName,qty,shipMethod,shipDate,payDate
   logUserAction('同步115年蝦皮',no,`${matName||''} x ${qty}`,ROLE);
 }
 
-async function syncToDomesticTrade115({orderNo,custName,productName,qty,deadline,note}){
+async function syncToDomesticTrade115({orderNo,custName,custCode,productName,qty,deadline,note}){
   if(!DB.domesticTrade) return;
   const d=new Date();
   const reg=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
@@ -5542,6 +5565,7 @@ async function syncToDomesticTrade115({orderNo,custName,productName,qty,deadline
     '備註說明':{rich_text:[{text:{content:[productName?`品：${productName}`:'',deadline?`預出：${deadline.replace(/-/g,'/')}`:'',note||''].filter(Boolean).join(' / ')}}]},
   };
   if(custName) props['客戶']={select:{name:custName}};
+  if(custCode) props['客編']={select:{name:custCode}};
   if(productName) props['品名']={select:{name:productName}};
   if(deadline) props['預出貨日']={date:{start:deadline}};
   const r=await notionAPI('POST','pages',{parent:{database_id:DB.domesticTrade},properties:props});
@@ -7365,9 +7389,9 @@ function onCustCodeInput(v){
   const codeMsg=document.getElementById('codeMsg');
   if(suggest) suggest.style.display='none';
   if(!v){if(codeMsg)codeMsg.textContent='';return;}
-  const results=customers.filter(c=>
+  const results=customers.filter(c=>(c.type==='overseas'||!c.type)&&
     (c.code||'').toLowerCase().includes(v.toLowerCase())||
-    (c.name||'').toLowerCase().includes(v.toLowerCase())
+    ((c.type==='overseas'||!c.type)&&(c.name||'').toLowerCase().includes(v.toLowerCase()))
   ).slice(0,8);
   if(!results.length){if(codeMsg)codeMsg.innerHTML='<span style="color:var(--amber)">⚠ 無符合客戶，將新增</span>';return;}
   if(suggest){
@@ -7410,7 +7434,7 @@ function initDomesticList(){
   const prev=sel.value;
   sel.innerHTML='<option value="">— 選擇國內客戶 —</option>'
     +domCusts.sort((a,b)=>(a.name||'').localeCompare(b.name||''))
-    .map(c=>`<option value="${c.id}" ${c.id===prev?'selected':''}>${c.name||''} ${c.code?'('+c.code+')':''}</option>`).join('');
+    .map(c=>`<option value="${c.id}" data-name="${(c.name||'').replace(/"/g,'&quot;')}" data-code="${(c.code||'').replace(/"/g,'&quot;')}" ${c.id===prev?'selected':''}>${c.name||''}${c.code?' ('+c.code+')':''}</option>`).join('');
 }
 
 function filterSfgList(q){
@@ -7561,18 +7585,21 @@ function onPIFile(input){
 
 async function submitNormalOrder(isDomestic){
   const btn=document.getElementById('orderSubmitBtn');
-  const custId = isDomestic
-    ? document.getElementById('m_dom_cust')?.value
-    : document.getElementById('m_cust')?.value;
+  const domSel=document.getElementById('m_dom_cust');
+  const domManual=(document.getElementById('m_dom_manual')?.value||'').trim();
+  const custId = isDomestic ? domSel?.value : document.getElementById('m_cust')?.value;
+  const selectedCust = customers.find(c=>c.id===custId);
   const custName = isDomestic
-    ? document.getElementById('m_dom_cust')?.options[document.getElementById('m_dom_cust')?.selectedIndex]?.text||''
-    : document.getElementById('m_code')?.value?.split('—')[0]?.trim()||'';
+    ? (domManual || selectedCust?.name || domSel?.options[domSel?.selectedIndex]?.dataset?.name || domSel?.options[domSel?.selectedIndex]?.text?.replace(/\s*\([^)]*\)\s*$/,'') || '')
+    : (selectedCust?.name || (document.getElementById('m_newcust_name')?.value||'').trim() || '');
+  const custCode = selectedCust?.code || '';
   const productId=document.getElementById('m_product')?.value;
   const qty=parseInt(document.getElementById('m_qty')?.value)||1;
   const deadline=document.getElementById('m_date')?.value||'';
   const note=document.getElementById('m_note')?.value?.trim()||'';
   const orderType=isDomestic?'國內':'國外';
 
+  if(!custName){showToast(isDomestic?'請選擇或手動輸入國內客戶':'請選擇或輸入國外客戶','warn');return;}
   if(!productId){showToast('請選擇成品','warn');return;}
 
   const product=mats.find(m=>m.id===productId);
@@ -7597,6 +7624,7 @@ async function submitNormalOrder(isDomestic){
       await syncToDomesticTrade115({
         orderNo,
         custName:custName||'未知',
+        custCode,
         productName:product?.code||product?.name||'',
         qty,
         deadline,
