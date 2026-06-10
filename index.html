@@ -10530,16 +10530,17 @@ async function ensurePICustomer(result){
   if(found){selectCust(found.id,found.code||'',found.name||'',found.type||'overseas');return found;}
   const code=result.customerCode||result.piNo||'NEW-'+Date.now().toString().slice(-6);
   const name=result.company||code;
-  const props={
-    'Name':{title:[{text:{content:name}}]},
-    '客戶編號':{rich_text:[{text:{content:code}}]},
+  const customer={
+    id:`pi-temp-${code}-${Date.now()}`,
+    name,
+    code,
+    region:result.country||countryFromPICode(code),
+    type:'overseas',
+    temp:true
   };
-  if(result.country) props['國家']={select:{name:result.country}};
-  const created=await createPage(DB.custMaster,props);
-  const customer={id:created.id,name,code,region:result.country||countryFromPICode(code),type:'overseas'};
   customers.push(customer);
   selectCust(customer.id,customer.code,customer.name,'overseas');
-  showToast(`✅ 已建立新客戶 ${customer.code} — ${customer.name}`,'ok');
+  showToast(`✅ 已套用 PI 客戶 ${customer.code}，不寫入客戶總檔`,'ok');
   return customer;
 }
 
@@ -11239,7 +11240,7 @@ function onCustCodeInput(v){
     (c.code||'').toLowerCase().includes(v.toLowerCase())||
     ((c.type==='overseas'||!c.type)&&(c.name||'').toLowerCase().includes(v.toLowerCase()))
   ).slice(0,8);
-  if(!results.length){if(codeMsg)codeMsg.innerHTML='<span style="color:var(--amber)">⚠ 無符合客戶，將新增</span>';return;}
+  if(!results.length){if(codeMsg)codeMsg.innerHTML='<span style="color:var(--amber)">⚠ 無符合客戶，可直接用於本訂單，不會寫入客戶總檔</span>';return;}
   if(suggest){
     suggest.style.display='';
     suggest.innerHTML=results.map(c=>`<div onclick="selectCust('${c.id}','${(c.code||'').replace(/'/g,"\\'")}','${(c.name||'').replace(/'/g,"\\'")}','${c.type||'overseas'}')"
