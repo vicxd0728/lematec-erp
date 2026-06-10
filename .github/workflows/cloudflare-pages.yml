@@ -1,0 +1,42 @@
+name: Deploy ERP to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare deploy assets
+        shell: bash
+        run: |
+          rm -rf _publish
+          mkdir -p _publish
+          cp index.html _publish/index.html
+          cp manifest.webmanifest _publish/manifest.webmanifest
+          cp sw.js _publish/sw.js
+          cp _headers _publish/_headers
+          cp _redirects _publish/_redirects
+          cp -R icons _publish/icons
+          if [ -d lematec-erp ]; then
+            mkdir -p _publish/lematec-erp
+            cp lematec-erp/index.html _publish/lematec-erp/index.html
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: e933d3daf916cba77469f0b8a4202a8a
+          command: pages deploy _publish --project-name=lematec-erp --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
