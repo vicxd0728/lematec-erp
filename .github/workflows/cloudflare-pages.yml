@@ -34,9 +34,13 @@ jobs:
           fi
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: e933d3daf916cba77469f0b8a4202a8a
-          command: pages deploy _publish --project-name=lematec-erp --branch=main
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: e933d3daf916cba77469f0b8a4202a8a
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Missing GitHub secret CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          npx wrangler@latest pages deploy _publish --project-name=lematec-erp --branch=main
