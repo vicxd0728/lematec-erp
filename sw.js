@@ -1,7 +1,5 @@
-const CACHE_NAME = 'lematec-erp-v3';
+const CACHE_NAME = 'lematec-erp-v5';
 const CORE_ASSETS = [
-  './',
-  './index.html',
   './manifest.webmanifest',
   './icons/icon-192-v2.png',
   './icons/icon-512-v2.png',
@@ -27,10 +25,27 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
   if (request.method !== 'GET') return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' })
+        .then((response) => {
+          const responseCopy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', responseCopy));
+          return response;
+        })
+        .catch(() => caches.match('./index.html') || caches.match('./'))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {
@@ -40,12 +55,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, responseCopy));
         }
         return response;
-      }).catch(() => cached || (request.mode === 'navigate' ? caches.match('./index.html') : undefined));
-
-      if (request.mode === 'navigate') {
-        return cached || caches.match('./index.html') || fetchPromise;
-      }
-
+      }).catch(() => cached);
       return cached || fetchPromise;
     })
   );
