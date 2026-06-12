@@ -4935,6 +4935,7 @@ function buildThemePanel(p){
 
 const ADMIN_ROLE_PIN_KEY='lematec_admin_role_pin_hash';
 const ADMIN_ROLE_PIN_REF_PREFIX='ADMIN_ROLE_PIN:';
+const ADMIN_ROLE_PIN_CIPHER_KEY='lematec-erp-admin-pin-v1';
 let _pendingAdminRolePinSync=null;
 let _permissionPinSyncing=false;
 function adminRolePinKey(role){return 'lematec_admin_role_pin_hash_'+role;}
@@ -4950,6 +4951,44 @@ async function hashAdminPin(pin){
   const buf=await crypto.subtle.digest('SHA-256',enc);
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
+function b64FromBytes(bytes){
+  let s='';
+  bytes.forEach(b=>s+=String.fromCharCode(b));
+  return btoa(s);
+}
+function bytesFromB64(s){
+  const bin=atob(s);
+  const out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+function encodeAdminPinForNotion(role,pin){
+  const payload=JSON.stringify({role,pin,ts:Date.now()});
+  const data=new TextEncoder().encode(payload);
+  const key=new TextEncoder().encode(ADMIN_ROLE_PIN_CIPHER_KEY+':'+role);
+  const out=new Uint8Array(data.length);
+  for(let i=0;i<data.length;i++) out[i]=data[i]^key[i%key.length];
+  return 'enc:v1:'+b64FromBytes(out);
+}
+function decodeAdminPinFromNotion(role,value){
+  const v=String(value||'').trim();
+  if(!v) return '';
+  if(v.startsWith('enc:v1:')){
+    try{
+      const data=bytesFromB64(v.slice(7));
+      const key=new TextEncoder().encode(ADMIN_ROLE_PIN_CIPHER_KEY+':'+role);
+      const out=new Uint8Array(data.length);
+      for(let i=0;i<data.length;i++) out[i]=data[i]^key[i%key.length];
+      const parsed=JSON.parse(new TextDecoder().decode(out));
+      return parsed?.pin||'';
+    }catch(e){
+      console.warn('管理角色密碼解碼失敗：',e);
+      return '';
+    }
+  }
+  if(v.startsWith('sha256:')) return '';
+  return v;
+}
 async function storeAdminRolePinLocal(role,pin){
   localStorage.setItem(adminRolePinKey(role),await hashAdminPin(pin));
   localStorage.setItem(adminRolePinPlainKey(role),pin);
@@ -4960,15 +4999,15 @@ async function saveAdminRolePinToNotion(role,pin,operator=''){
   try{
     const label=ROLES[role]?.label||role;
     const stamp=new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14);
-    const pinHash=await hashAdminPin(pin);
+    const cipher=encodeAdminPinForNotion(role,pin);
     await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:{
       '記錄編號':{title:[{text:{content:`PERM-${role}-${stamp}`}}]},
       '料件名稱':{rich_text:[{text:{content:label}}]},
       '料件編號':{rich_text:[{text:{content:ADMIN_ROLE_PIN_REF_PREFIX+role}}]},
       '修改類型':{select:{name:'其他修改'}},
       '修改前數值':{rich_text:[{text:{content:'管理角色登入密碼'}}]},
-      '修改後數值':{rich_text:[{text:{content:'sha256:'+pinHash}}]},
-      '修改原因':{rich_text:[{text:{content:'管理角色密碼已設定；Notion 僅保存雜湊值，不保存明文密碼'}}]},
+      '修改後數值':{rich_text:[{text:{content:cipher}}]},
+      '修改原因':{rich_text:[{text:{content:'管理角色密碼加密保存；Vic 權限頁可解密查看'}}]},
       '修改人員':{rich_text:[{text:{content:operator||ROLE||label}}]},
     }});
   }catch(e){
@@ -4993,9 +5032,11 @@ async function loadAdminRolePinFromNotion(role){
     const page=rows[0];
     if(!page) return null;
     const stored=getRichText(page.properties,'修改後數值');
-    const hash=stored.startsWith('sha256:')?stored.slice(7):stored;
+    const pin=decodeAdminPinFromNotion(role,stored);
+    if(pin) await storeAdminRolePinLocal(role,pin);
+    const hash=stored.startsWith('sha256:')?stored.slice(7):'';
     if(hash) localStorage.setItem(adminRolePinKey(role),hash);
-    return {hash,updatedAt:page.created_time||'',operator:getRichText(page.properties,'修改人員')};
+    return {pin,hash,updatedAt:page.created_time||'',operator:getRichText(page.properties,'修改人員')};
   }catch(e){
     console.warn('讀取管理角色密碼失敗：',e);
     return null;
@@ -5007,9 +5048,10 @@ async function syncPermissionPinsFromNotion(){
   try{
     let changed=false;
     for(const role of ['vic','manager']){
-      const before=localStorage.getItem(adminRolePinKey(role))||'';
+      const before=localStorage.getItem(adminRolePinPlainKey(role))||localStorage.getItem(adminRolePinKey(role))||'';
       const got=await loadAdminRolePinFromNotion(role);
-      if(got?.hash&&got.hash!==before) changed=true;
+      const after=got?.pin||got?.hash||'';
+      if(after&&after!==before) changed=true;
     }
     if(changed&&CURRENT_TAB==='permissions') renderTab('permissions');
   }finally{
@@ -5030,6 +5072,8 @@ async function verifyAdminRolePin(role){
     const remote=await loadAdminRolePinFromNotion(role);
     if(remote?.hash){
       saved=remote.hash;
+    }else if(remote?.pin){
+      saved=await hashAdminPin(remote.pin);
     }
   }
   if(!saved){
@@ -5080,7 +5124,7 @@ function renderPermissionSettings(){
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
     const has=!!(plain||localStorage.getItem(adminRolePinKey(role)));
-    const shown=has?'已設定（不顯示密碼）':'尚未設定';
+    const shown=plain?escapeHtml(plain):(has?'已設定（重新登入後可顯示）':'尚未設定');
     return `<div class="panel" style="margin-bottom:12px">
       <div class="panel-hdr">
         <span class="panel-title">🔐 ${label}</span>
@@ -5089,8 +5133,8 @@ function renderPermissionSettings(){
       <div style="padding:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:220px;color:var(--text2);font-size:.9rem">${desc}</div>
         <div style="min-width:180px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:10px 12px">
-          <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">設定狀態</div>
-          <div style="font-weight:800;color:${has?'var(--green2)':'var(--text3)'}">${shown}</div>
+          <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">${plain?'目前密碼':'設定狀態'}</div>
+          <div style="font-family:${plain?'var(--f-mono)':'var(--f-ui)'};font-weight:800;color:${plain?'var(--amber)':(has?'var(--green2)':'var(--text3)')}">${shown}</div>
         </div>
         ${editable?`<button class="btn btn-blue" onclick="setAdminRolePin('${role}')">設定 / 重設密碼</button>`:''}
       </div>
@@ -5098,7 +5142,7 @@ function renderPermissionSettings(){
   };
   return `<div class="notion-bar" style="margin-bottom:14px">
     <span class="notion-bar-label">🔐 權限設定：</span>
-    <span style="color:var(--text3);font-size:.86rem">管理角色密碼只同步設定狀態與雜湊值；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
+    <span style="color:var(--text3);font-size:.86rem">管理角色密碼會加密同步；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
   </div>
   ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
   ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}`;
