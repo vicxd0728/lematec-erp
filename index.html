@@ -8455,14 +8455,21 @@ function corderSerial(no){
 function formatCorderNo(n){
   return CORDER_PREFIX+String(Math.max(CORDER_START_NO,parseInt(n)||CORDER_START_NO));
 }
+function normalizeCorderSerialInput(v){
+  return String(v||'')
+    .trim()
+    .replace(new RegExp('^'+CORDER_PREFIX,'i'),'')
+    .replace(/\D/g,'')
+    .slice(0,6);
+}
 function getCorderStartSerial(){
-  const raw=String(localStorage.getItem(CORDER_START_KEY)||localStorage.getItem(CORDER_LAST_KEY)||'').replace(/\D/g,'').slice(0,6);
+  const raw=normalizeCorderSerialInput(localStorage.getItem(CORDER_START_KEY)||localStorage.getItem(CORDER_LAST_KEY)||'');
   const n=parseInt(raw,10);
   return n?Math.max(CORDER_START_NO,n):CORDER_START_NO;
 }
 function saveCorderStartSerial(){
   const inp=document.getElementById('corderStartSerial');
-  const raw=String(inp?.value||'').replace(/\D/g,'').slice(0,6);
+  const raw=normalizeCorderSerialInput(inp?.value||'');
   if(inp) inp.value=raw;
   const n=parseInt(raw,10);
   if(!n){showToast('請輸入起始數字','warn');return;}
@@ -8474,7 +8481,7 @@ function saveCorderStartSerial(){
 function previewCorderStartSerial(v){
   const inp=document.getElementById('corderStartSerial');
   const out=document.getElementById('corderStartPreview');
-  const raw=String(v||'').replace(/\D/g,'').slice(0,6);
+  const raw=normalizeCorderSerialInput(v);
   if(inp&&inp.value!==raw) inp.value=raw;
   if(out) out.textContent=raw?formatCorderNo(raw):formatCorderNo(getCorderStartSerial());
 }
@@ -9136,7 +9143,7 @@ function renderCorders(){
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(6,182,212,.05)">
       <span style="font-size:.8125rem;color:var(--text2);font-weight:700">起始單號</span>
       <span style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2);font-size:1rem">${CORDER_PREFIX}</span>
-      <input class="inp" id="corderStartSerial" inputmode="numeric" maxlength="6" value="${startSerial}" oninput="previewCorderStartSerial(this.value)" style="width:110px;font-family:var(--f-mono);font-weight:800">
+      <input class="inp" id="corderStartSerial" inputmode="numeric" maxlength="12" value="${startSerial}" oninput="previewCorderStartSerial(this.value)" style="width:130px;font-family:var(--f-mono);font-weight:800">
       <button class="btn btn-green btn-sm" onclick="saveCorderStartSerial()">儲存起始值</button>
       <span style="font-size:.8125rem;color:var(--text3)">下一張：<b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono)">${nextNo}</b>。蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
     </div>
@@ -11130,7 +11137,7 @@ async function importShopeeExcel(input){
       const payDate=dateVal(rowVal(row,['買家付款時間','付款時間','訂單成立時間']));
       const prodName=rowVal(row,['商品名稱','商品選項名稱']).slice(0,60);
       const trackingNo=rowVal(row,['包裹查詢號碼','寄件編號','物流單號']);
-      const unitPrice=rowVal(row,['商品總價','單價']);
+      const unitPrice=rowVal(row,['買家總支付金額','商品總價','單價']);
       incoming.push({shopeeNo,sku,qty,buyer,shipMethod,shipDate,payDate,prodName,trackingNo,unitPrice,orderStatus});
     }
     if(!incoming.length){ showToast('沒有有效訂單資料','warn'); return; }
