@@ -5032,20 +5032,45 @@ async function loadLoginLogs(force=false){
   _loginLogLoading=true;
   try{
     const dbId=await ensureLoginLogDB();
-    const r=await notionAPI('POST',`databases/${dbId}/query`,{
-      sorts:[{property:'登入時間',direction:'descending'}],
-      page_size:100
-    });
-    if(r?.object==='error') throw new Error(r.message||'讀取登入紀錄失敗');
-    loginLogs=(r.results||[]).map(mapLoginLogPage);
+    let all=[],cursor=null;
+    do{
+      const body={
+        sorts:[{property:'登入時間',direction:'descending'}],
+        page_size:100
+      };
+      if(cursor) body.start_cursor=cursor;
+      const r=await notionAPI('POST',`databases/${dbId}/query`,body);
+      if(r?.object==='error') throw new Error(r.message||'讀取登入紀錄失敗');
+      all=all.concat(r.results||[]);
+      cursor=r.has_more?r.next_cursor:null;
+    }while(cursor&&all.length<1000);
+    loginLogs=all.map(mapLoginLogPage);
     _loginLogLoadedAt=Date.now();
     if(CURRENT_TAB==='permissions') renderTab('permissions');
   }catch(e){console.warn('login logs load failed:',e);}
   finally{_loginLogLoading=false;}
 }
+function loginLogRangeStart(range){
+  const d=new Date();
+  d.setHours(0,0,0,0);
+  if(range==='3d') d.setDate(d.getDate()-2);
+  else if(range==='7d') d.setDate(d.getDate()-6);
+  else if(range==='30d') d.setDate(d.getDate()-29);
+  return d;
+}
+function filterLoginLogsByRange(logs,range){
+  const start=loginLogRangeStart(range||'today');
+  return logs.filter(l=>{
+    const d=new Date(l.loginAt||l.lastAt||0);
+    return !Number.isNaN(d.getTime())&&d>=start;
+  });
+}
 function renderLoginAuditPanel(){
+  const range=window._LOGIN_LOG_RANGE||'today';
+  const rangeOpts=[['today','當日'],['3d','近 3 天'],['7d','近 7 天'],['30d','近 1 個月']];
+  const scoped=filterLoginLogsByRange(loginLogs,range);
   const byRole={};
-  for(const l of loginLogs){
+  for(const l of scoped){
     const key=l.role||'—';
     if(!byRole[key]) byRole[key]={role:key,count:0,seconds:0,last:''};
     byRole[key].count+=l.count||1;
@@ -5055,8 +5080,11 @@ function renderLoginAuditPanel(){
   const summary=Object.values(byRole).sort((a,b)=>b.count-a.count);
   return `<div class="panel" style="margin-top:14px">
     <div class="panel-hdr">
-      <span class="panel-title">🧾 登入紀錄 <span class="badge">${loginLogs.length}</span></span>
-      <button class="btn btn-ghost btn-sm" onclick="loadLoginLogs(true)">重新整理</button>
+      <span class="panel-title">🧾 登入紀錄 <span class="badge">${scoped.length}/${loginLogs.length}</span></span>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${rangeOpts.map(([v,l])=>`<button class="btn btn-xs ${range===v?'btn-cyan':'btn-ghost'}" onclick="window._LOGIN_LOG_RANGE='${v}';renderTab('permissions')">${l}</button>`).join('')}
+        <button class="btn btn-ghost btn-sm" onclick="loadLoginLogs(true)">重新整理</button>
+      </div>
     </div>
     <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       ${summary.length?summary.map(s=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px">
@@ -5068,7 +5096,7 @@ function renderLoginAuditPanel(){
     </div>
     <div class="table-wrap"><table>
       <tr><th>角色</th><th>登入時間</th><th>最後在線</th><th>在線</th><th>狀態</th><th class="hide-m">裝置</th></tr>
-      ${loginLogs.slice(0,30).map(l=>`<tr>
+      ${scoped.slice(0,80).map(l=>`<tr>
         <td>${escapeHtml(l.role)}</td>
         <td style="font-family:var(--f-mono);font-size:.78rem">${fmtDateTime(l.loginAt)}</td>
         <td style="font-family:var(--f-mono);font-size:.78rem">${fmtDateTime(l.lastAt)}</td>
@@ -5076,6 +5104,7 @@ function renderLoginAuditPanel(){
         <td>${pill(l.status)}</td>
         <td class="hide-m">${escapeHtml(l.device||'—')}</td>
       </tr>`).join('')}
+      ${scoped.length>80?`<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">僅顯示前 80 筆，完整資料請開啟 Notion 登入紀錄。</td></tr>`:''}
     </table></div>
   </div>`;
 }
