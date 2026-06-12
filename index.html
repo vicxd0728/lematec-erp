@@ -5297,18 +5297,19 @@ async function loadAdminRolePinFromNotion(role){
     return null;
   }
 }
-async function syncPermissionPinsFromNotion(){
-  if(_permissionPinSyncing||ROLE!=='vic'||!TOKEN) return;
+async function syncPermissionPinsFromNotion(roles=null,{render=true}={}){
+  if(_permissionPinSyncing||!TOKEN) return;
   _permissionPinSyncing=true;
   try{
     let changed=false;
-    for(const role of ['vic','manager']){
+    const list=Array.isArray(roles)&&roles.length?roles:['vic','manager'];
+    for(const role of list){
       const before=localStorage.getItem(adminRolePinPlainKey(role))||localStorage.getItem(adminRolePinKey(role))||'';
       const got=await loadAdminRolePinFromNotion(role);
       const after=got?.pin||got?.hash||'';
       if(after&&after!==before) changed=true;
     }
-    if(changed&&CURRENT_TAB==='permissions') renderTab('permissions');
+    if(render&&changed&&CURRENT_TAB==='permissions') renderTab('permissions');
   }finally{
     _permissionPinSyncing=false;
   }
@@ -5421,8 +5422,10 @@ async function login(){
   document.getElementById('loginAlert').classList.remove('show');
   if(!t){showLoginErr('請填入 Token');return;}
   if(!t.startsWith('ntn_')){showLoginErr('Token 需 <b>ntn_</b> 開頭');return;}
-  if(!(await verifyAdminRolePin(r))) return;
-  TOKEN=t;ROLE=r;
+  TOKEN=t;
+  if(needsAdminRolePin(r)) await syncPermissionPinsFromNotion([r],{render:false});
+  if(!(await verifyAdminRolePin(r))){TOKEN='';return;}
+  ROLE=r;
   const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='驗證中...';
   try{
     const data=await notionAPI('GET',`databases/${DB.materials}`);
