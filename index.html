@@ -912,6 +912,7 @@ html[data-theme="warm"]{
     </div>
     <div class="field"><label>角色</label>
       <select class="inp" id="roleSelect">
+        <option value="vic">👑 Vic（最高權限）</option>
         <option value="manager">🏭 廠長（全功能）</option>
         <option value="sales">📋 業務</option>
         <option value="warehouse">📦 倉管</option>
@@ -982,7 +983,7 @@ async function doUpdateStatus(id, s){
 function openShipOrderModal(id){
   const o=orders.find(x=>x.id===id);
   if(!o){showToast('找不到訂單','err');return;}
-  const canShip=ROLE==='manager'||ROLE==='sales'||ROLE==='warehouse';
+  const canShip=isAdminRole()||ROLE==='sales'||ROLE==='warehouse';
   if(!canShip){showToast('此角色無法填寫出貨日','warn');return;}
   document.getElementById('modalInner').innerHTML=`<h3>🚚 填寫實際出貨日</h3>
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px">
@@ -1134,6 +1135,8 @@ const DB={
   online: 'c0cc5500-b599-422a-97c9-af0ae6faad11',
 };
 const ROLES={
+  // Vic：最高權限，和廠長同樣全開，但操作紀錄獨立顯示
+  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 廠長：全功能
   manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
@@ -1146,6 +1149,7 @@ const ROLES={
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','inventory','inbound','announce','leave','stocklog']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',announce:'📢 公告',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 const PILL={
   '出貨中':['rgba(77,142,245,.12)','#4d8ef5'],
   '品檢異常':['rgba(239,68,68,.12)','#ef4444'],
@@ -5752,7 +5756,7 @@ async function repairSelectedDuplicateMaterials(){
 }
 
 async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
-  if(ROLE!=='manager'){showToast('⚠ 只有廠長可執行健康檢查修復','warn');return;}
+  if(!isAdminRole()){showToast('⚠ 只有最高權限可執行健康檢查修復','warn');return;}
   if(!ids.length){showToast('請先勾選要刪除的重複料號','warn');return;}
   const targets=ids.map(id=>mats.find(m=>m.id===id)).filter(Boolean);
   const unsafe=targets.filter(m=>materialUsageSummary(m.id).total>0);
@@ -5784,7 +5788,7 @@ async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
 }
 
 async function repairOrderMisusedQcStatus(){
-  if(ROLE!=='manager'){showToast('⚠ 只有廠長可執行流程狀態修復','warn');return;}
+  if(!isAdminRole()){showToast('⚠ 只有最高權限可執行流程狀態修復','warn');return;}
   const targets=orders.filter(o=>o.status==='待品檢');
   if(!targets.length){showToast('沒有誤用待品檢的訂單','ok');return;}
   if(!confirm(`將 ${targets.length} 張訂單從「待品檢」改為正確訂單狀態「待檢驗」。確定執行？`))return;
@@ -6035,7 +6039,7 @@ async function loadSchedule(){
 
 function renderSchedule(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/c66f324d59c64276bdc5b0ec915c9c20" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📅 生產排程</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a></div>';;
-  const canEdit = ROLE==='manager'||ROLE==='warehouse';
+  const canEdit = isAdminRole()||ROLE==='warehouse';
   const today = new Date().toISOString().slice(0,10);
   const viewVal = document.getElementById('schView')?.value||'list';
   const typeVal = document.getElementById('schType')?.value||'all';
@@ -6909,7 +6913,7 @@ function orderCustomerLabel(o){
 // ══════════════════════════════════════
 function _renderOrdersList(tabs){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
-  const canAdd=ROLE==='sales'||ROLE==='manager';
+  const canAdd=ROLE==='sales'||isAdminRole();
   
   const dateVal=document.getElementById('orderDateFilter')?.value||'0';
   const hideComp=document.getElementById('hideCompleted')?.checked||false;
@@ -6963,7 +6967,7 @@ function _renderOrdersList(tabs){
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
     <td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='manager')?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&(ROLE==='sales'||ROLE==='manager'||ROLE==='warehouse')?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${(o.orderType==='shopee'||o.orderType==='蝦皮'||(o.matCode||o.product||'').startsWith('S-'))&&o.status==='生產中'?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='warehouse'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&(ROLE==='sales'||isAdminRole()||ROLE==='warehouse')?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${(o.orderType==='shopee'||o.orderType==='蝦皮'||(o.matCode||o.product||'').startsWith('S-'))&&o.status==='生產中'?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -7156,7 +7160,7 @@ function _renderOrderCalendar(tabs){
 
 function renderCustomers(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a></div>';;
-  const canAdd=ROLE==='sales'||ROLE==='manager';
+  const canAdd=ROLE==='sales'||isAdminRole();
   const q=(document.getElementById('custSearch')?.value||'').toLowerCase();
   const tabType=document.getElementById('custTabType')?.value||'overseas';
   CUST_TYPE=tabType;
@@ -7233,7 +7237,7 @@ function renderCustomers(){
 function renderInventory(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
   const low=mats.filter(m=>m.stock<=m.safe);
-  const canEdit=ROLE==='warehouse'||ROLE==='manager';
+  const canEdit=ROLE==='warehouse'||isAdminRole();
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
@@ -7320,9 +7324,9 @@ function renderInventory(){
       <!-- 清除篩選 -->
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
-        ${ROLE==='manager'?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
-        ${ROLE==='manager'?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
-        ${ROLE==='manager'?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
+        ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
+        ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
+        ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
@@ -7377,7 +7381,7 @@ function renderInventory(){
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
           ${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button><button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
-          ${ROLE==='manager'?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
+          ${isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
         </td>
       </tr>`;}).join('')
       :`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
@@ -7727,7 +7731,7 @@ function renderPicking(){
 
 function renderInbound(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
-  const canAdd=ROLE==='warehouse'||ROLE==='purchase'||ROLE==='manager';
+  const canAdd=ROLE==='warehouse'||ROLE==='purchase'||isAdminRole();
   const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
   const data=applySort('inbound',applyDateFilter('inbound',inbounds,'date'));
   return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
@@ -7799,7 +7803,7 @@ async function submitResubmitInbound(id){
 }
 
 function renderAnnounce(){
-  const canEdit = ROLE==='manager'||ROLE==='admin';
+  const canEdit = isAdminRole();
   const sorted = [...announces].sort((a,b)=>{
     if(a.pinned!==b.pinned) return a.pinned?-1:1;
     return (a.order||99)-(b.order||99);
@@ -7879,7 +7883,7 @@ function renderLeave(){
     <a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="notion-link">👤 員工統計</a>
   </div>`;
 
-  const canApprove = ROLE==='manager';
+  const canApprove = isAdminRole();
   const canManageLeave = !!ROLE;
   const pending = leaves.filter(l=>l.status==='待審核');
 
@@ -8087,7 +8091,7 @@ function renderLeave(){
     ${['2025','2026','2027'].map(y=>{const a=yearFilter===y;return`<button onclick="window._LEAVE_YEAR_FILTER='${y}';renderTab('leave')"
       class="filter-chip${a?' active':''}">${y}</button>`;}).join('')}
     <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadLeaveStats().then(()=>renderTab('leave'))">🔄 更新</button>
-    ${ROLE==='manager'?`<a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="btn btn-ghost btn-sm">📊 Notion 編輯</a>`:''}
+    ${isAdminRole()?`<a href="https://www.notion.so/55e54d964c0848a5b3b77ede813abe15" target="_blank" class="btn btn-ghost btn-sm">📊 Notion 編輯</a>`:''}
   </div>`;
 
   const filteredStats = leaveStats.filter(s=>s.year===yearFilter);
@@ -8163,7 +8167,7 @@ function findMatBySku(sku){
 }
 
 async function importShopeeBomToNotion(){
-  if(ROLE!=='manager'){showToast('只有廠長可以匯入 BOM','warn');return;}
+  if(!isAdminRole()){showToast('只有最高權限可以匯入 BOM','warn');return;}
   const totalRows=SHOPEE_BOM_EXCEL.reduce((sum,row)=>sum+(row.children||[]).length,0);
   showToast('⏳ 重新同步 Notion 資料中...','warn',6000);
   await refreshAll(true);
@@ -9099,7 +9103,7 @@ async function uploadCorderFile(input){
 }
 
 function renderCorders(){
-  const canAdd=ROLE==='manager'||ROLE==='sales';
+  const canAdd=isAdminRole()||ROLE==='sales';
   if(!window._CO_STATUS) window._CO_STATUS='';
   if(!window._CO_DAYS)   window._CO_DAYS='0';
   if(!window._CO_SORT)   window._CO_SORT='created';
@@ -9382,7 +9386,7 @@ function renderQCTab(){
     <a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a>
   </div>`;
 
-  const canQC = ROLE==='qc'||ROLE==='manager';
+  const canQC = ROLE==='qc'||isAdminRole();
 
   // ── 資料源（清楚分開）──
   const pendingInbound  = inbounds.filter(i=>i.qcStatus==='待品檢');          // 入料待品檢
@@ -11971,5 +11975,6 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
+
 
 
