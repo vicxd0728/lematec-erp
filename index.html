@@ -8671,8 +8671,15 @@ function openEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
   const mi=document.getElementById('modalInner');
+  const serial=normalizeCorderSerialInput(o.no||'');
   mi.innerHTML=`<h3>✏️ 編輯 C端訂單</h3>
-  <div style="font-family:var(--f-mono);font-size:0.8125rem;color:var(--cyan2);margin-bottom:12px">${o.no||''}</div>
+  <div style="margin-bottom:12px">
+    <label class="field-label">內部單號</label>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2);font-size:1rem">${CORDER_PREFIX}</span>
+      <input class="inp" id="eco_order_serial" inputmode="numeric" maxlength="12" value="${serial}" oninput="this.value=normalizeCorderSerialInput(this.value)" style="width:150px;font-family:var(--f-mono);font-weight:800">
+    </div>
+  </div>
   <div class="form-row" style="margin-bottom:10px">
     <div><label class="field-label">買家帳號</label><input class="inp" id="eco_buyer" value="${(o.buyer||'').replace(/"/g,'&quot;')}"></div>
     <div><label class="field-label">狀態</label><select class="inp" id="eco_status">${['出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -8699,6 +8706,11 @@ function openEditCorder(id){
 
 async function saveEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
+  const serial=normalizeCorderSerialInput(document.getElementById('eco_order_serial')?.value||'');
+  if(!serial){showToast('請輸入 C端內部單號數字','warn');return;}
+  const orderNo=formatCorderNo(serial);
+  const duplicated=(window.corders||[]).find(x=>x.id!==id&&String(x.no||'').trim().toUpperCase()===orderNo.toUpperCase());
+  if(duplicated){showToast('❌ 此 C端內部單號已存在，請改用其他數字','err');return;}
   const buyer=(document.getElementById('eco_buyer')?.value||'').trim();
   const shopeeNo=(document.getElementById('eco_shopee_no')?.value||'').trim();
   const trackingNo=(document.getElementById('eco_tracking')?.value||'').trim();
@@ -8711,6 +8723,7 @@ async function saveEditCorder(id){
   closeModal(); showToast('C端訂單更新中...','warn');
   try{
     const props={
+      '訂單號碼':{title:[{text:{content:orderNo}}]},
       '買家帳號':{rich_text:[{text:{content:buyer}}]},
       '蝦皮訂單號碼':{rich_text:[{text:{content:shopeeNo}}]},
       '寄件編號':{rich_text:[{text:{content:trackingNo}}]},
@@ -8722,7 +8735,7 @@ async function saveEditCorder(id){
     };
     if(shipDate) props['出日']={date:{start:shipDate}};
     await updatePage(id,props);
-    if(o){Object.assign(o,{buyer,shopeeNo,trackingNo,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
+    if(o){Object.assign(o,{no:orderNo,buyer,shopeeNo,trackingNo,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
     renderTab('corders');
     showToast('✅ C端訂單已更新','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
