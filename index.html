@@ -1096,6 +1096,7 @@ async function doEditStock(id, name, oldStock){
 //   - 已清除之前錯誤寫入的 2xxx 客戶
 // ═══════════════════════════════════════════════
 const DB={
+  erpPage:    'b60823b3-452c-467b-a2f9-dc54f3799464',
   materials:  '43d801b4-a787-4101-bd12-d8b8199385c7',
   bom:        '6b67dc8d-bafb-49e8-9c39-bf66046a99fe',
   orders:     '50b7ce68-437e-431f-9a4f-a0d0d65a7b25',
@@ -1144,6 +1145,8 @@ const DB={
   shopee115DS:  '276ff6f4-24bb-8194-bc1e-000bc6ccd4e1',
   // 跨裝置線上人數心跳
   online: 'c0cc5500-b599-422a-97c9-af0ae6faad11',
+  // 登入紀錄：會自動在 ERP 頁面下尋找/建立「ERP 登入紀錄」
+  loginLog: '',
 };
 const ROLES={
   // Vic：與廠長同權限，但操作紀錄獨立顯示
@@ -1173,6 +1176,13 @@ function isMutatingNotionCall(method,endpoint){
   const m=String(method||'').toUpperCase();
   const ep=String(endpoint||'');
   return m==='PATCH'||m==='DELETE'||(m==='POST'&&(ep==='pages'||ep.startsWith('file_uploads')));
+}
+let _allowViewOnlyAuditWrite=false;
+async function withSystemAuditWrite(fn){
+  const prev=_allowViewOnlyAuditWrite;
+  _allowViewOnlyAuditWrite=true;
+  try{return await fn();}
+  finally{_allowViewOnlyAuditWrite=prev;}
 }
 const PILL={
   '出貨中':['rgba(77,142,245,.12)','#4d8ef5'],
@@ -4819,7 +4829,7 @@ function openModal(type,data){
 // API
 // ═══════════════════════════════════════════════
 async function notionAPI(method,endpoint,body=null){
-  if(isViewOnly()&&isMutatingNotionCall(method,endpoint)){
+  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
   const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -4828,7 +4838,7 @@ async function notionAPI(method,endpoint,body=null){
   try{return JSON.parse(text);}catch{throw new Error('解析失敗: '+text.slice(0,100));}
 }
 async function notionAPI2026(method,endpoint,body=null){
-  if(isViewOnly()&&isMutatingNotionCall(method,endpoint)){
+  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
   const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -4888,6 +4898,183 @@ async function downloadViaProxy(url){
 
 function getTitle(props,...keys){for(const k of keys){const a=props?.[k]?.title;if(Array.isArray(a)&&a.length)return a[0]?.plain_text||a[0]?.text?.content||'';}return '';}
 function getRichText(props,...keys){for(const k of keys){const p=props?.[k];if(!p)continue;const a=p.rich_text||p.text||[];if(Array.isArray(a)&&a.length)return(a[0]?.plain_text||a[0]?.text?.content||'').trim();}return '';}
+
+// ═══════════════════════════════════════════════
+// LOGIN AUDIT — 每次登入與在線時間記錄
+// ═══════════════════════════════════════════════
+const LOGIN_LOG_DB_KEY='lematec_login_log_db_id';
+let _loginLogDbId='',_loginLogPageId='',_loginLogSession='',_loginStartedAt=0,_loginLastPatch=0,_loginLogLoading=false,_loginLogLoadedAt=0;
+let loginLogs=[];
+function safeRt(s,max=1900){return String(s??'').slice(0,max);}
+function loginRoleLabel(role=ROLE){return ROLES[role]?.label||role||'未知';}
+function loginLogSessionId(){
+  if(!_loginLogSession){
+    _loginLogSession=`${getOnlineSessionId()}-${Date.now().toString(36)}`;
+  }
+  return _loginLogSession;
+}
+async function ensureLoginLogDB(){
+  if(_loginLogDbId) return _loginLogDbId;
+  const cached=localStorage.getItem(LOGIN_LOG_DB_KEY)||DB.loginLog||'';
+  if(cached){
+    const ok=await notionAPI('GET',`databases/${cached}`);
+    if(ok?.id||ok?.object==='database'){
+      _loginLogDbId=cached;
+      return _loginLogDbId;
+    }
+  }
+  if(DB.erpPage){
+    const children=await getBlockChildren(DB.erpPage);
+    const found=(children?.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 登入紀錄');
+    if(found?.id){
+      _loginLogDbId=found.id;
+      localStorage.setItem(LOGIN_LOG_DB_KEY,_loginLogDbId);
+      return _loginLogDbId;
+    }
+  }
+  const created=await notionAPI('POST','databases',{
+    parent:{type:'page_id',page_id:DB.erpPage},
+    title:[{type:'text',text:{content:'ERP 登入紀錄'}}],
+    properties:{
+      'Session':{title:{}},
+      '角色':{select:{options:Object.entries(ROLES).map(([k,r])=>({name:r.label,color:k==='vic'?'red':k==='manager'?'blue':'gray'}))}},
+      '角色代碼':{rich_text:{}},
+      '登入時間':{date:{}},
+      '最後在線':{date:{}},
+      '在線秒數':{number:{format:'number'}},
+      '在線分鐘':{number:{format:'number'}},
+      '登入次數':{number:{format:'number'}},
+      '狀態':{select:{options:[{name:'線上',color:'green'},{name:'離線',color:'gray'}]}},
+      '裝置':{rich_text:{}},
+      'UserAgent':{rich_text:{}},
+    }
+  });
+  if(created?.object==='error') throw new Error(created.message||'建立登入紀錄資料庫失敗');
+  _loginLogDbId=created.id;
+  localStorage.setItem(LOGIN_LOG_DB_KEY,_loginLogDbId);
+  return _loginLogDbId;
+}
+function loginDurationSeconds(){
+  if(!_loginStartedAt) return 0;
+  return Math.max(0,Math.round((Date.now()-_loginStartedAt)/1000));
+}
+function loginAuditProps(status='線上'){
+  const sec=loginDurationSeconds();
+  const nowIso=new Date().toISOString();
+  return {
+    '最後在線':{date:{start:nowIso}},
+    '在線秒數':{number:sec},
+    '在線分鐘':{number:Math.round(sec/60*10)/10},
+    '狀態':{select:{name:status}},
+  };
+}
+async function startLoginAudit(){
+  if(!TOKEN||!ROLE) return;
+  try{
+    const dbId=await ensureLoginLogDB();
+    _loginStartedAt=Date.now();
+    _loginLastPatch=Date.now();
+    const nowIso=new Date().toISOString();
+    const roleLabel=loginRoleLabel();
+    const props={
+      'Session':{title:[{text:{content:loginLogSessionId()}}]},
+      '角色':{select:{name:roleLabel}},
+      '角色代碼':{rich_text:[{text:{content:ROLE}}]},
+      '登入時間':{date:{start:nowIso}},
+      '最後在線':{date:{start:nowIso}},
+      '在線秒數':{number:0},
+      '在線分鐘':{number:0},
+      '登入次數':{number:1},
+      '狀態':{select:{name:'線上'}},
+      '裝置':{rich_text:[{text:{content:onlineDeviceLabel()}}]},
+      'UserAgent':{rich_text:[{text:{content:safeRt(navigator.userAgent||'')}}]},
+    };
+    const page=await withSystemAuditWrite(()=>createPage(dbId,props));
+    _loginLogPageId=page?.id||'';
+    if(ROLE==='vic') setTimeout(loadLoginLogs,500);
+  }catch(e){console.warn('login audit start failed:',e);}
+}
+async function updateLoginActivity(force=false){
+  if(!_loginLogPageId||!TOKEN) return;
+  if(!force&&Date.now()-_loginLastPatch<60000) return;
+  _loginLastPatch=Date.now();
+  try{await withSystemAuditWrite(()=>updatePage(_loginLogPageId,loginAuditProps('線上')));}
+  catch(e){console.warn('login audit update failed:',e);}
+}
+async function finalizeLoginActivity(){
+  if(!_loginLogPageId||!TOKEN) return;
+  try{await withSystemAuditWrite(()=>updatePage(_loginLogPageId,loginAuditProps('離線')));}
+  catch(e){console.warn('login audit finalize failed:',e);}
+}
+function mapLoginLogPage(p){
+  const props=p.properties||{};
+  return {
+    id:p.id,
+    session:getTitle(props,'Session'),
+    role:props['角色']?.select?.name||getRichText(props,'角色代碼')||'—',
+    roleCode:getRichText(props,'角色代碼'),
+    loginAt:props['登入時間']?.date?.start||p.created_time||'',
+    lastAt:props['最後在線']?.date?.start||'',
+    seconds:props['在線秒數']?.number||0,
+    minutes:props['在線分鐘']?.number||0,
+    count:props['登入次數']?.number||1,
+    status:props['狀態']?.select?.name||'—',
+    device:getRichText(props,'裝置'),
+  };
+}
+async function loadLoginLogs(force=false){
+  if(ROLE!=='vic'||_loginLogLoading) return;
+  if(!force&&Date.now()-_loginLogLoadedAt<60000) return;
+  _loginLogLoading=true;
+  try{
+    const dbId=await ensureLoginLogDB();
+    const r=await notionAPI('POST',`databases/${dbId}/query`,{
+      sorts:[{property:'登入時間',direction:'descending'}],
+      page_size:100
+    });
+    if(r?.object==='error') throw new Error(r.message||'讀取登入紀錄失敗');
+    loginLogs=(r.results||[]).map(mapLoginLogPage);
+    _loginLogLoadedAt=Date.now();
+    if(CURRENT_TAB==='permissions') renderTab('permissions');
+  }catch(e){console.warn('login logs load failed:',e);}
+  finally{_loginLogLoading=false;}
+}
+function renderLoginAuditPanel(){
+  const byRole={};
+  for(const l of loginLogs){
+    const key=l.role||'—';
+    if(!byRole[key]) byRole[key]={role:key,count:0,seconds:0,last:''};
+    byRole[key].count+=l.count||1;
+    byRole[key].seconds+=l.seconds||0;
+    if(!byRole[key].last||String(l.loginAt)>String(byRole[key].last)) byRole[key].last=l.loginAt;
+  }
+  const summary=Object.values(byRole).sort((a,b)=>b.count-a.count);
+  return `<div class="panel" style="margin-top:14px">
+    <div class="panel-hdr">
+      <span class="panel-title">🧾 登入紀錄 <span class="badge">${loginLogs.length}</span></span>
+      <button class="btn btn-ghost btn-sm" onclick="loadLoginLogs(true)">重新整理</button>
+    </div>
+    <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      ${summary.length?summary.map(s=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px">
+        <div style="color:var(--text2);font-size:.8rem">${escapeHtml(s.role)}</div>
+        <div style="font-family:var(--f-mono);font-size:1.7rem;font-weight:800;color:var(--cyan2)">${s.count}</div>
+        <div style="color:var(--text3);font-size:.78rem">累積在線 ${Math.round(s.seconds/60*10)/10} 分鐘</div>
+        <div style="color:var(--text3);font-size:.72rem">最近 ${fmtDateTime(s.last)}</div>
+      </div>`).join(''):`<div class="loading-row">尚無登入紀錄，登入後會自動建立。</div>`}
+    </div>
+    <div class="table-wrap"><table>
+      <tr><th>角色</th><th>登入時間</th><th>最後在線</th><th>在線</th><th>狀態</th><th class="hide-m">裝置</th></tr>
+      ${loginLogs.slice(0,30).map(l=>`<tr>
+        <td>${escapeHtml(l.role)}</td>
+        <td style="font-family:var(--f-mono);font-size:.78rem">${fmtDateTime(l.loginAt)}</td>
+        <td style="font-family:var(--f-mono);font-size:.78rem">${fmtDateTime(l.lastAt)}</td>
+        <td>${Math.round((l.seconds||0)/60*10)/10} 分</td>
+        <td>${pill(l.status)}</td>
+        <td class="hide-m">${escapeHtml(l.device||'—')}</td>
+      </tr>`).join('')}
+    </table></div>
+  </div>`;
+}
 
 // ═══════════════════════════════════════════════
 // LOGIN
@@ -5159,6 +5346,7 @@ async function setAdminRolePin(role){
 function renderPermissionSettings(){
   if(ROLE!=='vic') return '<div class="info-box info-warn">此頁僅限 Vic 使用。</div>';
   setTimeout(syncPermissionPinsFromNotion,0);
+  setTimeout(loadLoginLogs,0);
   const row=(role,desc,editable=false)=>{
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
@@ -5188,7 +5376,8 @@ function renderPermissionSettings(){
     <span style="color:var(--text3);font-size:.86rem">管理角色密碼會加密同步；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
   </div>
   ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
-  ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}`;
+  ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}
+  ${renderLoginAuditPanel()}`;
 }
 
 async function login(){
@@ -5211,7 +5400,7 @@ async function login(){
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-function logout(){stopAutoSync();stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
+async function logout(){await finalizeLoginActivity();stopAutoSync();if(_onlineTimer){clearInterval(_onlineTimer);_onlineTimer=null;}stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';_loginLogPageId='';_loginLogSession='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ═══════════════════════════════════════════════
 // APP START
@@ -5273,11 +5462,11 @@ async function syncOnlineHeartbeat(){
       });
       _onlinePageId=q?.results?.[0]?.id||'';
       if(!_onlinePageId){
-        const created=await createPage(DB.online,props);
+        const created=await withSystemAuditWrite(()=>createPage(DB.online,props));
         _onlinePageId=created?.id||'';
       }
     }else{
-      await updatePage(_onlinePageId,props);
+      await withSystemAuditWrite(()=>updatePage(_onlinePageId,props));
     }
     const activeR=await notionAPI('POST',`databases/${DB.online}/query`,{
       filter:{property:'最後心跳',date:{on_or_after:new Date(Date.now()-ONLINE_TTL_MS).toISOString()}},
@@ -5285,6 +5474,7 @@ async function syncOnlineHeartbeat(){
     });
     const active=activeR?.results?.length||1;
     setOnlineCount(active,true);
+    updateLoginActivity(false);
   }catch(e){
     console.warn('online heartbeat failed:',e);
     setOnlineCount(1,false);
@@ -5309,6 +5499,7 @@ async function startApp(){
   badge.textContent=ri.label;
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav(); showTab('dashboard'); initOnlineTracking();
+  startLoginAudit();
 
   // 立即顯示同步中
   const syncEl=document.getElementById('syncStatus');
@@ -11441,7 +11632,7 @@ async function importShopeeExcel(input){
       const payDate=dateVal(rowVal(row,['買家付款時間','付款時間','訂單成立時間']));
       const prodName=rowVal(row,['商品名稱','商品選項名稱']).slice(0,60);
       const trackingNo=rowVal(row,['包裹查詢號碼','寄件編號','物流單號']);
-      const unitPrice=rowVal(row,['買家總支付金額','商品總價','單價']);
+      const unitPrice=rowVal(row,['商品活動價格','買家總支付金額','商品總價','單價']);
       incoming.push({shopeeNo,sku,qty,buyer,shipMethod,shipDate,payDate,prodName,trackingNo,unitPrice,orderStatus});
     }
     if(!incoming.length){ showToast('沒有有效訂單資料','warn'); return; }
