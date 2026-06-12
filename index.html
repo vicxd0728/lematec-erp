@@ -4934,6 +4934,9 @@ function buildThemePanel(p){
 }
 
 const ADMIN_ROLE_PIN_KEY='lematec_admin_role_pin_hash';
+const ADMIN_ROLE_PIN_REF_PREFIX='ADMIN_ROLE_PIN:';
+let _pendingAdminRolePinSync=null;
+let _permissionPinSyncing=false;
 function adminRolePinKey(role){return 'lematec_admin_role_pin_hash_'+role;}
 function adminRolePinPlainKey(role){return 'lematec_admin_role_pin_plain_'+role;}
 function needsAdminRolePin(role){return role==='vic'||role==='manager';}
@@ -4946,6 +4949,70 @@ async function hashAdminPin(pin){
   const enc=new TextEncoder().encode('lematec-admin-role:'+pin);
   const buf=await crypto.subtle.digest('SHA-256',enc);
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function storeAdminRolePinLocal(role,pin){
+  localStorage.setItem(adminRolePinKey(role),await hashAdminPin(pin));
+  localStorage.setItem(adminRolePinPlainKey(role),pin);
+  localStorage.removeItem(ADMIN_ROLE_PIN_KEY);
+}
+async function saveAdminRolePinToNotion(role,pin,operator=''){
+  if(!TOKEN||!DB.stockEditLog||!needsAdminRolePin(role)||!pin) return;
+  try{
+    const label=ROLES[role]?.label||role;
+    const stamp=new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14);
+    await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:{
+      '記錄編號':{title:[{text:{content:`PERM-${role}-${stamp}`}}]},
+      '料件名稱':{rich_text:[{text:{content:label}}]},
+      '料件編號':{rich_text:[{text:{content:ADMIN_ROLE_PIN_REF_PREFIX+role}}]},
+      '修改類型':{select:{name:'其他修改'}},
+      '修改前數值':{rich_text:[{text:{content:'管理角色登入密碼'}}]},
+      '修改後數值':{rich_text:[{text:{content:pin}}]},
+      '修改原因':{rich_text:[{text:{content:'管理角色密碼設定；僅 Vic 權限頁用於確認設定狀態'}}]},
+      '修改人員':{rich_text:[{text:{content:operator||ROLE||label}}]},
+    }});
+  }catch(e){
+    console.warn('管理角色密碼同步失敗：',e);
+  }
+}
+async function syncPendingAdminRolePin(){
+  if(!_pendingAdminRolePinSync) return;
+  const p=_pendingAdminRolePinSync;
+  _pendingAdminRolePinSync=null;
+  await saveAdminRolePinToNotion(p.role,p.pin,p.operator);
+}
+async function loadAdminRolePinFromNotion(role){
+  if(!TOKEN||!DB.stockEditLog||!needsAdminRolePin(role)) return null;
+  try{
+    const r=await notionAPI('POST',`databases/${DB.stockEditLog}/query`,{
+      filter:{property:'料件編號',rich_text:{equals:ADMIN_ROLE_PIN_REF_PREFIX+role}},
+      page_size:50
+    });
+    if(r?.object==='error') throw new Error(r.message||'查詢失敗');
+    const rows=(r.results||[]).sort((a,b)=>String(b.created_time||'').localeCompare(String(a.created_time||'')));
+    const page=rows[0];
+    if(!page) return null;
+    const pin=getRichText(page.properties,'修改後數值');
+    if(pin) await storeAdminRolePinLocal(role,pin);
+    return {pin,updatedAt:page.created_time||'',operator:getRichText(page.properties,'修改人員')};
+  }catch(e){
+    console.warn('讀取管理角色密碼失敗：',e);
+    return null;
+  }
+}
+async function syncPermissionPinsFromNotion(){
+  if(_permissionPinSyncing||ROLE!=='vic'||!TOKEN) return;
+  _permissionPinSyncing=true;
+  try{
+    let changed=false;
+    for(const role of ['vic','manager']){
+      const before=localStorage.getItem(adminRolePinPlainKey(role))||'';
+      const got=await loadAdminRolePinFromNotion(role);
+      if(got?.pin&&got.pin!==before) changed=true;
+    }
+    if(changed&&CURRENT_TAB==='permissions') renderTab('permissions');
+  }finally{
+    _permissionPinSyncing=false;
+  }
 }
 async function verifyAdminRolePin(role){
   if(!needsAdminRolePin(role)) return true;
@@ -4964,15 +5031,19 @@ async function verifyAdminRolePin(role){
     if(pin.length<4){showLoginErr(`${roleLabel} 登入密碼至少 4 碼`);return false;}
     const p2=prompt(`請再次輸入 ${roleLabel} 登入密碼`);
     if((p2||'').trim()!==pin){showLoginErr(`兩次 ${roleLabel} 登入密碼不一致`);return false;}
-    saved=await hashAdminPin(pin);
-    localStorage.setItem(roleKey,saved);
-    localStorage.setItem(adminRolePinPlainKey(role),pin);
+    await storeAdminRolePinLocal(role,pin);
+    _pendingAdminRolePinSync={role,pin,operator:roleLabel};
     return true;
   }
   const p=prompt(`請輸入 ${roleLabel} 登入密碼`);
   if(p===null) return false;
-  const ok=(await hashAdminPin((p||'').trim()))===saved;
+  const entered=(p||'').trim();
+  const ok=(await hashAdminPin(entered))===saved;
   if(!ok) showLoginErr(`${roleLabel} 登入密碼錯誤`);
+  else if(entered){
+    localStorage.setItem(adminRolePinPlainKey(role),entered);
+    _pendingAdminRolePinSync={role,pin:entered,operator:roleLabel};
+  }
   return ok;
 }
 
@@ -4987,9 +5058,8 @@ async function setAdminRolePin(role){
   if(pin.length<4){showToast(`${roleLabel} 登入密碼至少 4 碼`,'warn');return;}
   const p2=prompt(`請再次輸入 ${roleLabel} 登入密碼`);
   if((p2||'').trim()!==pin){showToast(`兩次 ${roleLabel} 登入密碼不一致`,'err');return;}
-  localStorage.setItem(adminRolePinKey(role),await hashAdminPin(pin));
-  localStorage.setItem(adminRolePinPlainKey(role),pin);
-  localStorage.removeItem(ADMIN_ROLE_PIN_KEY);
+  await storeAdminRolePinLocal(role,pin);
+  await saveAdminRolePinToNotion(role,pin,ROLE);
   logUserAction('權限設定',roleLabel,'更新登入密碼',ROLE);
   showToast(`✅ ${roleLabel} 登入密碼已更新`,'ok');
   renderTab('permissions');
@@ -4997,6 +5067,7 @@ async function setAdminRolePin(role){
 
 function renderPermissionSettings(){
   if(ROLE!=='vic') return '<div class="info-box info-warn">此頁僅限 Vic 使用。</div>';
+  setTimeout(syncPermissionPinsFromNotion,0);
   const row=(role,desc,editable=false)=>{
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
@@ -5019,7 +5090,7 @@ function renderPermissionSettings(){
   };
   return `<div class="notion-bar" style="margin-bottom:14px">
     <span class="notion-bar-label">🔐 權限設定：</span>
-    <span style="color:var(--text3);font-size:.86rem">此設定只存在目前裝置，用於避免人員誤選管理角色；只有 Vic 看得到此頁。</span>
+    <span style="color:var(--text3);font-size:.86rem">管理角色密碼會同步到 Notion 紀錄；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
   </div>
   ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
   ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}`;
@@ -5037,6 +5108,7 @@ async function login(){
   try{
     const data=await notionAPI('GET',`databases/${DB.materials}`);
     if(data.id||data.object==='database'){
+      syncPendingAdminRolePin();
       localStorage.setItem('lt',t);localStorage.setItem('lr',r);startApp();
     }else if(data.status===401||data.code==='unauthorized'){showLoginErr('Token 無效 (401)');}
     else{showLoginErr(`連接失敗: ${data.message||data.code||'未知'}`);}
