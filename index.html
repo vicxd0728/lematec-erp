@@ -4960,14 +4960,15 @@ async function saveAdminRolePinToNotion(role,pin,operator=''){
   try{
     const label=ROLES[role]?.label||role;
     const stamp=new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14);
+    const pinHash=await hashAdminPin(pin);
     await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:{
       '記錄編號':{title:[{text:{content:`PERM-${role}-${stamp}`}}]},
       '料件名稱':{rich_text:[{text:{content:label}}]},
       '料件編號':{rich_text:[{text:{content:ADMIN_ROLE_PIN_REF_PREFIX+role}}]},
       '修改類型':{select:{name:'其他修改'}},
       '修改前數值':{rich_text:[{text:{content:'管理角色登入密碼'}}]},
-      '修改後數值':{rich_text:[{text:{content:pin}}]},
-      '修改原因':{rich_text:[{text:{content:'管理角色密碼設定；僅 Vic 權限頁用於確認設定狀態'}}]},
+      '修改後數值':{rich_text:[{text:{content:'sha256:'+pinHash}}]},
+      '修改原因':{rich_text:[{text:{content:'管理角色密碼已設定；Notion 僅保存雜湊值，不保存明文密碼'}}]},
       '修改人員':{rich_text:[{text:{content:operator||ROLE||label}}]},
     }});
   }catch(e){
@@ -4991,9 +4992,10 @@ async function loadAdminRolePinFromNotion(role){
     const rows=(r.results||[]).sort((a,b)=>String(b.created_time||'').localeCompare(String(a.created_time||'')));
     const page=rows[0];
     if(!page) return null;
-    const pin=getRichText(page.properties,'修改後數值');
-    if(pin) await storeAdminRolePinLocal(role,pin);
-    return {pin,updatedAt:page.created_time||'',operator:getRichText(page.properties,'修改人員')};
+    const stored=getRichText(page.properties,'修改後數值');
+    const hash=stored.startsWith('sha256:')?stored.slice(7):stored;
+    if(hash) localStorage.setItem(adminRolePinKey(role),hash);
+    return {hash,updatedAt:page.created_time||'',operator:getRichText(page.properties,'修改人員')};
   }catch(e){
     console.warn('讀取管理角色密碼失敗：',e);
     return null;
@@ -5005,9 +5007,9 @@ async function syncPermissionPinsFromNotion(){
   try{
     let changed=false;
     for(const role of ['vic','manager']){
-      const before=localStorage.getItem(adminRolePinPlainKey(role))||'';
+      const before=localStorage.getItem(adminRolePinKey(role))||'';
       const got=await loadAdminRolePinFromNotion(role);
-      if(got?.pin&&got.pin!==before) changed=true;
+      if(got?.hash&&got.hash!==before) changed=true;
     }
     if(changed&&CURRENT_TAB==='permissions') renderTab('permissions');
   }finally{
@@ -5023,6 +5025,12 @@ async function verifyAdminRolePin(role){
   if(plain&&!saved){
     saved=await hashAdminPin(plain);
     localStorage.setItem(roleKey,saved);
+  }
+  if(!saved){
+    const remote=await loadAdminRolePinFromNotion(role);
+    if(remote?.hash){
+      saved=remote.hash;
+    }
   }
   if(!saved){
     const p1=prompt(`請設定 ${roleLabel} 登入密碼`);
@@ -5072,7 +5080,7 @@ function renderPermissionSettings(){
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
     const has=!!(plain||localStorage.getItem(adminRolePinKey(role)));
-    const shown=plain?escapeHtml(plain):(has?'舊版已設定，重新設定後可顯示':'尚未設定');
+    const shown=has?'已設定（不顯示密碼）':'尚未設定';
     return `<div class="panel" style="margin-bottom:12px">
       <div class="panel-hdr">
         <span class="panel-title">🔐 ${label}</span>
@@ -5081,8 +5089,8 @@ function renderPermissionSettings(){
       <div style="padding:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:220px;color:var(--text2);font-size:.9rem">${desc}</div>
         <div style="min-width:180px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:10px 12px">
-          <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">目前密碼</div>
-          <div style="font-family:var(--f-mono);font-weight:800;color:${plain?'var(--amber)':'var(--text3)'}">${shown}</div>
+          <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">設定狀態</div>
+          <div style="font-weight:800;color:${has?'var(--green2)':'var(--text3)'}">${shown}</div>
         </div>
         ${editable?`<button class="btn btn-blue" onclick="setAdminRolePin('${role}')">設定 / 重設密碼</button>`:''}
       </div>
@@ -5090,7 +5098,7 @@ function renderPermissionSettings(){
   };
   return `<div class="notion-bar" style="margin-bottom:14px">
     <span class="notion-bar-label">🔐 權限設定：</span>
-    <span style="color:var(--text3);font-size:.86rem">管理角色密碼會同步到 Notion 紀錄；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
+    <span style="color:var(--text3);font-size:.86rem">管理角色密碼只同步設定狀態與雜湊值；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
   </div>
   ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
   ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}`;
