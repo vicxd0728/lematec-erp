@@ -4933,12 +4933,46 @@ function buildThemePanel(p){
   });
 }
 
+const ADMIN_ROLE_PIN_KEY='lematec_admin_role_pin_hash';
+function needsAdminRolePin(role){return role==='vic'||role==='manager';}
+async function hashAdminPin(pin){
+  if(!window.crypto?.subtle){
+    let h=0,s='lematec-admin-role:'+pin;
+    for(let i=0;i<s.length;i++) h=((h<<5)-h+s.charCodeAt(i))|0;
+    return 'fallback:'+Math.abs(h).toString(36);
+  }
+  const enc=new TextEncoder().encode('lematec-admin-role:'+pin);
+  const buf=await crypto.subtle.digest('SHA-256',enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function verifyAdminRolePin(role){
+  if(!needsAdminRolePin(role)) return true;
+  let saved=localStorage.getItem(ADMIN_ROLE_PIN_KEY)||'';
+  if(!saved){
+    const p1=prompt('請設定管理角色密碼（Vic / 廠長登入時使用）');
+    if(p1===null) return false;
+    const pin=(p1||'').trim();
+    if(pin.length<4){showLoginErr('管理角色密碼至少 4 碼');return false;}
+    const p2=prompt('請再次輸入管理角色密碼');
+    if((p2||'').trim()!==pin){showLoginErr('兩次管理角色密碼不一致');return false;}
+    saved=await hashAdminPin(pin);
+    localStorage.setItem(ADMIN_ROLE_PIN_KEY,saved);
+    return true;
+  }
+  const p=prompt('請輸入管理角色密碼');
+  if(p===null) return false;
+  const ok=(await hashAdminPin((p||'').trim()))===saved;
+  if(!ok) showLoginErr('管理角色密碼錯誤');
+  return ok;
+}
+
 async function login(){
   const t=document.getElementById('tokenInput').value.trim().replace(/\s+/g,'');
   const r=document.getElementById('roleSelect').value;
   document.getElementById('loginAlert').classList.remove('show');
   if(!t){showLoginErr('請填入 Token');return;}
   if(!t.startsWith('ntn_')){showLoginErr('Token 需 <b>ntn_</b> 開頭');return;}
+  if(!(await verifyAdminRolePin(r))) return;
   TOKEN=t;ROLE=r;
   const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='驗證中...';
   try{
@@ -7964,7 +7998,7 @@ function renderLeave(){
       </div>
       ${!history.length ? '<div style="padding:28px;text-align:center;color:var(--text3)">目前沒有請假紀錄</div>' :
       `<div class="table-wrap"><table>
-        <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天/時</th><th>申請時間</th><th>審核時間</th><th>代理人</th><th>狀態</th><th>操作</th></tr>
+        <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天/時</th><th>申請時間</th><th>審核時間</th><th>審核人</th><th>代理人</th><th>狀態</th><th>操作</th></tr>
         ${history.map(l=>`<tr>
           <td>
             <div style="font-weight:600;font-size:13px">${l.name}</div>
@@ -7975,6 +8009,7 @@ function renderLeave(){
           <td style="font-family:monospace;font-weight:600">${leaveDurationLabel(l)}</td>
           <td style="font-family:monospace;font-size:11px;color:var(--text2)">${fmtDateTime(l.applyDate)}</td>
           <td style="font-family:monospace;font-size:11px;color:var(--text2)">${fmtDateTime(l.reviewDate)}</td>
+          <td style="font-size:11px;color:var(--text2);font-weight:700">${escapeHtml(l.reviewer||'—')}</td>
           <td style="font-size:11px;color:var(--text2)">${l.proxy||'—'}</td>
           <td>${pill(l.status)}</td>
           <td style="white-space:nowrap">
@@ -8965,9 +9000,10 @@ function openEditLeave(id){
   const matchedEmp=empOptions.find(e=>String(e.name||'').trim()===String(l.name||'').trim());
   const mi=document.getElementById('modalInner');
   mi.innerHTML=`<h3>✏ 編輯請假</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px">
       <div class="info-box info-tip" style="margin:0;font-size:12px">申請時間<br><b style="color:var(--text)">${fmtDateTime(l.applyDate)}</b></div>
       <div class="info-box info-tip" style="margin:0;font-size:12px">審核時間<br><b style="color:var(--text)">${fmtDateTime(l.reviewDate)}</b></div>
+      <div class="info-box info-tip" style="margin:0;font-size:12px">審核人<br><b style="color:var(--text)">${escapeHtml(l.reviewer||'—')}</b></div>
     </div>
     <div class="field" style="margin-bottom:10px">
       <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:5px">選擇請假人</label>
@@ -11920,9 +11956,10 @@ async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
 window.onload=async ()=>{
   const t=localStorage.getItem('lt');const r=localStorage.getItem('lr');
   if(t&&r){
-    TOKEN=t;ROLE=r;
     document.getElementById('tokenInput').value=t;
     document.getElementById('roleSelect').value=r;
+    if(!(await verifyAdminRolePin(r))) return;
+    TOKEN=t;ROLE=r;
     await startApp();
   }
 };
