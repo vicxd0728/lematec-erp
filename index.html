@@ -4938,6 +4938,7 @@ const ADMIN_ROLE_PIN_REF_PREFIX='ADMIN_ROLE_PIN:';
 const ADMIN_ROLE_PIN_CIPHER_KEY='lematec-erp-admin-pin-v1';
 let _pendingAdminRolePinSync=null;
 let _permissionPinSyncing=false;
+const _adminPinVisible={};
 function adminRolePinKey(role){return 'lematec_admin_role_pin_hash_'+role;}
 function adminRolePinPlainKey(role){return 'lematec_admin_role_pin_plain_'+role;}
 function needsAdminRolePin(role){return role==='vic'||role==='manager';}
@@ -5058,6 +5059,10 @@ async function syncPermissionPinsFromNotion(){
     _permissionPinSyncing=false;
   }
 }
+function toggleAdminPinVisible(role){
+  _adminPinVisible[role]=!_adminPinVisible[role];
+  renderTab('permissions');
+}
 async function verifyAdminRolePin(role){
   if(!needsAdminRolePin(role)) return true;
   const roleLabel=ROLES[role]?.label||role;
@@ -5124,7 +5129,8 @@ function renderPermissionSettings(){
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
     const has=!!(plain||localStorage.getItem(adminRolePinKey(role)));
-    const shown=plain?escapeHtml(plain):(has?'已設定（重新登入後可顯示）':'尚未設定');
+    const visible=!!_adminPinVisible[role];
+    const shown=plain?(visible?escapeHtml(plain):'••••••'):(has?'已設定（重新登入後可顯示）':'尚未設定');
     return `<div class="panel" style="margin-bottom:12px">
       <div class="panel-hdr">
         <span class="panel-title">🔐 ${label}</span>
@@ -5134,7 +5140,10 @@ function renderPermissionSettings(){
         <div style="flex:1;min-width:220px;color:var(--text2);font-size:.9rem">${desc}</div>
         <div style="min-width:180px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:10px 12px">
           <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">${plain?'目前密碼':'設定狀態'}</div>
-          <div style="font-family:${plain?'var(--f-mono)':'var(--f-ui)'};font-weight:800;color:${plain?'var(--amber)':(has?'var(--green2)':'var(--text3)')}">${shown}</div>
+          <div style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+            <div style="font-family:${plain?'var(--f-mono)':'var(--f-ui)'};font-weight:800;color:${plain?'var(--amber)':(has?'var(--green2)':'var(--text3)')}">${shown}</div>
+            ${plain?`<button class="btn btn-xs btn-ghost" onclick="toggleAdminPinVisible('${role}')">${visible?'隱藏':'顯示'}</button>`:''}
+          </div>
         </div>
         ${editable?`<button class="btn btn-blue" onclick="setAdminRolePin('${role}')">設定 / 重設密碼</button>`:''}
       </div>
