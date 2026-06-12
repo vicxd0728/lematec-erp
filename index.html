@@ -4958,10 +4958,6 @@ async function verifyAdminRolePin(role){
     localStorage.setItem(roleKey,saved);
   }
   if(!saved){
-    if(role==='manager'){
-      showLoginErr('廠長登入密碼尚未設定，請先由 Vic 進入權限設定建立');
-      return false;
-    }
     const p1=prompt(`請設定 ${roleLabel} 登入密碼`);
     if(p1===null) return false;
     const pin=(p1||'').trim();
@@ -4983,6 +4979,7 @@ async function verifyAdminRolePin(role){
 async function setAdminRolePin(role){
   if(ROLE!=='vic'){showToast('此功能僅限 Vic 使用','warn');return;}
   if(!needsAdminRolePin(role)){showToast('此角色不需要登入密碼','warn');return;}
+  if(role!=='vic'){showToast('廠長密碼需由廠長角色首次登入時自行設定','warn');return;}
   const roleLabel=ROLES[role]?.label||role;
   const p1=prompt(`設定 ${roleLabel} 登入密碼（至少 4 碼）`);
   if(p1===null) return;
@@ -5000,11 +4997,11 @@ async function setAdminRolePin(role){
 
 function renderPermissionSettings(){
   if(ROLE!=='vic') return '<div class="info-box info-warn">此頁僅限 Vic 使用。</div>';
-  const row=(role,desc)=>{
+  const row=(role,desc,editable=false)=>{
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
     const has=!!(plain||localStorage.getItem(adminRolePinKey(role)));
-    const shown=plain?escapeHtml(plain):(has?'舊版已設定，請重設後可顯示':'尚未設定');
+    const shown=plain?escapeHtml(plain):(has?'舊版已設定，重新設定後可顯示':'尚未設定');
     return `<div class="panel" style="margin-bottom:12px">
       <div class="panel-hdr">
         <span class="panel-title">🔐 ${label}</span>
@@ -5016,7 +5013,7 @@ function renderPermissionSettings(){
           <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">目前密碼</div>
           <div style="font-family:var(--f-mono);font-weight:800;color:${plain?'var(--amber)':'var(--text3)'}">${shown}</div>
         </div>
-        <button class="btn btn-blue" onclick="setAdminRolePin('${role}')">設定 / 重設密碼</button>
+        ${editable?`<button class="btn btn-blue" onclick="setAdminRolePin('${role}')">設定 / 重設密碼</button>`:''}
       </div>
     </div>`;
   };
@@ -5024,8 +5021,8 @@ function renderPermissionSettings(){
     <span class="notion-bar-label">🔐 權限設定：</span>
     <span style="color:var(--text3);font-size:.86rem">此設定只存在目前裝置，用於避免人員誤選管理角色；只有 Vic 看得到此頁。</span>
   </div>
-  ${row('vic','Vic 可登入全部功能，並可管理本頁密碼設定。')}
-  ${row('manager','廠長可使用管理功能；廠長密碼必須由 Vic 先設定，未設定前無法登入。')}`;
+  ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
+  ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}`;
 }
 
 async function login(){
