@@ -8805,13 +8805,31 @@ function openEditCorder(id){
   openModal();
 }
 
+async function corderInternalNoExists(orderNo,currentId=''){
+  const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
+    page_size:10,
+    filter:{property:'訂單號碼',title:{equals:orderNo}},
+  });
+  if(r?.object==='error') throw new Error('單號查核失敗：'+(r.message||r.code||'未知錯誤'));
+  return (r.results||[]).some(p=>p.id!==currentId);
+}
+
 async function saveEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   const serial=normalizeCorderSerialInput(document.getElementById('eco_order_serial')?.value||'');
   if(!serial){showToast('請輸入 C端內部單號數字','warn');return;}
   const orderNo=formatCorderNo(serial);
-  const duplicated=(window.corders||[]).find(x=>x.id!==id&&String(x.no||'').trim().toUpperCase()===orderNo.toUpperCase());
-  if(duplicated){showToast('❌ 此 C端內部單號已存在，請改用其他數字','err');return;}
+  const localDuplicated=(window.corders||[]).find(x=>x.id!==id&&String(x.no||'').trim().toUpperCase()===orderNo.toUpperCase());
+  try{
+    if(localDuplicated) showToast('正在重新確認內部單號...','warn',2500);
+    if(await corderInternalNoExists(orderNo,id)){
+      showToast('❌ 此 C端內部單號已存在，請改用其他數字','err');
+      return;
+    }
+  }catch(e){
+    showToast('❌ '+e.message,'err');
+    return;
+  }
   const buyer=(document.getElementById('eco_buyer')?.value||'').trim();
   const shopeeNo=(document.getElementById('eco_shopee_no')?.value||'').trim();
   const trackingNo=(document.getElementById('eco_tracking')?.value||'').trim();
@@ -8837,6 +8855,7 @@ async function saveEditCorder(id){
     if(shipDate) props['出日']={date:{start:shipDate}};
     await updatePage(id,props);
     if(o){Object.assign(o,{no:orderNo,buyer,shopeeNo,trackingNo,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
+    await loadCorders();
     renderTab('corders');
     showToast('✅ C端訂單已更新','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
