@@ -4907,6 +4907,10 @@ let _loginLogDbId='',_loginLogPageId='',_loginLogSession='',_loginStartedAt=0,_l
 let loginLogs=[];
 function safeRt(s,max=1900){return String(s??'').slice(0,max);}
 function loginRoleLabel(role=ROLE){return ROLES[role]?.label||role||'未知';}
+function notionPageUrl(id){
+  const clean=String(id||'').replace(/-/g,'');
+  return clean?`https://www.notion.so/${clean}`:'#';
+}
 function loginLogSessionId(){
   if(!_loginLogSession){
     _loginLogSession=`${getOnlineSessionId()}-${Date.now().toString(36)}`;
@@ -5347,6 +5351,7 @@ function renderPermissionSettings(){
   if(ROLE!=='vic') return '<div class="info-box info-warn">此頁僅限 Vic 使用。</div>';
   setTimeout(syncPermissionPinsFromNotion,0);
   setTimeout(loadLoginLogs,0);
+  const loginLogLink=_loginLogDbId||localStorage.getItem(LOGIN_LOG_DB_KEY)||DB.loginLog||'';
   const row=(role,desc,editable=false)=>{
     const label=ROLES[role]?.label||role;
     const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
@@ -5374,6 +5379,7 @@ function renderPermissionSettings(){
   return `<div class="notion-bar" style="margin-bottom:14px">
     <span class="notion-bar-label">🔐 權限設定：</span>
     <span style="color:var(--text3);font-size:.86rem">管理角色密碼會加密同步；廠長由廠長首次登入自行設定，只有 Vic 看得到此頁。</span>
+    ${loginLogLink?`<a href="${notionPageUrl(loginLogLink)}" target="_blank" class="notion-link">🧾 ERP 登入紀錄</a>`:`<span class="notion-link" style="opacity:.7">🧾 ERP 登入紀錄：登入後自動建立</span>`}
   </div>
   ${row('vic','Vic 可登入全部功能，並可管理自己的登入密碼。',true)}
   ${row('manager','廠長可使用管理功能；第一次登入廠長角色時由廠長自行設定密碼，Vic 僅在此查看。')}
