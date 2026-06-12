@@ -912,8 +912,8 @@ html[data-theme="warm"]{
     </div>
     <div class="field"><label>角色</label>
       <select class="inp" id="roleSelect">
-        <option value="vic">👑 Vic（最高權限）</option>
-        <option value="manager">🏭 廠長（全功能）</option>
+        <option value="vic">👑 Vic</option>
+        <option value="manager">🏭 廠長</option>
         <option value="sales">📋 業務</option>
         <option value="warehouse">📦 倉管</option>
         <option value="qc">✅ 品管</option>
@@ -1135,9 +1135,9 @@ const DB={
   online: 'c0cc5500-b599-422a-97c9-af0ae6faad11',
 };
 const ROLES={
-  // Vic：最高權限，和廠長同樣全開，但操作紀錄獨立顯示
+  // Vic：與廠長同權限，但操作紀錄獨立顯示
   vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
-  // 廠長：全功能
+  // 廠長
   manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
   sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','orders','corders','customers','leave','stocklog']},
@@ -5756,7 +5756,7 @@ async function repairSelectedDuplicateMaterials(){
 }
 
 async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
-  if(!isAdminRole()){showToast('⚠ 只有最高權限可執行健康檢查修復','warn');return;}
+  if(!isAdminRole()){showToast('⚠ 權限不足，無法執行健康檢查修復','warn');return;}
   if(!ids.length){showToast('請先勾選要刪除的重複料號','warn');return;}
   const targets=ids.map(id=>mats.find(m=>m.id===id)).filter(Boolean);
   const unsafe=targets.filter(m=>materialUsageSummary(m.id).total>0);
@@ -5788,7 +5788,7 @@ async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
 }
 
 async function repairOrderMisusedQcStatus(){
-  if(!isAdminRole()){showToast('⚠ 只有最高權限可執行流程狀態修復','warn');return;}
+  if(!isAdminRole()){showToast('⚠ 權限不足，無法執行流程狀態修復','warn');return;}
   const targets=orders.filter(o=>o.status==='待品檢');
   if(!targets.length){showToast('沒有誤用待品檢的訂單','ok');return;}
   if(!confirm(`將 ${targets.length} 張訂單從「待品檢」改為正確訂單狀態「待檢驗」。確定執行？`))return;
@@ -8167,7 +8167,7 @@ function findMatBySku(sku){
 }
 
 async function importShopeeBomToNotion(){
-  if(!isAdminRole()){showToast('只有最高權限可以匯入 BOM','warn');return;}
+  if(!isAdminRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
   const totalRows=SHOPEE_BOM_EXCEL.reduce((sum,row)=>sum+(row.children||[]).length,0);
   showToast('⏳ 重新同步 Notion 資料中...','warn',6000);
   await refreshAll(true);
