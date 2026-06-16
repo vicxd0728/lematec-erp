@@ -9672,6 +9672,18 @@ function isLikelyReceiverName(v){
   return /[\u4e00-\u9fff]/.test(s) && s.length>=2 && s.length<=24;
 }
 
+async function ensureTesseract(){
+  if(window.Tesseract) return window.Tesseract;
+  await new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=resolve;
+    s.onerror=()=>reject(new Error('OCR 元件載入失敗'));
+    document.head.appendChild(s);
+  });
+  return window.Tesseract;
+}
+
 async function parseShippingLabelFile(file){
   const name=file.name||'';
   const type=(file.type||'').toLowerCase();
@@ -9681,8 +9693,20 @@ async function parseShippingLabelFile(file){
   }
   if(type.startsWith('image/')||/\.(jpg|jpeg|png|webp)$/i.test(name)){
     const barcodeText=await extractImageBarcodes(file);
-    const rows=barcodeText?parseShippingLabelText(barcodeText,name):[];
-    const warnings=[`${name}：圖片檔目前只能嘗試讀 QR/條碼；若未帶出收件人，請改用 PDF 或之後加 OCR。`];
+    let ocrText='',ocrWarn='';
+    try{
+      const Tesseract=await ensureTesseract();
+      showToast('圖片 OCR 辨識中，請稍候...','warn');
+      const result=await Tesseract.recognize(file,'chi_tra+eng');
+      ocrText=result?.data?.text||'';
+    }catch(e){
+      console.warn('圖片 OCR 失敗:',e);
+      ocrWarn=`${name}：圖片 OCR 失敗，請改用 PDF 或較清晰照片。`;
+    }
+    const text=[barcodeText,ocrText].filter(Boolean).join('\n');
+    const rows=text?parseShippingLabelText(text,name):[];
+    const warnings=ocrWarn?[ocrWarn]:[];
+    if(!rows.length) warnings.push(`${name}：未解析到可比對的蝦皮訂單號與收件人，請確認照片清晰或改用 PDF。`);
     return {rows,warnings};
   }
   return {rows:[],warnings:[`${name}：不支援的檔案格式`]};
