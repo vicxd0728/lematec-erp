@@ -4770,7 +4770,7 @@ function openModal(type,data){
     const shopeeMats=mats.filter(m=>isShopeeMat(m)).sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
     const today=new Date().toISOString().slice(0,10);
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
-    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇料號的庫存。取消時可選擇回料或報銷。</div>
+    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇的 S- 成品庫存。BOM 子件扣料請使用「訂單 > 蝦皮」生產領料流程。</div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空自動產生 ${nextCorderInternalNo()}"></div>
       <div><label class="field-label">買家帳號</label><input class="inp" id="co_buyer" placeholder="蝦皮買家帳號"></div>
@@ -9065,24 +9065,11 @@ async function deductCorderStock(mat, qty, refNo, operator){
   return {before:cur,after:next};
 }
 async function deductCorderStockByBom(mat, qty, refNo, operator){
-  const sku=normalizeSku(mat?.code||mat?.name||'');
-  const isShopeeSku=sku.startsWith('S-')||String(mat?.type||'').includes('蝦皮');
-  if(!isShopeeSku){
-    await deductCorderStock(mat,qty,refNo,operator);
-    return {mode:'direct',refs:[{id:mat.id,qty:parseInt(qty)||1}],items:[{...mat,needed:parseInt(qty)||1}]};
-  }
-
-  const items=getShopeeBomItems(mat,qty);
-  if(!items.length) throw new Error(`此蝦皮料號 ${mat.code||mat.name} 尚未設定 BOM，為避免誤扣成品庫存，已停止建立`);
-  const missing=items.filter(x=>x.missing||!x.id);
-  if(missing.length) throw new Error('找不到 BOM 子料號：'+missing.map(x=>x.code||x.name).join('、'));
-
-  await deductShopeeBom(mat,qty,refNo);
-  return {
-    mode:'bom',
-    refs:items.map(x=>({id:x.id,qty:x.needed})),
-    items
-  };
+  const need=parseInt(qty)||1;
+  // C端訂單是現貨出貨：扣除被出貨的 S- 成品庫存本身。
+  // BOM 子件扣料只保留在「訂單 > 蝦皮」的生產/領料流程中，完成後再增加 S- 庫存。
+  await deductCorderStock(mat,need,refNo,operator);
+  return {mode:'direct',refs:[{id:mat.id,qty:need}],items:[{...mat,needed:need}]};
 }
 async function returnCorderStock(refs, refNo){
   for(const r of refs){
@@ -10137,7 +10124,7 @@ function renderCorders(){
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
       <div style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
-    <div style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。建立後立即扣庫存，取消時可選回料或報銷。</div>`;
+    <div style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
   if(!filtered.length){
     html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
   }else{
