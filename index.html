@@ -6338,7 +6338,7 @@ async function runHealthCheck(manual=false){
     materials:['料件名稱','料件編號','類型','目前庫存','安全庫存'],
     bom:['母件','子件','每台用量'],
     orders:['訂單號','客戶名稱','成品','訂購數量','交期','實際出貨日','狀態','訂單類型'],
-    corders:['訂單號碼','蝦皮訂單號碼','客戶名稱','買家帳號','寄件編號','品名','數量','單價','狀態','來源'],
+    corders:['訂單號碼','蝦皮訂單號碼','客戶名稱','買家帳號','寄件編號','品名','數量','單價','總價','狀態','來源'],
     shopee115:['蝦皮訂單號碼','訂單號碼','客戶名稱','買家帳號','寄件編號','品名','數量','單價'],
     pickMaster:['領料主單號','狀態','領料日期','備註'],
     pickDetail:['料件名稱','領料主單','料件','需求數量','實領數量','狀態'],
@@ -12125,6 +12125,12 @@ async function importShopeeExcel(input){
       incoming.push({shopeeNo,sku,qty,buyer,shipMethod,shipDate,payDate,prodName,trackingNo,unitPrice,orderStatus});
     }
     if(!incoming.length){ showToast('沒有有效訂單資料','warn'); return; }
+    incoming.sort((a,b)=>
+      (a.shipMethod||'未設定物流').localeCompare(b.shipMethod||'未設定物流','zh-Hant') ||
+      (a.shopeeNo||'').localeCompare(b.shopeeNo||'') ||
+      (a.buyer||'').localeCompare(b.buyer||'') ||
+      (a.sku||'').localeCompare(b.sku||'')
+    );
 
     showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
     let ok=0, skip=0, warn=0, failed=0;
@@ -12186,6 +12192,7 @@ async function importShopeeExcel(input){
         '品名':{rich_text:[{text:{content:displaySku}}]},
         '數量':{number:item.qty},
         '單價':{number:parseMoneyNumber(item.unitPrice)},
+        '總價':{number:(Number(item.qty)||0)*parseMoneyNumber(item.unitPrice)},
         '出貨方式':{rich_text:[{text:{content:item.shipMethod||''}}]},
         '狀態':{select:{name:'出貨中'}},
         '來源':{select:{name:'蝦皮'}},
