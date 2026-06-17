@@ -962,22 +962,63 @@ html[data-theme="warm"]{
 <script>
 function openStatusModal(id, cur){
   if(denyViewOnlyAction()) return;
+  const order=orders.find(x=>x.id===id);
   const statuses=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
   document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3>
   <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-    ${statuses.map(s=>`<button class="btn ${s===cur?'btn-blue':'btn-ghost'}"
-      onclick="doUpdateStatus('${id}','${s}')"
-      style="justify-content:flex-start;font-size:13px">${pill(s)}&nbsp;&nbsp;${s}</button>`).join('')}
+    ${statuses.map(s=>{
+      const rule=canMoveOrderStatus(cur,s,order);
+      return `<button class="btn ${s===cur?'btn-blue':'btn-ghost'}" ${rule.ok?`onclick="doUpdateStatus('${id}','${s}')"`:`disabled title="${rule.msg}"`}
+        style="justify-content:flex-start;font-size:13px">${pill(s)}&nbsp;&nbsp;${s}${rule.ok?'':'　受限'}</button>`;
+    }).join('')}
   </div>
   <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>`;
   openModal();
 }
 
+function canCompleteShipmentRole(){
+  return ROLE==='sales'||ROLE==='warehouse'||isAdminRole();
+}
+function canProductionToQcRole(){
+  return ROLE==='warehouse'||isAdminRole();
+}
+function canQcToShipRole(){
+  return ROLE==='qc'||isAdminRole();
+}
+function canCompleteShopeeProductionRole(){
+  return ROLE==='warehouse'||isAdminRole();
+}
+function isShopeeProductionOrder(o){
+  return !!o&&(o.orderType==='shopee'||o.orderType==='蝦皮'||(o.matCode||o.product||'').startsWith('S-'));
+}
+function canMoveOrderStatus(oldStatus,newStatus,o){
+  if(oldStatus===newStatus) return {ok:true,msg:''};
+  if(oldStatus==='生產中'&&newStatus==='待檢驗'&&!canProductionToQcRole()){
+    return {ok:false,msg:'生產完成送待檢驗僅限倉管、Vic、廠長'};
+  }
+  if(oldStatus==='待檢驗'&&newStatus==='待出貨'&&!canQcToShipRole()){
+    return {ok:false,msg:'待檢驗轉待出貨需由品管檢驗通過'};
+  }
+  if(oldStatus==='待出貨'&&newStatus==='已完成'&&!canCompleteShipmentRole()){
+    return {ok:false,msg:'待出貨完成僅限業務、倉管、Vic、廠長'};
+  }
+  if(oldStatus==='生產中'&&newStatus==='已完成'){
+    if(isShopeeProductionOrder(o)) return {ok:false,msg:'蝦皮 S- 訂單請使用完成按鈕，才能增加 S-庫存'};
+    if(!isAdminRole()) return {ok:false,msg:'一般訂單不可跳過品管直接完成'};
+  }
+  return {ok:true,msg:''};
+}
+
 async function doUpdateStatus(id, s){
   if(denyViewOnlyAction()) return;
-  closeModal();
   const o = orders.find(x=>x.id===id);
   const oldStatus = o?.status||'';
+  const rule=canMoveOrderStatus(oldStatus,s,o);
+  if(!rule.ok){
+    showToast(rule.msg,'warn');
+    return;
+  }
+  closeModal();
   if(o){ o.status=s; renderTab(CURRENT_TAB); }
   showToast('更新狀態中...','warn');
   try{
@@ -992,7 +1033,7 @@ function openShipOrderModal(id){
   if(denyViewOnlyAction()) return;
   const o=orders.find(x=>x.id===id);
   if(!o){showToast('找不到訂單','err');return;}
-  const canShip=isAdminRole()||ROLE==='sales'||ROLE==='warehouse';
+  const canShip=canCompleteShipmentRole();
   if(!canShip){showToast('此角色無法填寫出貨日','warn');return;}
   document.getElementById('modalInner').innerHTML=`<h3>🚚 填寫實際出貨日</h3>
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px">
@@ -4455,7 +4496,7 @@ function openModal(type,data){
     mi.innerHTML=`<h3>❓ LEMATEC ERP 快速說明</h3>
       <div class="help-box">
         <b>核心原則</b><br>
-        新增訂單不動庫存；確認領料才扣 BOM 子件；入料建立後只進待品檢；品管通過才自動入庫並增加庫存。
+        新增一般訂單不動庫存；確認領料才扣 BOM 子件。入料建立後只進待品檢，品管通過才自動入庫。C端出貨扣 S-成品庫存；訂單分頁建立蝦皮 S-訂單則是先生產，完成後增加 S-成品庫存。
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
@@ -4466,22 +4507,31 @@ function openModal(type,data){
           4. 庫存自動增加，並寫入異動記錄
         </div>
         <div class="info-box info-tip" style="margin:0">
-          <b>🗂️ 領料流程</b><br>
+          <b>📋 一般訂單流程</b><br>
           1. 訂單待排程<br>
-          2. 領料預覽展開 BOM<br>
-          3. 確認後扣子件庫存<br>
-          4. 訂單改為生產中
+          2. 倉管/Vic/廠長領料，扣 BOM 子件<br>
+          3. 生產中完成後送待檢驗<br>
+          4. 品管通過後轉待出貨<br>
+          5. 業務/倉管/Vic/廠長填出貨日完成
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
-          <b>🛒 蝦皮 / S-料號</b><br>
-          S-料號可手動新增；若 Excel BOM 有資料，會自動補 BOM。建立後仍走領料確認，不會建立訂單就直接扣料。
+          <b>🛒 蝦皮 S-訂單</b><br>
+          訂單分頁建立蝦皮 S-料號時，待排程先領料扣 BOM 子件，狀態變生產中。完成組裝後由倉管/Vic/廠長按「完成」，系統才會增加 S-成品庫存；不要用狀態選單直接改已完成。
         </div>
         <div class="info-box info-tip" style="margin:0">
-          <b>📊 異動記錄</b><br>
-          領料、入料、品管、手動調整、訂單狀態更新、刪除、請假審核等人為操作都會寫入紀錄。
+          <b>🧾 C端訂單</b><br>
+          C端訂單上傳或手動建立後，依 Excel / 手動選擇的 S-料號扣除 S-成品本身庫存，不展開 BOM。出貨中滿 7 天會自動轉已完成。
         </div>
+      </div>
+      <div class="info-box info-tip">
+        <b>🔐 角色權限重點</b><br>
+        業務：建立訂單、待出貨完成、可調整庫存數量。倉管：領料、生產完成送檢、蝦皮 S-完成入庫、入料與庫存作業。品管：入料待品檢與訂單待檢驗。Vic/廠長：可介入全部流程。
+      </div>
+      <div class="info-box info-tip">
+        <b>📊 異動記錄</b><br>
+        領料、入料、品管、手動調整、訂單狀態更新、刪除、請假審核等人為操作都會寫入紀錄。
       </div>
       <div class="info-box info-tip">
         <b>🗓️ 請假 / 員工資料</b><br>
@@ -7459,7 +7509,7 @@ function _renderOrdersList(tabs){
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
     ${canOperate?`<td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&(ROLE==='sales'||isAdminRole()||ROLE==='warehouse')?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${(o.orderType==='shopee'||o.orderType==='蝦皮'||(o.matCode||o.product||'').startsWith('S-'))&&o.status==='生產中'?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='warehouse'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>`:''}
   </tr>`;}).join('')}
   </table></div></div>`;
@@ -12858,6 +12908,10 @@ async function submitShopeeOrder(){
 }
 
 async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
+  if(!canCompleteShopeeProductionRole()){
+    showToast('S- 蝦皮生產完成僅限倉管、Vic、廠長操作','warn');
+    return;
+  }
   if(!confirm(`確認完成訂單 ${orderNo}？\n完成後將增加 ${skuCode} 庫存 ${qty||1} 個（成品入庫）。`)) return;
   try{
     await updatePage(orderId,{'狀態':{select:{name:'已完成'}}});
