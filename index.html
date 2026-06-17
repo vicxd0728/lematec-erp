@@ -10064,7 +10064,8 @@ function renderCorders(){
   if(!window._CO_SORT)   window._CO_SORT='created';
   if(!window._CO_DIR)    window._CO_DIR=-1;
   if(!window._CO_Q)      window._CO_Q='';
-  const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS;
+  if(!window._CO_SHIP)   window._CO_SHIP='';
+  const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS, SHIP=window._CO_SHIP;
   const SORT=window._CO_SORT, DIR=window._CO_DIR, Q=window._CO_Q;
   const notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
     <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
@@ -10073,18 +10074,26 @@ function renderCorders(){
   </div>`;
   const data=window.corders||[];
   const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
-  let filtered=data.filter(o=>{
+  const normShip=v=>(String(v||'').trim()||'未設定物流');
+  const baseFiltered=data.filter(o=>{
     if(STATUS&&o.status!==STATUS) return false;
     if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
     if(Q){const q=Q.toLowerCase();if(!(o.no||'').toLowerCase().includes(q)&&!(o.shopeeNo||'').toLowerCase().includes(q)&&!(o.buyer||'').toLowerCase().includes(q)&&!(o.customerName||'').toLowerCase().includes(q)&&!(o.matCode||o.matName||'').toLowerCase().includes(q)&&!(o.trackingNo||'').toLowerCase().includes(q)&&!(o.shipMethod||'').toLowerCase().includes(q)) return false;}
     return true;
   });
+  const shipCounts=new Map();
+  baseFiltered.forEach(o=>shipCounts.set(normShip(o.shipMethod),(shipCounts.get(normShip(o.shipMethod))||0)+1));
+  const shipNames=[...shipCounts.keys()].sort((a,b)=>a==='未設定物流'?1:b==='未設定物流'?-1:a.localeCompare(b,'zh-Hant'));
+  const shipOpts=[`<option value="" ${SHIP===''?'selected':''}>全部物流（${baseFiltered.length}）</option>`]
+    .concat(shipNames.map(s=>`<option value="${s.replace(/"/g,'&quot;')}" ${SHIP===s?'selected':''}>${s}（${shipCounts.get(s)||0}）</option>`)).join('');
+  let filtered=SHIP?baseFiltered.filter(o=>normShip(o.shipMethod)===SHIP):baseFiltered;
   filtered.sort((a,b)=>{
     let av='',bv='';
     if(SORT==='created'){av=a.created||'';bv=b.created||'';}
     else if(SORT==='status'){av=a.status||'';bv=b.status||'';}
     else if(SORT==='mat'){av=a.matCode||a.matName||'';bv=b.matCode||b.matName||'';}
     else if(SORT==='qty'){av=a.qty??0;bv=b.qty??0;}
+    else if(SORT==='ship'){av=normShip(a.shipMethod);bv=normShip(b.shipMethod);}
     return DIR*(av>bv?1:av<bv?-1:0);
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
@@ -10124,8 +10133,9 @@ function renderCorders(){
     <div class="corder-toolbar">
       <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;renderTab('corders')" style="flex:1;min-width:150px">
       <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
+      <select class="inp" style="width:170px" onchange="window._CO_SHIP=this.value;renderTab('corders')">${shipOpts}</select>
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
     <div style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。建立後立即扣庫存，取消時可選回料或報銷。</div>`;
   if(!filtered.length){
