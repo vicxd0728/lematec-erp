@@ -7729,7 +7729,8 @@ function renderCustomers(){
 function renderInventory(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
   const low=mats.filter(m=>m.stock<=m.safe);
-  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
+  const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
@@ -7819,7 +7820,7 @@ function renderInventory(){
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
-        ${canEdit?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
+        ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
     <!-- 結果摘要 + 每頁筆數 -->
@@ -7872,7 +7873,7 @@ function renderInventory(){
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
-          ${canEdit?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button><button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
+          ${canEditStock?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
         </td>
       </tr>`;}).join('')
