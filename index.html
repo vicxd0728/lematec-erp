@@ -9672,6 +9672,99 @@ function isLikelyReceiverName(v){
   return /[\u4e00-\u9fff]/.test(s) && s.length>=2 && s.length<=24;
 }
 
+function isLikelyReceiverOrCompany(v){
+  const s=cleanReceiverName(v);
+  if(!s) return false;
+  if(/[A-Z0-9]{5,}|TW\d+|蝦皮|標準配送|門市交寄|寄件|編號|宅配|HCT|收貨|備註|請收款|結帳/.test(s)) return false;
+  if(/[縣市路街巷弄號樓]/.test(s)&&s.length>8) return false;
+  return /[\u4e00-\u9fff]/.test(s) && s.length>=2 && s.length<=36;
+}
+
+function extractHctReceiverFromLines(lines){
+  const stopWords=/備註|寄件人|蝦皮訂單|寄件編號|宅配|HCT/i;
+  for(let i=0;i<lines.length;i++){
+    if(!/收貨人|收件人/.test(lines[i])) continue;
+    const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').trim();
+    if(isLikelyReceiverOrCompany(same)) return cleanReceiverName(same);
+    for(let j=i+1;j<Math.min(lines.length,i+6);j++){
+      if(stopWords.test(lines[j])) break;
+      const c=lines[j].replace(/\s*\d+件.*$/,'').trim();
+      if(isLikelyReceiverOrCompany(c)) return cleanReceiverName(c);
+    }
+  }
+  return '';
+}
+
+function extractShopeeReceiverFromLine(line){
+  let s=String(line||'')
+    .replace(/請收款結帳|請核對證件|請收款|結帳/g,'')
+    .replace(/[→⇒]/g,' ')
+    .replace(/中\/南|北|南|中/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  const m=s.match(/([\u4e00-\u9fff][\u4e00-\u9fff\s]{1,10}?)\s*(\d{3})(?:\D|$)/);
+  if(!m) return '';
+  let prefix=m[1]
+    .replace(/^\d{3,4}.*?(?:智取店|門市|店)/,'')
+    .replace(/.*(?:智取店|門市|店)\s*/,'')
+    .replace(/\s+/g,'')
+    .trim();
+  const names=prefix.match(/[\u4e00-\u9fff]{2,4}/g)||[];
+  for(let i=names.length-1;i>=0;i--){
+    const n=cleanReceiverName(names[i]);
+    if(isLikelyReceiverName(n)) return n;
+  }
+  return '';
+}
+
+function ocrLinesFromTesseract(data){
+  return (data?.lines||[]).map(l=>({
+    text:normalizeShippingText(l.text||''),
+    x0:l.bbox?.x0??0,
+    y0:l.bbox?.y0??0,
+    x1:l.bbox?.x1??0,
+    y1:l.bbox?.y1??0,
+  })).filter(l=>l.text);
+}
+
+function parseShippingImageOcr(data,barcodeText,fileName=''){
+  const lines=ocrLinesFromTesseract(data);
+  const out=[];
+  const barcodeRows=parseShippingLabelText(barcodeText||'',fileName);
+  const byOrder=new Map();
+  barcodeRows.forEach(r=>byOrder.set(r.shopeeNo,r));
+
+  const orderLines=[];
+  lines.forEach(l=>{
+    const matches=[...l.text.matchAll(/\b(\d{6}[A-Z0-9]{6,})\b/gi)];
+    matches.forEach(m=>orderLines.push({no:normalizeShopeeOrderNo(m[1]),line:l}));
+  });
+
+  for(const o of orderLines){
+    const nextY=Math.min(...orderLines.filter(x=>x.line.y0>o.line.y0+20).map(x=>x.line.y0),o.line.y0+520);
+    const region=lines.filter(l=>l.y0>o.line.y0+50&&l.y0<nextY);
+    let customerName='';
+    for(let i=region.length-1;i>=0;i--){
+      customerName=extractShopeeReceiverFromLine(region[i].text);
+      if(customerName) break;
+    }
+    if(customerName){
+      const old=byOrder.get(o.no)||{};
+      out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:o.no,trackingNo:old.trackingNo||'',customerName});
+    }
+  }
+
+  const hctText=lines.map(l=>l.text).join('\n');
+  const hctOrder=(hctText.match(/\b(\d{6}[A-Z0-9]{6,})\b/i)||[])[1];
+  if(hctOrder&&/HCT|宅配|收貨人/.test(hctText)){
+    const customerName=extractHctReceiverFromLines(lines.map(l=>l.text));
+    const tracking=(hctText.match(/宅配\s*([0-9]{8,})/)||hctText.match(/\b(7\d{9})\b/)||[])[1]||'';
+    if(customerName) out.push({source:fileName,carrier:'新竹物流',shopeeNo:normalizeShopeeOrderNo(hctOrder),trackingNo:tracking,customerName});
+  }
+
+  return dedupeShippingLabelRows(out);
+}
+
 async function ensureTesseract(){
   if(window.Tesseract) return window.Tesseract;
   await new Promise((resolve,reject)=>{
@@ -9699,6 +9792,8 @@ async function parseShippingLabelFile(file){
       showToast('圖片 OCR 辨識中，請稍候...','warn');
       const result=await Tesseract.recognize(file,'chi_tra+eng');
       ocrText=result?.data?.text||'';
+      const imageRows=parseShippingImageOcr(result?.data,barcodeText,name);
+      if(imageRows.length) return {rows:imageRows,warnings:[]};
     }catch(e){
       console.warn('圖片 OCR 失敗:',e);
       ocrWarn=`${name}：圖片 OCR 失敗，請改用 PDF 或較清晰照片。`;
@@ -9798,9 +9893,9 @@ function parseHctLabels(text,fileName=''){
     const lines=page.split('\n').map(x=>x.trim()).filter(Boolean);
     const order=(page.match(/\b(\d{6}[A-Z0-9]{6,})\b/i)||[])[1];
     if(!order) continue;
-    let customerName='';
+    let customerName=extractHctReceiverFromLines(lines);
     for(let i=0;i<lines.length;i++){
-      if(/^宅配\b/.test(lines[i])&&lines[i+1]){
+      if(!customerName&&/^宅配\b/.test(lines[i])&&lines[i+1]){
         customerName=lines[i+1].replace(/\s*\d+件.*$/,'').trim();
         break;
       }
