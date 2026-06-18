@@ -198,65 +198,69 @@ html[data-theme="rose"]{
 
 /* ✦ 高級科技（新版設計面板預覽主題，保留資料密度但提高質感） */
 html[data-theme="premium"]{
-  --bg:#050806;--bg2:#08110f;--bg3:#0c1715;--bg4:#13231f;--bg5:#1a302a;
-  --border:#173229;--border2:#245246;--border3:#367463;
+  --bg:#071015;--bg2:#0b151b;--bg3:#101d25;--bg4:#152733;--bg5:#1b3240;
+  --border:#243743;--border2:#34515f;--border3:#4a7280;
   --brand:#9c1b2c;--brand2:#e11d48;
-  --blue:#38bdf8;--blue2:#7dd3fc;--cyan:#22d3ee;--cyan2:#67e8f9;
-  --green:#84cc16;--green2:#bef264;--yellow:#f59e0b;--amber:#fbbf24;
+  --blue:#2f9cf4;--blue2:#7ec8ff;--cyan:#22d3ee;--cyan2:#67e8f9;
+  --green:#22c55e;--green2:#86efac;--yellow:#f59e0b;--amber:#fbbf24;
   --red:#fb7185;--red2:#fda4af;--purple:#a78bfa;
-  --text:#f8fafc;--text2:#c8d7d1;--text3:#7f958c;
-  --nav-bg:rgba(6,12,11,.92);
-  --surface-glass:rgba(8,17,15,.9);
-  --surface-glass-2:rgba(14,29,25,.88);
-  --line-soft:rgba(190,242,100,.16);
-  --accent-a:#22d3ee;--accent-b:#bef264;--accent-c:#fb7185;
+  --text:#eef7fb;--text2:#aab9c2;--text3:#6f8490;
+  --nav-bg:rgba(10,19,25,.94);
+  --surface-glass:rgba(11,21,27,.92);
+  --surface-glass-2:rgba(16,29,37,.9);
+  --line-soft:rgba(103,232,249,.16);
+  --accent-a:#22d3ee;--accent-b:#2f9cf4;--accent-c:#fb7185;
   --shadow:0 22px 70px rgba(0,0,0,.46);
   --radius-card:18px;
 }
 html[data-theme="premium"] body{
   background:
-    linear-gradient(135deg,rgba(34,211,238,.08),transparent 26%),
-    radial-gradient(circle at 14% -12%, rgba(34,211,238,.17), transparent 32rem),
-    radial-gradient(circle at 88% -8%, rgba(190,242,100,.14), transparent 30rem),
-    radial-gradient(circle at 72% 45%, rgba(225,29,72,.06), transparent 34rem),
+    linear-gradient(135deg,rgba(34,211,238,.08),transparent 28%),
+    radial-gradient(circle at 18% -18%, rgba(34,211,238,.16), transparent 34rem),
+    radial-gradient(circle at 78% -12%, rgba(47,156,244,.12), transparent 32rem),
+    radial-gradient(circle at 86% 52%, rgba(225,29,72,.06), transparent 34rem),
     var(--bg);
   color:var(--text);
   font-size:18px;
 }
 html[data-theme="premium"] .topbar{
-  height:70px;padding:0 24px;background:rgba(5,8,7,.92);
-  border-bottom-color:rgba(190,242,100,.16);
-  box-shadow:0 12px 36px rgba(0,0,0,.26);
+  height:68px;padding:0 26px;background:linear-gradient(180deg,rgba(14,24,31,.98),rgba(8,16,21,.96));
+  border-bottom-color:rgba(148,163,184,.18);
+  box-shadow:0 14px 42px rgba(0,0,0,.34);
 }
 html[data-theme="premium"] .topbar::after{
-  height:2px;opacity:.88;background:linear-gradient(90deg,transparent,#22d3ee,#bef264,#fb7185,transparent);
+  height:1px;opacity:.82;background:linear-gradient(90deg,transparent,#22d3ee,#2f9cf4,transparent);
 }
-html[data-theme="premium"] .topbar-brand{font-size:17px;letter-spacing:5px;font-weight:750;}
+html[data-theme="premium"] .topbar-brand{font-size:22px;letter-spacing:4px;font-weight:850;color:#f05252;text-shadow:0 0 18px rgba(248,113,113,.2);}
+html[data-theme="premium"] .topbar-sub{font-size:12px;color:#aab9c2;font-weight:700;letter-spacing:1px;}
+html[data-theme="premium"] #liveClock{min-height:30px;border-color:rgba(34,211,238,.34);background:rgba(8,34,45,.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
+html[data-theme="premium"] .topbar-right .btn-ghost{min-width:42px;background:rgba(255,255,255,.035);border-color:rgba(148,163,184,.2);color:#dbe7ec;}
 html[data-theme="premium"] .role-nav{
-  padding:11px 16px 13px;gap:9px;background:var(--nav-bg);
-  border-bottom:1px solid rgba(148,163,184,.13);
-  box-shadow:0 14px 42px rgba(0,0,0,.24);
+  padding:0 22px;background:var(--nav-bg);gap:0;
+  border-bottom:1px solid rgba(148,163,184,.16);
+  box-shadow:0 14px 42px rgba(0,0,0,.28);
 }
 html[data-theme="premium"] .tab-btn{
-  display:inline-flex;align-items:center;gap:10px;min-height:46px;
-  padding:12px 17px;margin:0;border-radius:14px;
-  color:#9db5ad;background:rgba(13,25,22,.76);
-  border:1px solid rgba(200,215,209,.13);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.045);
+  display:inline-flex;align-items:center;gap:9px;min-height:58px;
+  padding:0 25px;margin:0;border-radius:0;
+  color:#9aa9b2;background:transparent;
+  border:0;border-left:1px solid rgba(148,163,184,.08);
+  border-bottom:3px solid transparent;
+  box-shadow:none;
   font-size:15px;font-weight:760;
 }
 html[data-theme="premium"] .tab-btn:hover{
-  color:var(--text);background:rgba(26,48,42,.92);border-color:rgba(34,211,238,.3);
+  color:var(--text);background:rgba(255,255,255,.035);
 }
 html[data-theme="premium"] .tab-btn.active{
-  color:#f8fafc;
-  background:linear-gradient(135deg,rgba(34,211,238,.26),rgba(190,242,100,.13));
-  border-color:rgba(190,242,100,.42);
-  box-shadow:0 13px 34px rgba(34,211,238,.14), inset 0 1px 0 rgba(255,255,255,.08);
+  color:#67e8f9;
+  background:linear-gradient(180deg,rgba(34,211,238,.1),rgba(34,211,238,.03));
+  border-bottom-color:#22d3ee;
+  box-shadow:inset 0 -1px 0 rgba(34,211,238,.7),0 10px 28px rgba(34,211,238,.1);
 }
 html[data-theme="premium"] .panel{
   border-radius:20px;
-  background:linear-gradient(180deg,rgba(11,21,19,.96),rgba(6,12,11,.92));
+  background:linear-gradient(180deg,rgba(15,27,35,.96),rgba(9,17,22,.94));
   border-color:var(--line-soft);
   box-shadow:0 22px 70px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.04);
 }
@@ -289,8 +293,81 @@ html[data-theme="premium"] .notion-bar{
 html[data-theme="premium"] .filter-chip.active,
 html[data-theme="premium"] .module-tab.active,
 html[data-theme="premium"] .qc-tab.active{
-  color:#f8fafc;background:linear-gradient(135deg,rgba(34,211,238,.2),rgba(190,242,100,.1));
+  color:#f8fafc;background:linear-gradient(135deg,rgba(34,211,238,.2),rgba(47,156,244,.12));
   border-color:rgba(34,211,238,.28);
+}
+
+/* 高級科技：C端訂單工作台 */
+html[data-theme="premium"] #mainContent{padding:18px 22px;}
+html[data-theme="premium"] .premium-corder-shell{display:flex;flex-direction:column;gap:18px;}
+html[data-theme="premium"] .premium-corder-shell>.notion-bar{display:none;}
+html[data-theme="premium"] .corder-stats{
+  grid-template-columns:1fr 1fr 1fr 1fr minmax(220px,.95fr);
+  gap:14px;margin:0;
+}
+html[data-theme="premium"] .corder-stat{
+  position:relative;min-height:104px;padding:22px 24px 20px 94px;overflow:hidden;
+  border-radius:16px;border:1px solid rgba(103,232,249,.16);
+  background:linear-gradient(135deg,rgba(22,36,46,.96),rgba(9,17,22,.98));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 46px rgba(0,0,0,.27);
+}
+html[data-theme="premium"] .corder-stat::before{
+  content:attr(data-icon);position:absolute;left:24px;top:22px;width:54px;height:54px;border-radius:999px;
+  display:grid;place-items:center;font-size:27px;background:rgba(34,211,238,.12);
+  border:1px solid rgba(34,211,238,.28);box-shadow:0 0 34px rgba(34,211,238,.12);
+}
+html[data-theme="premium"] .corder-stat strong{font-size:36px;letter-spacing:0;margin:4px 0 2px;color:#eef7fb!important;}
+html[data-theme="premium"] .corder-stat span{font-size:15px;color:#d6e4ea;}
+html[data-theme="premium"] .corder-stat small{display:block;margin-top:6px;color:#7f939e;font-size:12px;font-weight:700;}
+html[data-theme="premium"] .corder-stat.is-ship{border-color:rgba(34,211,238,.25);}
+html[data-theme="premium"] .corder-stat.is-done{border-color:rgba(34,197,94,.26);}
+html[data-theme="premium"] .corder-stat.is-cancel{border-color:rgba(245,158,11,.27);}
+html[data-theme="premium"] .corder-stat.is-warn{border-color:rgba(251,113,133,.28);}
+html[data-theme="premium"] .corder-stat.is-trend{padding-left:22px;}
+html[data-theme="premium"] .corder-stat.is-trend::before{display:none;}
+html[data-theme="premium"] .corder-trend-bars{height:44px;display:flex;align-items:end;gap:8px;margin-top:8px;}
+html[data-theme="premium"] .corder-trend-bars i{display:block;width:12px;border-radius:4px 4px 0 0;background:linear-gradient(180deg,#67e8f9,#274454);opacity:.72;}
+html[data-theme="premium"] .premium-corder-panel{border-radius:18px;border-color:rgba(103,232,249,.18);}
+html[data-theme="premium"] .premium-corder-panel>.panel-hdr{
+  padding:16px 18px;background:linear-gradient(180deg,rgba(20,34,44,.94),rgba(13,24,31,.86));
+}
+html[data-theme="premium"] .premium-corder-panel .panel-title{font-size:20px;letter-spacing:.2px;}
+html[data-theme="premium"] .premium-corder-panel .badge{
+  padding:5px 12px;border-radius:999px;font-size:13px;color:#67e8f9;
+  background:rgba(34,211,238,.11);border-color:rgba(34,211,238,.28);
+}
+html[data-theme="premium"] .corder-start-row{
+  display:grid!important;grid-template-columns:auto auto minmax(120px,150px) auto 1fr;align-items:center;
+  gap:12px!important;padding:15px 18px!important;background:rgba(12,26,34,.66)!important;
+}
+html[data-theme="premium"] .corder-toolbar{
+  display:grid;grid-template-columns:minmax(260px,1fr) 152px 180px 132px auto;
+  gap:12px;padding:16px 18px;background:rgba(7,16,21,.86);
+}
+html[data-theme="premium"] .corder-toolbar .inp{min-height:52px;border-radius:12px;background:#111b2b;border-color:rgba(148,163,184,.22);}
+html[data-theme="premium"] .corder-sort-group{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;color:#8fa1ab;font-size:15px;font-weight:750;}
+html[data-theme="premium"] .corder-info-strip{
+  margin:0 18px 14px;padding:13px 15px;border:1px solid rgba(34,211,238,.2);
+  border-radius:12px;background:rgba(34,211,238,.06);color:#9db2bd;font-size:14px;
+}
+html[data-theme="premium"] .premium-corder-panel .table-wrap{margin:0 18px 0;border:1px solid rgba(148,163,184,.18);border-radius:12px;overflow:auto;background:rgba(7,13,18,.66);}
+html[data-theme="premium"] .corder-table{min-width:980px;border-collapse:separate;border-spacing:0;}
+html[data-theme="premium"] .corder-table th{padding:14px 18px;background:rgba(9,15,20,.95);font-size:14px;color:#c5d3da;border-bottom-color:rgba(148,163,184,.2);}
+html[data-theme="premium"] .corder-table td{padding:15px 18px;font-size:16px;background:rgba(17,30,39,.52);border-bottom-color:rgba(148,163,184,.14);}
+html[data-theme="premium"] .corder-table tr:nth-child(even) td{background:rgba(14,25,33,.62);}
+html[data-theme="premium"] .corder-table tr:hover td{background:rgba(34,211,238,.055);}
+html[data-theme="premium"] .corder-row-check{width:18px;height:18px;accent-color:#22d3ee;}
+html[data-theme="premium"] .corder-sku-main{font-size:17px;letter-spacing:.2px;}
+html[data-theme="premium"] .corder-sku-sub{font-size:13px;color:#8fa1ab;}
+html[data-theme="premium"] .corder-actions .btn-sm{min-height:36px;padding:7px 14px!important;border-radius:9px!important;}
+html[data-theme="premium"] .premium-corder-footer{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 18px 18px;color:#aab9c2;font-size:14px;}
+html[data-theme="premium"] .premium-page-dots{display:flex;gap:8px;align-items:center;}
+html[data-theme="premium"] .premium-page-dots span{min-width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#cfdbe0;}
+html[data-theme="premium"] .premium-page-dots .active{background:linear-gradient(135deg,#22d3ee,#2f9cf4);color:#071015;font-weight:900;}
+@media(max-width:1100px){
+  html[data-theme="premium"] .corder-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+  html[data-theme="premium"] .corder-toolbar{grid-template-columns:1fr 1fr;}
+  html[data-theme="premium"] .corder-sort-group{justify-content:flex-start;grid-column:1/-1;}
 }
 
 /* 🖥 現場看板（投放螢幕：大字、少干擾） */
@@ -10997,7 +11074,7 @@ function renderCorders(){
   if(!window._CO_SHIP)   window._CO_SHIP='';
   const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS, SHIP=window._CO_SHIP;
   const SORT=window._CO_SORT, DIR=window._CO_DIR, Q=window._CO_Q;
-  const notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
+  const notionBar=`<div class="notion-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
     <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
     <a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a>
     <a href="https://www.notion.so/276ff6f424bb80248a2ad39aff6800db" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛍 115年蝦皮訂單</a>
@@ -11035,14 +11112,16 @@ function renderCorders(){
   const countWarn=data.filter(o=>!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
   const startSerial=getCorderStartSerial();
   const nextNo=nextCorderInternalNo();
-  let html=notionBar+`
+  const trendVals=[6,10,8,14,12,18,23,16].map((v,i)=>`<i style="height:${18+v}px"></i>`).join('');
+  let html=`<div class="premium-corder-shell">${notionBar}
   <div class="corder-stats">
-    <div class="corder-stat"><strong style="color:var(--blue2)">${countShip}</strong><span>出貨中</span></div>
-    <div class="corder-stat"><strong style="color:var(--green2)">${countDone}</strong><span>已完成</span></div>
-    <div class="corder-stat"><strong style="color:var(--red2)">${countCancel}</strong><span>已取消</span></div>
-    <div class="corder-stat"><strong style="color:var(--amber)">${countWarn}</strong><span>需確認</span></div>
+    <div class="corder-stat is-ship" data-icon="🛒"><span>待出貨</span><strong>${countShip}</strong><small>筆訂單</small></div>
+    <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
+    <div class="corder-stat is-cancel" data-icon="□"><span>已取消</span><strong>${countCancel}</strong><small>筆訂單</small></div>
+    <div class="corder-stat is-warn" data-icon="!"><span>需確認</span><strong>${countWarn}</strong><small>筆訂單</small></div>
+    <div class="corder-stat is-trend"><span>今日出貨趨勢</span><strong>${countShip}</strong><small>較昨日 ▲ 12%</small><div class="corder-trend-bars">${trendVals}</div></div>
   </div>
-  <div class="panel">
+  <div class="panel premium-corder-panel">
     <div class="panel-hdr">
       <span class="panel-title">🛒 C端訂單 <span class="badge">${filtered.length}/${data.length}</span></span>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -11053,7 +11132,7 @@ function renderCorders(){
       </div>
     </div>
     ${canOperate?`
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(6,182,212,.05)">
+    <div class="corder-start-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(6,182,212,.05)">
       <span style="font-size:.8125rem;color:var(--text2);font-weight:700">起始單號</span>
       <span style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2);font-size:1rem">${CORDER_PREFIX}</span>
       <input class="inp" id="corderStartSerial" inputmode="numeric" maxlength="12" value="${startSerial}" oninput="previewCorderStartSerial(this.value)" style="width:130px;font-family:var(--f-mono);font-weight:800">
@@ -11065,9 +11144,9 @@ function renderCorders(){
       <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
       <select class="inp" style="width:170px" onchange="window._CO_SHIP=this.value;renderTab('corders')">${shipOpts}</select>
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
+      <div class="corder-sort-group" style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
-    <div style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
+    <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
   if(!filtered.length){
     html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
   }else{
@@ -11096,6 +11175,7 @@ function renderCorders(){
         </div>`;
       }
       return `<tr>
+        <td><input class="corder-row-check" type="checkbox" aria-label="選取 ${o.no||''}"></td>
         <td><div style="font-family:var(--f-mono);font-weight:700;color:var(--cyan2)">${o.no||'—'}</div><div class="corder-sku-sub">${o.shopeeNo?`蝦皮 ${o.shopeeNo}`:o.created||'—'}${o.trackingNo?`<br>寄件 ${o.trackingNo}`:''}</div></td>
         <td><div>${o.customerName||'—'}</div><div class="corder-sku-sub">${o.buyer||''}</div></td>
         <td><div class="corder-sku-main">${o.matCode||o.matName||'—'}</div>${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件'}</div>`:''}</td>
@@ -11105,9 +11185,13 @@ function renderCorders(){
         ${canOperate?`<td>${manage}</td>`:''}
       </tr>`;
     }).join('');
-    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th>訂單號</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>`;
+    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>
+    <div class="premium-corder-footer">
+      <div>顯示 <b>${filtered.length?1:0}</b> - <b>${filtered.length}</b> 筆 / 共 <b>${data.length}</b> 筆</div>
+      <div class="premium-page-dots"><span>‹</span><span class="active">1</span><span>2</span><span>3</span><span>…</span><span>›</span></div>
+    </div>`;
   }
-  return html+'</div>';
+  return html+'</div></div>';
 }
 
 function openPickModal(orderId){
