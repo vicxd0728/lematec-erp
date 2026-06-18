@@ -9723,6 +9723,7 @@ function isLikelyReceiverName(v){
   const s=cleanReceiverName(v);
   if(!s) return false;
   if(/[A-Z0-9]{5,}|TW\d+|蝦皮|標準配送|門市交寄|寄件|編號|宅配|HCT|收貨|備註/.test(s)) return false;
+  if(/[0-9]|縣|市|區|鄉|鎮|村|里|路|街|巷|弄|號|樓/.test(s)) return false;
   return /[\u4e00-\u9fff]/.test(s) && s.length>=2 && s.length<=24;
 }
 
@@ -9973,9 +9974,18 @@ function parseHctLabels(text,fileName=''){
     }
     if(!customerName){
       const oi=lines.findIndex(l=>l.includes(order));
-      for(let i=oi-1;i>=0&&i>oi-8;i--){
-        const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
-        if(isLikelyReceiverName(c)){customerName=c;break;}
+      if(oi>=0){
+        for(let i=oi+1;i<Math.min(lines.length,oi+6);i++){
+          const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
+          if(/寄件|寄$|件$|人$|886|彰化|縣|市|路|街|巷|號/.test(c)) break;
+          if(isLikelyReceiverName(c)){customerName=c;break;}
+        }
+      }
+      if(!customerName&&oi>=0){
+        for(let i=oi-1;i>=0&&i>oi-8;i--){
+          const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
+          if(isLikelyReceiverName(c)){customerName=c;break;}
+        }
       }
     }
     const tracking=(page.match(/宅配\s+([0-9]{8,})/)||[])[1]||'';
