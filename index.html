@@ -10133,12 +10133,14 @@ function parseHomeDeliveryLabels(text,fileName=''){
       const segText=seg.join('\n');
       const trackingNo=((segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
       let customerName='';
-      const usable=seg.filter(l=>!/智取店|門市|店$|縣|市|區|路|街|巷|弄|號|樓|住家|可收|司機|拍照|門市交寄|賣家|蝦皮訂單|寄件編號|^\d{3,4}$|^\d{4}\s/.test(l));
+      const orderIdx=seg.findIndex(l=>extractShopeeOrderNos(l).includes(b.orderNo));
+      const afterOrder=seg.slice(orderIdx>=0?orderIdx:0);
+      const usable=afterOrder.filter(l=>!/智取店|門市|店$|縣|市|區|路|街|巷|弄|號|樓|住家|可收|司機|拍照|門市交寄|賣家|買家|寄件人|蝦皮訂單|寄件編號|^\d{3,4}$|^\d{4}\s/.test(l));
       for(let i=usable.length-1;i>=0;i--){
         const c=cleanReceiverName(usable[i]);
         if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
       }
-      if(!customerName) customerName=findBestShippingReceiver(seg,'店到家');
+      if(!customerName) customerName=findBestShippingReceiver(afterOrder,'店到家');
       if(customerName) out.push({source:fileName,carrier:'店到家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
