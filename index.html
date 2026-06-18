@@ -9713,6 +9713,7 @@ function applyShippingCarrierHint(rows,fileName=''){
 
 function cleanReceiverName(v){
   return String(v||'')
+    .replace(/\s*\d+件.*$/,'')
     .replace(/\s+/g,'')
     .replace(/請收款結帳|請核對證件|請收款|結帳/g,'')
     .replace(/^[南北中東西]$/,'')
@@ -9739,7 +9740,7 @@ function extractHctReceiverFromLines(lines){
   const stopWords=/備註|寄件人|蝦皮訂單|寄件編號|宅配|HCT/i;
   for(let i=0;i<lines.length;i++){
     if(!/收貨人|收件人/.test(lines[i])) continue;
-    const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').trim();
+    const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').replace(/\s*\d+件.*$/,'').trim();
     if(isLikelyReceiverOrCompany(same)) return cleanReceiverName(same);
     for(let j=i+1;j<Math.min(lines.length,i+6);j++){
       if(stopWords.test(lines[j])) break;
