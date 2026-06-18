@@ -9898,7 +9898,12 @@ async function extractPdfText(file){
       if(last&&Math.abs(last.y-it.y)<=2) last.parts.push(it);
       else lines.push({y:it.y,parts:[it]});
     }
-    pages.push(lines.map(l=>l.parts.sort((a,b)=>a.x-b.x).map(x=>x.str).join(' ')).join('\n'));
+    const lineText=lines.map(l=>{
+      const parts=l.parts.sort((a,b)=>a.x-b.x).map(x=>String(x.str||'').trim()).filter(Boolean);
+      return [parts.join(' '),parts.join('')].filter(Boolean).join('\n');
+    }).join('\n');
+    const rawText=items.map(it=>String(it.str||'').trim()).filter(Boolean).join('\n');
+    pages.push([lineText,rawText].filter(Boolean).join('\n'));
   }
   return pages.join('\n---PAGE---\n');
 }
@@ -9931,6 +9936,7 @@ function parseShopeeStoreLabels(text,fileName=''){
   const pages=text.split('---PAGE---');
   for(const page of pages){
     const lines=page.split('\n').map(x=>x.trim()).filter(Boolean);
+    const beforeCount=out.length;
     for(let i=0;i<lines.length;i++){
       if(!/蝦皮訂單編號/.test(lines[i])) continue;
       const orders=[...lines[i].matchAll(/蝦皮訂單編號:\s*([A-Z0-9]+)/g)].map(m=>normalizeShopeeOrderNo(m[1]));
@@ -9952,6 +9958,30 @@ function parseShopeeStoreLabels(text,fileName=''){
         const customerName=names[idx]||'';
         if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:orderNo,trackingNo:tracks[idx]||'',customerName});
       });
+    }
+    if(out.length===beforeCount&&/標準配送|門市交寄|蝦皮訂單編號|智取店/.test(page)){
+      const pageOrders=[...page.matchAll(/\b(\d{6}[A-Z0-9]{6,})\b/gi)].map(m=>normalizeShopeeOrderNo(m[1]));
+      const pageTracks=[...page.matchAll(/\b(TW[A-Z0-9]{10,})\b/gi)].map(m=>m[1].trim().toUpperCase());
+      const orders=[...new Set(pageOrders)];
+      const tracks=[...new Set(pageTracks)];
+      for(const orderNo of orders){
+        const oi=lines.findIndex(l=>normalizeShopeeOrderNo(l).includes(orderNo));
+        if(oi<0) continue;
+        let customerName='';
+        const nextOrderIndex=lines.findIndex((l,idx)=>idx>oi&&/\b\d{6}[A-Z0-9]{6,}\b/i.test(l));
+        const end=nextOrderIndex>0?nextOrderIndex:Math.min(lines.length,oi+14);
+        for(let j=end-1;j>oi;j--){
+          const c=extractShopeeReceiverFromLine(lines[j]);
+          if(c){customerName=c;break;}
+        }
+        if(!customerName){
+          for(let j=oi+1;j<end;j++){
+            const c=cleanReceiverName(lines[j]);
+            if(isLikelyReceiverName(c)){customerName=c;break;}
+          }
+        }
+        if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:orderNo,trackingNo:tracks[orders.indexOf(orderNo)]||'',customerName});
+      }
     }
   }
   return out;
