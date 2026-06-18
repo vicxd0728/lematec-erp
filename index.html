@@ -9799,6 +9799,8 @@ function isBadShippingReceiverCandidate(v){
   if(/[§�□■▯]/.test(s)) return true;
   if(/[^\u4e00-\u9fffA-Za-z0-9*＊().（）·・&＆\-－空白有限公司股份企業商行工作室]/.test(s)) return true;
   if(/^(北|南|中|東|西|宅配|物流|物|流|配|店|門市|件|人|賣家|買家|寄件人|寄件|收貨人|收件人|備註|HCT)$/i.test(s)) return true;
+  if(/^(全家|萊爾富|統一|7ELEVEN|7-ELEVEN).*(店|門市)$/.test(s)) return true;
+  if(/(智取店|取件門市|門市店名|服務單|寄取貨單|寄件單|店到店)/.test(s)) return true;
   if(/蝦皮|標準配送|門市交寄|寄取貨單|自行黏貼|櫃檯|廠商|繳費期限|專用|條碼|手機末三碼|訂單編號|寄件代碼|寄件編號|請收款|請核對|結帳/.test(s)) return true;
   if(/[A-Z0-9]{5,}|TW\d+|^\d+$|^886\d+/.test(s)) return true;
   if(/[縣市區鄉鎮村里路街巷弄號樓]/.test(s)&&s.length>8) return true;
@@ -9953,9 +9955,9 @@ async function parseShippingLabelFile(file){
     const text=await extractPdfText(file);
     let rows=parseShippingLabelText(text,name);
     const warnings=[];
-    if(!rows.length){
+    if(!rows.length||hasMissingShippingReceiver(rows)){
       try{
-        showToast('PDF 文字解析失敗，改用 OCR 辨識中...','warn');
+        showToast(rows.length?'PDF 收件人不完整，改用 OCR 補抓中...':'PDF 文字解析失敗，改用 OCR 辨識中...','warn');
         const ocrText=await extractPdfOcrText(file);
         rows=parseShippingLabelText([text,ocrText].filter(Boolean).join('\n---PAGE---\n'),name);
       }catch(e){
@@ -9987,6 +9989,10 @@ async function parseShippingLabelFile(file){
     return {rows,warnings};
   }
   return {rows:[],warnings:[`${name}：不支援的檔案格式`]};
+}
+
+function hasMissingShippingReceiver(rows){
+  return (rows||[]).some(r=>!r.customerName||isBadShippingReceiverCandidate(r.customerName));
 }
 
 async function extractPdfText(file){
@@ -10027,6 +10033,7 @@ async function extractPdfOcrText(file){
   const data=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data}).promise;
   const pages=[];
+  const hint=shippingCarrierHintFromFileName(file.name||'');
   for(let p=1;p<=pdf.numPages;p++){
     const page=await pdf.getPage(p);
     const viewport=page.getViewport({scale:2.4});
@@ -10036,9 +10043,68 @@ async function extractPdfOcrText(file){
     canvas.height=Math.ceil(viewport.height);
     await page.render({canvasContext:ctx,viewport}).promise;
     const result=await Tesseract.recognize(canvas,'chi_tra+eng');
-    pages.push(result?.data?.text||'');
+    const parts=[result?.data?.text||''];
+    if(hint==='family'){
+      const familyHint=await extractFamilyMartCropHints(canvas,Tesseract);
+      if(familyHint) parts.push(familyHint);
+    }
+    pages.push(parts.filter(Boolean).join('\n'));
   }
   return pages.join('\n---PAGE---\n');
+}
+
+async function extractFamilyMartCropHints(canvas,Tesseract){
+  const crops=[
+    {x:.10,y:.04,w:.52,h:.55},
+    {x:.14,y:.27,w:.38,h:.18},
+    {x:.12,y:.30,w:.42,h:.18},
+  ];
+  const hints=[];
+  for(const c of crops){
+    try{
+      const crop=cropShippingCanvas(canvas,c.x,c.y,c.w,c.h,2);
+      const result=await Tesseract.recognize(crop,'chi_tra+eng');
+      const text=result?.data?.text||'';
+      const name=extractFamilyMartReceiverFromText(text);
+      if(name) hints.push(`全家取件人:${name}`);
+      if(text) hints.push(text);
+    }catch(e){
+      console.warn('全家裁切 OCR 失敗:',e);
+    }
+  }
+  return hints.join('\n');
+}
+
+function cropShippingCanvas(source,xRatio,yRatio,wRatio,hRatio,scale=1){
+  const sx=Math.max(0,Math.floor(source.width*xRatio));
+  const sy=Math.max(0,Math.floor(source.height*yRatio));
+  const sw=Math.min(source.width-sx,Math.ceil(source.width*wRatio));
+  const sh=Math.min(source.height-sy,Math.ceil(source.height*hRatio));
+  const out=document.createElement('canvas');
+  out.width=Math.max(1,sw*scale);
+  out.height=Math.max(1,sh*scale);
+  const ctx=out.getContext('2d',{willReadFrequently:true});
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,out.width,out.height);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(source,sx,sy,sw,sh,0,0,out.width,out.height);
+  return out;
+}
+
+function extractFamilyMartReceiverFromText(text){
+  const lines=String(text||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  const shopIdx=lines.findIndex(l=>/蝦皮購物|蝦皮|購物/.test(l));
+  if(shopIdx>=0){
+    for(let i=shopIdx+1;i<Math.min(lines.length,shopIdx+6);i++){
+      const c=cleanReceiverName(lines[i]);
+      if(!isBadShippingReceiverCandidate(c)) return c;
+    }
+  }
+  for(const line of lines){
+    const c=cleanReceiverName(line);
+    if(!isBadShippingReceiverCandidate(c)&&!/全家|FamilyMart|手機末三碼|取件|付款|廠商|訂單/.test(c)) return c;
+  }
+  return '';
 }
 
 async function extractImageBarcodes(file){
@@ -10163,6 +10229,7 @@ function parseFamilyLabels(text,fileName=''){
       const segText=seg.join('\n');
       const trackingNo=((segText.match(/廠商編號[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/(?:物流條碼|寄件編號|寄件代碼)[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
       let customerName=cleanReceiverName(
+        (segText.match(/全家取件人[:：]\s*([^\n]+)/)||[])[1]||
         (segText.match(/(?:取件人|收件人)[:：]\s*([^\n]+)/)||[])[1]||
         (segText.match(/蝦皮購物\s*\n\s*([^\n]+)/)||[])[1]||
         ''
@@ -10177,7 +10244,7 @@ function parseFamilyLabels(text,fileName=''){
       }
       if(!customerName) customerName=findBestShippingReceiver(seg,'全家');
       if(isBadShippingReceiverCandidate(customerName)) customerName='';
-      if(customerName) out.push({source:fileName,carrier:'全家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+      out.push({source:fileName,carrier:'全家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
   return out;
@@ -10426,25 +10493,29 @@ async function previewCorderShippingMatches(rows,warnings=[]){
   const enriched=rows.map(r=>{
     const cMatches=(window.corders||[]).filter(o=>normalizeShopeeOrderNo(o.shopeeNo)===r.shopeeNo);
     const sMatches=shopeeRows.filter(o=>normalizeShopeeOrderNo(o.shopeeNo)===r.shopeeNo);
-    return {...r,cMatches,sMatches};
+    const hasName=!!r.customerName&&!isBadShippingReceiverCandidate(r.customerName);
+    const foundOrder=!!(cMatches.length||sMatches.length);
+    return {...r,cMatches,sMatches,hasName,foundOrder,writable:hasName&&foundOrder};
   });
   window._shippingLabelMatches=enriched;
-  const hit=enriched.filter(r=>r.cMatches.length||r.sMatches.length).length;
+  const hit=enriched.filter(r=>r.writable).length;
+  const found=enriched.filter(r=>r.foundOrder).length;
   const table=enriched.map(r=>{
-    const ok=r.cMatches.length||r.sMatches.length;
+    const ok=r.writable;
+    const status=!r.foundOrder?healthBadge('warn','未找到訂單'):(!r.hasName?healthBadge('warn','缺收件人'):healthBadge('ok','可更新'));
     return `<tr>
-      <td style="font-family:var(--f-mono);font-weight:700;color:${ok?'var(--cyan2)':'var(--red2)'}">${escapeHtml(r.shopeeNo)}</td>
-      <td>${escapeHtml(r.customerName||'')}</td>
+      <td style="font-family:var(--f-mono);font-weight:700;color:${r.foundOrder?'var(--cyan2)':'var(--red2)'}">${escapeHtml(r.shopeeNo)}</td>
+      <td>${escapeHtml(r.customerName||'未解析')}</td>
       <td style="font-family:var(--f-mono);font-size:.78rem">${escapeHtml(r.trackingNo||'')}</td>
       <td>${escapeHtml(r.carrier||'')}</td>
       <td>${r.cMatches.length}</td>
       <td>${r.sMatches.length}</td>
-      <td>${ok?healthBadge('ok','可更新'):healthBadge('warn','未找到訂單')}</td>
+      <td>${status}</td>
     </tr>`;
   }).join('');
   document.getElementById('modalInner').innerHTML=`<h3>🚚 運送單回填客戶名稱</h3>
     <div class="info-box ${hit?'info-ok':'info-warn'}" style="margin-bottom:12px">
-      已解析 ${enriched.length} 筆運送單資料，命中 ${hit} 筆。確認後會用蝦皮訂單號碼回填 ERP C端訂單與 115年蝦皮訂單的「客戶名稱」，並同步寄件編號。
+      已解析 ${enriched.length} 筆運送單資料，找到訂單 ${found} 筆，可寫入 ${hit} 筆。確認後只會回填已解析出收件人的資料。
     </div>
     ${warnings.length?`<div class="info-box info-warn" style="margin-bottom:12px">${warnings.map(escapeHtml).join('<br>')}</div>`:''}
     <div class="table-wrap" style="max-height:52vh;overflow:auto"><table>
@@ -10456,11 +10527,11 @@ async function previewCorderShippingMatches(rows,warnings=[]){
       <button class="btn btn-blue" ${hit?'':'disabled'} onclick="applyCorderShippingNames()">確認寫入</button>
     </div>`;
   openModal();
-  showToast(`解析完成：${enriched.length} 筆，命中 ${hit} 筆`,'ok');
+  showToast(`解析完成：${enriched.length} 筆，可寫入 ${hit} 筆`,hit?'ok':'warn');
 }
 
 async function applyCorderShippingNames(){
-  const rows=(window._shippingLabelMatches||[]).filter(r=>r.customerName&&(r.cMatches.length||r.sMatches.length));
+  const rows=(window._shippingLabelMatches||[]).filter(r=>r.writable);
   if(!rows.length){showToast('沒有可寫入的資料','warn');return;}
   closeModal();
   showToast('寫入客戶名稱中...','warn');
