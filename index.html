@@ -9796,6 +9796,8 @@ function detectShippingCarrierFromText(text,fileName=''){
 function isBadShippingReceiverCandidate(v){
   const s=cleanReceiverName(v);
   if(!s) return true;
+  if(/[§�□■▯]/.test(s)) return true;
+  if(/[^\u4e00-\u9fffA-Za-z0-9*＊().（）·・&＆\-－空白有限公司股份企業商行工作室]/.test(s)) return true;
   if(/^(北|南|中|東|西|宅配|物流|物|流|配|店|門市|件|人|賣家|買家|寄件人|寄件|收貨人|收件人|備註|HCT)$/i.test(s)) return true;
   if(/蝦皮|標準配送|門市交寄|寄取貨單|自行黏貼|櫃檯|廠商|繳費期限|專用|條碼|手機末三碼|訂單編號|寄件代碼|寄件編號|請收款|請核對|結帳/.test(s)) return true;
   if(/[A-Z0-9]{5,}|TW\d+|^\d+$|^886\d+/.test(s)) return true;
@@ -10159,11 +10161,22 @@ function parseFamilyLabels(text,fileName=''){
     blocks.forEach((b,idx)=>{
       const seg=b.lines;
       const segText=seg.join('\n');
-      const trackingNo=((segText.match(/(?:物流條碼|寄件編號|寄件代碼)[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
-      const customerName=cleanReceiverName(
+      const trackingNo=((segText.match(/廠商編號[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/(?:物流條碼|寄件編號|寄件代碼)[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
+      let customerName=cleanReceiverName(
         (segText.match(/(?:取件人|收件人)[:：]\s*([^\n]+)/)||[])[1]||
-        findBestShippingReceiver(seg,'全家')
+        (segText.match(/蝦皮購物\s*\n\s*([^\n]+)/)||[])[1]||
+        ''
       );
+      if(isBadShippingReceiverCandidate(customerName)) customerName='';
+      if(!customerName){
+        const shopIdx=seg.findIndex(l=>/蝦皮購物/.test(l));
+        for(let i=shopIdx+1;i>0&&i<Math.min(seg.length,shopIdx+5);i++){
+          const c=cleanReceiverName(seg[i]);
+          if(!isBadShippingReceiverCandidate(c)){customerName=c;break;}
+        }
+      }
+      if(!customerName) customerName=findBestShippingReceiver(seg,'全家');
+      if(isBadShippingReceiverCandidate(customerName)) customerName='';
       if(customerName) out.push({source:fileName,carrier:'全家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
