@@ -9798,6 +9798,8 @@ function isBadShippingReceiverCandidate(v){
   if(!s) return true;
   if(/[§�□■▯]/.test(s)) return true;
   if(/[^\u4e00-\u9fffA-Za-z0-9*＊().（）·・&＆\-－空白有限公司股份企業商行工作室]/.test(s)) return true;
+  if(/(司機|拍照|備存|可收|管理室|僅白天|僅晚上|白天|晚上|住家|上班|下班|聯絡|電話|手機|代收|配送|備註)/.test(s)) return true;
+  if(/^[（(].*[）)]$/.test(s)) return true;
   if(/^(北|南|中|東|西|宅配|物流|物|流|配|店|門市|件|人|賣家|買家|寄件人|寄件|收貨人|收件人|備註|HCT)$/i.test(s)) return true;
   if(/^(全家|萊爾富|統一|7ELEVEN|7-ELEVEN).*(店|門市)$/.test(s)) return true;
   if(/(智取店|取件門市|門市店名|服務單|寄取貨單|寄件單|店到店)/.test(s)) return true;
@@ -9838,7 +9840,7 @@ function findBestShippingReceiver(seg,carrier=''){
   const candidates=[];
   const add=(value,score)=>{
     const name=cleanReceiverName(value);
-    if(!isBadShippingReceiverCandidate(name)) candidates.push({name,score});
+    if(isShippingReceiverCandidate(name)) candidates.push({name,score});
   };
   for(let i=0;i<seg.length;i++){
     const line=seg[i];
@@ -9860,6 +9862,28 @@ function findBestShippingReceiver(seg,carrier=''){
   }
   candidates.sort((a,b)=>b.score-a.score||a.name.length-b.name.length);
   return candidates[0]?.name||'';
+}
+
+function findHomeDeliveryReceiver(seg){
+  const lines=seg.map(l=>(l||'').trim()).filter(Boolean);
+  const stopIdx=lines.findIndex(l=>/\bTW[A-Z0-9]{10,}\b/i.test(l)||/^\d{4}-\d{2}-\d{2}/.test(l));
+  const scope=lines.slice(0,stopIdx>0?stopIdx:lines.length);
+  const canUse=(v)=>{
+    const s=cleanReceiverName(v);
+    if(!s||!isShippingReceiverCandidate(s)) return false;
+    if(/智取店|門市|縣|市|區|鄉|鎮|村|里|路|街|巷|弄|號|樓|段|住家|管理室|僅白天|僅晚上|可收|司機|拍照|備存/.test(s)) return false;
+    return true;
+  };
+  const receiveIdx=scope.findIndex(l=>/可收/.test(l));
+  if(receiveIdx>0){
+    for(let i=receiveIdx-1;i>=Math.max(0,receiveIdx-6);i--){
+      if(canUse(scope[i])) return cleanReceiverName(scope[i]);
+    }
+  }
+  for(let i=scope.length-1;i>=0;i--){
+    if(canUse(scope[i])) return cleanReceiverName(scope[i]);
+  }
+  return '';
 }
 
 function extractHctReceiverFromLines(lines){
@@ -10189,7 +10213,7 @@ function assessShippingLabelRow(row){
   else issues.push('物流來源不明');
   if(row.trackingNo) confidence+=15;
   else issues.push('缺寄件編號');
-  if(customerName&&!isBadShippingReceiverCandidate(customerName)&&!isShippingStoreCandidate(customerName)){
+  if(customerName&&isShippingReceiverCandidate(customerName)){
     confidence+=40;
   }else{
     issues.push(customerName?'收件人疑似錯誤':'缺收件人');
@@ -10270,7 +10294,7 @@ function parseHomeDeliveryLabels(text,fileName=''){
       let customerName='';
       const orderIdx=seg.findIndex(l=>extractShopeeOrderNos(l).includes(b.orderNo));
       const afterOrder=seg.slice(orderIdx>=0?orderIdx:0);
-      customerName=findReceiverAfterStoreLine(afterOrder,0,18);
+      customerName=findHomeDeliveryReceiver(afterOrder)||findReceiverAfterStoreLine(afterOrder,0,18);
       const usable=afterOrder.filter(l=>!/智取店|門市|店$|縣|市|區|路|街|巷|弄|號|樓|住家|可收|司機|拍照|門市交寄|賣家|買家|寄件人|蝦皮訂單|寄件編號|^\d{3,4}$|^\d{4}\s/.test(l));
       for(let i=usable.length-1;i>=0;i--){
         const c=cleanReceiverName(usable[i]);
