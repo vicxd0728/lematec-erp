@@ -9736,16 +9736,24 @@ function isLikelyReceiverOrCompany(v){
   return /[\u4e00-\u9fff]/.test(s) && s.length>=2 && s.length<=36;
 }
 
+function isHctReceiverCandidate(v){
+  const s=cleanReceiverName(v);
+  if(!s) return false;
+  if(/^(宅配|收貨人|收件人|寄件人|寄件|件|人|備註|HCT)$/i.test(s)) return false;
+  if(/^\d+件?$/.test(s)||/^7\d{8,}$/.test(s)||/^886\d+/.test(s)) return false;
+  return isLikelyReceiverOrCompany(s);
+}
+
 function extractHctReceiverFromLines(lines){
   const stopWords=/備註|寄件人|蝦皮訂單|寄件編號|宅配|HCT/i;
   for(let i=0;i<lines.length;i++){
     if(!/收貨人|收件人/.test(lines[i])) continue;
     const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').replace(/\s*\d+件.*$/,'').trim();
-    if(isLikelyReceiverOrCompany(same)) return cleanReceiverName(same);
+    if(isHctReceiverCandidate(same)) return cleanReceiverName(same);
     for(let j=i+1;j<Math.min(lines.length,i+6);j++){
       if(stopWords.test(lines[j])) break;
       const c=lines[j].replace(/\s*\d+件.*$/,'').trim();
-      if(isLikelyReceiverOrCompany(c)) return cleanReceiverName(c);
+      if(isHctReceiverCandidate(c)) return cleanReceiverName(c);
     }
   }
   return '';
@@ -9998,12 +10006,15 @@ function parseHctLabels(text,fileName=''){
     if(!order) continue;
     let customerName=extractHctReceiverFromLines(lines);
     for(let i=0;i<lines.length;i++){
-      if(!customerName&&/^宅配(?:\s|$)/.test(lines[i])&&lines[i+1]){
-        const c=lines[i+1].replace(/\s*\d+件.*$/,'').trim();
-        if(isLikelyReceiverOrCompany(c)||/[\u4e00-\u9fff]/.test(c)){
-          customerName=c;
-          break;
+      if(!customerName&&/^宅配(?:\s|$)/.test(lines[i])){
+        for(let j=i+1;j<Math.min(lines.length,i+8);j++){
+          const c=lines[j].replace(/\s*\d+件.*$/,'').trim();
+          if(isHctReceiverCandidate(c)){
+            customerName=c;
+            break;
+          }
         }
+        if(customerName) break;
       }
     }
     if(!customerName){
@@ -10012,7 +10023,7 @@ function parseHctLabels(text,fileName=''){
         for(let i=oi-1;i>=0&&i>oi-8;i--){
           const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
           if(/^宅配(?:\s|$)|備註|收貨人|收件人|寄件|寄$|件$|人$|886|縣|市|區|路|街|巷|號/.test(c)) continue;
-          if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
+          if(isHctReceiverCandidate(c)){customerName=c;break;}
         }
       }
     }
