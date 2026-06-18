@@ -9967,24 +9967,21 @@ function parseHctLabels(text,fileName=''){
     if(!order) continue;
     let customerName=extractHctReceiverFromLines(lines);
     for(let i=0;i<lines.length;i++){
-      if(!customerName&&/^宅配\b/.test(lines[i])&&lines[i+1]){
-        customerName=lines[i+1].replace(/\s*\d+件.*$/,'').trim();
-        break;
+      if(!customerName&&/^宅配(?:\s|$)/.test(lines[i])&&lines[i+1]){
+        const c=lines[i+1].replace(/\s*\d+件.*$/,'').trim();
+        if(isLikelyReceiverOrCompany(c)||/[\u4e00-\u9fff]/.test(c)){
+          customerName=c;
+          break;
+        }
       }
     }
     if(!customerName){
       const oi=lines.findIndex(l=>l.includes(order));
-      if(oi>=0){
-        for(let i=oi+1;i<Math.min(lines.length,oi+6);i++){
-          const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
-          if(/寄件|寄$|件$|人$|886|彰化|縣|市|路|街|巷|號/.test(c)) break;
-          if(isLikelyReceiverName(c)){customerName=c;break;}
-        }
-      }
       if(!customerName&&oi>=0){
         for(let i=oi-1;i>=0&&i>oi-8;i--){
           const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
-          if(isLikelyReceiverName(c)){customerName=c;break;}
+          if(/^宅配(?:\s|$)|備註|收貨人|收件人|寄件|寄$|件$|人$|886|縣|市|區|路|街|巷|號/.test(c)) continue;
+          if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
         }
       }
     }
