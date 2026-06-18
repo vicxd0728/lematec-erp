@@ -9713,7 +9713,7 @@ function applyShippingCarrierHint(rows,fileName=''){
 
 function cleanReceiverName(v){
   return String(v||'')
-    .replace(/\s*\d+件.*$/,'')
+    .replace(/\s*[0-9０-９]+\s*件.*$/,'')
     .replace(/\s+/g,'')
     .replace(/請收款結帳|請核對證件|請收款|結帳/g,'')
     .replace(/^[南北中東西]$/,'')
@@ -9748,11 +9748,11 @@ function extractHctReceiverFromLines(lines){
   const stopWords=/備註|寄件人|蝦皮訂單|寄件編號|宅配|HCT/i;
   for(let i=0;i<lines.length;i++){
     if(!/收貨人|收件人/.test(lines[i])) continue;
-    const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').replace(/\s*\d+件.*$/,'').trim();
+    const same=lines[i].replace(/.*(?:收貨人|收件人)\s*/,'').replace(/\s*[0-9０-９]+\s*件.*$/,'').trim();
     if(isHctReceiverCandidate(same)) return cleanReceiverName(same);
     for(let j=i+1;j<Math.min(lines.length,i+6);j++){
       if(stopWords.test(lines[j])) break;
-      const c=lines[j].replace(/\s*\d+件.*$/,'').trim();
+      const c=lines[j].replace(/\s*[0-9０-９]+\s*件.*$/,'').trim();
       if(isHctReceiverCandidate(c)) return cleanReceiverName(c);
     }
   }
@@ -10008,7 +10008,7 @@ function parseHctLabels(text,fileName=''){
     for(let i=0;i<lines.length;i++){
       if(!customerName&&/^宅配(?:\s|$)/.test(lines[i])){
         for(let j=i+1;j<Math.min(lines.length,i+8);j++){
-          const c=lines[j].replace(/\s*\d+件.*$/,'').trim();
+          const c=lines[j].replace(/\s*[0-9０-９]+\s*件.*$/,'').trim();
           if(isHctReceiverCandidate(c)){
             customerName=c;
             break;
@@ -10021,7 +10021,7 @@ function parseHctLabels(text,fileName=''){
       const oi=lines.findIndex(l=>l.includes(order));
       if(!customerName&&oi>=0){
         for(let i=oi-1;i>=0&&i>oi-8;i--){
-          const c=lines[i].replace(/\s*\d+件.*$/,'').trim();
+          const c=lines[i].replace(/\s*[0-9０-９]+\s*件.*$/,'').trim();
           if(/^宅配(?:\s|$)|備註|收貨人|收件人|寄件|寄$|件$|人$|886|縣|市|區|路|街|巷|號/.test(c)) continue;
           if(isHctReceiverCandidate(c)){customerName=c;break;}
         }
