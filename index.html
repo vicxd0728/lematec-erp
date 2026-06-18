@@ -9947,7 +9947,7 @@ function parseShippingImageOcr(data,barcodeText,fileName=''){
       }
       if(customerName){
         const old=byOrder.get(o.no)||{};
-        out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:o.no,trackingNo:old.trackingNo||'',customerName});
+        out.push({source:fileName,carrier:'蝦皮店到店',parseBy:'蝦皮店到店版型',shopeeNo:o.no,trackingNo:old.trackingNo||'',customerName});
       }
     }
   }
@@ -9957,7 +9957,7 @@ function parseShippingImageOcr(data,barcodeText,fileName=''){
   if((!hint||hint==='hct')&&hctOrder&&/HCT|宅配|收貨人/.test(hctText)){
     const customerName=extractHctReceiverFromLines(lines.map(l=>l.text));
     const tracking=(hctText.match(/宅配\s*([0-9]{8,})/)||hctText.match(/\b(7\d{9})\b/)||[])[1]||'';
-    if(customerName) out.push({source:fileName,carrier:'新竹物流',shopeeNo:normalizeShopeeOrderNo(hctOrder),trackingNo:tracking,customerName});
+    if(customerName) out.push({source:fileName,carrier:'新竹物流',parseBy:'新竹物流版型',shopeeNo:normalizeShopeeOrderNo(hctOrder),trackingNo:tracking,customerName});
   }
 
   const textRows=parseShippingLabelText([barcodeText,ocrText].filter(Boolean).join('\n---PAGE---\n'),fileName);
@@ -10161,7 +10161,46 @@ function parseShippingLabelText(rawText,fileName=''){
     ...(hint!=='shopee'?parseHctLabels(text,fileName):[]),
     ...parseGenericShippingLabels(text,fileName),
   ];
-  return dedupeShippingLabelRows(applyShippingCarrierHint(rows,fileName).filter(r=>r.shopeeNo));
+  return finalizeShippingLabelRows(rows,fileName);
+}
+
+function finalizeShippingLabelRows(rows,fileName=''){
+  const hinted=applyShippingCarrierHint(rows,fileName).filter(r=>r.shopeeNo);
+  const assessed=hinted.map(r=>{
+    const parseBy=r.parseBy||`${r.carrier||detectShippingCarrierFromText('',fileName)||'未知物流'}版型`;
+    const quality=assessShippingLabelRow({...r,parseBy});
+    return {...r,parseBy,...quality};
+  });
+  return dedupeShippingLabelRows(assessed).map(r=>{
+    const quality=assessShippingLabelRow(r);
+    return {...r,...quality};
+  });
+}
+
+function assessShippingLabelRow(row){
+  const issues=[];
+  let confidence=0;
+  const carrier=row.carrier||'';
+  const parseBy=row.parseBy||'';
+  const customerName=cleanReceiverName(row.customerName);
+  if(row.shopeeNo) confidence+=25;
+  else issues.push('缺蝦皮訂單號');
+  if(carrier&&carrier!=='其他寄送方式') confidence+=20;
+  else issues.push('物流來源不明');
+  if(row.trackingNo) confidence+=15;
+  else issues.push('缺寄件編號');
+  if(customerName&&!isBadShippingReceiverCandidate(customerName)&&!isShippingStoreCandidate(customerName)){
+    confidence+=40;
+  }else{
+    issues.push(customerName?'收件人疑似錯誤':'缺收件人');
+  }
+  if(/泛用/.test(parseBy)){
+    confidence=Math.min(confidence,65);
+    issues.push('泛用解析，需人工確認');
+  }
+  if(/疑似/.test(parseBy)) confidence=Math.min(confidence,75);
+  const writable=confidence>=80&&!issues.some(x=>/缺收件人|收件人疑似錯誤|缺蝦皮訂單號/.test(x));
+  return {customerName,confidence,issues,writableByParse:writable};
 }
 
 function parseSevenElevenLabels(text,fileName=''){
@@ -10182,7 +10221,7 @@ function parseSevenElevenLabels(text,fileName=''){
         findBestShippingReceiver(seg,'7-ELEVEN')
       );
       const trackingNo=((segText.match(/物流條碼[:：]\s*([A-Z0-9-]{8,})/i)||[])[1]||'').trim().toUpperCase();
-      if(customerName) out.push({source:fileName,carrier:'7-ELEVEN',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+      if(customerName) out.push({source:fileName,carrier:'7-ELEVEN',parseBy:'7-ELEVEN版型',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
   return out;
@@ -10209,7 +10248,7 @@ function parseTcatLabels(text,fileName=''){
         if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
       }
       if(!customerName) customerName=findBestShippingReceiver(seg,'大榮貨運');
-      if(customerName) out.push({source:fileName,carrier:'大榮貨運',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+      if(customerName) out.push({source:fileName,carrier:'大榮貨運',parseBy:'大榮版型',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
   return out;
@@ -10238,7 +10277,7 @@ function parseHomeDeliveryLabels(text,fileName=''){
         if(!customerName&&isShippingReceiverCandidate(c)){customerName=c;break;}
       }
       if(!customerName) customerName=findBestShippingReceiver(afterOrder,'店到家');
-      if(customerName) out.push({source:fileName,carrier:'店到家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+      if(customerName) out.push({source:fileName,carrier:'店到家',parseBy:'店到家版型',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
   return out;
@@ -10273,7 +10312,7 @@ function parseFamilyLabels(text,fileName=''){
       }
       if(!customerName) customerName=findBestShippingReceiver(seg,'全家');
       if(isBadShippingReceiverCandidate(customerName)) customerName='';
-      out.push({source:fileName,carrier:'全家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+      out.push({source:fileName,carrier:'全家',parseBy:'全家版型',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
     });
   }
   return out;
@@ -10327,7 +10366,7 @@ function parseGenericShippingLabels(text,fileName=''){
       const segText=seg.join('\n');
       const tracking=(segText.match(/(TW[A-Z0-9]{10,})/i)||segText.match(/(?:寄件代碼|寄件編號)[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/宅配\s*([0-9]{8,})/)||segText.match(/\b(7\d{9})\b/)||[])[1]||allTracks[idx]||'';
       const customerName=findBestShippingReceiver(seg,carrier);
-      out.push({source:fileName,carrier,shopeeNo:o.orderNo,trackingNo:tracking,customerName});
+      out.push({source:fileName,carrier,parseBy:'泛用解析',shopeeNo:o.orderNo,trackingNo:tracking,customerName});
     });
   }
   return out;
@@ -10364,7 +10403,7 @@ function parseShopeeStoreLabels(text,fileName=''){
         }
       }
       if(!customerName) customerName=findBestShippingReceiver(seg,'蝦皮店到店');
-      if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:b.orderNo,trackingNo,customerName});
+      if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',parseBy:'蝦皮店到店版型',shopeeNo:b.orderNo,trackingNo,customerName});
     }
   }
   return out;
@@ -10406,7 +10445,7 @@ function parseHiLifeLabels(text,fileName=''){
           }
         }
       }
-      if(customerName) out.push({source:fileName,carrier:'萊爾富',shopeeNo:cur.no,trackingNo:tracking,customerName});
+      if(customerName) out.push({source:fileName,carrier:'萊爾富',parseBy:'萊爾富版型',shopeeNo:cur.no,trackingNo:tracking,customerName});
     }
   }
   return out;
@@ -10445,7 +10484,7 @@ function parseHctLabels(text,fileName=''){
     }
     const tracking=(page.match(/宅配\s+([0-9]{8,})/)||[])[1]||'';
     customerName=cleanReceiverName(customerName);
-    if(customerName) out.push({source:fileName,carrier:'新竹物流',shopeeNo:normalizeShopeeOrderNo(order),trackingNo:tracking,customerName});
+    if(customerName) out.push({source:fileName,carrier:'新竹物流',parseBy:'新竹物流版型',shopeeNo:normalizeShopeeOrderNo(order),trackingNo:tracking,customerName});
   }
   return out;
 }
@@ -10457,9 +10496,12 @@ function dedupeShippingLabelRows(rows){
     if(!key) return;
     const old=map.get(key);
     const score=x=>
+      (Number(x?.confidence||0)*2)+
+      (x?.writableByParse?80:0)+
       (x?.customerName&&!isBadShippingReceiverCandidate(x.customerName)?50:0)+
       (x?.trackingNo?20:0)+
-      (x?.carrier&&x.carrier!=='其他寄送方式'?10:0);
+      (x?.carrier&&x.carrier!=='其他寄送方式'?10:0)-
+      (/泛用/.test(x?.parseBy||'')?60:0);
     if(!old||score(r)>score(old)||(!old.customerName&&r.customerName)||(!old.trackingNo&&r.trackingNo)){
       map.set(key,{...old,...r,shopeeNo:key});
     }
@@ -10525,22 +10567,26 @@ async function previewCorderShippingMatches(rows,warnings=[]){
     const sMatches=shopeeRows.filter(o=>normalizeShopeeOrderNo(o.shopeeNo)===r.shopeeNo);
     const hasName=!!r.customerName&&!isBadShippingReceiverCandidate(r.customerName);
     const foundOrder=!!(cMatches.length||sMatches.length);
-    return {...r,cMatches,sMatches,hasName,foundOrder,writable:hasName&&foundOrder};
+    const safeToWrite=!!r.writableByParse;
+    return {...r,cMatches,sMatches,hasName,foundOrder,writable:hasName&&foundOrder&&safeToWrite};
   });
   window._shippingLabelMatches=enriched;
   const hit=enriched.filter(r=>r.writable).length;
   const found=enriched.filter(r=>r.foundOrder).length;
   const table=enriched.map(r=>{
     const ok=r.writable;
-    const status=!r.foundOrder?healthBadge('warn','未找到訂單'):(!r.hasName?healthBadge('warn','缺收件人'):healthBadge('ok','可更新'));
+    const status=!r.foundOrder?healthBadge('warn','未找到訂單'):(!r.hasName?healthBadge('warn','缺收件人'):(!r.writable?healthBadge('warn','需人工確認'):healthBadge('ok','可更新')));
+    const reason=(r.issues||[]).join('、')||'';
     return `<tr>
       <td style="font-family:var(--f-mono);font-weight:700;color:${r.foundOrder?'var(--cyan2)':'var(--red2)'}">${escapeHtml(r.shopeeNo)}</td>
       <td>${escapeHtml(r.customerName||'未解析')}</td>
       <td style="font-family:var(--f-mono);font-size:.78rem">${escapeHtml(r.trackingNo||'')}</td>
       <td>${escapeHtml(r.carrier||'')}</td>
+      <td>${escapeHtml(r.parseBy||'')}</td>
+      <td>${Number(r.confidence||0)}</td>
       <td>${r.cMatches.length}</td>
       <td>${r.sMatches.length}</td>
-      <td>${status}</td>
+      <td>${status}${reason?`<div style="font-size:.72rem;color:var(--text3);margin-top:4px">${escapeHtml(reason)}</div>`:''}</td>
     </tr>`;
   }).join('');
   document.getElementById('modalInner').innerHTML=`<h3>🚚 運送單回填客戶名稱</h3>
@@ -10549,7 +10595,7 @@ async function previewCorderShippingMatches(rows,warnings=[]){
     </div>
     ${warnings.length?`<div class="info-box info-warn" style="margin-bottom:12px">${warnings.map(escapeHtml).join('<br>')}</div>`:''}
     <div class="table-wrap" style="max-height:52vh;overflow:auto"><table>
-      <tr><th>蝦皮訂單號</th><th>收件人</th><th>寄件編號</th><th>來源</th><th>ERP</th><th>115</th><th>狀態</th></tr>
+      <tr><th>蝦皮訂單號</th><th>收件人</th><th>寄件編號</th><th>來源</th><th>解析</th><th>信心</th><th>ERP</th><th>115</th><th>狀態</th></tr>
       ${table}
     </table></div>
     <div class="form-actions">
@@ -13499,4 +13545,3 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
-
