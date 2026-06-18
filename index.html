@@ -9721,6 +9721,10 @@ function extractShopeeOrderNos(text){
 function shippingCarrierHintFromFileName(fileName=''){
   const n=String(fileName||'').toLowerCase();
   if(/萊爾富|hi[-\s]?life|hilife/.test(n)) return 'hilife';
+  if(/7-eleven|7\s*eleven|交貨便|統一超商/.test(n)) return 'seven';
+  if(/全家|family/.test(n)) return 'family';
+  if(/大榮|嘉里|kerry|tcat/.test(n)) return 'tcat';
+  if(/店到家|home\s*delivery|店到家宅配/.test(n)) return 'home';
   if(/蝦皮|shopee|店到店|門市交寄|標準配送/.test(n)) return 'shopee';
   if(/新竹|hct|宅配/.test(n)) return 'hct';
   return '';
@@ -9729,7 +9733,7 @@ function shippingCarrierHintFromFileName(fileName=''){
 function applyShippingCarrierHint(rows,fileName=''){
   const hint=shippingCarrierHintFromFileName(fileName);
   if(!hint) return rows||[];
-  const carrier=hint==='hct'?'新竹物流':hint==='hilife'?'萊爾富':'蝦皮店到店';
+  const carrier=carrierNameFromHint(hint);
   return (rows||[]).map(r=>({...r,carrier}));
 }
 
@@ -9767,13 +9771,23 @@ function isHctReceiverCandidate(v){
 }
 
 function carrierNameFromHint(hint){
-  return hint==='hct'?'新竹物流':hint==='hilife'?'萊爾富':hint==='shopee'?'蝦皮店到店':'';
+  return hint==='hct'?'新竹物流':
+    hint==='hilife'?'萊爾富':
+    hint==='seven'?'7-ELEVEN':
+    hint==='family'?'全家':
+    hint==='tcat'?'大榮貨運':
+    hint==='home'?'店到家':
+    hint==='shopee'?'蝦皮店到店':'';
 }
 
 function detectShippingCarrierFromText(text,fileName=''){
   const hint=shippingCarrierHintFromFileName(fileName);
   if(hint) return carrierNameFromHint(hint);
   if(/Hi[-\s]?Life|萊爾富|寄取貨單|寄件代碼/i.test(text)) return '萊爾富';
+  if(/交貨便|統一超商|7-ELEVEN|取件人|物流條碼/.test(text)) return '7-ELEVEN';
+  if(/全家|FamilyMart|店到店/.test(text)) return '全家';
+  if(/嘉里快遞|大榮|託運單號|出貨單號/.test(text)) return '大榮貨運';
+  if(/HD\s*店到家|店到家宅配/.test(text)) return '店到家';
   if(/HCT|宅配/.test(text)) return '新竹物流';
   if(/標準配送|門市交寄|智取店|蝦皮訂單編號/.test(text)) return '蝦皮店到店';
   return '其他寄送方式';
@@ -9868,11 +9882,12 @@ function parseShippingImageOcr(data,barcodeText,fileName=''){
   const lines=ocrLinesFromTesseract(data);
   const out=[];
   const hint=shippingCarrierHintFromFileName(fileName);
+  const ocrText=lines.map(l=>l.text).join('\n');
   const barcodeRows=parseShippingLabelText(barcodeText||'',fileName);
   const byOrder=new Map();
   barcodeRows.forEach(r=>byOrder.set(r.shopeeNo,r));
 
-  if(hint!=='hct'){
+  if((!hint||hint==='shopee')&&/標準配送|門市交寄|蝦皮訂單編號|智取店|請收款結帳/.test(ocrText)){
     const orderLines=[];
     lines.forEach(l=>{
       extractShopeeOrderNos(l.text).forEach(no=>orderLines.push({no,line:l}));
@@ -9905,15 +9920,16 @@ function parseShippingImageOcr(data,barcodeText,fileName=''){
     }
   }
 
-  const hctText=lines.map(l=>l.text).join('\n');
+  const hctText=ocrText;
   const hctOrder=extractShopeeOrderNos(hctText)[0];
-  if(hint!=='shopee'&&hctOrder&&/HCT|宅配|收貨人/.test(hctText)){
+  if((!hint||hint==='hct')&&hctOrder&&/HCT|宅配|收貨人/.test(hctText)){
     const customerName=extractHctReceiverFromLines(lines.map(l=>l.text));
     const tracking=(hctText.match(/宅配\s*([0-9]{8,})/)||hctText.match(/\b(7\d{9})\b/)||[])[1]||'';
     if(customerName) out.push({source:fileName,carrier:'新竹物流',shopeeNo:normalizeShopeeOrderNo(hctOrder),trackingNo:tracking,customerName});
   }
 
-  return dedupeShippingLabelRows(applyShippingCarrierHint(out,fileName));
+  const textRows=parseShippingLabelText([barcodeText,ocrText].filter(Boolean).join('\n---PAGE---\n'),fileName);
+  return dedupeShippingLabelRows(applyShippingCarrierHint([...out,...textRows],fileName));
 }
 
 async function ensureTesseract(){
@@ -10040,12 +10056,138 @@ function parseShippingLabelText(rawText,fileName=''){
   const text=normalizeShippingText(rawText);
   const hint=shippingCarrierHintFromFileName(fileName);
   const rows=[
-    ...(hint!=='hct'&&hint!=='hilife'?parseShopeeStoreLabels(text,fileName):[]),
+    ...(hint==='seven'||/交貨便|統一超商|取件人|物流條碼/.test(text)?parseSevenElevenLabels(text,fileName):[]),
+    ...(hint==='tcat'||/嘉里快遞|大榮|託運單號|出貨單號/.test(text)?parseTcatLabels(text,fileName):[]),
+    ...(hint==='home'||/HD\s*店到家|店到家宅配/.test(text)?parseHomeDeliveryLabels(text,fileName):[]),
+    ...(hint==='family'||/全家|FamilyMart|店到店/.test(text)?parseFamilyLabels(text,fileName):[]),
+    ...(hint!=='hct'&&hint!=='hilife'&&hint!=='seven'&&hint!=='tcat'&&hint!=='home'&&hint!=='family'?parseShopeeStoreLabels(text,fileName):[]),
     ...(hint!=='hct'&&hint!=='shopee'?parseHiLifeLabels(text,fileName):[]),
     ...(hint!=='shopee'?parseHctLabels(text,fileName):[]),
     ...parseGenericShippingLabels(text,fileName),
   ];
   return dedupeShippingLabelRows(applyShippingCarrierHint(rows,fileName).filter(r=>r.shopeeNo));
+}
+
+function parseSevenElevenLabels(text,fileName=''){
+  const out=[];
+  const pages=text.split('---PAGE---');
+  const hinted=shippingCarrierHintFromFileName(fileName)==='seven';
+  for(const page of pages){
+    if(!hinted&&!/交貨便|統一超商|取件人|物流條碼/.test(page)) continue;
+    const orders=extractShopeeOrderNos(page);
+    if(!orders.length) continue;
+    const blocks=splitShippingTextByOrders(page,orders);
+    blocks.forEach((b,idx)=>{
+      const seg=b.lines;
+      const segText=seg.join('\n');
+      const customerName=cleanReceiverName(
+        (segText.match(/取件人[:：]\s*([^\n]+)/)||[])[1]||
+        lineAfter(seg,/取件人[:：]?/)||
+        findBestShippingReceiver(seg,'7-ELEVEN')
+      );
+      const trackingNo=((segText.match(/物流條碼[:：]\s*([A-Z0-9-]{8,})/i)||[])[1]||'').trim().toUpperCase();
+      if(customerName) out.push({source:fileName,carrier:'7-ELEVEN',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+    });
+  }
+  return out;
+}
+
+function parseTcatLabels(text,fileName=''){
+  const out=[];
+  const pages=text.split('---PAGE---');
+  const hinted=shippingCarrierHintFromFileName(fileName)==='tcat';
+  for(const page of pages){
+    if(!hinted&&!/嘉里快遞|大榮|託運單號|出貨單號/.test(page)) continue;
+    const lines=page.split('\n').map(x=>x.trim()).filter(Boolean);
+    const orders=extractShopeeOrderNos(page);
+    if(!orders.length) continue;
+    const blocks=splitShippingTextByOrders(page,orders);
+    blocks.forEach((b,idx)=>{
+      const seg=b.lines;
+      const segText=seg.join('\n');
+      const trackingNo=((segText.match(/託運單號\s*([0-9]{8,})/)||segText.match(/出貨單號\s*[A-Z0-9]+\s+([0-9]{8,})/)||[])[1]||'').trim();
+      let customerName='';
+      const orderIdx=seg.findIndex(l=>/出貨單號/.test(l)||normalizeShopeeOrderNo(l).includes(b.orderNo));
+      for(let i=Math.max(0,orderIdx+1);i<Math.min(seg.length,orderIdx+8);i++){
+        const c=cleanReceiverName(seg[i]);
+        if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
+      }
+      if(!customerName) customerName=findBestShippingReceiver(seg,'大榮貨運');
+      if(customerName) out.push({source:fileName,carrier:'大榮貨運',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+    });
+  }
+  return out;
+}
+
+function parseHomeDeliveryLabels(text,fileName=''){
+  const out=[];
+  const pages=text.split('---PAGE---');
+  const hinted=shippingCarrierHintFromFileName(fileName)==='home';
+  for(const page of pages){
+    if(!hinted&&!/HD\s*店到家|店到家宅配/.test(page)) continue;
+    const orders=extractShopeeOrderNos(page);
+    if(!orders.length) continue;
+    const blocks=splitShippingTextByOrders(page,orders);
+    blocks.forEach((b,idx)=>{
+      const seg=b.lines;
+      const segText=seg.join('\n');
+      const trackingNo=((segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
+      let customerName='';
+      const usable=seg.filter(l=>!/智取店|門市|店$|縣|市|區|路|街|巷|弄|號|樓|住家|可收|司機|拍照|門市交寄|賣家|蝦皮訂單|寄件編號|^\d{3,4}$|^\d{4}\s/.test(l));
+      for(let i=usable.length-1;i>=0;i--){
+        const c=cleanReceiverName(usable[i]);
+        if(isLikelyReceiverOrCompany(c)){customerName=c;break;}
+      }
+      if(!customerName) customerName=findBestShippingReceiver(seg,'店到家');
+      if(customerName) out.push({source:fileName,carrier:'店到家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+    });
+  }
+  return out;
+}
+
+function parseFamilyLabels(text,fileName=''){
+  const out=[];
+  const pages=text.split('---PAGE---');
+  const hinted=shippingCarrierHintFromFileName(fileName)==='family';
+  for(const page of pages){
+    if(!hinted&&!/全家|FamilyMart|店到店|取件人|收件人|物流條碼/.test(page)) continue;
+    const orders=extractShopeeOrderNos(page);
+    if(!orders.length) continue;
+    const blocks=splitShippingTextByOrders(page,orders);
+    blocks.forEach((b,idx)=>{
+      const seg=b.lines;
+      const segText=seg.join('\n');
+      const trackingNo=((segText.match(/(?:物流條碼|寄件編號|寄件代碼)[:：]?\s*([A-Z0-9-]{8,})/i)||segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
+      const customerName=cleanReceiverName(
+        (segText.match(/(?:取件人|收件人)[:：]\s*([^\n]+)/)||[])[1]||
+        findBestShippingReceiver(seg,'全家')
+      );
+      if(customerName) out.push({source:fileName,carrier:'全家',shopeeNo:b.orderNo||orders[idx],trackingNo,customerName});
+    });
+  }
+  return out;
+}
+
+function splitShippingTextByOrders(page,orders){
+  const lines=page.split('\n').map(x=>x.trim()).filter(Boolean);
+  const positions=[];
+  lines.forEach((line,idx)=>{
+    const nos=extractShopeeOrderNos(line);
+    nos.forEach(no=>{
+      if(orders.includes(no)) positions.push({orderNo:no,idx});
+    });
+  });
+  if(!positions.length) return orders.map(orderNo=>({orderNo,lines}));
+  return positions.map((p,i)=>{
+    const next=positions.find(x=>x.idx>p.idx)?.idx??lines.length;
+    const start=Math.max(0,p.idx-8);
+    return {orderNo:p.orderNo,lines:lines.slice(start,next)};
+  });
+}
+
+function lineAfter(lines,pattern){
+  const idx=lines.findIndex(l=>pattern.test(l));
+  return idx>=0?lines[idx+1]||'':'';
 }
 
 function parseGenericShippingLabels(text,fileName=''){
@@ -10084,77 +10226,33 @@ function parseShopeeStoreLabels(text,fileName=''){
   const out=[];
   const pages=text.split('---PAGE---');
   for(const page of pages){
+    if(!/標準配送|門市交寄|蝦皮訂單編號|智取店|請收款結帳/.test(page)) continue;
     const lines=page.split('\n').map(x=>x.trim()).filter(Boolean);
-    const beforeCount=out.length;
-    for(let i=0;i<lines.length;i++){
-      if(!/蝦皮訂單編號/.test(lines[i])) continue;
-      const orders=[...lines[i].matchAll(/蝦皮訂單編號:\s*([A-Z0-9]+)/g)].map(m=>normalizeShopeeOrderNo(m[1]));
-      if(!orders.length) continue;
-      const trackingLine=lines[i+1]||'';
-      const tracks=[...trackingLine.matchAll(/寄件編號:\s*(TW[A-Z0-9]+)/g)].map(m=>m[1].trim());
-      let nameLine='';
-      for(let j=i+2;j<Math.min(lines.length,i+7);j++){
-        const line=lines[j];
-        if(/-.*店/.test(line)) {nameLine=lines[j+1]||'';break;}
-      }
-      if(!nameLine) nameLine=lines[i+3]||'';
-      let names=nameLine.split(/\s+/).map(cleanReceiverName).filter(isLikelyReceiverName);
-      if(names.length<orders.length){
-        const next=(lines[i+4]||'').split(/\s+/).map(cleanReceiverName).filter(isLikelyReceiverName);
-        names=[...names,...next];
-      }
-      orders.forEach((orderNo,idx)=>{
-        const customerName=names[idx]||'';
-        if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:orderNo,trackingNo:tracks[idx]||'',customerName});
-      });
-    }
-    if(out.length===beforeCount&&/標準配送|門市交寄|蝦皮訂單編號|智取店|請收款結帳/.test(page)){
-      const pageOrders=extractShopeeOrderNos(page);
-      const pageTracks=[...page.matchAll(/\b(TW[A-Z0-9]{10,})\b/gi)].map(m=>m[1].trim().toUpperCase());
-      const orders=[...new Set(pageOrders)];
-      const tracks=[...new Set(pageTracks)];
-      for(const orderNo of orders){
-        const oi=lines.findIndex(l=>normalizeShopeeOrderNo(l).includes(orderNo)||normalizeShopeeOrderNo(l.replace(/\s+/g,'')).includes(orderNo));
-        if(oi<0) continue;
-        let customerName='';
-        const nextOrderIndex=lines.findIndex((l,idx)=>idx>oi&&extractShopeeOrderNos(l).length);
-        const end=nextOrderIndex>0?nextOrderIndex:Math.min(lines.length,oi+14);
-        for(let j=end-1;j>oi;j--){
-          const c=extractShopeeReceiverFromLine(lines[j]);
-          if(c){customerName=c;break;}
-        }
-        if(!customerName){
-          for(let j=oi+1;j<end;j++){
-            const c=cleanReceiverName(lines[j]);
-            if(isLikelyReceiverName(c)){customerName=c;break;}
+    const orders=[...new Set(extractShopeeOrderNos(page))];
+    const blocks=splitShippingTextByOrders(page,orders);
+    for(const b of blocks){
+      const seg=b.lines;
+      const segText=seg.join('\n');
+      const trackingNo=((segText.match(/\b(TW[A-Z0-9]{10,})\b/i)||[])[1]||'').trim().toUpperCase();
+      let customerName='';
+      for(let i=0;i<seg.length;i++){
+        if(/請收款結帳|請核對證件/.test(seg[i])){
+          for(let j=i-1;j>=Math.max(0,i-7);j--){
+            const c=extractShopeeReceiverFromLine(seg[j])||cleanReceiverName(seg[j]);
+            if(isLikelyReceiverName(c)||isLikelyReceiverOrCompany(c)){customerName=c;break;}
           }
-        }
-        if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:orderNo,trackingNo:tracks[orders.indexOf(orderNo)]||'',customerName});
-      }
-    }
-    if(out.length===beforeCount&&shippingCarrierHintFromFileName(fileName)==='shopee'){
-      const compact=page.replace(/\s+/g,'');
-      const orders=extractShopeeOrderNos(page);
-      const tracks=[...new Set([...compact.matchAll(/(TW[A-Z0-9]{10,})/gi)].map(m=>m[1].toUpperCase()))];
-      const names=[];
-      for(let i=0;i<lines.length;i++){
-        if(/請收款結帳|請核對證件/.test(lines[i])){
-          for(let j=i-1;j>=Math.max(0,i-5);j--){
-            const c=extractShopeeReceiverFromLine(lines[j])||cleanReceiverName(lines[j]);
-            if(isLikelyReceiverName(c)){names.unshift(c);break;}
-          }
+          if(customerName) break;
         }
       }
-      if(!names.length){
-        for(const line of lines){
-          const c=extractShopeeReceiverFromLine(line);
-          if(c) names.push(c);
+      if(!customerName){
+        const storeIdx=seg.findIndex(l=>/智取店|門市|店$/.test(l));
+        for(let j=storeIdx+1;j>0&&j<Math.min(seg.length,storeIdx+5);j++){
+          const c=cleanReceiverName(seg[j]);
+          if(isLikelyReceiverName(c)||isLikelyReceiverOrCompany(c)){customerName=c;break;}
         }
       }
-      orders.forEach((orderNo,idx)=>{
-        const customerName=names[idx]||names[names.length-1]||'';
-        if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:orderNo,trackingNo:tracks[idx]||'',customerName});
-      });
+      if(!customerName) customerName=findBestShippingReceiver(seg,'蝦皮店到店');
+      if(customerName) out.push({source:fileName,carrier:'蝦皮店到店',shopeeNo:b.orderNo,trackingNo,customerName});
     }
   }
   return out;
@@ -10246,7 +10344,11 @@ function dedupeShippingLabelRows(rows){
     const key=normalizeShopeeOrderNo(r.shopeeNo);
     if(!key) return;
     const old=map.get(key);
-    if(!old||(!old.customerName&&r.customerName)||(!old.trackingNo&&r.trackingNo)){
+    const score=x=>
+      (x?.customerName&&!isBadShippingReceiverCandidate(x.customerName)?50:0)+
+      (x?.trackingNo?20:0)+
+      (x?.carrier&&x.carrier!=='其他寄送方式'?10:0);
+    if(!old||score(r)>score(old)||(!old.customerName&&r.customerName)||(!old.trackingNo&&r.trackingNo)){
       map.set(key,{...old,...r,shopeeNo:key});
     }
   });
