@@ -8247,14 +8247,14 @@ function _renderOrdersList(tabs){
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str','hide-m')}${TH('orders','product','品項')}<th class="hide-m">數量</th>${TH('orders','deadline','交期','str','hide-m')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
+  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
     <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${o.no||'—'}</td>
-    <td class="hide-m" style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
+    <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
     <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}</td>
     <td style="font-family:monospace">${o.qty}</td>
-    <td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
+    <td style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
     ${canOperate?`<td style="display:flex;gap:4px;flex-wrap:wrap">
@@ -9497,14 +9497,15 @@ async function importShopeeBomToNotion(){
       continue;
     }
     for(const ch of (row.children||[])){
-      let child=findMatBySku(ch.code);
+      const childCode=normalizeBomChildSku(ch.code);
+      let child=findMatBySku(childCode);
       try{
         if(!child){
-          child=await createMaterialFromSku(ch.code,'零件',0,0,`Shopee BOM 子件，來源母件 ${row.parent}`);
+          child=await createMaterialFromSku(childCode,bomImportChildType(childCode),0,0,`Shopee BOM 子件，來源母件 ${row.parent}`);
           childCreated++;
         }
       }catch(e){
-        failed.push(`${row.parent} → ${ch.code} 子件建檔失敗：${e.message}`);
+        failed.push(`${row.parent} → ${childCode} 子件建檔失敗：${e.message}`);
         continue;
       }
       const key=parent.id+'|'+child.id;
@@ -9517,14 +9518,14 @@ async function importShopeeBomToNotion(){
             current.qty=nextQty;
             updated++;
           }catch(e){
-            failed.push(`${row.parent} → ${ch.code} 數量修正失敗：${e.message}`);
+            failed.push(`${row.parent} → ${childCode} 數量修正失敗：${e.message}`);
           }
         }else{
           skipped++;
         }
         continue;
       }
-      const title=`${row.parent} → ${ch.code}`;
+      const title=`${row.parent} → ${childCode}`;
       try{
         const r=await createPage(DB.bom,{
           'BOM項目':{title:[{text:{content:title}}]},
@@ -9687,6 +9688,19 @@ function bomImportChildType(code){
   if(/^S-/i.test(sku)) return '蝦皮用';
   return '零件';
 }
+function normalizePartSkuWithY(code){
+  const sku=bomImportNormCode(code);
+  if(!sku||/^Y-/i.test(sku)||/^S-/i.test(sku)) return sku;
+  return 'Y-'+sku;
+}
+function normalizeBomChildSku(code){
+  const sku=bomImportNormCode(code);
+  if(!sku) return '';
+  const existing=findMatBySku(sku);
+  if(existing&&existing.type&&existing.type!=='零件') return sku;
+  if(bomImportChildType(sku)==='零件') return normalizePartSkuWithY(sku);
+  return sku;
+}
 function bomImportNormCode(v){
   return String(v||'').trim().replace(/\s+/g,'').toUpperCase();
 }
@@ -9786,8 +9800,9 @@ async function importGeneralBomExcel(input){
         continue;
       }
       for(const part of row.parts){
+        const childCode=normalizeBomChildSku(part.code);
         try{
-          const childRes=await ensureBomImportMaterial(part.code,bomImportChildType(part.code),`BOM Excel子件，來源母件 ${row.parent}`,false);
+          const childRes=await ensureBomImportMaterial(childCode,bomImportChildType(childCode),`BOM Excel子件，來源母件 ${row.parent}`,false);
           const child=childRes.mat;
           if(childRes.created) childCreated++;
           const key=parent.id+'|'+child.id;
@@ -9806,7 +9821,7 @@ async function importGeneralBomExcel(input){
             }
             continue;
           }
-          const title=`${row.parent} → ${part.code}`;
+          const title=`${row.parent} → ${childCode}`;
           const cr=await createPage(DB.bom,{
             'BOM項目':{title:[{text:{content:title}}]},
             '母件':{relation:[{id:parent.id}]},
@@ -9821,7 +9836,7 @@ async function importGeneralBomExcel(input){
           bomCreated++;
           if(bomCreated&&bomCreated%20===0) showToast(`⏳ BOM 匯入中：已新增 ${bomCreated} 筆`,'warn',5000);
         }catch(e){
-          failed.push(`${row.parent} → ${part.code}：${e.message}`);
+          failed.push(`${row.parent} → ${childCode||part.code}：${e.message}`);
         }
       }
     }
@@ -9855,14 +9870,15 @@ async function ensureShopeeBomRows(parentMat){
   const existing=new Set(boms.map(b=>b.parentId+'|'+b.childId));
   let created=0, childCreated=0;
   for(const row of rows){
-    let child=findMatBySku(row.code);
+    const childCode=normalizeBomChildSku(row.code);
+    let child=findMatBySku(childCode);
     if(!child){
-      child=await createMaterialFromSku(row.code,'零件',0,0,'Shopee Excel BOM 自動建檔');
+      child=await createMaterialFromSku(childCode,bomImportChildType(childCode),0,0,'Shopee Excel BOM 自動建檔');
       childCreated++;
     }
     const key=parentMat.id+'|'+child.id;
     if(existing.has(key)) continue;
-    const title=`${sku} → ${row.code}`;
+    const title=`${sku} → ${childCode}`;
     const r=await createPage(DB.bom,{
       'BOM項目':{title:[{text:{content:title}}]},
       '母件':{relation:[{id:parentMat.id}]},
