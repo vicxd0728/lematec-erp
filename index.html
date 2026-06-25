@@ -8594,6 +8594,7 @@ function renderInventory(){
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
+        ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
@@ -9645,6 +9646,173 @@ async function createMaterialFromSku(sku,type='零件',stock=0,safe=0,note=''){
   const mat={id:r.id,name:code,code,type,unit:'個',qty:Number(stock)||0,stock:Number(stock)||0,safe:Number(safe)||0,note:note||''};
   mats.push(mat);
   return mat;
+}
+function bomImportType(v,sku=''){
+  const raw=String(v||'').trim();
+  const compact=raw.replace(/\s+/g,'');
+  if(['零件','半成品','成品','蝦皮用','蝦皮用(S-)'].includes(compact)) return compact;
+  if(/^S-/i.test(String(sku||''))) return '蝦皮用';
+  if(/半/.test(raw)) return '半成品';
+  if(/成/.test(raw)) return '成品';
+  if(/蝦|S-/.test(raw)) return '蝦皮用';
+  if(/零|子/.test(raw)) return '零件';
+  return '';
+}
+function bomImportChildType(code){
+  const sku=String(code||'').trim();
+  if(/^S-/i.test(sku)) return '蝦皮用';
+  return '零件';
+}
+function bomImportNormCode(v){
+  return String(v||'').trim().replace(/\s+/g,'').toUpperCase();
+}
+function bomImportCell(row,...names){
+  for(const name of names){
+    if(row[name]!=null&&String(row[name]).trim()!=='') return String(row[name]).trim();
+  }
+  const keys=Object.keys(row||{});
+  for(const name of names){
+    const k=keys.find(x=>String(x).replace(/\s+/g,'')===String(name).replace(/\s+/g,''));
+    if(k&&row[k]!=null&&String(row[k]).trim()!=='') return String(row[k]).trim();
+  }
+  return '';
+}
+function parseBomParts(text){
+  return String(text||'')
+    .replace(/\r/g,'\n')
+    .split(/[\n,，、;；]+/)
+    .map(v=>v.trim().replace(/^[\-•・\d.、\s]+/,''))
+    .filter(Boolean)
+    .map(raw=>{
+      let code=raw, qty=1;
+      const m=raw.match(/^(.+?)(?:\s*(?:\*|x|X|×)\s*([0-9]+(?:\.[0-9]+)?))$/);
+      if(m){code=m[1].trim();qty=Number(m[2])||1;}
+      code=bomImportNormCode(code);
+      return code?{code,qty,raw}:null;
+    })
+    .filter(Boolean);
+}
+function parseGeneralBomWorkbook(buf,fileName='BOM.xlsx'){
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  if(!ws) throw new Error('Excel 沒有工作表');
+  const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  const parsed=[],errors=[];
+  rows.forEach((row,idx)=>{
+    const line=idx+2;
+    const enabled=bomImportCell(row,'是否啟用','啟用','匯入','使用');
+    if(enabled&&/^(否|no|n|false|0|停用)$/i.test(enabled)) return;
+    const parent=bomImportNormCode(bomImportCell(row,'母件料號','母件','成品','料號','Parent','Parent SKU'));
+    const type=bomImportType(bomImportCell(row,'類型','母件類型','Type'),parent);
+    const note=bomImportCell(row,'名稱/備註','備註','名稱','Note');
+    const parts=parseBomParts(bomImportCell(row,'BOM組成','子件組成','組成','子件','BOM','Children'));
+    if(!parent&&!parts.length) return;
+    if(!parent){errors.push(`第 ${line} 行缺少母件料號`);return;}
+    if(!parts.length){errors.push(`第 ${line} 行「${parent}」沒有 BOM 組成，已略過`);return;}
+    parsed.push({line,parent,type:type||(/^S-/i.test(parent)?'蝦皮用':'成品'),note,parts});
+  });
+  if(!parsed.length&&!errors.length) throw new Error('沒有可匯入的 BOM 資料，請確認欄位名稱是否符合範本');
+  return {fileName,rows:parsed,errors};
+}
+async function ensureBomImportMaterial(code,type,note='',forceType=false){
+  let mat=findMatBySku(code);
+  if(mat){
+    const props={};
+    if(forceType&&type&&mat.type!==type) props['類型']={select:{name:type}};
+    if(note&&(!mat.note||!mat.note.includes(note))) props['備註']={rich_text:[{text:{content:note}}]};
+    if(Object.keys(props).length){
+      const r=await updatePage(mat.id,props);
+      assertNotionPage(r,'更新料件');
+      if(forceType&&type) mat.type=type;
+      if(note) mat.note=note;
+    }
+    return {mat,created:false,updated:false};
+  }
+  mat=await createMaterialFromSku(code,type||bomImportChildType(code),0,0,note);
+  return {mat,created:true,updated:false};
+}
+async function importGeneralBomExcel(input){
+  const file=input?.files?.[0];
+  if(input) input.value='';
+  if(!file) return;
+  if(!isAdminRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
+  if(typeof XLSX==='undefined'){showToast('❌ Excel 解析套件尚未載入','err');return;}
+  showToast('⏳ 讀取 BOM Excel...','warn',6000);
+  try{
+    const buf=await file.arrayBuffer();
+    const parsed=parseGeneralBomWorkbook(buf,file.name);
+    const relCount=parsed.rows.reduce((sum,r)=>sum+r.parts.length,0);
+    const preview=parsed.rows.slice(0,8).map(r=>`・${r.parent}：${r.parts.map(p=>p.code+'×'+p.qty).join('、')}`).join('\n');
+    const warn=parsed.errors.length?`\n\n解析提醒：\n${parsed.errors.slice(0,10).join('\n')}${parsed.errors.length>10?'\n...':''}`:'';
+    if(!confirm(`準備匯入 BOM Excel：${file.name}\n\n母件 ${parsed.rows.length} 個，BOM 關聯 ${relCount} 筆。\n\n${preview}${parsed.rows.length>8?'\n・...':''}${warn}\n\n匯入會建立缺少的料號，並新增/更新 BOM 關聯；不會刪除既有資料。要開始嗎？`)) return;
+    showToast('⏳ 同步最新 Notion 資料...','warn',6000);
+    await refreshAll(true);
+    const existing=new Map(boms.map(b=>[b.parentId+'|'+b.childId,b]));
+    let parentCreated=0, childCreated=0, bomCreated=0, bomUpdated=0, skipped=0;
+    const failed=[];
+    for(const row of parsed.rows){
+      let parent;
+      try{
+        const parentNote=['BOM Excel匯入',row.note].filter(Boolean).join(' / ');
+        const res=await ensureBomImportMaterial(row.parent,row.type,parentNote,true);
+        parent=res.mat;
+        if(res.created) parentCreated++;
+      }catch(e){
+        failed.push(`${row.parent} 母件處理失敗：${e.message}`);
+        continue;
+      }
+      for(const part of row.parts){
+        try{
+          const childRes=await ensureBomImportMaterial(part.code,bomImportChildType(part.code),`BOM Excel子件，來源母件 ${row.parent}`,false);
+          const child=childRes.mat;
+          if(childRes.created) childCreated++;
+          const key=parent.id+'|'+child.id;
+          const current=existing.get(key);
+          if(current){
+            if(Number(current.qty)!==Number(part.qty)){
+              const ur=await updatePage(current.id,{
+                '每台用量':{number:Number(part.qty)||1},
+                '備註':{rich_text:[{text:{content:'BOM Excel qty sync'}}]},
+              });
+              assertNotionPage(ur,'更新 BOM 用量');
+              current.qty=Number(part.qty)||1;
+              bomUpdated++;
+            }else{
+              skipped++;
+            }
+            continue;
+          }
+          const title=`${row.parent} → ${part.code}`;
+          const cr=await createPage(DB.bom,{
+            'BOM項目':{title:[{text:{content:title}}]},
+            '母件':{relation:[{id:parent.id}]},
+            '子件':{relation:[{id:child.id}]},
+            '每台用量':{number:Number(part.qty)||1},
+            '備註':{rich_text:[{text:{content:'BOM Excel import'}}]},
+          });
+          assertNotionPage(cr,'建立 BOM');
+          const bomRow={id:cr.id,parentId:parent.id,childId:child.id,qty:Number(part.qty)||1,name:title};
+          existing.set(key,bomRow);
+          boms.push(bomRow);
+          bomCreated++;
+          if(bomCreated&&bomCreated%20===0) showToast(`⏳ BOM 匯入中：已新增 ${bomCreated} 筆`,'warn',5000);
+        }catch(e){
+          failed.push(`${row.parent} → ${part.code}：${e.message}`);
+        }
+      }
+    }
+    await refreshAll(true);
+    renderTab(CURRENT_TAB);
+    const msg=`✅ BOM 匯入完成：新增母件 ${parentCreated}、新增子件 ${childCreated}、新增關聯 ${bomCreated}、更新用量 ${bomUpdated}、略過 ${skipped}`;
+    showToast(msg+(failed.length?`，失敗 ${failed.length}`:''),failed.length?'warn':'ok',12000);
+    logUserAction('匯入BOM Excel',file.name,msg,ROLE);
+    if(failed.length){
+      alert(msg+'\n\n以下資料未完成：\n'+failed.slice(0,80).join('\n'));
+    }
+  }catch(e){
+    console.error('importGeneralBomExcel error:',e);
+    showToast('❌ BOM 匯入失敗：'+e.message,'err',10000);
+  }
 }
 async function ensureShopeeParentMaterial(sku){
   const code=(sku||'').trim().toUpperCase();
