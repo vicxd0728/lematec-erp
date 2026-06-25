@@ -1265,6 +1265,38 @@ html[data-theme="warm"] #themePanel{
 .boot-line{width:160px;height:3px;border-radius:999px;background:rgba(255,255,255,.2);overflow:hidden}
 .boot-line::before{content:"";display:block;width:45%;height:100%;border-radius:inherit;background:#fff;animation:bootSlide 1.1s ease-in-out infinite}
 @keyframes bootSlide{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}}
+.note-board{display:flex;flex-direction:column;gap:14px}
+.note-hero{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(135deg,rgba(34,211,238,.12),rgba(16,185,129,.05));border:1px solid var(--border2);border-radius:16px;padding:18px}
+.note-eyebrow{font-size:.68rem;color:var(--cyan2);letter-spacing:2px;font-weight:800}
+.note-hero h2{margin:4px 0;font-size:1.55rem}
+.note-hero p{margin:0;color:var(--text2);font-size:.9rem}
+.note-metrics{display:grid;grid-template-columns:repeat(3,minmax(80px,1fr));gap:8px;min-width:320px}
+.note-metrics div{background:rgba(5,8,15,.46);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.note-metrics b{display:block;font-size:1.45rem;color:var(--text)}
+.note-metrics span{font-size:.72rem;color:var(--text2)}
+.note-toolbar{display:grid;grid-template-columns:1fr 150px 150px auto;gap:10px;align-items:center}
+.note-layout{display:grid;grid-template-columns:minmax(0,1.48fr) minmax(320px,.82fr);gap:14px}
+.note-calendar,.note-side{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;overflow:hidden}
+.note-cal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border)}
+.note-week,.note-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+.note-week div{padding:8px;color:var(--text3);font-size:.72rem;font-weight:700;text-align:center;border-bottom:1px solid var(--border)}
+.note-cal-cell{min-height:94px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px;background:rgba(255,255,255,.018);cursor:pointer;transition:background .18s,box-shadow .18s}
+.note-cal-cell:hover{background:rgba(34,211,238,.055)}
+.note-cal-cell.today{box-shadow:inset 0 0 0 2px var(--cyan);background:rgba(34,211,238,.08)}
+.note-cal-cell.selected{background:rgba(16,185,129,.11)}
+.note-cal-cell.muted{opacity:.45}
+.note-day{font-weight:800;font-size:.82rem;margin-bottom:5px}
+.note-chip{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:7px;padding:3px 6px;margin-top:4px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.2);color:var(--cyan2);font-size:.68rem}
+.note-chip.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.25);color:var(--amber)}
+.note-list{display:flex;flex-direction:column;gap:8px;padding:12px}
+.note-item{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.025)}
+.note-item-title{font-weight:800;color:var(--text)}
+.note-item-meta{display:flex;flex-wrap:wrap;gap:6px 10px;color:var(--text3);font-size:.72rem;margin-top:4px}
+.note-body{margin-top:8px;color:var(--text2);font-size:.86rem;white-space:pre-wrap}
+.note-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
+.note-targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.note-targets label{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.78rem;color:var(--text2)}
+@media(max-width:900px){.note-hero{align-items:flex-start;flex-direction:column}.note-metrics{width:100%;min-width:0}.note-toolbar{grid-template-columns:1fr}.note-layout{grid-template-columns:1fr}.note-cal-cell{min-height:78px;padding:6px}.note-chip{font-size:.62rem}}
 </style>
 </head>
 <body>
@@ -1570,24 +1602,26 @@ const DB={
   online: 'c0cc5500-b599-422a-97c9-af0ae6faad11',
   // 登入紀錄：會自動在 ERP 頁面下尋找/建立「ERP 登入紀錄」
   loginLog: '',
+  // 共用記事行事曆：會自動在 ERP 頁面下尋找/建立「ERP 記事行事曆」
+  notes: '',
 };
 const ROLES={
   // Vic：與廠長同權限，但操作紀錄獨立顯示
-  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health','permissions']},
+  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health','permissions']},
   // 廠長
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
-  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','orders','corders','inventory','customers','leave','stocklog']},
+  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','orders','corders','inventory','customers','leave','stocklog']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
-  warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','leave','stocklog','schedule']},
+  warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','notes','leave','stocklog','schedule']},
   // 品管：品管頁操作 + 入料瀏覽
-  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','leave','stocklog']},
+  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','notes','leave','stocklog']},
   // 採購：唯讀瀏覽庫存和入料（暫無主動操作需求）
-  purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','inventory','inbound','announce','leave','stocklog']},
+  purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','inventory','inbound','announce','notes','leave','stocklog']},
   // 檢視：只看主要流程，不具備建立、修改、刪除、審核等操作權限
-  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','orders','corders','picking','inventory','inbound','qc','leave']},
+  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer';}
 function denyViewOnlyAction(){
@@ -1625,7 +1659,7 @@ const PILL={
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let QC_SUB='pending',QC_FILTER='all',QC_DATE='0';
-let announces=[],leaves=[];
+let announces=[],leaves=[],notes=[];
 let leaveEmployees=[];
 const LEAVE_TYPE_OPTIONS=['\u5e74\u5047','\u4e8b\u5047','\u75c5\u5047','\u7279\u4f11','\u5176\u4ed6'];
 function renderLeaveTypeOptions(current=''){return LEAVE_TYPE_OPTIONS.map(t=>`<option value="${t}" ${current===t?'selected':''}>${t}</option>`).join('');}
@@ -4875,6 +4909,32 @@ function openModal(type,data){
   const prods=mats.filter(m=>m.type==='成品');
   const parts=mats.filter(m=>m.type!=='成品');
 
+  if(type==='newNote'||type==='editNote'){
+    const d=type==='editNote'?(data||{}):{};
+    const today=new Date().toISOString().slice(0,10);
+    mi.innerHTML=`<h3>${d.id?'✏️ 編輯記事':'＋ 新增記事'}</h3>
+      <div class="form-row" style="grid-template-columns:1.4fr .8fr .8fr">
+        <div><label class="field-label">標題 *</label><input class="inp" id="note_title" value="${escapeHtml(d.title||'')}" placeholder="例如：客戶來訪、設備保養、出貨預約"></div>
+        <div><label class="field-label">日期 *</label><input class="inp" type="date" id="note_date" value="${escapeHtml(d.date||today)}"></div>
+        <div><label class="field-label">時間</label><input class="inp" id="note_time" value="${escapeHtml(d.time||'')}" placeholder="例如 14:30"></div>
+      </div>
+      <div class="form-row" style="grid-template-columns:1fr 1fr">
+        <div><label class="field-label">類型</label><select class="inp" id="note_type">${['一般','預約','待辦','提醒','客戶','出貨','其他'].map(x=>`<option value="${x}" ${d.type===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div><label class="field-label">狀態</label><select class="inp" id="note_status">${['未處理','進行中','完成','取消'].map(x=>`<option value="${x}" ${d.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      </div>
+      <div style="margin-bottom:12px"><label class="field-label">需要知道的角色</label><div class="note-targets">${noteRoleTargetsHtml(d.targetRoles||[])}</div></div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text2);font-size:.84rem">
+        <input id="note_need_ack" type="checkbox" ${d.needAck?'checked':''} style="width:16px;height:16px;accent-color:var(--cyan)">
+        登入時提醒指定角色，並要求按「知道了」確認
+      </label>
+      <div style="margin-bottom:12px"><label class="field-label">內容 / 備註</label><textarea class="inp" id="note_body" rows="5" placeholder="要交代、要追蹤、預約資訊、臨時提醒都可以寫在這裡">${escapeHtml(d.body||'')}</textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-blue" onclick="submitNote('${d.id||''}')">💾 儲存記事</button>
+      </div>`;
+    document.getElementById('modalBg').classList.add('open');return;
+  }
+
   if(type==='help'){
     mi.innerHTML=`<h3>❓ LEMATEC ERP 快速說明</h3>
       <div class="help-box">
@@ -4915,6 +4975,10 @@ function openModal(type,data){
       <div class="info-box info-tip">
         <b>📊 異動記錄</b><br>
         領料、入料、品管、手動調整、訂單狀態更新、刪除、請假審核等人為操作都會寫入紀錄。
+      </div>
+      <div class="info-box info-tip">
+        <b>📝 記事行事曆</b><br>
+        記事可用月曆檢視，也可記錄客戶來訪、預約、待辦與提醒。每筆會顯示建立者；若指定需要知道的角色並勾選登入提醒，該角色登入時會跳出通知，可按「知道了」留下確認紀錄。
       </div>
       <div class="info-box info-tip">
         <b>🗓️ 請假 / 員工資料</b><br>
@@ -5998,6 +6062,7 @@ async function startApp(){
   }
 
   await refreshAll();
+  loadNotes().then(showPendingNoteNotifications).catch(e=>console.warn('notes notify failed:',e));
   initAutoSync();
 }
 
@@ -6522,10 +6587,10 @@ function applyDateFilter(filterId,data,dateKey='created'){
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='ops')loadInbounds().then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
+function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='notes')loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});if(tab==='ops')loadInbounds().then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
 function showTab(tab){CURRENT_TAB=tab;renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
   else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
   else if(tab==='corders'){
     if(window._cordersLoaded&&Date.now()-(window._cordersLoadedAt||0)<120000){c.innerHTML=renderCorders();}
@@ -7139,6 +7204,271 @@ async function doScheduleStatus(id, status){
 function openEditSchedule(id){
   const s=schedules.find(x=>x.id===id);if(!s)return;
   openModal('editSchedule',s);
+}
+
+// ══════════════════════════════════════════════
+// 📝 共用記事 / 行事曆
+// ══════════════════════════════════════════════
+const NOTES_DB_KEY='lematec_notes_db_id';
+const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'];
+const NOTE_STATUS=['未處理','進行中','完成','取消'];
+const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
+let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false;
+
+function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
+function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
+function noteRoleTargetsHtml(selected=[]){
+  const pick=Array.isArray(selected)?selected:[];
+  return NOTE_TARGET_ROLES.map(r=>`<label><input type="checkbox" class="note_target_role" value="${r}" ${pick.includes(r)?'checked':''}>${r}</label>`).join('');
+}
+function noteTargetsForSubmit(){
+  return [...document.querySelectorAll('.note_target_role:checked')].map(x=>x.value);
+}
+async function ensureNotesDB(){
+  if(_notesDbId) return _notesDbId;
+  const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
+  if(cached){
+    try{
+      const d=await notionAPI('GET','databases/'+cached);
+      if(d?.id){_notesDbId=d.id;localStorage.setItem(NOTES_DB_KEY,d.id);return d.id;}
+    }catch(e){console.warn('notes cached db invalid',e);}
+  }
+  let cursor=null, child=null;
+  do{
+    const found=await notionAPI('GET',`blocks/${DB.erpPage}/children?page_size=100${cursor?'&start_cursor='+cursor:''}`);
+    child=(found.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆');
+    cursor=child?null:(found.has_more?found.next_cursor:null);
+  }while(cursor);
+  if(child?.id){_notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);return child.id;}
+  const created=await notionAPI('POST','databases',{
+    parent:{type:'page_id',page_id:DB.erpPage},
+    title:[{type:'text',text:{content:'ERP 記事行事曆'}}],
+    properties:{
+      '標題':{title:{}},
+      '日期':{date:{}},
+      '時間':{rich_text:{}},
+      '類型':{select:{options:NOTE_TYPES.map((name,i)=>({name,color:['default','blue','green','yellow','purple','orange','gray'][i]||'default'}))}},
+      '狀態':{select:{options:NOTE_STATUS.map((name,i)=>({name,color:['yellow','blue','green','red'][i]||'default'}))}},
+      '內容':{rich_text:{}},
+      '建立者':{rich_text:{}},
+      '建立者角色':{select:{options:Object.values(ROLES).map((r,i)=>({name:r.label,color:['red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
+      '指定角色':{multi_select:{options:NOTE_TARGET_ROLES.map((name,i)=>({name,color:['default','red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
+      '需要確認':{checkbox:{}},
+      '已確認角色':{rich_text:{}},
+      '建立時間':{date:{}}
+    }
+  });
+  if(!created?.id) throw new Error('建立記事資料庫失敗');
+  _notesDbId=created.id;
+  localStorage.setItem(NOTES_DB_KEY,created.id);
+  return created.id;
+}
+async function loadNotes(){
+  const dbId=await ensureNotesDB();
+  const rows=await dbQueryAll(dbId);
+  notes=rows.map(p=>{
+    const props=p.properties||{};
+    return {
+      id:p.id,
+      url:p.url||'',
+      title:getTitle(props,'標題')||'未命名記事',
+      date:props['日期']?.date?.start||'',
+      time:getRichText(props,'時間'),
+      type:props['類型']?.select?.name||'一般',
+      status:props['狀態']?.select?.name||'未處理',
+      body:getRichText(props,'內容'),
+      author:getRichText(props,'建立者')||'',
+      authorRole:props['建立者角色']?.select?.name||'',
+      targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
+      needAck:!!props['需要確認']?.checkbox,
+      ackRoles:getRichText(props,'已確認角色'),
+      createdAt:props['建立時間']?.date?.start||p.created_time||''
+    };
+  }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
+  _notesLoaded=true;
+  return notes;
+}
+function noteCanEdit(n){return !isViewOnly()&&(isAdminRole()||n.authorRole===loginRoleLabel()||n.author===loginRoleLabel());}
+function noteNeedsRoleAck(n){
+  if(!n.needAck||n.status==='完成'||n.status==='取消') return false;
+  const role=loginRoleLabel();
+  const targets=n.targetRoles||[];
+  const targeted=!targets.length||targets.includes('全部')||targets.includes(role);
+  const acked=String(n.ackRoles||'').split(/[,\s、]+/).filter(Boolean);
+  return targeted&&!acked.includes(role);
+}
+function renderNotes(){
+  if(!_notesLoaded){
+    loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});
+    return '<div class="loading-row"><div class="spin"></div>載入記事行事曆...</div>';
+  }
+  const today=noteIsoDate();
+  const now=new Date();
+  window._NOTE_YEAR=window._NOTE_YEAR??now.getFullYear();
+  window._NOTE_MONTH=window._NOTE_MONTH??now.getMonth();
+  window._NOTE_SELECTED=window._NOTE_SELECTED||today;
+  const q=(document.getElementById('noteQ')?.value||'').trim().toLowerCase();
+  const type=document.getElementById('noteTypeFilter')?.value||'all';
+  const status=document.getElementById('noteStatusFilter')?.value||'all';
+  let data=notes.filter(n=>{
+    const text=[n.title,n.body,n.author,n.authorRole,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
+    return (!q||text.includes(q))&&(type==='all'||n.type===type)&&(status==='all'||n.status===status);
+  });
+  const upcoming=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').length;
+  const pendingAck=notes.filter(noteNeedsRoleAck).length;
+  const monthKey=noteMonthKey(window._NOTE_YEAR,window._NOTE_MONTH);
+  const monthCount=notes.filter(n=>(n.date||'').startsWith(monthKey)).length;
+  const canAdd=!isViewOnly();
+  const first=new Date(window._NOTE_YEAR,window._NOTE_MONTH,1);
+  const start=new Date(first);start.setDate(1-first.getDay());
+  const cells=[];
+  for(let i=0;i<42;i++){
+    const d=new Date(start);d.setDate(start.getDate()+i);
+    const iso=noteIsoDate(d);
+    const dayNotes=data.filter(n=>n.date===iso);
+    cells.push(`<div class="note-cal-cell ${d.getMonth()!==window._NOTE_MONTH?'muted':''} ${iso===today?'today':''} ${iso===window._NOTE_SELECTED?'selected':''}" onclick="window._NOTE_SELECTED='${iso}';renderTab('notes')">
+      <div class="note-day">${d.getDate()}</div>
+      ${dayNotes.slice(0,3).map(n=>`<span class="note-chip ${noteNeedsRoleAck(n)?'warn':''}">${escapeHtml((n.time?`${n.time} `:'')+n.title)}</span>`).join('')}
+      ${dayNotes.length>3?`<span class="note-chip">+${dayNotes.length-3} 筆</span>`:''}
+    </div>`);
+  }
+  const selectedList=data.filter(n=>n.date===window._NOTE_SELECTED);
+  const nextList=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').slice(0,8);
+  return `<div class="note-board">
+    <div class="notion-bar">📌 Notion：${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">ERP 記事行事曆</a>`:'ERP 記事行事曆'} <span style="color:var(--text3)">所有紀錄都會顯示建立者，指定角色可登入確認。</span></div>
+    <section class="note-hero">
+      <div><div class="note-eyebrow">LEMATEC SHARED NOTES</div><h2>記事行事曆</h2><p>客戶來訪、預約、交代事項、臨時提醒集中管理。</p></div>
+      <div class="note-metrics">
+        <div><b>${upcoming}</b><span>未完成行程</span></div>
+        <div><b>${pendingAck}</b><span>待你確認</span></div>
+        <div><b>${monthCount}</b><span>本月紀錄</span></div>
+      </div>
+    </section>
+    <div class="note-toolbar">
+      <input class="inp" id="noteQ" value="${escapeHtml(document.getElementById('noteQ')?.value||'')}" oninput="renderTab('notes')" placeholder="搜尋標題、內容、建立者、角色...">
+      <select class="inp" id="noteTypeFilter" onchange="renderTab('notes')"><option value="all">全部類型</option>${NOTE_TYPES.map(x=>`<option value="${x}" ${type===x?'selected':''}>${x}</option>`).join('')}</select>
+      <select class="inp" id="noteStatusFilter" onchange="renderTab('notes')"><option value="all">全部狀態</option>${NOTE_STATUS.map(x=>`<option value="${x}" ${status===x?'selected':''}>${x}</option>`).join('')}</select>
+      ${canAdd?`<button class="btn btn-blue" onclick="openModal('newNote')">＋ 新增記事</button>`:''}
+    </div>
+    <div class="note-layout">
+      <div class="note-calendar">
+        <div class="note-cal-head">
+          <button class="btn btn-ghost btn-sm" onclick="window._NOTE_MONTH--;if(window._NOTE_MONTH<0){window._NOTE_MONTH=11;window._NOTE_YEAR--;}renderTab('notes')">‹</button>
+          <b>${window._NOTE_YEAR} / ${String(window._NOTE_MONTH+1).padStart(2,'0')}</b>
+          <button class="btn btn-ghost btn-sm" onclick="window._NOTE_MONTH++;if(window._NOTE_MONTH>11){window._NOTE_MONTH=0;window._NOTE_YEAR++;}renderTab('notes')">›</button>
+        </div>
+        <div class="note-week">${['日','一','二','三','四','五','六'].map(x=>`<div>${x}</div>`).join('')}</div>
+        <div class="note-grid">${cells.join('')}</div>
+      </div>
+      <aside class="note-side">
+        <div class="panel-hdr"><span class="panel-title">${window._NOTE_SELECTED} <span class="badge">${selectedList.length}</span></span></div>
+        ${renderNoteList(selectedList,true)}
+      </aside>
+    </div>
+    <div class="panel">
+      <div class="panel-hdr"><span class="panel-title">近期未完成 <span class="badge">${nextList.length}</span></span></div>
+      ${renderNoteList(nextList,true)}
+    </div>
+  </div>`;
+}
+function renderNoteList(list,showDate=false){
+  if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
+  return `<div class="note-list">${list.map(n=>`<div class="note-item">
+    <div style="min-width:0">
+      <div class="note-item-title">${escapeHtml(n.title)} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''}</div>
+      <div class="note-item-meta">
+        ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
+        <span>建立：${escapeHtml(n.authorRole||n.author||'未知')}</span>
+        ${(n.targetRoles||[]).length?`<span>通知：${escapeHtml(n.targetRoles.join('、'))}</span>`:''}
+        ${n.ackRoles?`<span>已確認：${escapeHtml(n.ackRoles)}</span>`:''}
+      </div>
+      ${n.body?`<div class="note-body">${escapeHtml(n.body)}</div>`:''}
+    </div>
+    <div class="note-actions">
+      ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="ackNote('${n.id}')">知道了</button>`:''}
+      ${noteCanEdit(n)?`<button class="btn btn-yellow btn-sm" onclick="openEditNote('${n.id}')">編輯</button><button class="btn btn-red btn-sm" onclick="deleteNote('${n.id}')">刪除</button>`:''}
+    </div>
+  </div>`).join('')}</div>`;
+}
+function openEditNote(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  openModal('editNote',n);
+}
+async function submitNote(id=''){
+  const title=document.getElementById('note_title').value.trim();
+  const date=document.getElementById('note_date').value;
+  const time=document.getElementById('note_time').value.trim();
+  const type=document.getElementById('note_type').value;
+  const status=document.getElementById('note_status').value;
+  const body=document.getElementById('note_body').value.trim();
+  const targetRoles=noteTargetsForSubmit();
+  const needAck=!!document.getElementById('note_need_ack')?.checked;
+  if(!title||!date){showToast('請填標題與日期','warn');return;}
+  closeModal();showToast('⏳ 儲存記事中...','warn');
+  try{
+    const dbId=await ensureNotesDB();
+    const props={
+      '標題':{title:[{text:{content:title}}]},
+      '日期':{date:{start:date}},
+      '時間':{rich_text:[{text:{content:time}}]},
+      '類型':{select:{name:type}},
+      '狀態':{select:{name:status}},
+      '內容':{rich_text:[{text:{content:body}}]},
+      '指定角色':{multi_select:targetRoles.map(name=>({name}))},
+      '需要確認':{checkbox:needAck}
+    };
+    if(id){
+      await updatePage(id,props);
+      logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
+      showToast('✅ 記事已更新','ok');
+    }else{
+      props['建立者']={rich_text:[{text:{content:loginRoleLabel()}}]};
+      props['建立者角色']={select:{name:loginRoleLabel()}};
+      props['建立時間']={date:{start:new Date().toISOString()}};
+      props['已確認角色']={rich_text:[{text:{content:''}}]};
+      await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+      logUserAction('新增記事',title,`${date} ${time}`,ROLE);
+      showToast('✅ 記事已建立','ok');
+    }
+    await loadNotes();renderTab('notes');
+  }catch(e){showToast('❌ 記事儲存失敗：'+e.message,'err');}
+}
+async function ackNote(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const role=loginRoleLabel();
+  const acked=String(n.ackRoles||'').split(/[,\s、]+/).filter(Boolean);
+  if(!acked.includes(role)) acked.push(role);
+  n.ackRoles=acked.join('、');
+  try{
+    await updatePage(id,{'已確認角色':{rich_text:[{text:{content:n.ackRoles}}]}});
+    logUserAction('確認記事通知',n.title,n.date||'',ROLE);
+    showToast('✅ 已確認','ok');
+    if(CURRENT_TAB==='notes')renderTab('notes');
+  }catch(e){showToast('❌ 確認失敗：'+e.message,'err');}
+}
+async function deleteNote(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const reason=prompt('刪除原因（會寫入異動記錄）');
+  if(reason===null)return;
+  try{
+    await notionAPI('PATCH','pages/'+id,{archived:true});
+    logUserAction('刪除記事',n.title,reason||'未填原因',ROLE);
+    notes=notes.filter(x=>x.id!==id);
+    renderTab('notes');
+    showToast('✅ 記事已刪除','ok');
+  }catch(e){showToast('❌ 刪除失敗：'+e.message,'err');}
+}
+function showPendingNoteNotifications(){
+  if(_notesNotifyShown||!notes?.length)return;
+  const pending=notes.filter(noteNeedsRoleAck).filter(n=>!n.date||n.date>=noteIsoDate()).slice(0,5);
+  if(!pending.length)return;
+  _notesNotifyShown=true;
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>🔔 你有需要確認的記事</h3>
+    <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。確認代表你已讀，不會修改記事狀態。</div>
+    ${renderNoteList(pending,true)}
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">稍後</button><button class="btn btn-blue" onclick="switchTab('notes');closeModal()">打開記事</button></div>`;
+  document.getElementById('modalBg').classList.add('open');
 }
 
 // ══════════════════════════════════════════════
