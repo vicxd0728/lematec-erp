@@ -4940,7 +4940,7 @@ function openModal(type,data){
     mi.innerHTML=`<h3>❓ LEMATEC ERP 快速說明</h3>
       <div class="help-box">
         <b>核心原則</b><br>
-        新增一般訂單不動庫存；確認領料才扣 BOM 子件。入料建立後只進待品檢，品管通過才自動入庫。C端出貨扣 S-成品庫存；訂單分頁建立蝦皮 S-訂單則是先生產，完成後增加 S-成品庫存。
+        新增一般訂單不動庫存；確認領料才扣 BOM 直接子件（半成品與零件都會扣）。入料建立後只進待品檢，品管通過才自動入庫。C端出貨扣 S-成品庫存；訂單分頁建立蝦皮 S-訂單則是先生產，完成後增加 S-成品庫存。
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
@@ -4953,7 +4953,7 @@ function openModal(type,data){
         <div class="info-box info-tip" style="margin:0">
           <b>📋 一般訂單流程</b><br>
           1. 訂單待排程<br>
-          2. 倉管/Vic/廠長領料，扣 BOM 子件<br>
+          2. 倉管/Vic/廠長領料，扣 BOM 直接子件；若直接子件是半成品，只扣半成品庫存，不再展開零件<br>
           3. 生產中完成後送待檢驗<br>
           4. 品管通過後轉待出貨<br>
           5. 業務/倉管/Vic/廠長填出貨日完成
@@ -4962,7 +4962,7 @@ function openModal(type,data){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
           <b>🛒 蝦皮 S-訂單</b><br>
-          訂單分頁建立蝦皮 S-料號時，待排程先領料扣 BOM 子件，狀態變生產中。完成組裝後由倉管/Vic/廠長按「完成」，系統才會增加 S-成品庫存；不要用狀態選單直接改已完成。
+          訂單分頁建立蝦皮 S-料號時，待排程先領料扣 BOM 直接子件，狀態變生產中。完成組裝後由倉管/Vic/廠長按「完成」，系統才會增加 S-成品庫存；不要用狀態選單直接改已完成。
         </div>
         <div class="info-box info-tip" style="margin:0">
           <b>🧾 C端訂單</b><br>
@@ -5268,7 +5268,7 @@ function openModal(type,data){
     const shopeeMats=mats.filter(m=>isShopeeMat(m)).sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
     const today=new Date().toISOString().slice(0,10);
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
-    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇的 S- 成品庫存。BOM 子件扣料請使用「訂單 > 蝦皮」生產領料流程。</div>
+    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇的 S- 成品庫存。BOM 直接子件扣料請使用「訂單 > 蝦皮」生產領料流程。</div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空自動產生 ${nextCorderInternalNo()}"></div>
       <div><label class="field-label">買家帳號</label><input class="inp" id="co_buyer" placeholder="蝦皮買家帳號"></div>
@@ -6354,8 +6354,14 @@ async function loadInbounds(){
 }
 
 function explodeBOM(pid,qty){
-  const res={};const q=[{pid,mult:qty}];const seen=new Set();
-  while(q.length){const{pid:p,mult:m}=q.shift();boms.filter(b=>b.parentId===p).forEach(b=>{const mat=mats.find(x=>x.id===b.childId);if(!mat)return;const n=b.qty*m;if(!res[b.childId])res[b.childId]={...mat,needed:0};res[b.childId].needed+=n;if(mat.type==='半成品'&&!seen.has(b.childId)){seen.add(b.childId);q.push({pid:b.childId,mult:n});}});}
+  const res={};
+  boms.filter(b=>b.parentId===pid).forEach(b=>{
+    const mat=mats.find(x=>x.id===b.childId);
+    if(!mat)return;
+    const n=(Number(b.qty)||1)*qty;
+    if(!res[b.childId])res[b.childId]={...mat,needed:0};
+    res[b.childId].needed+=n;
+  });
   const notionItems=Object.values(res);
   if(notionItems.length) return notionItems;
   const mat=mats.find(m=>m.id===pid);
@@ -7875,11 +7881,28 @@ async function submitInspection(){
     // ── 情況 A：訂單品管（有 orderId）──
     if(orderId){
       if(result==='通過'){
-        // 訂單推進到待出貨，不動庫存
-        await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
         const o = orders.find(x=>x.id===orderId);
-        if(o){ o.status='待出貨'; renderTab(CURRENT_TAB); }
-        showToast('✅ 檢驗通過，訂單已更新為「待出貨」','ok');
+        const isSfgOrder = o && (o.orderType==='半成品' || o.orderType==='sfg' || (o.no||'').startsWith('SFG-'));
+        if(isSfgOrder){
+          const mat = mats.find(m=>m.id===o.productId);
+          if(mat){
+            const latest = await notionAPI('GET','pages/'+mat.id);
+            const curStock = latest.properties?.['目前庫存']?.number??mat.stock??0;
+            const inQty = o.qty||qtyAct||qtyReq||0;
+            const newStock = curStock + inQty;
+            await updatePage(mat.id, {'目前庫存':{number:newStock}});
+            await logStockChange(mat.id, mat.name, mat.code||'', '半成品入庫', inQty, curStock, newStock, orderNo||orderId, inspector||ROLE);
+          }
+          await updatePage(orderId, {'狀態':{select:{name:'已完成'}}});
+          o.status='已完成';
+          renderTab(CURRENT_TAB);
+          showToast('✅ 半成品檢驗通過，已入庫並更新為「已完成」','ok');
+        }else{
+          // 一般訂單推進到待出貨，不動庫存
+          await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
+          if(o){ o.status='待出貨'; renderTab(CURRENT_TAB); }
+          showToast('✅ 檢驗通過，訂單已更新為「待出貨」','ok');
+        }
       } else if(result==='不通過'){
         showToast('❌ 檢驗不通過，請處理不良品','err');
       } else {
@@ -10012,7 +10035,7 @@ async function deductCorderStock(mat, qty, refNo, operator){
 async function deductCorderStockByBom(mat, qty, refNo, operator){
   const need=parseInt(qty)||1;
   // C端訂單是現貨出貨：扣除被出貨的 S- 成品庫存本身。
-  // BOM 子件扣料只保留在「訂單 > 蝦皮」的生產/領料流程中，完成後再增加 S- 庫存。
+  // BOM 直接子件扣料只保留在「訂單 > 蝦皮」的生產/領料流程中，完成後再增加 S- 庫存。
   await deductCorderStock(mat,need,refNo,operator);
   return {mode:'direct',refs:[{id:mat.id,qty:need}],items:[{...mat,needed:need}]};
 }
@@ -11645,7 +11668,7 @@ function renderCorders(){
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
       <div class="corder-sort-group" style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
-    <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
+    <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 直接子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
   if(!filtered.length){
     html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
   }else{
@@ -11811,10 +11834,10 @@ async function doInspResult(insId, orderRef, resultCode){
     await loadQCInspections();
     await refreshAll();
 
-    showToast(result==='通過'
-      ? '✅ 檢驗通過'+(orderId||orderNo?' — 訂單已更新為「待出貨」':'')
-      : '❌ 檢驗不通過，訂單維持待檢驗狀態'
-    , result==='通過'?'ok':'warn');
+    const passMsg = result==='通過'
+      ? '✅ 檢驗通過' + (targetOrder ? ` — 訂單已更新為「${targetOrder.status||'待出貨'}」` : '')
+      : '❌ 檢驗不通過，訂單維持待檢驗狀態';
+    showToast(passMsg, result==='通過'?'ok':'warn');
 
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
@@ -12328,7 +12351,7 @@ function openPickPreview(orderId){
   const items=explodeBOM(o.productId,o.qty);
   const mustHaveBom=requiresBOMMaterial(prod,o?.orderType);
   const missing=items.filter(i=>i.missing||!i.id);
-  const short=items.filter(i=>i.type!=='半成品'&&!i.missing&&i.stock<i.needed);
+  const short=items.filter(i=>!i.missing&&i.stock<i.needed);
   // ★ BOM 診斷：清楚告知用戶狀況
   const hasBOM = items.length > 0;
   const bomCount = boms.filter(b=>b.parentId===o.productId).length;
@@ -12340,7 +12363,7 @@ function openPickPreview(orderId){
   document.getElementById('modalInner').innerHTML=`<h3>🗂️ 領料單預覽 — ${o.no}</h3>
   <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:0.75rem">
     <div style="margin-bottom:4px"><b style="color:var(--text)">${o.customer}</b> / <b style="color:var(--cyan2);font-size:0.8125rem">${prod?.name||'未關聯成品'}</b> × <span style="color:var(--yellow);font-weight:700">${o.qty}</span> 台</div>
-    <div style="font-size:0.625rem;color:var(--text3)">BOM 子件：${bomCount} 筆 → 展開料件：${items.length} 項${!prod?.name?'<span style="color:var(--red2);margin-left:8px">⚠ 訂單未關聯成品料件</span>':''}</div>
+    <div style="font-size:0.625rem;color:var(--text3)">BOM 直接子件：${bomCount} 筆 → 領料項目：${items.length} 項${!prod?.name?'<span style="color:var(--red2);margin-left:8px">⚠ 訂單未關聯成品料件</span>':''}</div>
   </div>
   ${!items.length?
     mustHaveBom?
@@ -12371,10 +12394,10 @@ function openPickPreview(orderId){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="doPick('${orderId}')">✓ 確認扣除成品庫存</button>
     </div>`:
-    // ══ 有 BOM：展開子件顯示 ══
+    // ══ 有 BOM：顯示直接子件 ══
     `${missing.length?`<div class="info-box info-warn">⚠ BOM 子料號尚未建檔：${missing.map(s=>s.code||s.name).join('、')}。請先補進料件主檔再扣料。</div>`:short.length?`<div class="info-box info-warn">⚠ 缺料：${short.map(s=>`${s.name}(差${s.needed-s.stock}個)`).join('、')}</div>`:`<div class="info-ok" style="padding:8px 12px;border-radius:8px;font-size:0.8125rem;margin-bottom:10px">✅ 庫存充足，可執行領料</div>`}
     <div class="tbl-wrap"><table style="margin-bottom:12px"><tr><th>料件</th><th>需求</th><th>現有</th></tr>
-    ${items.map(i=>`<tr><td>${i.name} ${i.missing?'<span class="pill" style="background:rgba(239,68,68,.12);color:var(--red2)">未建檔</span>':pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.missing||i.type!=='半成品'&&i.stock<i.needed?'var(--red)':'var(--green)'}">${i.missing?'—':i.stock}</td></tr>`).join('')}
+    ${items.map(i=>`<tr><td>${i.name} ${i.missing?'<span class="pill" style="background:rgba(239,68,68,.12);color:var(--red2)">未建檔</span>':pill(i.type)}</td><td style="font-family:monospace;color:var(--yellow)">${i.needed}</td><td style="font-family:monospace;color:${i.missing||i.stock<i.needed?'var(--red)':'var(--green)'}">${i.missing?'—':i.stock}</td></tr>`).join('')}
     </table></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" ${missing.length?'disabled':''} onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`}`;
   openModal();
@@ -12388,7 +12411,7 @@ async function doPick(orderId){
   showToast('建立領料單中...','warn');
 
   try{
-    // ── BOM 展開領料邏輯（蝦皮 S-、半成品、有 BOM 成品都走這裡）──
+    // ── BOM 直接子件領料邏輯（蝦皮 S-、半成品、有 BOM 成品都走這裡）──
     const items=explodeBOM(o.productId,o.qty);
     const hasBOM = items.length > 0;
     if(!hasBOM&&requiresBOMMaterial(prod,o?.orderType)){
@@ -12408,7 +12431,7 @@ async function doPick(orderId){
     let stockErrors=[];
 
     if(hasBOM){
-      // ══ 有 BOM：展開子件逐項扣庫存 ══
+      // ══ 有 BOM：直接子件逐項扣庫存；若子件是半成品，也扣半成品庫存，不再展開到零件 ══
       for(const item of items){
         if(item.missing||!item.id){
           stockErrors.push((item.code||item.name)+': BOM 子料號尚未建檔');
@@ -12421,17 +12444,14 @@ async function doPick(orderId){
             '料件':{relation:[{id:item.id}]},
             '類型':{select:{name:item.type}},
             '需求數量':{number:item.needed},
-            '實領數量':{number:item.type==='半成品'?item.needed:Math.min(item.needed,item.stock)},
-            '狀態':{select:{name:item.type==='半成品'?'半成品':item.stock>=item.needed?'足夠':'缺料'}}
+            '實領數量':{number:Math.min(item.needed,item.stock)},
+            '狀態':{select:{name:item.stock>=item.needed?'足夠':'缺料'}}
           });
-          // 只有零件才扣，半成品不扣（半成品本身的零件已在 BOM 展開時計算）
-          if(item.type!=='半成品'){
-            const latestMat=await notionAPI('GET','pages/'+item.id);
-            const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
-            const newStock=Math.max(0,latestStock-item.needed);
-            await updatePage(item.id,{'目前庫存':{number:newStock}});
-            await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,latestStock,newStock,no,ROLE);
-          }
+          const latestMat=await notionAPI('GET','pages/'+item.id);
+          const latestStock=latestMat?.properties?.['目前庫存']?.number??item.stock;
+          const newStock=Math.max(0,latestStock-item.needed);
+          await updatePage(item.id,{'目前庫存':{number:newStock}});
+          await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,latestStock,newStock,no,ROLE);
         }catch(itemErr){
           stockErrors.push(item.name+': '+itemErr.message);
           console.error('領料明細錯誤',item.name,itemErr);
@@ -12468,13 +12488,13 @@ async function doPick(orderId){
 
     // 3. 更新訂單狀態為「生產中」
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
-    logUserAction('確認領料',no,`${o?.no||orderId} ${hasBOM?'BOM展開':'直接扣料'}`,ROLE);
+    logUserAction('確認領料',no,`${o?.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
 
     // 4. 重新整理資料
     await refreshAll();
     await loadPicks();
 
-    const modeNote = hasBOM ? `（BOM展開 ${items.length} 項子件）` : '（直接扣成品庫存）';
+    const modeNote = hasBOM ? `（BOM直接子件 ${items.length} 項）` : '（直接扣成品庫存）';
     if(stockErrors.length){
       showToast(`⚠ 領料單 ${no} 建立，部分失敗：${stockErrors.join('、')}`,'warn');
     }else{
