@@ -9690,13 +9690,14 @@ function bomImportChildType(code){
 }
 function normalizePartSkuWithY(code){
   const sku=bomImportNormCode(code);
-  if(!sku||/^Y-/i.test(sku)||/^S-/i.test(sku)) return sku;
+  if(!sku||/^Y-/i.test(sku)) return sku;
   return 'Y-'+sku;
 }
 function normalizeBomChildSku(code){
   const sku=bomImportNormCode(code);
   if(!sku) return '';
   const existing=findMatBySku(sku);
+  if(existing&&existing.type==='零件') return normalizePartSkuWithY(sku);
   if(existing&&existing.type&&existing.type!=='零件') return sku;
   if(bomImportChildType(sku)==='零件') return normalizePartSkuWithY(sku);
   return sku;
