@@ -1624,6 +1624,7 @@ const ROLES={
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer';}
+function canImportBomRole(role=ROLE){return !isViewOnly(role)&&(isAdminRole(role)||role==='warehouse'||role==='purchase');}
 function denyViewOnlyAction(){
   if(!isViewOnly()) return false;
   showToast('檢視角色僅供查看，無操作權限','warn');
@@ -8594,7 +8595,7 @@ function renderInventory(){
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
-        ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
+        ${canImportBomRole()?`<button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
@@ -9735,7 +9736,7 @@ async function importGeneralBomExcel(input){
   const file=input?.files?.[0];
   if(input) input.value='';
   if(!file) return;
-  if(!isAdminRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
+  if(!canImportBomRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
   if(typeof XLSX==='undefined'){showToast('❌ Excel 解析套件尚未載入','err');return;}
   showToast('⏳ 讀取 BOM Excel...','warn',6000);
   try{
