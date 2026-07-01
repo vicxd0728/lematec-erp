@@ -7724,7 +7724,7 @@ function renderNotes(){
     </div>`);
   }
   const selectedList=data.filter(n=>n.date===window._NOTE_SELECTED);
-  const pendingList=data.filter(noteNeedsMyAction).slice(0,12);
+  const pendingList=myTodo.slice(0,12);
   const dueList=data.filter(n=>noteReminderDue(n)&&!noteNeedsMyAction(n)).slice(0,12);
   const openList=data.filter(n=>!noteNeedsRoleAck(n)&&!noteIsDone(n)).slice(0,12);
   const doneList=data.filter(n=>n.status==='完成').slice(0,10);
