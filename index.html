@@ -1288,6 +1288,7 @@ html[data-theme="warm"] #themePanel{
 .note-day{font-weight:800;font-size:.82rem;margin-bottom:5px}
 .note-chip{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:7px;padding:3px 6px;margin-top:4px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.2);color:var(--cyan2);font-size:.68rem}
 .note-chip.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.25);color:var(--amber)}
+.note-chip.urgent{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.28);color:var(--red2)}
 .note-list{display:flex;flex-direction:column;gap:8px;padding:12px}
 .note-item{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.025)}
 .note-item-title{font-weight:800;color:var(--text)}
@@ -1299,6 +1300,12 @@ html[data-theme="warm"] #themePanel{
 .note-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
 .note-targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .note-targets label{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.78rem;color:var(--text2)}
+.note-priority{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:.68rem;font-weight:800;border:1px solid var(--border2);color:var(--text2);background:rgba(255,255,255,.035)}
+.note-priority.重要{color:var(--amber);border-color:rgba(245,158,11,.28);background:rgba(245,158,11,.11)}
+.note-priority.緊急{color:var(--red2);border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.12)}
+.note-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.note-tag{font-size:.68rem;border:1px solid rgba(34,211,238,.2);background:rgba(34,211,238,.08);color:var(--cyan2);border-radius:999px;padding:2px 7px}
+.note-alert{border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.09)}
 .m-only{display:none!important}
 .order-mobile-detail{margin-top:5px;color:var(--text3);font-size:.68rem;font-family:var(--f-ui);font-weight:600;line-height:1.45}
 @media(max-width:900px){.note-hero{align-items:flex-start;flex-direction:column}.note-metrics{width:100%;min-width:0}.note-toolbar{grid-template-columns:1fr}.note-layout{grid-template-columns:1fr}.note-cal-cell{min-height:78px;padding:6px}.note-chip{font-size:.62rem}}
@@ -5071,6 +5078,11 @@ function openModal(type,data){
         <div><label class="field-label">狀態</label><select class="inp" id="note_status">${NOTE_STATUS.map(x=>`<option value="${x}" ${d.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
         <div><label class="field-label">負責人</label><input class="inp" id="note_owner" value="${escapeHtml(d.owner||'')}" placeholder="可填角色或姓名"></div>
       </div>
+      <div class="form-row" style="grid-template-columns:.8fr .8fr 1.4fr">
+        <div><label class="field-label">重要程度</label><select class="inp" id="note_priority"><option value="">選填</option>${NOTE_PRIORITIES.map(x=>`<option value="${x}" ${d.priority===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div><label class="field-label">提醒 / 到期日</label><input class="inp" type="date" id="note_remind_date" value="${escapeHtml(d.remindDate||'')}"></div>
+        <div><label class="field-label">標籤</label><input class="inp" id="note_tags" value="${escapeHtml((d.tags||[]).join('、'))}" placeholder="可用、或逗號分隔，例如：客戶、交期"></div>
+      </div>
       <div style="margin-bottom:12px"><label class="field-label">需要知道的角色</label><div class="note-targets">${noteRoleTargetsHtml(d.targetRoles||[])}</div></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text2);font-size:.84rem">
         <input id="note_need_ack" type="checkbox" ${d.needAck?'checked':''} style="width:16px;height:16px;accent-color:var(--cyan)">
@@ -5127,7 +5139,7 @@ function openModal(type,data){
       </div>
       <div class="info-box info-tip">
         <b>📝 記事行事曆</b><br>
-        記事可用月曆檢視，也可記錄客戶來訪、預約、待辦與提醒。每筆會顯示建立者；若指定需要知道的角色並勾選登入提醒，該角色登入時會跳出通知，可按「知道了」留下確認紀錄。
+        記事可用月曆檢視，也可記錄客戶來訪、預約、待辦與提醒。可填重要程度、提醒/到期日與標籤。指定角色後會出現在該角色的「我的待辦」，登入首次提醒；打開記事會自動留下已讀紀錄，回覆後不再列入待辦。已完成記事超過 30 天後預設不再顯示。
       </div>
       <div class="info-box info-tip">
         <b>🗓️ 請假 / 員工資料</b><br>
@@ -7372,10 +7384,14 @@ const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
 const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
+const NOTE_PRIORITIES=['一般','重要','緊急'];
+const NOTE_TAG_OPTIONS=['客戶','交期','出貨','採購','品管','現場','維修','客訴','會議','追蹤'];
+const NOTE_DONE_HIDE_DAYS=30;
 let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey='', _notesFieldsChecked=false, _notesDbRecovered=0;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
+function noteSplitList(v=''){return String(v||'').split(/[,\s、，]+/).map(x=>x.trim()).filter(Boolean);}
 function noteRoleTargetsHtml(selected=[]){
   const pick=Array.isArray(selected)?selected:[];
   return NOTE_TARGET_ROLES.map(r=>`<label><input type="checkbox" class="note_target_role" value="${r}" ${pick.includes(r)?'checked':''}>${r}</label>`).join('');
@@ -7383,7 +7399,12 @@ function noteRoleTargetsHtml(selected=[]){
 function noteTargetsForSubmit(){
   return [...document.querySelectorAll('.note_target_role:checked')].map(x=>x.value);
 }
+function noteTagsForSubmit(){
+  return noteSplitList(document.getElementById('note_tags')?.value||'').slice(0,12);
+}
 function noteStatusOptions(){return NOTE_STATUS.map((name,i)=>({name,color:['yellow','orange','blue','purple','pink','green','red','gray'][i]||'default'}));}
+function notePriorityOptions(){return NOTE_PRIORITIES.map((name,i)=>({name,color:['default','yellow','red'][i]||'default'}));}
+function noteTagOptions(){return NOTE_TAG_OPTIONS.map((name,i)=>({name,color:['blue','yellow','orange','green','purple','default','red','pink','gray','brown'][i]||'default'}));}
 function noteReplyOptions(){
   let extra=[];
   try{extra=JSON.parse(localStorage.getItem(NOTE_REPLY_OPTION_KEY)||'[]')||[];}catch{}
@@ -7405,6 +7426,11 @@ async function ensureNotesDBFields(dbId,props={}){
   Object.entries(legacyNames).forEach(([oldName,newName])=>{if(props?.[oldName]) add[oldName]={name:newName};});
   const need=(name,shape)=>{if(!props?.[name]) add[name]=shape;};
   need('負責人',{rich_text:{}});
+  need('重要程度',{select:{options:notePriorityOptions()}});
+  need('提醒日',{date:{}});
+  need('標籤',{multi_select:{options:noteTagOptions()}});
+  need('完成時間',{date:{}});
+  need('附件',{files:{}});
   need('回覆動作',{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}});
   need('回覆紀錄',{rich_text:{}});
   need('最後回覆',{rich_text:{}});
@@ -7466,6 +7492,8 @@ function notePropsFromPage(page){
     '狀態':{select:{name:status}},
     '內容':{rich_text:[{text:{content:getRichText(p,'內容')}}]},
     '負責人':{rich_text:[{text:{content:getRichText(p,'負責人')}}]},
+    '重要程度':p['重要程度']?.select?.name?{select:{name:p['重要程度'].select.name}}:{select:null},
+    '標籤':{multi_select:(p['標籤']?.multi_select||[]).map(x=>({name:x.name}))},
     '建立者':{rich_text:[{text:{content:getRichText(p,'建立者')}}]},
     '指定角色':{multi_select:targetRoles.map(name=>({name}))},
     '需要確認':{checkbox:!!p['需要確認']?.checkbox},
@@ -7475,6 +7503,8 @@ function notePropsFromPage(page){
     '最後回覆者':{rich_text:[{text:{content:getRichText(p,'最後回覆者')}}]},
   };
   if(date) props['日期']={date:{start:date}};
+  if(p['提醒日']?.date?.start) props['提醒日']={date:{start:p['提醒日'].date.start}};
+  if(p['完成時間']?.date?.start) props['完成時間']={date:{start:p['完成時間'].date.start}};
   if(creatorRole) props['建立者角色']={select:{name:creatorRole}};
   if(replyAction) props['回覆動作']={select:{name:replyAction}};
   if(lastReplyAt) props['最後回覆時間']={date:{start:lastReplyAt}};
@@ -7556,6 +7586,11 @@ async function ensureNotesDB(force=false){
       '狀態':{select:{options:noteStatusOptions()}},
       '內容':{rich_text:{}},
       '負責人':{rich_text:{}},
+      '重要程度':{select:{options:notePriorityOptions()}},
+      '提醒日':{date:{}},
+      '標籤':{multi_select:{options:noteTagOptions()}},
+      '完成時間':{date:{}},
+      '附件':{files:{}},
       '建立者':{rich_text:{}},
       '建立者角色':{select:{options:Object.values(ROLES).map((r,i)=>({name:r.label,color:['red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
       '指定角色':{multi_select:{options:NOTE_TARGET_ROLES.map((name,i)=>({name,color:['default','red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
@@ -7590,6 +7625,11 @@ async function loadNotes(){
       status:props['狀態']?.select?.name||'未處理',
       body:getRichText(props,'內容'),
       owner:getRichText(props,'負責人'),
+      priority:props['重要程度']?.select?.name||'',
+      remindDate:props['提醒日']?.date?.start||'',
+      tags:(props['標籤']?.multi_select||[]).map(x=>x.name).filter(Boolean),
+      completedAt:props['完成時間']?.date?.start||'',
+      files:(props['附件']?.files||[]),
       author:getRichText(props,'建立者')||'',
       authorRole:props['建立者角色']?.select?.name||'',
       targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
@@ -7608,6 +7648,15 @@ async function loadNotes(){
   return notes;
 }
 function noteIsDone(n){return n.status==='完成'||n.status==='取消'||n.status==='拒絕';}
+function noteDoneExpired(n){
+  if(n.status!=='完成') return false;
+  const stamp=n.completedAt||n.lastReplyAt||n.createdAt||'';
+  if(!stamp) return false;
+  const t=new Date(stamp).getTime();
+  if(!Number.isFinite(t)) return false;
+  return (Date.now()-t)>NOTE_DONE_HIDE_DAYS*24*60*60*1000;
+}
+function noteVisibleInUi(n){return !noteDoneExpired(n);}
 function noteIsAuthor(n){
   const role=loginRoleLabel();
   return n.authorRole===role||n.author===role;
@@ -7616,13 +7665,24 @@ function noteIsVic(){return loginRoleLabel()==='Vic';}
 function noteCanManage(n){return !isViewOnly()&&(noteIsVic()||noteIsAuthor(n));}
 function noteCanEdit(n){return noteCanManage(n);}
 function noteCanReply(n){return !isViewOnly();}
+function noteTargetedToCurrentRole(n){
+  const role=loginRoleLabel();
+  const targets=n.targetRoles||[];
+  return !targets.length||targets.includes('全部')||targets.includes(role);
+}
+function noteAckedRoles(n){return noteSplitList(n.ackRoles||'');}
 function noteNeedsRoleAck(n){
   if(!n.needAck||noteIsDone(n)) return false;
   const role=loginRoleLabel();
-  const targets=n.targetRoles||[];
-  const targeted=!targets.length||targets.includes('全部')||targets.includes(role);
-  const acked=String(n.ackRoles||'').split(/[,\s、]+/).filter(Boolean);
+  const targeted=noteTargetedToCurrentRole(n);
+  const acked=noteAckedRoles(n);
   return targeted&&!acked.includes(role);
+}
+function noteNeedsMyAction(n){return noteVisibleInUi(n)&&noteNeedsRoleAck(n);}
+function notePriorityRank(n){return n.priority==='緊急'?0:n.priority==='重要'?1:2;}
+function noteReminderDue(n){
+  if(!n.remindDate||noteIsDone(n)) return false;
+  return n.remindDate<=noteIsoDate();
 }
 function renderNotes(){
   if(!_notesLoaded){
@@ -7637,15 +7697,18 @@ function renderNotes(){
   const q=(document.getElementById('noteQ')?.value||'').trim().toLowerCase();
   const type=document.getElementById('noteTypeFilter')?.value||'all';
   const status=document.getElementById('noteStatusFilter')?.value||'all';
-  let data=notes.filter(n=>{
-    const text=[n.title,n.body,n.owner,n.author,n.authorRole,n.replies,n.lastReply,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
+  const visibleNotes=notes.filter(noteVisibleInUi);
+  let data=visibleNotes.filter(n=>{
+    const text=[n.title,n.body,n.owner,n.author,n.authorRole,n.priority,n.remindDate,(n.tags||[]).join(' '),n.replies,n.lastReply,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
     return (!q||text.includes(q))&&(type==='all'||n.type===type)&&(status==='all'||n.status===status);
-  });
-  const upcoming=notes.filter(n=>n.date>=today&&!noteIsDone(n)).length;
-  const pendingAck=notes.filter(noteNeedsRoleAck).length;
-  const completed=notes.filter(n=>n.status==='完成').length;
+  }).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`));
+  const myTodo=visibleNotes.filter(noteNeedsMyAction).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`));
+  const reminderDue=visibleNotes.filter(noteReminderDue).length;
+  const upcoming=visibleNotes.filter(n=>n.date>=today&&!noteIsDone(n)).length;
+  const pendingAck=myTodo.length;
+  const completed=visibleNotes.filter(n=>n.status==='完成').length;
   const monthKey=noteMonthKey(window._NOTE_YEAR,window._NOTE_MONTH);
-  const monthCount=notes.filter(n=>(n.date||'').startsWith(monthKey)).length;
+  const monthCount=visibleNotes.filter(n=>(n.date||'').startsWith(monthKey)).length;
   const canAdd=!isViewOnly();
   const first=new Date(window._NOTE_YEAR,window._NOTE_MONTH,1);
   const start=new Date(first);start.setDate(1-first.getDay());
@@ -7656,12 +7719,13 @@ function renderNotes(){
     const dayNotes=data.filter(n=>n.date===iso);
     cells.push(`<div class="note-cal-cell ${d.getMonth()!==window._NOTE_MONTH?'muted':''} ${iso===today?'today':''} ${iso===window._NOTE_SELECTED?'selected':''}" onclick="window._NOTE_SELECTED='${iso}';renderTab('notes')">
       <div class="note-day">${d.getDate()}</div>
-      ${dayNotes.slice(0,3).map(n=>`<span class="note-chip ${noteNeedsRoleAck(n)?'warn':''}">${escapeHtml((n.time?`${n.time} `:'')+n.title)}</span>`).join('')}
+        ${dayNotes.slice(0,3).map(n=>`<span class="note-chip ${n.priority==='緊急'?'urgent':noteNeedsRoleAck(n)?'warn':''}">${escapeHtml((n.time?`${n.time} `:'')+n.title)}</span>`).join('')}
       ${dayNotes.length>3?`<span class="note-chip">+${dayNotes.length-3} 筆</span>`:''}
     </div>`);
   }
   const selectedList=data.filter(n=>n.date===window._NOTE_SELECTED);
-  const pendingList=data.filter(noteNeedsRoleAck).slice(0,12);
+  const pendingList=data.filter(noteNeedsMyAction).slice(0,12);
+  const dueList=data.filter(n=>noteReminderDue(n)&&!noteNeedsMyAction(n)).slice(0,12);
   const openList=data.filter(n=>!noteNeedsRoleAck(n)&&!noteIsDone(n)).slice(0,12);
   const doneList=data.filter(n=>n.status==='完成').slice(0,10);
   const dbShort=_notesDbId?String(_notesDbId).replace(/-/g,'').slice(-8):'未連線';
@@ -7671,9 +7735,9 @@ function renderNotes(){
       <div><div class="note-eyebrow">LEMATEC SHARED NOTES</div><h2>記事行事曆</h2><p>客戶來訪、預約、交代事項、臨時提醒集中管理。</p></div>
       <div class="note-metrics">
         <div><b>${upcoming}</b><span>未完成行程</span></div>
-        <div><b>${pendingAck}</b><span>待你確認</span></div>
+        <div><b>${pendingAck}</b><span>我的待辦</span></div>
         <div><b>${monthCount}</b><span>本月紀錄</span></div>
-        <div><b>${completed}</b><span>已完成</span></div>
+        <div><b>${reminderDue}</b><span>提醒到期</span></div>
       </div>
     </section>
     <div class="note-toolbar">
@@ -7697,9 +7761,13 @@ function renderNotes(){
         ${renderNoteList(selectedList,true)}
       </aside>
     </div>
-    <div class="panel">
-      <div class="panel-hdr"><span class="panel-title">待確認 / 待回覆 <span class="badge">${pendingList.length}</span></span></div>
+    <div class="panel ${pendingList.length?'note-alert':''}">
+      <div class="panel-hdr"><span class="panel-title">我的待辦 <span class="badge">${pendingList.length}</span></span><span style="color:var(--text3);font-size:.76rem">指定給 ${escapeHtml(loginRoleLabel())} 且尚未已讀 / 回覆</span></div>
       ${renderNoteList(pendingList,true)}
+    </div>
+    <div class="panel">
+      <div class="panel-hdr"><span class="panel-title">提醒到期 <span class="badge">${dueList.length}</span></span></div>
+      ${renderNoteList(dueList,true)}
     </div>
     <div class="panel">
       <div class="panel-hdr"><span class="panel-title">未完成事項 <span class="badge">${openList.length}</span></span></div>
@@ -7715,19 +7783,22 @@ function renderNoteList(list,showDate=false){
   if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
   return `<div class="note-list">${list.map(n=>`<div class="note-item">
     <div style="min-width:0">
-      <div class="note-item-title">${escapeHtml(n.title)} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''}</div>
+      <div class="note-item-title" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
       <div class="note-item-meta">
         ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
+        ${n.remindDate?`<span>提醒：${escapeHtml(n.remindDate)}</span>`:''}
         <span>建立：${escapeHtml(n.authorRole||n.author||'未知')}</span>
         ${n.owner?`<span>負責：${escapeHtml(n.owner)}</span>`:''}
         ${(n.targetRoles||[]).length?`<span>通知：${escapeHtml(n.targetRoles.join('、'))}</span>`:''}
         ${n.ackRoles?`<span>已確認：${escapeHtml(n.ackRoles)}</span>`:''}
         ${n.lastReplyBy?`<span>最後回覆：${escapeHtml(n.lastReplyBy)} ${escapeHtml(n.replyAction||'')}</span>`:''}
       </div>
+      ${(n.tags||[]).length?`<div class="note-tags">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
       ${n.body?`<div class="note-body">${escapeHtml(n.body)}</div>`:''}
       ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     </div>
     <div class="note-actions">
+      <button class="btn btn-ghost btn-sm" onclick="openNoteDetail('${n.id}')">查看</button>
       ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="submitNoteReply('${n.id}','知道了')">知道了</button><button class="btn btn-blue btn-sm" onclick="submitNoteReply('${n.id}','接受處理')">接受</button><button class="btn btn-red btn-sm" onclick="openNoteReply('${n.id}','拒絕/退回')">拒絕</button>`:''}
       ${noteCanReply(n)?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
       ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green btn-sm" onclick="completeNote('${n.id}')">完成</button>`:''}
@@ -7737,6 +7808,63 @@ function renderNoteList(list,showDate=false){
 }
 function formatNoteThread(text=''){
   return escapeHtml(text).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
+}
+async function markNoteRead(id){
+  const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
+  const role=loginRoleLabel();
+  const acked=noteAckedRoles(n);
+  if(acked.includes(role))return false;
+  acked.push(role);
+  const nowIso=new Date().toISOString();
+  const stamp=fmtDateTime(nowIso);
+  const line=`[${stamp} ${role}｜已讀] 已開啟記事`;
+  const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
+  const props={
+    '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
+    '回覆動作':{select:{name:'知道了'}},
+    '回覆紀錄':{rich_text:[{text:{content:replies}}]},
+    '最後回覆':{rich_text:[{text:{content:'已開啟記事'}}]},
+    '最後回覆者':{rich_text:[{text:{content:role}}]},
+    '最後回覆時間':{date:{start:nowIso}}
+  };
+  try{
+    assertNotionPage(await updatePage(id,props),'標記記事已讀');
+    Object.assign(n,{ackRoles:acked.join('、'),replyAction:'知道了',replies,lastReply:'已開啟記事',lastReplyBy:role,lastReplyAt:nowIso});
+    logUserAction('已讀記事',n.title,'已開啟記事',ROLE);
+    return true;
+  }catch(e){
+    console.warn('mark note read failed:',e);
+    return false;
+  }
+}
+async function openNoteDetail(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const wasPending=noteNeedsRoleAck(n);
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>📝 ${escapeHtml(n.title)}</h3>
+    <div class="info-box info-tip">
+      <b>${escapeHtml(n.date||'未排日期')} ${escapeHtml(n.time||'')}</b>
+      ${n.priority?`　<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''}
+      ${n.remindDate?`<br>提醒 / 到期日：${escapeHtml(n.remindDate)}`:''}
+      <br>類型：${escapeHtml(n.type)}　狀態：${escapeHtml(n.status)}
+      <br>建立：${escapeHtml(n.authorRole||n.author||'未知')}${n.owner?`　負責：${escapeHtml(n.owner)}`:''}
+      ${(n.targetRoles||[]).length?`<br>指定角色：${escapeHtml(n.targetRoles.join('、'))}`:''}
+      ${n.ackRoles?`<br>已確認：${escapeHtml(n.ackRoles)}`:''}
+    </div>
+    ${(n.tags||[]).length?`<div class="note-tags" style="margin-bottom:12px">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
+    ${n.body?`<div class="note-body" style="font-size:.95rem;margin-bottom:12px">${escapeHtml(n.body)}</div>`:'<div class="note-body" style="margin-bottom:12px;color:var(--text3)">沒有內容</div>'}
+    ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      ${noteCanReply(n)?`<button class="btn btn-cyan" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
+      ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green" onclick="completeNote('${n.id}')">完成</button>`:''}
+      ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
+    </div>`;
+  document.getElementById('modalBg').classList.add('open');
+  if(wasPending){
+    const ok=await markNoteRead(id);
+    if(ok&&CURRENT_TAB==='notes') renderTab('notes');
+  }
 }
 function openEditNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
@@ -7751,12 +7879,16 @@ async function submitNote(id=''){
   const status=document.getElementById('note_status').value;
   const body=document.getElementById('note_body').value.trim();
   const owner=document.getElementById('note_owner')?.value.trim()||'';
+  const priority=document.getElementById('note_priority')?.value||'';
+  const remindDate=document.getElementById('note_remind_date')?.value||'';
+  const tags=noteTagsForSubmit();
   const targetRoles=noteTargetsForSubmit();
-  const needAck=!!document.getElementById('note_need_ack')?.checked;
+  const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
   showToast('⏳ 儲存記事中...','warn');
   try{
     const dbId=await ensureNotesDB(true);
+    const oldNote=id?notes.find(x=>x.id===id):null;
     const props={
       '標題':{title:[{text:{content:title}}]},
       '日期':{date:{start:date}},
@@ -7765,9 +7897,16 @@ async function submitNote(id=''){
       '狀態':{select:{name:status}},
       '內容':{rich_text:[{text:{content:body}}]},
       '負責人':{rich_text:owner?[{text:{content:owner}}]:[]},
+      '重要程度':{select:priority?{name:priority}:null},
+      '提醒日':{date:remindDate?{start:remindDate}:null},
+      '標籤':{multi_select:tags.map(name=>({name}))},
       '指定角色':{multi_select:targetRoles.map(name=>({name}))},
       '需要確認':{checkbox:needAck}
     };
+    if(!priority&&!id) delete props['重要程度'];
+    if(!remindDate&&!id) delete props['提醒日'];
+    if(status==='完成') props['完成時間']={date:{start:(oldNote?.completedAt||new Date().toISOString())}};
+    else if(id) props['完成時間']={date:null};
     if(id){
       assertNotionPage(await updatePage(id,props),'更新記事');
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
@@ -7847,7 +7986,8 @@ async function completeNote(id){
   if(n.status==='完成'){showToast('此記事已完成','warn');return;}
   try{
     const role=loginRoleLabel();
-    const stamp=fmtDateTime(new Date().toISOString());
+    const nowIso=new Date().toISOString();
+    const stamp=fmtDateTime(nowIso);
     const line=`[${stamp} ${role}｜完成] 已標記完成`;
     const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
     const props={
@@ -7856,10 +7996,11 @@ async function completeNote(id){
       '回覆紀錄':{rich_text:[{text:{content:replies}}]},
       '最後回覆':{rich_text:[{text:{content:'已標記完成'}}]},
       '最後回覆者':{rich_text:[{text:{content:role}}]},
-      '最後回覆時間':{date:{start:new Date().toISOString()}}
+      '最後回覆時間':{date:{start:nowIso}},
+      '完成時間':{date:{start:nowIso}}
     };
     assertNotionPage(await updatePage(id,props),'完成記事');
-    Object.assign(n,{status:'完成',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:new Date().toISOString()});
+    Object.assign(n,{status:'完成',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:nowIso,completedAt:nowIso});
     logUserAction('完成記事',n.title,'已完成',ROLE);
     showToast('✅ 記事已完成','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
@@ -7885,7 +8026,7 @@ function schedulePendingNoteNotification(force=false){
 }
 function showPendingNoteNotifications(force=false){
   if(!notes?.length)return;
-  const pending=notes.filter(noteNeedsRoleAck).filter(n=>!n.date||n.date>=noteIsoDate()).slice(0,5);
+  const pending=notes.filter(noteNeedsMyAction).filter(n=>!n.date||n.date>=noteIsoDate()).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`)).slice(0,5);
   if(!pending.length)return;
   const key=pending.map(n=>`${n.id}:${n.status}:${n.ackRoles||''}:${n.lastReplyAt||''}`).join('|');
   if(!force&&_notesNotifyShown&&key===_notesNotifyKey)return;
