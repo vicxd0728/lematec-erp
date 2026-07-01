@@ -7610,7 +7610,7 @@ async function submitNote(id=''){
   const targetRoles=noteTargetsForSubmit();
   const needAck=!!document.getElementById('note_need_ack')?.checked;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
-  closeModal();showToast('⏳ 儲存記事中...','warn');
+  showToast('⏳ 儲存記事中...','warn');
   try{
     const dbId=await ensureNotesDB();
     const props={
@@ -7627,6 +7627,7 @@ async function submitNote(id=''){
     if(id){
       assertNotionPage(await updatePage(id,props),'更新記事');
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
+      closeModal();
       showToast('✅ 記事已更新','ok');
     }else{
       props['建立者']={rich_text:[{text:{content:loginRoleLabel()}}]};
@@ -7635,6 +7636,7 @@ async function submitNote(id=''){
       props['已確認角色']={rich_text:[{text:{content:''}}]};
       assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props}),'建立記事');
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
+      closeModal();
       showToast('✅ 記事已建立','ok');
     }
     await loadNotes();renderTab('notes');
@@ -7687,8 +7689,8 @@ async function submitNoteReply(id,quickAction=''){
   };
   if(action==='接受處理'&&!n.owner) props['負責人']={rich_text:[{text:{content:role}}]};
   try{
-    closeModal();
     assertNotionPage(await updatePage(id,props),'回覆記事');
+    closeModal();
     Object.assign(n,{ackRoles:acked.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:new Date().toISOString(),status:nextStatus,owner:props['負責人']?role:n.owner});
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
     showToast('✅ 回覆已送出','ok');

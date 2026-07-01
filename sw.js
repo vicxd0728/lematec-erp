@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v5';
+const CACHE_NAME = 'lematec-erp-v6';
 const CORE_ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192-v2.png',
@@ -33,6 +33,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
 
   if (request.method !== 'GET') return;
+  const url = new URL(request.url);
 
   if (request.mode === 'navigate') {
     event.respondWith(
@@ -47,11 +48,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The ERP app logic is bundled in index.html. Always prefer the network for
+  // same-origin HTML so installed mobile PWAs do not keep running stale code.
+  if (url.origin === self.location.origin && (url.pathname === '/' || url.pathname.endsWith('.html'))) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' })
+        .then((response) => {
+          const responseCopy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseCopy));
+          return response;
+        })
+        .catch(() => caches.match(request) || caches.match('./index.html') || caches.match('./'))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request).then((response) => {
         const responseCopy = response.clone();
-        if (new URL(request.url).origin === self.location.origin) {
+        if (url.origin === self.location.origin) {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, responseCopy));
         }
         return response;
