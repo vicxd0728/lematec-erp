@@ -7380,7 +7380,6 @@ function saveNoteReplyOption(v){
 }
 async function ensureNotesDBFields(dbId,props={}){
   if(_notesFieldsChecked||!dbId) return;
-  _notesFieldsChecked=true;
   const add={};
   const need=(name,shape)=>{if(!props?.[name]) add[name]=shape;};
   need('負責人',{rich_text:{}});
@@ -7390,11 +7389,15 @@ async function ensureNotesDBFields(dbId,props={}){
   need('最後回覆者',{rich_text:{}});
   need('最後回覆時間',{date:{}});
   try{
-    const existingStatus=(props?.['狀態']?.select?.options||[]).map(x=>x.name);
-    const missingStatus=NOTE_STATUS.filter(x=>!existingStatus.includes(x));
-    if(missingStatus.length) add['狀態']={select:{options:noteStatusOptions()}};
-    if(Object.keys(add).length) await notionAPI('PATCH','databases/'+dbId,{properties:add});
-  }catch(e){console.warn('notes db field migration failed:',e);}
+    if(Object.keys(add).length){
+      const r=await notionAPI('PATCH','databases/'+dbId,{properties:add});
+      if(r?.object==='error') throw new Error(r.message||r.code||'記事欄位更新失敗');
+    }
+    _notesFieldsChecked=true;
+  }catch(e){
+    console.warn('notes db field migration failed:',e);
+    _notesFieldsChecked=false;
+  }
 }
 async function ensureNotesDB(){
   if(_notesDbId){
@@ -7621,7 +7624,7 @@ async function submitNote(id=''){
       '需要確認':{checkbox:needAck}
     };
     if(id){
-      await updatePage(id,props);
+      assertNotionPage(await updatePage(id,props),'更新記事');
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
       showToast('✅ 記事已更新','ok');
     }else{
@@ -7629,7 +7632,7 @@ async function submitNote(id=''){
       props['建立者角色']={select:{name:loginRoleLabel()}};
       props['建立時間']={date:{start:new Date().toISOString()}};
       props['已確認角色']={rich_text:[{text:{content:''}}]};
-      await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+      assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props}),'建立記事');
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
       showToast('✅ 記事已建立','ok');
     }
@@ -7684,7 +7687,7 @@ async function submitNoteReply(id,quickAction=''){
   if(action==='接受處理'&&!n.owner) props['負責人']={rich_text:[{text:{content:role}}]};
   try{
     closeModal();
-    await updatePage(id,props);
+    assertNotionPage(await updatePage(id,props),'回覆記事');
     Object.assign(n,{ackRoles:acked.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:new Date().toISOString(),status:nextStatus,owner:props['負責人']?role:n.owner});
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
     showToast('✅ 回覆已送出','ok');
