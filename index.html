@@ -1299,7 +1299,25 @@ html[data-theme="warm"] #themePanel{
 .note-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
 .note-targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .note-targets label{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.78rem;color:var(--text2)}
+.m-only{display:none!important}
+.order-mobile-detail{margin-top:5px;color:var(--text3);font-size:.68rem;font-family:var(--f-ui);font-weight:600;line-height:1.45}
 @media(max-width:900px){.note-hero{align-items:flex-start;flex-direction:column}.note-metrics{width:100%;min-width:0}.note-toolbar{grid-template-columns:1fr}.note-layout{grid-template-columns:1fr}.note-cal-cell{min-height:78px;padding:6px}.note-chip{font-size:.62rem}}
+@media(max-width:600px){
+  .m-only{display:block!important}
+  .note-list{padding:10px 0}
+  .note-item{display:block;padding:14px;border-radius:14px}
+  .note-item-meta{font-size:.78rem;gap:7px 9px}
+  .note-body{font-size:.92rem;line-height:1.55}
+  .note-actions{justify-content:flex-start;margin-top:12px}
+  .note-actions .btn-sm{flex:1 1 auto;min-width:88px}
+  .note-calendar{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .note-week,.note-grid{min-width:620px}
+  .note-cal-cell{min-height:86px}
+  .table-wrap table td,.table-wrap table th{vertical-align:middle}
+  .table-wrap table td{word-break:normal}
+  .table-wrap table td[style*="monospace"]{white-space:normal}
+  .panel .table-wrap{border-radius:0 0 14px 14px}
+}
 </style>
 </head>
 <body>
@@ -6194,7 +6212,7 @@ async function startApp(){
   }
 
   await refreshAll();
-  loadNotes().then(showPendingNoteNotifications).catch(e=>console.warn('notes notify failed:',e));
+  loadNotes().then(()=>schedulePendingNoteNotification(true)).catch(e=>console.warn('notes notify failed:',e));
   initAutoSync();
 }
 
@@ -6444,6 +6462,7 @@ async function refreshAll(manual=false){
 
     saveAppCache();
     renderTab(CURRENT_TAB);
+    loadNotes().catch(e=>console.warn('notes background refresh failed:',e));
     if(manual)showToast('✅ 資料已同步最新','ok');
   }catch(e){
     if(syncEl)syncEl.textContent='❌ 失敗';
@@ -7353,7 +7372,7 @@ const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
 const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
-let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesFieldsChecked=false, _notesDbRecovered=0;
+let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey='', _notesFieldsChecked=false, _notesDbRecovered=0;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -7583,6 +7602,7 @@ async function loadNotes(){
     };
   }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
   _notesLoaded=true;
+  schedulePendingNoteNotification();
   return notes;
 }
 function noteIsDone(n){return n.status==='完成'||n.status==='取消'||n.status==='拒絕';}
@@ -7856,17 +7876,31 @@ async function deleteNote(id){
     showToast('✅ 記事已刪除','ok');
   }catch(e){showToast('❌ 刪除失敗：'+e.message,'err');}
 }
-function showPendingNoteNotifications(){
-  if(_notesNotifyShown||!notes?.length)return;
+function schedulePendingNoteNotification(force=false){
+  if(!TOKEN||!ROLE) return;
+  clearTimeout(window._notesNotifyTimer);
+  window._notesNotifyTimer=setTimeout(()=>showPendingNoteNotifications(force),350);
+}
+function showPendingNoteNotifications(force=false){
+  if(!notes?.length)return;
   const pending=notes.filter(noteNeedsRoleAck).filter(n=>!n.date||n.date>=noteIsoDate()).slice(0,5);
   if(!pending.length)return;
+  const key=pending.map(n=>`${n.id}:${n.status}:${n.ackRoles||''}:${n.lastReplyAt||''}`).join('|');
+  if(!force&&_notesNotifyShown&&key===_notesNotifyKey)return;
+  const modalBg=document.getElementById('modalBg');
+  if(modalBg?.classList.contains('open')&&!force)return;
+  if(!modalBg)return;
   _notesNotifyShown=true;
+  _notesNotifyKey=key;
+  if(document.hidden&&'Notification' in window&&Notification.permission==='granted'){
+    try{new Notification('LEMATEC ERP 記事提醒',{body:`${loginRoleLabel()} 有 ${pending.length} 筆記事需要確認`});}catch{}
+  }
   const mi=document.getElementById('modalInner');
   mi.innerHTML=`<h3>🔔 你有需要確認的記事</h3>
     <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。可直接按知道了、接受、拒絕，或打開記事補充留言。</div>
     ${renderNoteList(pending,true)}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">稍後</button><button class="btn btn-blue" onclick="switchTab('notes');closeModal()">打開記事</button></div>`;
-  document.getElementById('modalBg').classList.add('open');
+  modalBg.classList.add('open');
 }
 
 // ══════════════════════════════════════════════
@@ -8643,7 +8677,7 @@ function _renderOrdersList(tabs){
     <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
     <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${o.no||'—'}</td>
     <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
-    <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}</td>
+    <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
     <td style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
@@ -14871,7 +14905,10 @@ if ('serviceWorker' in navigator) {
       reg.update().catch(()=>{});
       setInterval(()=>reg.update().catch(()=>{}), 10*60*1000);
       document.addEventListener('visibilitychange',()=>{
-        if(document.visibilityState==='visible') reg.update().catch(()=>{});
+        if(document.visibilityState==='visible'){
+          reg.update().catch(()=>{});
+          if(TOKEN&&ROLE) loadNotes().then(()=>schedulePendingNoteNotification()).catch(()=>{});
+        }
       });
       reg.addEventListener('updatefound', () => {
         const nw=reg.installing;
