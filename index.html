@@ -6760,7 +6760,7 @@ function applyDateFilter(filterId,data,dateKey='created'){
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='notes')loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});if(tab==='ops')loadInbounds().then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
+function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='notes')loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});if(tab==='ops')Promise.all([loadInbounds(),loadNotes().catch(e=>console.warn('ops notes refresh failed:',e))]).then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
@@ -6801,9 +6801,11 @@ function renderOpsBoard(){
   const overdue=orders.filter(o=>o.deadline&&o.deadline<today&&o.status!=='已完成'&&o.status!=='取消');
   const cShip=(window.corders||[]).filter(o=>o.status==='出貨中');
   const pendingLeave=leaves.filter(l=>l.status==='待審核');
-  const totalAction=readyShip.length+pendingPick.length+qcList.length+inboundQC.length+low.length+overdue.length+cShip.length+pendingLeave.length;
+  const myTodo=(notes||[]).filter(noteNeedsMyAction);
+  const totalAction=readyShip.length+pendingPick.length+qcList.length+inboundQC.length+low.length+overdue.length+cShip.length+pendingLeave.length+myTodo.length;
   const statusColor=totalAction===0?'var(--green2)':totalAction<=8?'var(--amber)':'var(--red2)';
   const cards=[
+    {label:'我的待辦',icon:'📝',count:myTodo.length,color:myTodo.length?'var(--red2)':'var(--green2)',sub:`指定給 ${loginRoleLabel()} 尚未確認`,tab:'notes'},
     {label:'今日出貨',icon:'🚚',count:todayShip.length,color:'var(--green2)',sub:'已填實際出貨日'},
     {label:'待出貨',icon:'📦',count:readyShip.length,color:readyShip.length?'var(--amber)':'var(--green2)',sub:'業務需填出貨日'},
     {label:'待領料',icon:'🗂️',count:pendingPick.length,color:pendingPick.length?'var(--yellow)':'var(--green2)',sub:'訂單待轉領料'},
@@ -6823,6 +6825,7 @@ function renderOpsBoard(){
         <div class="ops-subline">
           <span class="ops-chip">狀態：${boardState}</span>
           <span class="ops-chip">今日出貨 ${todayShip.length}</span>
+          <span class="ops-chip">我的待辦 ${myTodo.length}</span>
           <span class="ops-chip">逾期 ${overdue.length}</span>
           <span class="ops-chip">庫存警示 ${low.length}</span>
         </div>
@@ -6836,7 +6839,7 @@ function renderOpsBoard(){
       </div>
     </div>
     <div class="ops-grid">
-      ${cards.map(c=>`<div class="ops-card ${c.count?'active':''}" style="--ops-color:${c.color}">
+      ${cards.map(c=>`<div class="ops-card ${c.count?'active':''}" ${c.tab?`onclick="switchTab('${c.tab}')" style="--ops-color:${c.color};cursor:pointer"`:`style="--ops-color:${c.color}"`}>
         <div class="ops-meta">
           <div class="ops-label"><span class="ops-icon">${c.icon}</span><span>${c.label}</span></div>
           <div class="ops-sub">${c.sub}</div>
