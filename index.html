@@ -7353,7 +7353,7 @@ const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
 const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
-let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesFieldsChecked=false;
+let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesFieldsChecked=false, _notesDbRecovered=0;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -7400,15 +7400,19 @@ async function ensureNotesDBFields(dbId,props={}){
     _notesFieldsChecked=false;
   }
 }
-async function findNotesDBUnderERP(){
+async function findNotesDBsUnderERP(){
+  const children=[];
   let cursor=null;
   do{
     const found=await notionAPI('GET',`blocks/${DB.erpPage}/children?page_size=100${cursor?'&start_cursor='+cursor:''}`);
-    const child=(found.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆');
-    if(child?.id) return child;
+    children.push(...(found.results||[]).filter(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆'));
     cursor=found.has_more?found.next_cursor:null;
   }while(cursor);
-  return null;
+  return children;
+}
+async function findNotesDBUnderERP(){
+  const children=await findNotesDBsUnderERP();
+  return children[0]||null;
 }
 function isExpectedNotesDB(db){
   const title=(db?.title||[]).map(t=>t.plain_text||t.text?.content||'').join('');
@@ -7484,7 +7488,17 @@ async function migrateCachedNotesDB(sourceDbId,targetDbId){
     return 0;
   }
 }
-async function ensureNotesDB(){
+async function migrateSiblingNotesDBs(targetDbId,children=[]){
+  let total=0;
+  for(const child of children){
+    if(child?.id&&!noteDbIdSame(child.id,targetDbId)){
+      total+=await migrateCachedNotesDB(child.id,targetDbId);
+    }
+  }
+  return total;
+}
+async function ensureNotesDB(force=false){
+  if(force){_notesDbId='';_notesFieldsChecked=false;}
   if(_notesDbId){
     if(!_notesFieldsChecked){
       try{const d=await notionAPI('GET','databases/'+_notesDbId);await ensureNotesDBFields(_notesDbId,d?.properties||{});}catch(e){console.warn('notes db check failed',e);}
@@ -7492,10 +7506,14 @@ async function ensureNotesDB(){
     return _notesDbId;
   }
   const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
-  const child=await findNotesDBUnderERP();
+  const children=await findNotesDBsUnderERP();
+  const child=children[0]||null;
   if(child?.id){
     try{const d=await notionAPI('GET','databases/'+child.id);await ensureNotesDBFields(child.id,d?.properties||{});}catch(e){console.warn('notes child db check failed',e);}
-    if(cached&&!noteDbIdSame(cached,child.id)) await migrateCachedNotesDB(cached,child.id);
+    let recovered=0;
+    if(cached&&!noteDbIdSame(cached,child.id)) recovered+=await migrateCachedNotesDB(cached,child.id);
+    recovered+=await migrateSiblingNotesDBs(child.id,children);
+    if(recovered) _notesDbRecovered+=recovered;
     _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
     return child.id;
   }
@@ -7537,7 +7555,7 @@ async function ensureNotesDB(){
   return created.id;
 }
 async function loadNotes(){
-  const dbId=await ensureNotesDB();
+  const dbId=await ensureNotesDB(true);
   const rows=await dbQueryAll(dbId);
   notes=rows.map(p=>{
     const props=p.properties||{};
@@ -7613,8 +7631,9 @@ function renderNotes(){
   }
   const selectedList=data.filter(n=>n.date===window._NOTE_SELECTED);
   const nextList=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').slice(0,8);
+  const dbShort=_notesDbId?String(_notesDbId).replace(/-/g,'').slice(-8):'未連線';
   return `<div class="note-board">
-    <div class="notion-bar">📌 Notion：${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">ERP 記事行事曆</a>`:'ERP 記事行事曆'} <span style="color:var(--text3)">所有紀錄都會顯示建立者，指定角色可登入確認。</span></div>
+    <div class="notion-bar">📌 Notion：${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">ERP 記事行事曆</a>`:'ERP 記事行事曆'} <span style="color:var(--text3)">正式庫 ${dbShort}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}｜所有紀錄都會顯示建立者，指定角色可登入確認。</span></div>
     <section class="note-hero">
       <div><div class="note-eyebrow">LEMATEC SHARED NOTES</div><h2>記事行事曆</h2><p>客戶來訪、預約、交代事項、臨時提醒集中管理。</p></div>
       <div class="note-metrics">
@@ -7693,7 +7712,7 @@ async function submitNote(id=''){
   if(!title||!date){showToast('請填標題與日期','warn');return;}
   showToast('⏳ 儲存記事中...','warn');
   try{
-    const dbId=await ensureNotesDB();
+    const dbId=await ensureNotesDB(true);
     const props={
       '標題':{title:[{text:{content:title}}]},
       '日期':{date:{start:date}},
