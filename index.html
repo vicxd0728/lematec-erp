@@ -7415,6 +7415,75 @@ function isExpectedNotesDB(db){
   const parentOk=!db?.parent?.page_id||db.parent.page_id.replace(/-/g,'')===DB.erpPage.replace(/-/g,'');
   return db?.id&&title==='ERP 記事行事曆'&&parentOk;
 }
+function noteDbIdSame(a,b){return String(a||'').replace(/-/g,'')===String(b||'').replace(/-/g,'');}
+function notePageKey(props={}){
+  const title=getTitle(props,'標題')||'未命名記事';
+  const date=props['日期']?.date?.start||'';
+  const time=getRichText(props,'時間');
+  const body=getRichText(props,'內容');
+  return [title,date,time,body].join('|');
+}
+function notePropsFromPage(page){
+  const p=page?.properties||{};
+  const title=getTitle(p,'標題')||'未命名記事';
+  const date=p['日期']?.date?.start||'';
+  const type=p['類型']?.select?.name||'一般';
+  const status=p['狀態']?.select?.name||'未處理';
+  const creatorRole=p['建立者角色']?.select?.name||'';
+  const replyAction=p['回覆動作']?.select?.name||'';
+  const lastReplyAt=p['最後回覆時間']?.date?.start||'';
+  const createdAt=p['建立時間']?.date?.start||'';
+  const targetRoles=(p['指定角色']?.multi_select||[]).map(x=>x.name).filter(Boolean);
+  const props={
+    '標題':{title:[{text:{content:title}}]},
+    '時間':{rich_text:[{text:{content:getRichText(p,'時間')}}]},
+    '類型':{select:{name:type}},
+    '狀態':{select:{name:status}},
+    '內容':{rich_text:[{text:{content:getRichText(p,'內容')}}]},
+    '負責人':{rich_text:[{text:{content:getRichText(p,'負責人')}}]},
+    '建立者':{rich_text:[{text:{content:getRichText(p,'建立者')}}]},
+    '指定角色':{multi_select:targetRoles.map(name=>({name}))},
+    '需要確認':{checkbox:!!p['需要確認']?.checkbox},
+    '已確認角色':{rich_text:[{text:{content:getRichText(p,'已確認角色')}}]},
+    '回覆紀錄':{rich_text:[{text:{content:getRichText(p,'回覆紀錄')}}]},
+    '最後回覆':{rich_text:[{text:{content:getRichText(p,'最後回覆')}}]},
+    '最後回覆者':{rich_text:[{text:{content:getRichText(p,'最後回覆者')}}]},
+  };
+  if(date) props['日期']={date:{start:date}};
+  if(creatorRole) props['建立者角色']={select:{name:creatorRole}};
+  if(replyAction) props['回覆動作']={select:{name:replyAction}};
+  if(lastReplyAt) props['最後回覆時間']={date:{start:lastReplyAt}};
+  if(createdAt) props['建立時間']={date:{start:createdAt}};
+  return props;
+}
+async function migrateCachedNotesDB(sourceDbId,targetDbId){
+  if(!sourceDbId||!targetDbId||noteDbIdSame(sourceDbId,targetDbId)) return 0;
+  try{
+    const sourceInfo=await notionAPI('GET','databases/'+sourceDbId);
+    if(!sourceInfo?.id||sourceInfo.object==='error') return 0;
+    const sourceRows=await dbQueryAll(sourceDbId);
+    if(!sourceRows.length) return 0;
+    const targetRows=await dbQueryAll(targetDbId);
+    const existing=new Set(targetRows.map(row=>notePageKey(row.properties||{})));
+    let copied=0;
+    for(const row of sourceRows){
+      const key=notePageKey(row.properties||{});
+      if(existing.has(key)) continue;
+      const r=await notionAPI('POST','pages',{parent:{database_id:targetDbId},properties:notePropsFromPage(row)});
+      if(r?.object==='page'||r?.id){existing.add(key);copied++;}
+      else console.warn('notes migration row skipped:',r?.message||r);
+    }
+    if(copied){
+      console.log('[notes migrate] copied records:',copied);
+      try{await logUserAction('救回手機記事','ERP 記事行事曆',`${copied} 筆`,ROLE);}catch{}
+      if(typeof showToast==='function') showToast(`✅ 已救回手機記事 ${copied} 筆`,'ok');
+    }
+    return copied;
+  }catch(e){
+    console.warn('notes migration skipped:',e);
+    return 0;
+  }
+}
 async function ensureNotesDB(){
   if(_notesDbId){
     if(!_notesFieldsChecked){
@@ -7422,13 +7491,14 @@ async function ensureNotesDB(){
     }
     return _notesDbId;
   }
+  const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
   const child=await findNotesDBUnderERP();
   if(child?.id){
-    _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
     try{const d=await notionAPI('GET','databases/'+child.id);await ensureNotesDBFields(child.id,d?.properties||{});}catch(e){console.warn('notes child db check failed',e);}
+    if(cached&&!noteDbIdSame(cached,child.id)) await migrateCachedNotesDB(cached,child.id);
+    _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
     return child.id;
   }
-  const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
   if(cached){
     try{
       const d=await notionAPI('GET','databases/'+cached);
