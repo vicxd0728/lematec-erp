@@ -1293,6 +1293,9 @@ html[data-theme="warm"] #themePanel{
 .note-item-title{font-weight:800;color:var(--text)}
 .note-item-meta{display:flex;flex-wrap:wrap;gap:6px 10px;color:var(--text3);font-size:.72rem;margin-top:4px}
 .note-body{margin-top:8px;color:var(--text2);font-size:.86rem;white-space:pre-wrap}
+.note-thread{margin-top:10px;border-top:1px dashed var(--border2);padding-top:8px;color:var(--text2);font-size:.78rem;white-space:pre-wrap;line-height:1.55}
+.note-thread b{color:var(--cyan2)}
+.note-reply-box{background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.22);border-radius:10px;padding:10px;margin-top:10px}
 .note-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
 .note-targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .note-targets label{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.78rem;color:var(--text2)}
@@ -5045,9 +5048,10 @@ function openModal(type,data){
         <div><label class="field-label">日期 *</label><input class="inp" type="date" id="note_date" value="${escapeHtml(d.date||today)}"></div>
         <div><label class="field-label">時間</label><input class="inp" id="note_time" value="${escapeHtml(d.time||'')}" placeholder="例如 14:30"></div>
       </div>
-      <div class="form-row" style="grid-template-columns:1fr 1fr">
-        <div><label class="field-label">類型</label><select class="inp" id="note_type">${['一般','預約','待辦','提醒','客戶','出貨','其他'].map(x=>`<option value="${x}" ${d.type===x?'selected':''}>${x}</option>`).join('')}</select></div>
-        <div><label class="field-label">狀態</label><select class="inp" id="note_status">${['未處理','進行中','完成','取消'].map(x=>`<option value="${x}" ${d.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="form-row" style="grid-template-columns:1fr 1fr 1fr">
+        <div><label class="field-label">類型</label><select class="inp" id="note_type">${NOTE_TYPES.map(x=>`<option value="${x}" ${d.type===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div><label class="field-label">狀態</label><select class="inp" id="note_status">${NOTE_STATUS.map(x=>`<option value="${x}" ${d.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div><label class="field-label">負責人</label><input class="inp" id="note_owner" value="${escapeHtml(d.owner||'')}" placeholder="可填角色或姓名"></div>
       </div>
       <div style="margin-bottom:12px"><label class="field-label">需要知道的角色</label><div class="note-targets">${noteRoleTargetsHtml(d.targetRoles||[])}</div></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text2);font-size:.84rem">
@@ -7343,10 +7347,12 @@ function openEditSchedule(id){
 // 📝 共用記事 / 行事曆
 // ══════════════════════════════════════════════
 const NOTES_DB_KEY='lematec_notes_db_id';
+const NOTE_REPLY_OPTION_KEY='lematec_note_reply_options';
 const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'];
-const NOTE_STATUS=['未處理','進行中','完成','取消'];
+const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
-let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false;
+const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
+let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesFieldsChecked=false;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -7357,13 +7363,51 @@ function noteRoleTargetsHtml(selected=[]){
 function noteTargetsForSubmit(){
   return [...document.querySelectorAll('.note_target_role:checked')].map(x=>x.value);
 }
+function noteStatusOptions(){return NOTE_STATUS.map((name,i)=>({name,color:['yellow','orange','blue','purple','pink','green','red','gray'][i]||'default'}));}
+function noteReplyOptions(){
+  let extra=[];
+  try{extra=JSON.parse(localStorage.getItem(NOTE_REPLY_OPTION_KEY)||'[]')||[];}catch{}
+  return [...new Set([...NOTE_REPLY_DEFAULTS,...extra].filter(Boolean))];
+}
+function saveNoteReplyOption(v){
+  const val=(v||'').trim();
+  if(!val||NOTE_REPLY_DEFAULTS.includes(val)) return;
+  const cur=noteReplyOptions().filter(x=>!NOTE_REPLY_DEFAULTS.includes(x));
+  if(!cur.includes(val)){
+    cur.push(val);
+    localStorage.setItem(NOTE_REPLY_OPTION_KEY,JSON.stringify(cur.slice(-20)));
+  }
+}
+async function ensureNotesDBFields(dbId,props={}){
+  if(_notesFieldsChecked||!dbId) return;
+  _notesFieldsChecked=true;
+  const add={};
+  const need=(name,shape)=>{if(!props?.[name]) add[name]=shape;};
+  need('負責人',{rich_text:{}});
+  need('回覆動作',{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}});
+  need('回覆紀錄',{rich_text:{}});
+  need('最後回覆',{rich_text:{}});
+  need('最後回覆者',{rich_text:{}});
+  need('最後回覆時間',{date:{}});
+  try{
+    const existingStatus=(props?.['狀態']?.select?.options||[]).map(x=>x.name);
+    const missingStatus=NOTE_STATUS.filter(x=>!existingStatus.includes(x));
+    if(missingStatus.length) add['狀態']={select:{options:noteStatusOptions()}};
+    if(Object.keys(add).length) await notionAPI('PATCH','databases/'+dbId,{properties:add});
+  }catch(e){console.warn('notes db field migration failed:',e);}
+}
 async function ensureNotesDB(){
-  if(_notesDbId) return _notesDbId;
+  if(_notesDbId){
+    if(!_notesFieldsChecked){
+      try{const d=await notionAPI('GET','databases/'+_notesDbId);await ensureNotesDBFields(_notesDbId,d?.properties||{});}catch(e){console.warn('notes db check failed',e);}
+    }
+    return _notesDbId;
+  }
   const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
   if(cached){
     try{
       const d=await notionAPI('GET','databases/'+cached);
-      if(d?.id){_notesDbId=d.id;localStorage.setItem(NOTES_DB_KEY,d.id);return d.id;}
+      if(d?.id){_notesDbId=d.id;localStorage.setItem(NOTES_DB_KEY,d.id);await ensureNotesDBFields(d.id,d.properties||{});return d.id;}
     }catch(e){console.warn('notes cached db invalid',e);}
   }
   let cursor=null, child=null;
@@ -7372,7 +7416,11 @@ async function ensureNotesDB(){
     child=(found.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆');
     cursor=child?null:(found.has_more?found.next_cursor:null);
   }while(cursor);
-  if(child?.id){_notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);return child.id;}
+  if(child?.id){
+    _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
+    try{const d=await notionAPI('GET','databases/'+child.id);await ensureNotesDBFields(child.id,d?.properties||{});}catch(e){console.warn('notes child db check failed',e);}
+    return child.id;
+  }
   const created=await notionAPI('POST','databases',{
     parent:{type:'page_id',page_id:DB.erpPage},
     title:[{type:'text',text:{content:'ERP 記事行事曆'}}],
@@ -7381,18 +7429,25 @@ async function ensureNotesDB(){
       '日期':{date:{}},
       '時間':{rich_text:{}},
       '類型':{select:{options:NOTE_TYPES.map((name,i)=>({name,color:['default','blue','green','yellow','purple','orange','gray'][i]||'default'}))}},
-      '狀態':{select:{options:NOTE_STATUS.map((name,i)=>({name,color:['yellow','blue','green','red'][i]||'default'}))}},
+      '狀態':{select:{options:noteStatusOptions()}},
       '內容':{rich_text:{}},
+      '負責人':{rich_text:{}},
       '建立者':{rich_text:{}},
       '建立者角色':{select:{options:Object.values(ROLES).map((r,i)=>({name:r.label,color:['red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
       '指定角色':{multi_select:{options:NOTE_TARGET_ROLES.map((name,i)=>({name,color:['default','red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
       '需要確認':{checkbox:{}},
       '已確認角色':{rich_text:{}},
+      '回覆動作':{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}},
+      '回覆紀錄':{rich_text:{}},
+      '最後回覆':{rich_text:{}},
+      '最後回覆者':{rich_text:{}},
+      '最後回覆時間':{date:{}},
       '建立時間':{date:{}}
     }
   });
   if(!created?.id) throw new Error('建立記事資料庫失敗');
   _notesDbId=created.id;
+  _notesFieldsChecked=true;
   localStorage.setItem(NOTES_DB_KEY,created.id);
   return created.id;
 }
@@ -7410,11 +7465,17 @@ async function loadNotes(){
       type:props['類型']?.select?.name||'一般',
       status:props['狀態']?.select?.name||'未處理',
       body:getRichText(props,'內容'),
+      owner:getRichText(props,'負責人'),
       author:getRichText(props,'建立者')||'',
       authorRole:props['建立者角色']?.select?.name||'',
       targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
       needAck:!!props['需要確認']?.checkbox,
       ackRoles:getRichText(props,'已確認角色'),
+      replyAction:props['回覆動作']?.select?.name||'',
+      replies:getRichText(props,'回覆紀錄'),
+      lastReply:getRichText(props,'最後回覆'),
+      lastReplyBy:getRichText(props,'最後回覆者'),
+      lastReplyAt:props['最後回覆時間']?.date?.start||'',
       createdAt:props['建立時間']?.date?.start||p.created_time||''
     };
   }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
@@ -7444,7 +7505,7 @@ function renderNotes(){
   const type=document.getElementById('noteTypeFilter')?.value||'all';
   const status=document.getElementById('noteStatusFilter')?.value||'all';
   let data=notes.filter(n=>{
-    const text=[n.title,n.body,n.author,n.authorRole,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
+    const text=[n.title,n.body,n.owner,n.author,n.authorRole,n.replies,n.lastReply,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
     return (!q||text.includes(q))&&(type==='all'||n.type===type)&&(status==='all'||n.status===status);
   });
   const upcoming=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').length;
@@ -7512,16 +7573,23 @@ function renderNoteList(list,showDate=false){
       <div class="note-item-meta">
         ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
         <span>建立：${escapeHtml(n.authorRole||n.author||'未知')}</span>
+        ${n.owner?`<span>負責：${escapeHtml(n.owner)}</span>`:''}
         ${(n.targetRoles||[]).length?`<span>通知：${escapeHtml(n.targetRoles.join('、'))}</span>`:''}
         ${n.ackRoles?`<span>已確認：${escapeHtml(n.ackRoles)}</span>`:''}
+        ${n.lastReplyBy?`<span>最後回覆：${escapeHtml(n.lastReplyBy)} ${escapeHtml(n.replyAction||'')}</span>`:''}
       </div>
       ${n.body?`<div class="note-body">${escapeHtml(n.body)}</div>`:''}
+      ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     </div>
     <div class="note-actions">
-      ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="ackNote('${n.id}')">知道了</button>`:''}
+      ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="submitNoteReply('${n.id}','知道了')">知道了</button><button class="btn btn-blue btn-sm" onclick="submitNoteReply('${n.id}','接受處理')">接受</button><button class="btn btn-red btn-sm" onclick="openNoteReply('${n.id}','拒絕/退回')">拒絕</button>`:''}
+      ${!isViewOnly()?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow btn-sm" onclick="openEditNote('${n.id}')">編輯</button><button class="btn btn-red btn-sm" onclick="deleteNote('${n.id}')">刪除</button>`:''}
     </div>
   </div>`).join('')}</div>`;
+}
+function formatNoteThread(text=''){
+  return escapeHtml(text).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
 }
 function openEditNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
@@ -7534,6 +7602,7 @@ async function submitNote(id=''){
   const type=document.getElementById('note_type').value;
   const status=document.getElementById('note_status').value;
   const body=document.getElementById('note_body').value.trim();
+  const owner=document.getElementById('note_owner')?.value.trim()||'';
   const targetRoles=noteTargetsForSubmit();
   const needAck=!!document.getElementById('note_need_ack')?.checked;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
@@ -7547,6 +7616,7 @@ async function submitNote(id=''){
       '類型':{select:{name:type}},
       '狀態':{select:{name:status}},
       '內容':{rich_text:[{text:{content:body}}]},
+      '負責人':{rich_text:owner?[{text:{content:owner}}]:[]},
       '指定角色':{multi_select:targetRoles.map(name=>({name}))},
       '需要確認':{checkbox:needAck}
     };
@@ -7567,17 +7637,59 @@ async function submitNote(id=''){
   }catch(e){showToast('❌ 記事儲存失敗：'+e.message,'err');}
 }
 async function ackNote(id){
+  return submitNoteReply(id,'知道了');
+}
+function openNoteReply(id,preset=''){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const opts=noteReplyOptions();
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>💬 回覆記事</h3>
+    <div class="info-box info-tip"><b>${escapeHtml(n.title)}</b><br>${escapeHtml(n.date||'未排日期')} ${escapeHtml(n.time||'')}</div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr">
+      <div><label class="field-label">回覆動作</label><select class="inp" id="note_reply_action">${opts.map(x=>`<option value="${escapeHtml(x)}" ${x===preset?'selected':''}>${escapeHtml(x)}</option>`).join('')}<option value="">自訂 / 空白</option></select></div>
+      <div><label class="field-label">自訂動作（會儲存成選項）</label><input class="inp" id="note_reply_custom" placeholder="例如：需要補資料、已安排、請改期"></div>
+    </div>
+    <div style="margin-bottom:12px"><label class="field-label">留言</label><textarea class="inp" id="note_reply_text" rows="4" placeholder="可以補充原因、問題、下一步或處理結果"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" onclick="submitNoteReply('${id}')">送出回覆</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('open');
+}
+async function submitNoteReply(id,quickAction=''){
   const n=notes.find(x=>x.id===id);if(!n)return;
   const role=loginRoleLabel();
+  const action=(quickAction||document.getElementById('note_reply_custom')?.value.trim()||document.getElementById('note_reply_action')?.value||'知道了').trim();
+  const comment=(document.getElementById('note_reply_text')?.value||'').trim();
+  if(!action&&!comment){showToast('請輸入回覆內容或選擇動作','warn');return;}
+  saveNoteReplyOption(action);
   const acked=String(n.ackRoles||'').split(/[,\s、]+/).filter(Boolean);
   if(!acked.includes(role)) acked.push(role);
-  n.ackRoles=acked.join('、');
+  const stamp=fmtDateTime(new Date().toISOString());
+  const line=`[${stamp} ${role}｜${action||'回覆'}]${comment?' '+comment:''}`;
+  const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
+  let nextStatus=n.status||'未處理';
+  if(action==='接受處理') nextStatus='已接受';
+  else if(action==='拒絕/退回') nextStatus='待回覆';
+  else if(comment||(!NOTE_REPLY_DEFAULTS.includes(action)&&action!=='知道了')) nextStatus='待回覆';
+  const props={
+    '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
+    '回覆動作':{select:{name:action||'知道了'}},
+    '回覆紀錄':{rich_text:[{text:{content:replies}}]},
+    '最後回覆':{rich_text:[{text:{content:comment||action}}]},
+    '最後回覆者':{rich_text:[{text:{content:role}}]},
+    '最後回覆時間':{date:{start:new Date().toISOString()}},
+    '狀態':{select:{name:nextStatus}}
+  };
+  if(action==='接受處理'&&!n.owner) props['負責人']={rich_text:[{text:{content:role}}]};
   try{
-    await updatePage(id,{'已確認角色':{rich_text:[{text:{content:n.ackRoles}}]}});
-    logUserAction('確認記事通知',n.title,n.date||'',ROLE);
-    showToast('✅ 已確認','ok');
+    closeModal();
+    await updatePage(id,props);
+    Object.assign(n,{ackRoles:acked.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:new Date().toISOString(),status:nextStatus,owner:props['負責人']?role:n.owner});
+    logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
+    showToast('✅ 回覆已送出','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
-  }catch(e){showToast('❌ 確認失敗：'+e.message,'err');}
+  }catch(e){showToast('❌ 回覆失敗：'+e.message,'err');}
 }
 async function deleteNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
@@ -7598,7 +7710,7 @@ function showPendingNoteNotifications(){
   _notesNotifyShown=true;
   const mi=document.getElementById('modalInner');
   mi.innerHTML=`<h3>🔔 你有需要確認的記事</h3>
-    <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。確認代表你已讀，不會修改記事狀態。</div>
+    <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。可直接按知道了、接受、拒絕，或打開記事補充留言。</div>
     ${renderNoteList(pending,true)}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">稍後</button><button class="btn btn-blue" onclick="switchTab('notes');closeModal()">打開記事</button></div>`;
   document.getElementById('modalBg').classList.add('open');
