@@ -7785,9 +7785,9 @@ function renderNotes(){
 }
 function renderNoteList(list,showDate=false){
   if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
-  return `<div class="note-list">${list.map(n=>`<div class="note-item">
+  return `<div class="note-list">${list.map(n=>`<div class="note-item" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">
     <div style="min-width:0">
-      <div class="note-item-title" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
+      <div class="note-item-title">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
       <div class="note-item-meta">
         ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
         ${n.remindDate?`<span>提醒：${escapeHtml(n.remindDate)}</span>`:''}
@@ -7801,7 +7801,7 @@ function renderNoteList(list,showDate=false){
       ${n.body?`<div class="note-body">${escapeHtml(n.body)}</div>`:''}
       ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     </div>
-    <div class="note-actions">
+    <div class="note-actions" onclick="event.stopPropagation()">
       <button class="btn btn-ghost btn-sm" onclick="openNoteDetail('${n.id}')">查看</button>
       ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="submitNoteReply('${n.id}','知道了')">知道了</button><button class="btn btn-blue btn-sm" onclick="submitNoteReply('${n.id}','接受處理')">接受</button><button class="btn btn-red btn-sm" onclick="openNoteReply('${n.id}','拒絕/退回')">拒絕</button>`:''}
       ${noteCanReply(n)?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
