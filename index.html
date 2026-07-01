@@ -7401,6 +7401,8 @@ function saveNoteReplyOption(v){
 async function ensureNotesDBFields(dbId,props={}){
   if(_notesFieldsChecked||!dbId) return;
   const add={};
+  const legacyNames={'???':'舊欄位-建立者','????':'舊欄位-最後回覆','?????':'舊欄位-最後回覆者','??????':'舊欄位-最後回覆時間'};
+  Object.entries(legacyNames).forEach(([oldName,newName])=>{if(props?.[oldName]) add[oldName]={name:newName};});
   const need=(name,shape)=>{if(!props?.[name]) add[name]=shape;};
   need('負責人',{rich_text:{}});
   need('回覆動作',{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}});
