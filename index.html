@@ -1270,7 +1270,7 @@ html[data-theme="warm"] #themePanel{
 .note-eyebrow{font-size:.68rem;color:var(--cyan2);letter-spacing:2px;font-weight:800}
 .note-hero h2{margin:4px 0;font-size:1.55rem}
 .note-hero p{margin:0;color:var(--text2);font-size:.9rem}
-.note-metrics{display:grid;grid-template-columns:repeat(3,minmax(80px,1fr));gap:8px;min-width:320px}
+.note-metrics{display:grid;grid-template-columns:repeat(4,minmax(70px,1fr));gap:8px;min-width:360px}
 .note-metrics div{background:rgba(5,8,15,.46);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
 .note-metrics b{display:block;font-size:1.45rem;color:var(--text)}
 .note-metrics span{font-size:.72rem;color:var(--text2)}
@@ -7585,9 +7585,17 @@ async function loadNotes(){
   _notesLoaded=true;
   return notes;
 }
-function noteCanEdit(n){return !isViewOnly()&&(isAdminRole()||n.authorRole===loginRoleLabel()||n.author===loginRoleLabel());}
+function noteIsDone(n){return n.status==='完成'||n.status==='取消'||n.status==='拒絕';}
+function noteIsAuthor(n){
+  const role=loginRoleLabel();
+  return n.authorRole===role||n.author===role;
+}
+function noteIsVic(){return loginRoleLabel()==='Vic';}
+function noteCanManage(n){return !isViewOnly()&&(noteIsVic()||noteIsAuthor(n));}
+function noteCanEdit(n){return noteCanManage(n);}
+function noteCanReply(n){return !isViewOnly();}
 function noteNeedsRoleAck(n){
-  if(!n.needAck||n.status==='完成'||n.status==='取消') return false;
+  if(!n.needAck||noteIsDone(n)) return false;
   const role=loginRoleLabel();
   const targets=n.targetRoles||[];
   const targeted=!targets.length||targets.includes('全部')||targets.includes(role);
@@ -7611,8 +7619,9 @@ function renderNotes(){
     const text=[n.title,n.body,n.owner,n.author,n.authorRole,n.replies,n.lastReply,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
     return (!q||text.includes(q))&&(type==='all'||n.type===type)&&(status==='all'||n.status===status);
   });
-  const upcoming=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').length;
+  const upcoming=notes.filter(n=>n.date>=today&&!noteIsDone(n)).length;
   const pendingAck=notes.filter(noteNeedsRoleAck).length;
+  const completed=notes.filter(n=>n.status==='完成').length;
   const monthKey=noteMonthKey(window._NOTE_YEAR,window._NOTE_MONTH);
   const monthCount=notes.filter(n=>(n.date||'').startsWith(monthKey)).length;
   const canAdd=!isViewOnly();
@@ -7630,7 +7639,9 @@ function renderNotes(){
     </div>`);
   }
   const selectedList=data.filter(n=>n.date===window._NOTE_SELECTED);
-  const nextList=notes.filter(n=>n.date>=today&&n.status!=='完成'&&n.status!=='取消').slice(0,8);
+  const pendingList=data.filter(noteNeedsRoleAck).slice(0,12);
+  const openList=data.filter(n=>!noteNeedsRoleAck(n)&&!noteIsDone(n)).slice(0,12);
+  const doneList=data.filter(n=>n.status==='完成').slice(0,10);
   const dbShort=_notesDbId?String(_notesDbId).replace(/-/g,'').slice(-8):'未連線';
   return `<div class="note-board">
     <div class="notion-bar">📌 Notion：${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">ERP 記事行事曆</a>`:'ERP 記事行事曆'} <span style="color:var(--text3)">正式庫 ${dbShort}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}｜所有紀錄都會顯示建立者，指定角色可登入確認。</span></div>
@@ -7640,6 +7651,7 @@ function renderNotes(){
         <div><b>${upcoming}</b><span>未完成行程</span></div>
         <div><b>${pendingAck}</b><span>待你確認</span></div>
         <div><b>${monthCount}</b><span>本月紀錄</span></div>
+        <div><b>${completed}</b><span>已完成</span></div>
       </div>
     </section>
     <div class="note-toolbar">
@@ -7664,8 +7676,16 @@ function renderNotes(){
       </aside>
     </div>
     <div class="panel">
-      <div class="panel-hdr"><span class="panel-title">近期未完成 <span class="badge">${nextList.length}</span></span></div>
-      ${renderNoteList(nextList,true)}
+      <div class="panel-hdr"><span class="panel-title">待確認 / 待回覆 <span class="badge">${pendingList.length}</span></span></div>
+      ${renderNoteList(pendingList,true)}
+    </div>
+    <div class="panel">
+      <div class="panel-hdr"><span class="panel-title">未完成事項 <span class="badge">${openList.length}</span></span></div>
+      ${renderNoteList(openList,true)}
+    </div>
+    <div class="panel">
+      <div class="panel-hdr"><span class="panel-title">已完成 <span class="badge">${doneList.length}</span></span></div>
+      ${renderNoteList(doneList,true)}
     </div>
   </div>`;
 }
@@ -7687,7 +7707,8 @@ function renderNoteList(list,showDate=false){
     </div>
     <div class="note-actions">
       ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="submitNoteReply('${n.id}','知道了')">知道了</button><button class="btn btn-blue btn-sm" onclick="submitNoteReply('${n.id}','接受處理')">接受</button><button class="btn btn-red btn-sm" onclick="openNoteReply('${n.id}','拒絕/退回')">拒絕</button>`:''}
-      ${!isViewOnly()?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
+      ${noteCanReply(n)?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
+      ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green btn-sm" onclick="completeNote('${n.id}')">完成</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow btn-sm" onclick="openEditNote('${n.id}')">編輯</button><button class="btn btn-red btn-sm" onclick="deleteNote('${n.id}')">刪除</button>`:''}
     </div>
   </div>`).join('')}</div>`;
@@ -7697,6 +7718,7 @@ function formatNoteThread(text=''){
 }
 function openEditNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
+  if(!noteCanEdit(n)){showToast('❌ 只有發布者或 Vic 可以編輯此記事','err');return;}
   openModal('editNote',n);
 }
 async function submitNote(id=''){
@@ -7797,8 +7819,33 @@ async function submitNoteReply(id,quickAction=''){
     if(CURRENT_TAB==='notes')renderTab('notes');
   }catch(e){showToast('❌ 回覆失敗：'+e.message,'err');}
 }
+async function completeNote(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以完成此記事','err');return;}
+  if(n.status==='完成'){showToast('此記事已完成','warn');return;}
+  try{
+    const role=loginRoleLabel();
+    const stamp=fmtDateTime(new Date().toISOString());
+    const line=`[${stamp} ${role}｜完成] 已標記完成`;
+    const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
+    const props={
+      '狀態':{select:{name:'完成'}},
+      '回覆動作':{select:{name:'知道了'}},
+      '回覆紀錄':{rich_text:[{text:{content:replies}}]},
+      '最後回覆':{rich_text:[{text:{content:'已標記完成'}}]},
+      '最後回覆者':{rich_text:[{text:{content:role}}]},
+      '最後回覆時間':{date:{start:new Date().toISOString()}}
+    };
+    assertNotionPage(await updatePage(id,props),'完成記事');
+    Object.assign(n,{status:'完成',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:new Date().toISOString()});
+    logUserAction('完成記事',n.title,'已完成',ROLE);
+    showToast('✅ 記事已完成','ok');
+    if(CURRENT_TAB==='notes')renderTab('notes');
+  }catch(e){showToast('❌ 完成失敗：'+e.message,'err');}
+}
 async function deleteNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
+  if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以刪除此記事','err');return;}
   const reason=prompt('刪除原因（會寫入異動記錄）');
   if(reason===null)return;
   try{
