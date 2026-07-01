@@ -7400,6 +7400,21 @@ async function ensureNotesDBFields(dbId,props={}){
     _notesFieldsChecked=false;
   }
 }
+async function findNotesDBUnderERP(){
+  let cursor=null;
+  do{
+    const found=await notionAPI('GET',`blocks/${DB.erpPage}/children?page_size=100${cursor?'&start_cursor='+cursor:''}`);
+    const child=(found.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆');
+    if(child?.id) return child;
+    cursor=found.has_more?found.next_cursor:null;
+  }while(cursor);
+  return null;
+}
+function isExpectedNotesDB(db){
+  const title=(db?.title||[]).map(t=>t.plain_text||t.text?.content||'').join('');
+  const parentOk=!db?.parent?.page_id||db.parent.page_id.replace(/-/g,'')===DB.erpPage.replace(/-/g,'');
+  return db?.id&&title==='ERP 記事行事曆'&&parentOk;
+}
 async function ensureNotesDB(){
   if(_notesDbId){
     if(!_notesFieldsChecked){
@@ -7407,23 +7422,19 @@ async function ensureNotesDB(){
     }
     return _notesDbId;
   }
-  const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
-  if(cached){
-    try{
-      const d=await notionAPI('GET','databases/'+cached);
-      if(d?.id){_notesDbId=d.id;localStorage.setItem(NOTES_DB_KEY,d.id);await ensureNotesDBFields(d.id,d.properties||{});return d.id;}
-    }catch(e){console.warn('notes cached db invalid',e);}
-  }
-  let cursor=null, child=null;
-  do{
-    const found=await notionAPI('GET',`blocks/${DB.erpPage}/children?page_size=100${cursor?'&start_cursor='+cursor:''}`);
-    child=(found.results||[]).find(b=>b.type==='child_database'&&b.child_database?.title==='ERP 記事行事曆');
-    cursor=child?null:(found.has_more?found.next_cursor:null);
-  }while(cursor);
+  const child=await findNotesDBUnderERP();
   if(child?.id){
     _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
     try{const d=await notionAPI('GET','databases/'+child.id);await ensureNotesDBFields(child.id,d?.properties||{});}catch(e){console.warn('notes child db check failed',e);}
     return child.id;
+  }
+  const cached=localStorage.getItem(NOTES_DB_KEY)||DB.notes||'';
+  if(cached){
+    try{
+      const d=await notionAPI('GET','databases/'+cached);
+      if(isExpectedNotesDB(d)){_notesDbId=d.id;localStorage.setItem(NOTES_DB_KEY,d.id);await ensureNotesDBFields(d.id,d.properties||{});return d.id;}
+      localStorage.removeItem(NOTES_DB_KEY);
+    }catch(e){console.warn('notes cached db invalid',e);localStorage.removeItem(NOTES_DB_KEY);}
   }
   const created=await notionAPI('POST','databases',{
     parent:{type:'page_id',page_id:DB.erpPage},
