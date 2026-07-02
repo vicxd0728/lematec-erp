@@ -7960,15 +7960,18 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
     const eventTitle=noteEventPageTitle(noteData);
     let eventPageId=noteData.eventPageId||'';
     const baseBlocks=[
-      noteTextBlock(`ERP ${mode}記事：${noteData.title||''}`),
-      noteTextBlock(`時間：${noteData.date||'未排日期'} ${noteData.time||''}`.trim()),
-      noteTextBlock(`類型 / 狀態：${noteData.type||'一般'} / ${noteData.status||'未處理'}${noteData.priority?` / ${noteData.priority}`:''}`),
-      noteTextBlock(`建立者：${noteData.authorRole||noteData.author||loginRoleLabel()}　負責人：${noteData.owner||'—'}`),
-      noteTextBlock(`指定角色：${(noteData.targetRoles||[]).join('、')||'—'}`),
-      noteTextBlock(`關聯訂單：${noteData.linkedOrder||'—'}　關聯料號：${noteData.linkedMaterial||'—'}`),
-      noteTextBlock(`內容：${noteData.body||'—'}`),
-      noteTextBlock(`同步時間：${stamp}`)
-    ];
+      noteTextBlock(`ERP ${mode}???${noteData.title||''}`),
+      noteTextBlock(`???${noteData.date||'????'} ${noteData.time||''}`.trim()),
+      noteTextBlock(`?? / ???${noteData.type||'??'} / ${noteData.status||'???'}${noteData.priority?` / ${noteData.priority}`:''}`),
+      noteTextBlock(`????${noteData.authorRole||noteData.author||loginRoleLabel()}?????${noteData.owner||'?'}`),
+      noteTextBlock(`?????${(noteData.targetRoles||[]).join('?')||'?'}`),
+      noteTextBlock(`?????${noteData.linkedOrder||'?'}??????${noteData.linkedMaterial||'?'}`),
+      noteTextBlock(`???${noteData.body||'?'}`),
+      noteData.lastReply?noteTextBlock(`?????${noteData.lastReplyBy||'?'} / ${noteData.lastReply||'?'} / ${noteData.lastReplyAt?fmtDateTime(noteData.lastReplyAt):'?'}`):null,
+      noteData.replies?noteTextBlock(`?????
+${noteData.replies}`):null,
+      noteTextBlock(`?????${stamp}`)
+    ].filter(Boolean);
     if(!eventPageId){
       eventPageId=await createNoteChildPage(datePageId,eventTitle,baseBlocks);
     }else{
@@ -7985,6 +7988,20 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
     showToast(`⚠ 客戶頁記事同步失敗：${e.message}`,'warn',9000);
     return {};
   }
+}
+async function syncNoteCustomerLinkBack(id,n,syncInfo){
+  if(!syncInfo?.backendUrl) return false;
+  const props={};
+  if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
+  if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
+  props['後台連結']={url:syncInfo.backendUrl};
+  assertNotionPage(await updatePage(id,props),'????????');
+  Object.assign(n,{
+    customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
+    eventPageId:syncInfo.eventPageId||n.eventPageId,
+    backendUrl:syncInfo.backendUrl
+  });
+  return true;
 }
 async function markNoteRead(id){
   const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
@@ -8201,6 +8218,14 @@ async function submitNoteReply(id,quickAction=''){
     assertNotionPage(await updatePage(id,props),'回覆記事');
     closeModal();
     Object.assign(n,{ackRoles:acked.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:new Date().toISOString(),status:nextStatus,owner:props['負責人']?role:n.owner});
+    const syncInfo=await syncNoteToCustomerPage(id,n,'回覆');
+    if(syncInfo.backendUrl){
+      try{ await syncNoteCustomerLinkBack(id,n,syncInfo); }
+      catch(syncLinkErr){
+        console.warn('note customer link back failed:',syncLinkErr);
+        showToast('⚠ 客戶頁已同步，但記事連結寫回失敗：'+syncLinkErr.message,'warn',7000);
+      }
+    }
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
     showToast('✅ 回覆已送出','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
@@ -8227,6 +8252,14 @@ async function completeNote(id){
     };
     assertNotionPage(await updatePage(id,props),'完成記事');
     Object.assign(n,{status:'完成',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:nowIso,completedAt:nowIso});
+    const syncInfo=await syncNoteToCustomerPage(id,n,'完成');
+    if(syncInfo.backendUrl){
+      try{ await syncNoteCustomerLinkBack(id,n,syncInfo); }
+      catch(syncLinkErr){
+        console.warn('note customer link back failed:',syncLinkErr);
+        showToast('⚠ 客戶頁已同步，但記事連結寫回失敗：'+syncLinkErr.message,'warn',7000);
+      }
+    }
     logUserAction('完成記事',n.title,'已完成',ROLE);
     showToast('✅ 記事已完成','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
