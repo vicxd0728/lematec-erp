@@ -547,8 +547,9 @@ tr:hover td{background:rgba(59,130,246,.04);}
 /* ══════════════════════════════════════
    MODAL
 ══════════════════════════════════════ */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);overflow:hidden;touch-action:none;}
 .modal-bg.open{display:flex;}
+body.modal-open{overflow:hidden;}
 @media(min-width:600px){.modal-bg{align-items:center;}.modal{border-radius:16px!important;width:560px!important;max-height:88vh!important;}}
 
 /* ── 手機版優化 ── */
@@ -598,8 +599,8 @@ tr:hover td{background:rgba(59,130,246,.04);}
   .top-bar .brand{font-size:0.8125rem!important;}
 
   /* ── Modal 手機版底部滑出 ── */
-  .modal{width:100%!important;max-height:92vh!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;overflow-y:auto;}
-  .modal-bg{align-items:flex-end!important;}
+  .modal-bg{align-items:flex-end!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
+  .modal{width:100%!important;max-height:calc(100dvh - max(8px, env(safe-area-inset-top)))!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:calc(18px + env(safe-area-inset-bottom))!important;transform:translateZ(0);}
   .modal h3{font-size:1rem!important;}
 
   /* ── 操作按鈕欄位（縱向排列）── */
@@ -663,7 +664,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
   .corder-row-mobile .corder-meta{font-size:0.8125rem;line-height:1.5;}
   .corder-row-mobile .corder-status{font-size:0.8125rem;padding:4px 10px;}
 }
-.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px 16px 0 0;padding:22px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 -20px 60px rgba(0,0,0,.6);}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px 16px 0 0;padding:22px;width:100%;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;box-shadow:0 -20px 60px rgba(0,0,0,.6);}
 .modal h3{font-size:0.9375rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;color:var(--text);}
 
 /* Modal overlay (new) */
@@ -4997,8 +4998,20 @@ function showToast(msg,type='ok',duration=3000){
   _toastTimer=setTimeout(()=>{t.style.opacity='0';},duration);
 }
 
+function openSharedModal(){
+  const bg=document.getElementById('modalBg');
+  if(!bg) return;
+  document.body.classList.add('modal-open');
+  bg.classList.add('open');
+  const box=bg.querySelector('.modal');
+  if(box){
+    box.scrollTop=0;
+    requestAnimationFrame(()=>{box.scrollTop=0;});
+  }
+}
 function closeModal(){
   document.getElementById('modalBg')?.classList.remove('open');
+  document.body.classList.remove('modal-open');
 }
 
 async function saveAnnounce(id){
@@ -5059,7 +5072,7 @@ async function saveSchedule(id){
 }
 
 function openModal(type,data){
-  if(!type){document.getElementById('modalBg').classList.add('open');return;}
+  if(!type){openSharedModal();return;}
   if(isViewOnly()&&type!=='help'){
     denyViewOnlyAction();
     return;
@@ -5103,7 +5116,7 @@ function openModal(type,data){
         <button class="btn btn-ghost" onclick="closeModal()">取消</button>
         <button class="btn btn-blue" onclick="submitNote('${d.id||''}')">💾 儲存記事</button>
       </div>`;
-    document.getElementById('modalBg').classList.add('open');return;
+    openSharedModal();return;
   }
 
   if(type==='help'){
@@ -5490,7 +5503,7 @@ function openModal(type,data){
   }
 
   if(!document.getElementById('modalBg').classList.contains('open')){
-    document.getElementById('modalBg').classList.add('open');
+    openSharedModal();
   }
 }
 
@@ -7869,17 +7882,12 @@ function noteFindOverseasCustomerByCode(code=''){
     (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase().includes(q));
 }
 async function ensureCustomerNotesChildPage(customerPageId){
-  if(!customerPageId) return '';
-  try{
-    const children=await getBlockChildren(customerPageId);
-    const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title==='記事');
-    if(found?.id) return found.id;
-    const created=await appendNoteBlocks(customerPageId,[{type:'child_page',child_page:{title:'記事'}}]);
-    return created?.results?.[0]?.id||'';
-  }catch(e){
-    console.warn('ensure customer notes page failed:',e);
-    return '';
-  }
+  if(!customerPageId) throw new Error('缺少客戶頁 ID');
+  const children=await getBlockChildren(customerPageId);
+  if(children?.object==='error') throw new Error(children.message||JSON.stringify(children));
+  const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title==='記事');
+  if(found?.id) return found.id;
+  return await createNoteChildPage(customerPageId,'記事');
 }
 function noteTextBlock(content){
   return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(content,1900)}}]}};
@@ -7890,6 +7898,32 @@ async function appendNoteBlocks(pageId,children){
   const r=await notionAPI('PATCH',`blocks/${pageId}/children`,{children});
   if(r?.object==='error') throw new Error(r.message||JSON.stringify(r));
   return r;
+}
+function noteApiErr(r){return r?.message||r?.code||JSON.stringify(r||{}).slice(0,220);}
+async function createNoteChildPage(parentPageId,title,children=[]){
+  if(!parentPageId) throw new Error('缺少父層頁面 ID');
+  const cleanTitle=safeRt(title||'記事',90);
+  const errors=[];
+  const attempts=[
+    {parent:{type:'page_id',page_id:parentPageId},properties:{title:[{type:'text',text:{content:cleanTitle}}]},children},
+    {parent:{page_id:parentPageId},properties:{title:[{type:'text',text:{content:cleanTitle}}]},children},
+    {parent:{page_id:parentPageId},properties:{title:{title:[{type:'text',text:{content:cleanTitle}}]}},children}
+  ];
+  for(const body of attempts){
+    try{
+      const r=await notionAPI('POST','pages',body);
+      if(r?.id&&r.object!=='error') return r.id;
+      if(r?.object==='error') errors.push(noteApiErr(r));
+    }catch(e){errors.push(e.message);}
+  }
+  try{
+    const created=await appendNoteBlocks(parentPageId,[{type:'child_page',child_page:{title:cleanTitle}}]);
+    const id=created?.results?.[0]?.id||'';
+    if(id&&children?.length) await appendNoteBlocks(id,children);
+    if(id) return id;
+    errors.push('append child_page no page id');
+  }catch(e){errors.push(e.message);}
+  throw new Error(errors.filter(Boolean).join(' / ')||'create child page failed');
 }
 async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
   try{
@@ -7916,9 +7950,7 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
       noteTextBlock(`同步時間：${stamp}`)
     ];
     if(!eventPageId){
-      const created=await appendNoteBlocks(customerNotesPageId,[{type:'child_page',child_page:{title:eventTitle}}]);
-      eventPageId=created?.results?.[0]?.id||'';
-      await appendNoteBlocks(eventPageId||customerNotesPageId,baseBlocks);
+      eventPageId=await createNoteChildPage(customerNotesPageId,eventTitle,baseBlocks);
     }else{
       await appendNoteBlocks(eventPageId,[noteTextBlock(`--- ${stamp} ${mode}更新 ---`),...baseBlocks.slice(1)]);
     }
@@ -7988,7 +8020,7 @@ async function openNoteDetail(id){
       ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green" onclick="completeNote('${n.id}')">完成</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
     </div>`;
-  document.getElementById('modalBg').classList.add('open');
+  openSharedModal();
   if(wasPending){
     const ok=await markNoteRead(id);
     if(ok&&CURRENT_TAB==='notes') renderTab('notes');
@@ -8117,7 +8149,7 @@ function openNoteReply(id,preset=''){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="submitNoteReply('${id}')">送出回覆</button>
     </div>`;
-  document.getElementById('modalBg').classList.add('open');
+  openSharedModal();
 }
 async function submitNoteReply(id,quickAction=''){
   const n=notes.find(x=>x.id===id);if(!n)return;
@@ -8217,7 +8249,7 @@ function showPendingNoteNotifications(force=false){
     <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。可直接按知道了、接受、拒絕，或打開記事補充留言。</div>
     ${renderNoteList(pending,true)}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">稍後</button><button class="btn btn-blue" onclick="switchTab('notes');closeModal()">打開記事</button></div>`;
-  modalBg.classList.add('open');
+  openSharedModal();
 }
 
 // ══════════════════════════════════════════════
@@ -11236,7 +11268,7 @@ function openEditLeave(id){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="saveEditLeave('${id}')">💾 儲存修改</button>
     </div>`;
-  document.getElementById('modalBg').classList.add('open');
+  openSharedModal();
   if(!l.hours) syncLeaveHoursFromDays('elv');
 }
 
@@ -11302,7 +11334,7 @@ function openDeleteLeave(id){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-red" onclick="deleteLeave('${id}')">確認刪除</button>
     </div>`;
-  document.getElementById('modalBg').classList.add('open');
+  openSharedModal();
 }
 
 async function deleteLeave(id){
