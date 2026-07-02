@@ -9441,7 +9441,11 @@ function renderVideoLibrary(){
           <img src="https://i.ytimg.com/vi/${yt}/hqdefault.jpg" alt="${escapeHtml(v.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;opacity:.92">
           <span style="position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(transparent,rgba(0,0,0,.35));color:#fff;font-size:2.4rem;text-shadow:0 2px 18px rgba(0,0,0,.7)">▶</span>
         </button>`
-      : `<div style="display:grid;place-items:center;aspect-ratio:16/9;border-radius:12px;border:1px solid rgba(34,211,238,.16);background:linear-gradient(135deg,rgba(34,211,238,.1),rgba(16,185,129,.08));color:var(--text2);font-weight:800">官網影片頁</div>`;
+      : `<a href="${escapeHtml(v.url)}" target="_blank" style="display:grid;place-items:center;aspect-ratio:16/9;border-radius:12px;border:1px solid rgba(34,211,238,.2);background:radial-gradient(circle at 50% 35%,rgba(34,211,238,.22),rgba(16,185,129,.08) 52%,rgba(3,10,15,.95));color:var(--text);font-weight:900;text-decoration:none;position:relative;overflow:hidden">
+          <span style="font-size:2.15rem;line-height:1">🎞️</span>
+          <span style="position:absolute;left:12px;bottom:10px;font-size:.8rem;color:var(--text2)">官網影片頁</span>
+          <span style="position:absolute;right:10px;top:10px;padding:5px 9px;border-radius:999px;background:rgba(34,211,238,.14);border:1px solid rgba(34,211,238,.22);font-size:.75rem;color:var(--cyan2)">開啟</span>
+        </a>`;
     return `
     <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(145deg,rgba(15,30,42,.95),rgba(5,16,17,.96));border-color:rgba(34,211,238,.18)">
       ${media}
@@ -9457,11 +9461,11 @@ function renderVideoLibrary(){
         <span class="badge">${escapeHtml(v.source)}</span>
       </div>
       <div style="font-size:.82rem;color:var(--text2);line-height:1.5;min-height:34px">${escapeHtml(v.keywords||'')}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto">
         ${yt?`<button class="btn btn-sm primary" onclick="previewVideoLibraryItem(${i})">▶ 預覽</button>`:''}
         <button class="btn btn-sm" onclick="copyVideoLibraryItem(${i},'url')">🔗 複製連結</button>
         <button class="btn btn-sm ok" onclick="copyVideoLibraryItem(${i},'share')">💬 複製給客戶</button>
-        <a class="btn btn-sm" href="${escapeHtml(v.url)}" target="_blank" style="text-decoration:none">↗ 開啟</a>
+        <a class="btn btn-sm" href="${escapeHtml(v.url)}" target="_blank" style="text-decoration:none;justify-content:center">↗ 開啟</a>
       </div>
     </div>`;
   }).join('');
