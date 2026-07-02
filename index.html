@@ -7889,6 +7889,25 @@ async function ensureCustomerNotesChildPage(customerPageId){
   if(found?.id) return found.id;
   return await createNoteChildPage(customerPageId,'記事');
 }
+function noteEventDateTitle(noteData={}){
+  return safeRt(String(noteData.date||noteIsoDate()).trim()||noteIsoDate(),40);
+}
+function noteEventPageTitle(noteData={}){
+  const title=String(noteData.title||'').trim();
+  const date=String(noteData.date||'').trim();
+  return safeRt(title||date||'\u8a18\u4e8b',90);
+}
+async function ensureNoteDateChildPage(customerNotesPageId,noteData={}){
+  if(!customerNotesPageId) throw new Error('\u7f3a\u5c11\u5ba2\u6236\u8a18\u4e8b\u9801 ID');
+  const title=noteEventDateTitle(noteData);
+  const children=await getBlockChildren(customerNotesPageId);
+  if(children?.object==='error') throw new Error(children.message||JSON.stringify(children));
+  const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title===title);
+  if(found?.id) return found.id;
+  return await createNoteChildPage(customerNotesPageId,title,[
+    noteTextBlock(`\u6b64\u9801\u6574\u7406 ${title} \u7684 ERP \u5ba2\u6236\u8a18\u4e8b\u3002`)
+  ]);
+}
 function noteTextBlock(content){
   return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(content,1900)}}]}};
 }
@@ -7937,7 +7956,8 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
     const customerNotesPageId=noteData.customerNotesPageId||await ensureCustomerNotesChildPage(customer.id);
     if(!customerNotesPageId) throw new Error('無法建立或取得客戶頁下的「記事」分頁');
     const stamp=fmtDateTime(new Date().toISOString());
-    const eventTitle=`${noteData.date||noteIsoDate()} ${noteData.title||'記事'}`.slice(0,90);
+    const datePageId=await ensureNoteDateChildPage(customerNotesPageId,noteData);
+    const eventTitle=noteEventPageTitle(noteData);
     let eventPageId=noteData.eventPageId||'';
     const baseBlocks=[
       noteTextBlock(`ERP ${mode}記事：${noteData.title||''}`),
@@ -7950,7 +7970,7 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
       noteTextBlock(`同步時間：${stamp}`)
     ];
     if(!eventPageId){
-      eventPageId=await createNoteChildPage(customerNotesPageId,eventTitle,baseBlocks);
+      eventPageId=await createNoteChildPage(datePageId,eventTitle,baseBlocks);
     }else{
       await appendNoteBlocks(eventPageId,[noteTextBlock(`--- ${stamp} ${mode}更新 ---`),...baseBlocks.slice(1)]);
     }
