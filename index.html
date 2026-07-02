@@ -5087,6 +5087,12 @@ function openModal(type,data){
         <div><label class="field-label">提醒 / 到期日</label><input class="inp" type="date" id="note_remind_date" value="${escapeHtml(d.remindDate||'')}"></div>
         <div><label class="field-label">標籤</label><input class="inp" id="note_tags" value="${escapeHtml((d.tags||[]).join('、'))}" placeholder="可用、或逗號分隔，例如：客戶、交期"></div>
       </div>
+      <div class="form-row" style="grid-template-columns:1fr 1fr 1fr">
+        <div><label class="field-label">關聯客戶編號</label><input class="inp" id="note_customer_code" value="${escapeHtml(d.customerCode||'')}" placeholder="國外客戶編號，例如 2602US028"></div>
+        <div><label class="field-label">關聯訂單</label><input class="inp" id="note_linked_order" value="${escapeHtml(d.linkedOrder||'')}" placeholder="訂單號 / SHPTW / PI 編號"></div>
+        <div><label class="field-label">關聯料號</label><input class="inp" id="note_linked_material" value="${escapeHtml(d.linkedMaterial||'')}" placeholder="料號，可用逗號或、分隔"></div>
+      </div>
+      <div class="hint" style="margin:-4px 0 12px">填國外客戶編號後，系統會同步在該客戶 Notion 頁面建立「記事」分頁與事件紀錄。</div>
       <div style="margin-bottom:12px"><label class="field-label">需要知道的角色</label><div class="note-targets">${noteRoleTargetsHtml(d.targetRoles||[])}</div></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text2);font-size:.84rem">
         <input id="note_need_ack" type="checkbox" ${d.needAck?'checked':''} style="width:16px;height:16px;accent-color:var(--cyan)">
@@ -7438,6 +7444,13 @@ async function ensureNotesDBFields(dbId,props={}){
   need('標籤',{multi_select:{options:noteTagOptions()}});
   need('完成時間',{date:{}});
   need('附件',{files:{}});
+  need('客戶編號',{rich_text:{}});
+  need('關聯客戶',{rich_text:{}});
+  need('關聯訂單',{rich_text:{}});
+  need('關聯料號',{rich_text:{}});
+  need('客戶記事頁ID',{rich_text:{}});
+  need('事件頁ID',{rich_text:{}});
+  need('後台連結',{url:{}});
   need('回覆動作',{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}});
   need('回覆紀錄',{rich_text:{}});
   need('最後回覆',{rich_text:{}});
@@ -7501,6 +7514,13 @@ function notePropsFromPage(page){
     '負責人':{rich_text:[{text:{content:getRichText(p,'負責人')}}]},
     '重要程度':p['重要程度']?.select?.name?{select:{name:p['重要程度'].select.name}}:{select:null},
     '標籤':{multi_select:(p['標籤']?.multi_select||[]).map(x=>({name:x.name}))},
+    '客戶編號':{rich_text:[{text:{content:getRichText(p,'客戶編號')}}]},
+    '關聯客戶':{rich_text:[{text:{content:getRichText(p,'關聯客戶')}}]},
+    '關聯訂單':{rich_text:[{text:{content:getRichText(p,'關聯訂單')}}]},
+    '關聯料號':{rich_text:[{text:{content:getRichText(p,'關聯料號')}}]},
+    '客戶記事頁ID':{rich_text:[{text:{content:getRichText(p,'客戶記事頁ID')}}]},
+    '事件頁ID':{rich_text:[{text:{content:getRichText(p,'事件頁ID')}}]},
+    '後台連結':p['後台連結']?.url?{url:p['後台連結'].url}:{url:null},
     '建立者':{rich_text:[{text:{content:getRichText(p,'建立者')}}]},
     '指定角色':{multi_select:targetRoles.map(name=>({name}))},
     '需要確認':{checkbox:!!p['需要確認']?.checkbox},
@@ -7598,6 +7618,13 @@ async function ensureNotesDB(force=false){
       '標籤':{multi_select:{options:noteTagOptions()}},
       '完成時間':{date:{}},
       '附件':{files:{}},
+      '客戶編號':{rich_text:{}},
+      '關聯客戶':{rich_text:{}},
+      '關聯訂單':{rich_text:{}},
+      '關聯料號':{rich_text:{}},
+      '客戶記事頁ID':{rich_text:{}},
+      '事件頁ID':{rich_text:{}},
+      '後台連結':{url:{}},
       '建立者':{rich_text:{}},
       '建立者角色':{select:{options:Object.values(ROLES).map((r,i)=>({name:r.label,color:['red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
       '指定角色':{multi_select:{options:NOTE_TARGET_ROLES.map((name,i)=>({name,color:['default','red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
@@ -7637,6 +7664,13 @@ async function loadNotes(){
       tags:(props['標籤']?.multi_select||[]).map(x=>x.name).filter(Boolean),
       completedAt:props['完成時間']?.date?.start||'',
       files:(props['附件']?.files||[]),
+      customerCode:getRichText(props,'客戶編號'),
+      linkedCustomer:getRichText(props,'關聯客戶'),
+      linkedOrder:getRichText(props,'關聯訂單'),
+      linkedMaterial:getRichText(props,'關聯料號'),
+      customerNotesPageId:getRichText(props,'客戶記事頁ID'),
+      eventPageId:getRichText(props,'事件頁ID'),
+      backendUrl:props['後台連結']?.url||'',
       author:getRichText(props,'建立者')||'',
       authorRole:props['建立者角色']?.select?.name||'',
       targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
@@ -7706,7 +7740,11 @@ function renderNotes(){
   const status=document.getElementById('noteStatusFilter')?.value||'all';
   const visibleNotes=notes.filter(noteVisibleInUi);
   let data=visibleNotes.filter(n=>{
-    const text=[n.title,n.body,n.owner,n.author,n.authorRole,n.priority,n.remindDate,(n.tags||[]).join(' '),n.replies,n.lastReply,(n.targetRoles||[]).join(' ')].join(' ').toLowerCase();
+    const text=[
+      n.title,n.body,n.owner,n.author,n.authorRole,n.priority,n.remindDate,
+      n.customerCode,n.linkedCustomer,n.linkedOrder,n.linkedMaterial,
+      (n.tags||[]).join(' '),n.replies,n.lastReply,(n.targetRoles||[]).join(' ')
+    ].join(' ').toLowerCase();
     return (!q||text.includes(q))&&(type==='all'||n.type===type)&&(status==='all'||n.status===status);
   }).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`));
   const myTodo=visibleNotes.filter(noteNeedsMyAction).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`));
@@ -7801,6 +7839,7 @@ function renderNoteList(list,showDate=false){
         ${n.lastReplyBy?`<span>最後回覆：${escapeHtml(n.lastReplyBy)} ${escapeHtml(n.replyAction||'')}</span>`:''}
       </div>
       ${(n.tags||[]).length?`<div class="note-tags">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
+      ${noteRelationSummary(n)?`<div class="note-body" style="font-size:.82rem;color:var(--cyan2);margin-top:8px">🔗 ${escapeHtml(noteRelationSummary(n))}${n.backendUrl?`　<a href="${escapeHtml(n.backendUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--cyan2)">後台</a>`:''}</div>`:''}
       ${n.body?`<div class="note-body">${escapeHtml(n.body)}</div>`:''}
       ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     </div>
@@ -7815,6 +7854,72 @@ function renderNoteList(list,showDate=false){
 }
 function formatNoteThread(text=''){
   return escapeHtml(text).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
+}
+function noteRelationSummary(n){
+  const parts=[];
+  if(n.customerCode||n.linkedCustomer) parts.push(`客戶：${n.customerCode||''}${n.linkedCustomer?` ${n.linkedCustomer}`:''}`.trim());
+  if(n.linkedOrder) parts.push(`訂單：${n.linkedOrder}`);
+  if(n.linkedMaterial) parts.push(`料號：${n.linkedMaterial}`);
+  return parts.join('　');
+}
+function noteFindOverseasCustomerByCode(code=''){
+  const q=String(code||'').trim().toUpperCase();
+  if(!q) return null;
+  return (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase()===q)||
+    (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase().includes(q));
+}
+async function ensureCustomerNotesChildPage(customerPageId){
+  if(!customerPageId) return '';
+  try{
+    const children=await getBlockChildren(customerPageId);
+    const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title==='記事');
+    if(found?.id) return found.id;
+    const created=await appendBlocksSafe(customerPageId,[{type:'child_page',child_page:{title:'記事'}}]);
+    return created?.results?.[0]?.id||'';
+  }catch(e){
+    console.warn('ensure customer notes page failed:',e);
+    return '';
+  }
+}
+function noteTextBlock(content){
+  return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(content,1900)}}]}};
+}
+async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
+  const code=String(noteData.customerCode||'').trim();
+  if(!code) return {};
+  const customer=noteFindOverseasCustomerByCode(code);
+  if(!customer?.id){
+    showToast(`⚠ 找不到國外客戶編號 ${code}，記事已保存但未同步客戶頁`,'warn');
+    return {};
+  }
+  const customerNotesPageId=noteData.customerNotesPageId||await ensureCustomerNotesChildPage(customer.id);
+  if(!customerNotesPageId) return {};
+  const stamp=fmtDateTime(new Date().toISOString());
+  const eventTitle=`${noteData.date||noteIsoDate()} ${noteData.title||'記事'}`.slice(0,90);
+  let eventPageId=noteData.eventPageId||'';
+  const baseBlocks=[
+    noteTextBlock(`ERP ${mode}記事：${noteData.title||''}`),
+    noteTextBlock(`時間：${noteData.date||'未排日期'} ${noteData.time||''}`.trim()),
+    noteTextBlock(`類型 / 狀態：${noteData.type||'一般'} / ${noteData.status||'未處理'}${noteData.priority?` / ${noteData.priority}`:''}`),
+    noteTextBlock(`建立者：${noteData.authorRole||noteData.author||loginRoleLabel()}　負責人：${noteData.owner||'—'}`),
+    noteTextBlock(`指定角色：${(noteData.targetRoles||[]).join('、')||'—'}`),
+    noteTextBlock(`關聯訂單：${noteData.linkedOrder||'—'}　關聯料號：${noteData.linkedMaterial||'—'}`),
+    noteTextBlock(`內容：${noteData.body||'—'}`),
+    noteTextBlock(`同步時間：${stamp}`)
+  ];
+  if(!eventPageId){
+    const created=await appendBlocksSafe(customerNotesPageId,[{type:'child_page',child_page:{title:eventTitle}}]);
+    eventPageId=created?.results?.[0]?.id||'';
+    await appendBlocksSafe(eventPageId||customerNotesPageId,baseBlocks);
+  }else{
+    await appendBlocksSafe(eventPageId,[noteTextBlock(`--- ${stamp} ${mode}更新 ---`),...baseBlocks.slice(1)]);
+  }
+  return {
+    customer,
+    customerNotesPageId,
+    eventPageId,
+    backendUrl:eventPageId?notionPageUrl(eventPageId):notionPageUrl(customerNotesPageId)
+  };
 }
 async function markNoteRead(id){
   const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
@@ -7857,6 +7962,8 @@ async function openNoteDetail(id){
       <br>建立：${escapeHtml(n.authorRole||n.author||'未知')}${n.owner?`　負責：${escapeHtml(n.owner)}`:''}
       ${(n.targetRoles||[]).length?`<br>指定角色：${escapeHtml(n.targetRoles.join('、'))}`:''}
       ${n.ackRoles?`<br>已確認：${escapeHtml(n.ackRoles)}`:''}
+      ${noteRelationSummary(n)?`<br>ERP 關聯：${escapeHtml(noteRelationSummary(n))}`:''}
+      ${n.backendUrl?`<br>後台記事：<a href="${escapeHtml(n.backendUrl)}" target="_blank" style="color:var(--cyan2)">開啟 Notion 事件頁</a>`:''}
     </div>
     ${(n.tags||[]).length?`<div class="note-tags" style="margin-bottom:12px">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
     ${n.body?`<div class="note-body" style="font-size:.95rem;margin-bottom:12px">${escapeHtml(n.body)}</div>`:'<div class="note-body" style="margin-bottom:12px;color:var(--text3)">沒有內容</div>'}
@@ -7889,6 +7996,10 @@ async function submitNote(id=''){
   const priority=document.getElementById('note_priority')?.value||'';
   const remindDate=document.getElementById('note_remind_date')?.value||'';
   const tags=noteTagsForSubmit();
+  const customerCode=(document.getElementById('note_customer_code')?.value||'').trim();
+  const linkedOrder=(document.getElementById('note_linked_order')?.value||'').trim();
+  const linkedMaterial=(document.getElementById('note_linked_material')?.value||'').trim();
+  const linkedCustomer=customerCode?(noteFindOverseasCustomerByCode(customerCode)?.name||''):'';
   const targetRoles=noteTargetsForSubmit();
   const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
@@ -7907,6 +8018,10 @@ async function submitNote(id=''){
       '重要程度':{select:priority?{name:priority}:null},
       '提醒日':{date:remindDate?{start:remindDate}:null},
       '標籤':{multi_select:tags.map(name=>({name}))},
+      '客戶編號':{rich_text:customerCode?[{text:{content:customerCode}}]:[]},
+      '關聯客戶':{rich_text:linkedCustomer?[{text:{content:linkedCustomer}}]:[]},
+      '關聯訂單':{rich_text:linkedOrder?[{text:{content:linkedOrder}}]:[]},
+      '關聯料號':{rich_text:linkedMaterial?[{text:{content:linkedMaterial}}]:[]},
       '指定角色':{multi_select:targetRoles.map(name=>({name}))},
       '需要確認':{checkbox:needAck}
     };
@@ -7915,6 +8030,10 @@ async function submitNote(id=''){
     if(status==='完成') props['完成時間']={date:{start:(oldNote?.completedAt||new Date().toISOString())}};
     else if(id) props['完成時間']={date:null};
     if(id){
+      const syncInfo=await syncNoteToCustomerPage(id,{...oldNote,title,date,time,type,status,body,owner,priority,remindDate,tags,customerCode,linkedCustomer,linkedOrder,linkedMaterial,targetRoles,authorRole:oldNote?.authorRole||loginRoleLabel()},'編輯');
+      if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
+      if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
+      if(syncInfo.backendUrl) props['後台連結']={url:syncInfo.backendUrl};
       assertNotionPage(await updatePage(id,props),'更新記事');
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
       closeModal();
@@ -7924,7 +8043,16 @@ async function submitNote(id=''){
       props['建立者角色']={select:{name:loginRoleLabel()}};
       props['建立時間']={date:{start:new Date().toISOString()}};
       props['已確認角色']={rich_text:[{text:{content:''}}]};
-      assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props}),'建立記事');
+      const created=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+      assertNotionPage(created,'建立記事');
+      const syncInfo=await syncNoteToCustomerPage(created.id,{title,date,time,type,status,body,owner,priority,remindDate,tags,customerCode,linkedCustomer,linkedOrder,linkedMaterial,targetRoles,authorRole:loginRoleLabel()},'建立');
+      if(syncInfo.customerNotesPageId||syncInfo.eventPageId||syncInfo.backendUrl){
+        const linkProps={};
+        if(syncInfo.customerNotesPageId) linkProps['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
+        if(syncInfo.eventPageId) linkProps['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
+        if(syncInfo.backendUrl) linkProps['後台連結']={url:syncInfo.backendUrl};
+        await updatePage(created.id,linkProps);
+      }
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
       closeModal();
       showToast('✅ 記事已建立','ok');
