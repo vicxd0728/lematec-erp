@@ -1640,21 +1640,21 @@ const DB={
 };
 const ROLES={
   // Vic：與廠長同權限，但操作紀錄獨立顯示
-  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health','permissions']},
+  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health','permissions']},
   // 廠長
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
-  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','orders','corders','inventory','customers','leave','stocklog']},
+  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','inventory','customers','leave','stocklog']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
-  warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','notes','leave','stocklog','schedule']},
+  warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','notes','videos','leave','stocklog','schedule']},
   // 品管：品管頁操作 + 入料瀏覽
-  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','notes','leave','stocklog']},
+  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','notes','videos','leave','stocklog']},
   // 採購：兼生管，可查看訂單、領料、排程，並處理生產流程節點
-  purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','notes','leave','stocklog','schedule']},
+  purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','orders','inventory','picking','inbound','announce','notes','videos','leave','stocklog','schedule']},
   // 檢視：只看主要流程，不具備建立、修改、刪除、審核等操作權限
-  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','orders','corders','picking','inventory','inbound','qc','leave']},
+  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影片庫',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer';}
 function canImportBomRole(role=ROLE){return !isViewOnly(role)&&(isAdminRole(role)||role==='warehouse'||role==='purchase');}
@@ -6782,7 +6782,7 @@ function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='
 function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='notes')loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});if(tab==='ops')Promise.all([loadInbounds(),loadNotes().catch(e=>console.warn('ops notes refresh failed:',e))]).then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
   else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
   else if(tab==='corders'){
     if(window._cordersLoaded&&Date.now()-(window._cordersLoadedAt||0)<120000){c.innerHTML=renderCorders();}
@@ -9312,6 +9312,141 @@ function _renderOrderCalendar(tabs){
   return tabs + monthCtrl + calHtml + upcomingHtml;
 }
 
+
+const VIDEO_LIBRARY_SEED=[
+  {title:"What Are the Best Uses of Brown Corundum for Sandblasting? Expert Guide & Applications!",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/video-brown-corundum-sandblasting-application",keywords:"brown corundum media sandblasting rust remove"},
+  {title:"How Much Sand Do You Really Need for Sandblasting? Watch This Test & Find Out!",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/video-sand-consumption-test-lematec",keywords:"sand consumption test media capacity"},
+  {title:"Effortless Cleaning: Remove Stubborn Carbon Buildup with Walnut Sandblasting",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/video-use-sandblaster-remove-stubborn-carbon",keywords:"walnut carbon buildup cleaning"},
+  {title:"Revolutionize Your Projects: LEMATEC Sandblaster Delivers Professional Results",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-208566",keywords:"sandblaster professional result"},
+  {title:"Lematec Sandblaster: Easily Restore and Renew Your Shovel",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-186623",keywords:"restore renew shovel rust"},
+  {title:"Mastering Wood Sandblasting: Lematec Sandblaster Step-by-Step Tutorial",category:"噴砂槍",model:"AS118",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-149970",keywords:"wood sandblasting tutorial"},
+  {title:"LEMATEC AS-118: Dustless Attachment Unleashed!",category:"噴砂槍",model:"AS118",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-143890",keywords:"dustless attachment"},
+  {title:"Air Sandblaster Gun vs. Air Needle Gun: A Practical Comparison",category:"噴砂槍",model:"AS118",type:"比較",source:"官網影片頁",url:"https://www.lematec-tools.com/choosing-right-air-powered-tool-video",keywords:"needle gun comparison"},
+  {title:"Are you new to sandblasting and unsure of which media to use?",category:"噴砂槍",model:"AS118",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/sand-media-application",keywords:"media selection glass aluminum oxide"},
+  {title:"How to use the Lematec sandblaster gun AS118-2C? Tips and tricks on video",category:"噴砂槍",model:"AS118-2C",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-40319",keywords:"AS118-2C how to use tips"},
+  {title:"Precautions & Sandblaster gun FAQ by Lematec",category:"噴砂槍",model:"AS118",type:"FAQ",source:"官網影片頁",url:"https://www.lematec-tools.com/precautions-sandblasting",keywords:"precautions faq"},
+  {title:"Comparison Lematec and knockoff sandblaster",category:"噴砂槍",model:"AS118",type:"比較",source:"官網影片頁",url:"https://www.lematec-tools.com/lematec-sandblaster-comparison",keywords:"comparison knockoff"},
+  {title:"The Perfect Setup for Lematec Sandblaster (Our US Partner Charles)",category:"噴砂槍",model:"AS118",type:"Shorts",source:"YouTube",url:"https://www.youtube.com/shorts/0s6ymy2cw1o",keywords:"setup partner charles"},
+  {title:"Watch Rust Disappear in Seconds | LEMATEC Sandblaster",category:"噴砂槍",model:"AS118",type:"Shorts",source:"YouTube",url:"https://www.youtube.com/shorts/Qlww4ZKwZMY",keywords:"rust remove shorts"},
+  {title:"Optimize Performance: Lematec 1/4 Air Regulator for Superior Pneumatic Tool Control",category:"調壓 / 噴槍",model:"DAR",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-207020",keywords:"air regulator pneumatic pressure"},
+  {title:"Maximize Your Air Tools Performance with the Lematec Air Filter and Regulator Combo",category:"調壓 / 噴槍",model:"AFR",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-183618",keywords:"air filter regulator combo"},
+  {title:"How do you remove moisture from a pneumatic system with the Lematec air water separator filter?",category:"調壓 / 噴槍",model:"AFR",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-104877",keywords:"moisture water separator"},
+  {title:"Air Pressure Regulator with Air Filter for air compressor and pneumatic system",category:"調壓 / 噴槍",model:"AFR",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-99517",keywords:"air compressor filter regulator"},
+  {title:"What is the difference between airflow regulators and pressure regulators and how to use on tools?",category:"調壓 / 噴槍",model:"DAR AFR",type:"比較",source:"官網影片頁",url:"https://www.lematec-tools.com/air-flow-regulator-vs-air-pressure-regulator",keywords:"airflow pressure regulator difference"},
+  {title:"LEMATEC Digital air regulator for spray gun, air tools, how to use air regulator?",category:"調壓 / 噴槍",model:"DAR",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-46384",keywords:"digital air regulator spray gun"},
+  {title:"LEMATEC HVLP Gravity Feed Air Spray Paint Gun with Atomization, 1.4 mm Nozzle 600 cc tank",category:"調壓 / 噴槍",model:"HVLP",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-46276",keywords:"spray gun hvlp nozzle tank"},
+  {title:"LEMATEC Digital Air Pressure Gauge for Spray Gun Air Tools, DAR02B",category:"調壓 / 噴槍",model:"DAR02B",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-16866",keywords:"DAR02B pressure gauge"},
+  {title:"Efficient Dust Cleaning with Lematec Extend Air Blow Gun: Interior Work Cleanup",category:"吹塵 / 吸塵",model:"吹塵槍",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-161960",keywords:"air blow gun cleaning"},
+  {title:"Lematec Adjustable Tube Air Nozzle Blow Gun",category:"吹塵 / 吸塵",model:"吹塵槍",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-142020",keywords:"adjustable nozzle blow gun"},
+  {title:"Is cleaning high spots and wide areas a burden to you? Try Lematec Adjustable Air Nozzle Blow Gun",category:"吹塵 / 吸塵",model:"吹塵槍",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-130468",keywords:"high spot wide area cleaning"},
+  {title:"LEMATEC Air Wonder Gun Pneumatic Vacuum Blow Gun With 6 Specialty Attachments",category:"吹塵 / 吸塵",model:"Air Wonder Gun",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-45514",keywords:"vacuum blow gun attachments"},
+  {title:"LEMATEC Air vacuum gun and blow gun kits",category:"吹塵 / 吸塵",model:"Air Wonder Gun",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-19146",keywords:"vacuum blow gun kits"},
+  {title:"How to use lematec air foam gun set?",category:"泡沫 / 洗車",model:"AS120",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-105208",keywords:"air foam gun car wash"},
+  {title:"4 in 1 Air foam gun kits, including foam, sandblaster, blow and water pressure cleaning function",category:"泡沫 / 洗車",model:"AS120",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-45121",keywords:"4 in 1 foam sandblaster blow water"},
+  {title:"LE-AS120-2, 4 in 1 Air compressor snow foam gun kits by Lematec",category:"泡沫 / 洗車",model:"LE-AS120-2",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-20797",keywords:"snow foam gun kits"},
+  {title:"Digital tire inflator operation video",category:"胎壓 / 充氣",model:"DTI",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-225845",keywords:"digital tire inflator"},
+  {title:"Lematec TIG-12: Your Reliable Companion for Tire Inflation and Pressure Measurement",category:"胎壓 / 充氣",model:"TIG-12",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-184282",keywords:"TIG-12 tire inflation pressure"},
+  {title:"LEMATEC Heavy Duty Digital Tire Inflator, durable and easy to use for truck and car",category:"胎壓 / 充氣",model:"DTI",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-44830",keywords:"heavy duty truck car"},
+  {title:"LEMATEC Pro Heavy Duty Tyre Inflator With Gauge Series",category:"胎壓 / 充氣",model:"TIG DTI",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-43207",keywords:"tire inflator gauge series"},
+  {title:"The All-in-One Mini Air Impact Driver with Quick Release - Versatile & Powerful!",category:"氣動工具",model:"Air Impact Driver",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/all-in-one-mini-air-impact-driver",keywords:"impact driver quick release"},
+  {title:"Master Precision Grinding with the LEMATEC 1/4 Air Angle Die Grinder",category:"氣動工具",model:"LE-G",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/air-angle-die-grinder-video-guide",keywords:"die grinder grinding"},
+  {title:"Compact Power: Lematec LE-G1343L Air Angle Die Grinder for Precision Work",category:"氣動工具",model:"LE-G1343L",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-169983",keywords:"LE-G1343L die grinder"},
+  {title:"Exploring the Versatility of the Air Random Orbital Palm Sander with Self-Vacuum",category:"氣動工具",model:"Palm Sander",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-143607",keywords:"orbital palm sander self vacuum"},
+  {title:"Erase with Confidence: Pneumatic Air Eraser Operation Made Easy",category:"氣動工具",model:"Air Eraser",type:"教學",source:"官網影片頁",url:"https://www.lematec-tools.com/data-142731",keywords:"air eraser operation"},
+  {title:"Rev Up Your Repairs with the LEMATEC Air Ratchet Wrench",category:"氣動工具",model:"Air Ratchet",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-120868",keywords:"air ratchet wrench"},
+  {title:"LEMATEC Air Grinder Powers Through Any Task!",category:"氣動工具",model:"Air Grinder",type:"Shorts",source:"YouTube",url:"https://www.youtube.com/shorts/SYwaPBEPGM4",keywords:"air grinder shorts"},
+  {title:"Soft Edge Tape Dispenser - The Secret to Seamless Paint Transitions!",category:"手工具",model:"Tape Dispenser",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/soft-edge-tape-dispenser-video",keywords:"paint transition tape"},
+  {title:"Ultimate Heavy Duty Hand Riveter Gun Kit | Effortless Riveting for Any Project",category:"手工具",model:"Riveter",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-197552",keywords:"hand riveter gun kit"},
+  {title:"Get into Tight Spaces with Universal Double Box End Ratchet Wrench Set",category:"手工具",model:"Ratchet Wrench",type:"長影片",source:"官網影片頁",url:"https://www.lematec-tools.com/data-186760",keywords:"ratchet wrench set tight spaces"},
+  {title:"LEMATEC Spotlight: Powering Success Together",category:"品牌 / 展示",model:"LEMATEC",type:"長影片",source:"YouTube",url:"https://www.youtube.com/watch?v=BgwwlA9rs6o",keywords:"brand spotlight partner"}
+];
+function videoLibrarySelectOptions(values,current,allLabel){
+  return `<option value="">${allLabel}</option>`+values.map(v=>`<option value="${escapeHtml(v)}" ${current===v?'selected':''}>${escapeHtml(v)}</option>`).join('');
+}
+function videoLibraryCopyText(text){
+  const done=()=>showToast('已複製','ok');
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(text).then(done).catch(()=>{
+      const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();
+    });
+  }else{
+    const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();
+  }
+}
+function copyVideoLibraryItem(idx,mode){
+  const v=(window._videoLibraryLast||[])[idx];
+  if(!v) return;
+  if(mode==='share'){
+    videoLibraryCopyText(`這支 LEMATEC 影片給您參考：\n${v.title}\n${v.url}\n\n若需要，我可以再協助確認適合的型號、配件與交期。`);
+  }else{
+    videoLibraryCopyText(v.url);
+  }
+}
+function renderVideoLibrary(){
+  const qRaw=(document.getElementById('videoSearch')?.value||window._videoSearchDraft||'');
+  const q=qRaw.trim().toLowerCase();
+  const cat=document.getElementById('videoCat')?.value||'';
+  const type=document.getElementById('videoType')?.value||'';
+  const source=document.getElementById('videoSource')?.value||'';
+  const cats=[...new Set(VIDEO_LIBRARY_SEED.map(v=>v.category))].sort();
+  const types=[...new Set(VIDEO_LIBRARY_SEED.map(v=>v.type))].sort();
+  const sources=[...new Set(VIDEO_LIBRARY_SEED.map(v=>v.source))].sort();
+  const data=VIDEO_LIBRARY_SEED.filter(v=>{
+    const blob=[v.title,v.category,v.model,v.type,v.source,v.keywords].join(' ').toLowerCase();
+    return (!q||blob.includes(q))&&(!cat||v.category===cat)&&(!type||v.type===type)&&(!source||v.source===source);
+  });
+  window._videoLibraryLast=data;
+  const cards=data.map((v,i)=>`
+    <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(145deg,rgba(15,30,42,.95),rgba(5,16,17,.96));border-color:rgba(34,211,238,.18)">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div>
+          <div style="font-weight:850;font-size:1rem;line-height:1.45;color:var(--text)">${escapeHtml(v.title)}</div>
+          <div style="margin-top:8px;display:flex;gap:7px;flex-wrap:wrap">
+            <span class="pill">${escapeHtml(v.category)}</span>
+            <span class="pill">${escapeHtml(v.model||'未標型號')}</span>
+            <span class="pill">${escapeHtml(v.type)}</span>
+          </div>
+        </div>
+        <span class="badge">${escapeHtml(v.source)}</span>
+      </div>
+      <div style="font-size:.82rem;color:var(--text2);line-height:1.5;min-height:34px">${escapeHtml(v.keywords||'')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+        <button class="btn btn-sm" onclick="copyVideoLibraryItem(${i},'url')">🔗 複製連結</button>
+        <button class="btn btn-sm ok" onclick="copyVideoLibraryItem(${i},'share')">💬 複製給客戶</button>
+        <a class="btn btn-sm" href="${escapeHtml(v.url)}" target="_blank" style="text-decoration:none">↗ 開啟</a>
+      </div>
+    </div>`).join('');
+  return `
+    <div class="page-head">
+      <div>
+        <h2>🎬 影片庫</h2>
+        <p>業務素材快速查找：搜尋型號、用途、產品關鍵字，複製影片連結給客戶。</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn" href="https://www.youtube.com/@lematecprotools" target="_blank" style="text-decoration:none">▶ YouTube 頻道</a>
+        <a class="btn" href="https://www.lematec-tools.com/pneumatic-tools-videos" target="_blank" style="text-decoration:none">🌐 官網影片頁</a>
+      </div>
+    </div>
+    <div class="kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      <div class="kpi-card"><span>目前影片</span><b>${VIDEO_LIBRARY_SEED.length}</b><small>模型版種子資料</small></div>
+      <div class="kpi-card"><span>分類</span><b>${cats.length}</b><small>噴砂 / 調壓 / 胎壓 / 氣動工具</small></div>
+      <div class="kpi-card"><span>搜尋結果</span><b>${data.length}</b><small>可直接複製給客戶</small></div>
+    </div>
+    <div class="panel" style="padding:16px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
+        <input id="videoSearch" class="input" placeholder="搜尋：AS118、DAR、噴砂、胎壓、除鏽、洗車..." value="${escapeHtml(qRaw)}" oninput="window._videoSearchDraft=this.value;clearTimeout(window._videoSearchTimer);window._videoSearchTimer=setTimeout(()=>{renderTab('videos');setTimeout(()=>{const el=document.getElementById('videoSearch');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);},180)">
+        <select id="videoCat" class="input" onchange="renderTab('videos')">${videoLibrarySelectOptions(cats,cat,'全部分類')}</select>
+        <select id="videoType" class="input" onchange="renderTab('videos')">${videoLibrarySelectOptions(types,type,'全部類型')}</select>
+        <select id="videoSource" class="input" onchange="renderTab('videos')">${videoLibrarySelectOptions(sources,source,'全部來源')}</select>
+      </div>
+      <div style="margin-top:10px;padding:10px 12px;border:1px solid rgba(34,211,238,.18);border-radius:10px;background:rgba(6,182,212,.08);color:var(--text2);font-size:.86rem;line-height:1.6">
+        目前先以 LEMATEC 官網影片頁與 YouTube 頻道已知影片建立模型。若要完整自動同步整個頻道，可再接 YouTube Data API，影片標題、縮圖、連結會自動更新。
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px">
+      ${cards||'<div class="empty">沒有符合的影片，請換關鍵字或清除篩選。</div>'}
+    </div>`;
+}
 
 function renderCustomers(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a></div>';;
