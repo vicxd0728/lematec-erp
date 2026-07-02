@@ -7874,7 +7874,7 @@ async function ensureCustomerNotesChildPage(customerPageId){
     const children=await getBlockChildren(customerPageId);
     const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title==='記事');
     if(found?.id) return found.id;
-    const created=await appendBlocksSafe(customerPageId,[{type:'child_page',child_page:{title:'記事'}}]);
+    const created=await appendNoteBlocks(customerPageId,[{type:'child_page',child_page:{title:'記事'}}]);
     return created?.results?.[0]?.id||'';
   }catch(e){
     console.warn('ensure customer notes page failed:',e);
@@ -7884,42 +7884,55 @@ async function ensureCustomerNotesChildPage(customerPageId){
 function noteTextBlock(content){
   return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(content,1900)}}]}};
 }
+async function appendNoteBlocks(pageId,children){
+  if(!pageId) throw new Error('缺少 Notion 頁面 ID');
+  if(!children?.length) return null;
+  const r=await notionAPI('PATCH',`blocks/${pageId}/children`,{children});
+  if(r?.object==='error') throw new Error(r.message||JSON.stringify(r));
+  return r;
+}
 async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
-  const code=String(noteData.customerCode||'').trim();
-  if(!code) return {};
-  const customer=noteFindOverseasCustomerByCode(code);
-  if(!customer?.id){
-    showToast(`⚠ 找不到國外客戶編號 ${code}，記事已保存但未同步客戶頁`,'warn');
+  try{
+    const code=String(noteData.customerCode||'').trim();
+    if(!code) return {};
+    const customer=noteFindOverseasCustomerByCode(code);
+    if(!customer?.id){
+      showToast(`⚠ 找不到國外客戶編號 ${code}，記事已保存但未同步客戶頁`,'warn',7000);
+      return {};
+    }
+    const customerNotesPageId=noteData.customerNotesPageId||await ensureCustomerNotesChildPage(customer.id);
+    if(!customerNotesPageId) throw new Error('無法建立或取得客戶頁下的「記事」分頁');
+    const stamp=fmtDateTime(new Date().toISOString());
+    const eventTitle=`${noteData.date||noteIsoDate()} ${noteData.title||'記事'}`.slice(0,90);
+    let eventPageId=noteData.eventPageId||'';
+    const baseBlocks=[
+      noteTextBlock(`ERP ${mode}記事：${noteData.title||''}`),
+      noteTextBlock(`時間：${noteData.date||'未排日期'} ${noteData.time||''}`.trim()),
+      noteTextBlock(`類型 / 狀態：${noteData.type||'一般'} / ${noteData.status||'未處理'}${noteData.priority?` / ${noteData.priority}`:''}`),
+      noteTextBlock(`建立者：${noteData.authorRole||noteData.author||loginRoleLabel()}　負責人：${noteData.owner||'—'}`),
+      noteTextBlock(`指定角色：${(noteData.targetRoles||[]).join('、')||'—'}`),
+      noteTextBlock(`關聯訂單：${noteData.linkedOrder||'—'}　關聯料號：${noteData.linkedMaterial||'—'}`),
+      noteTextBlock(`內容：${noteData.body||'—'}`),
+      noteTextBlock(`同步時間：${stamp}`)
+    ];
+    if(!eventPageId){
+      const created=await appendNoteBlocks(customerNotesPageId,[{type:'child_page',child_page:{title:eventTitle}}]);
+      eventPageId=created?.results?.[0]?.id||'';
+      await appendNoteBlocks(eventPageId||customerNotesPageId,baseBlocks);
+    }else{
+      await appendNoteBlocks(eventPageId,[noteTextBlock(`--- ${stamp} ${mode}更新 ---`),...baseBlocks.slice(1)]);
+    }
+    return {
+      customer,
+      customerNotesPageId,
+      eventPageId,
+      backendUrl:eventPageId?notionPageUrl(eventPageId):notionPageUrl(customerNotesPageId)
+    };
+  }catch(e){
+    console.warn('sync note to customer page failed:',e);
+    showToast(`⚠ 客戶頁記事同步失敗：${e.message}`,'warn',9000);
     return {};
   }
-  const customerNotesPageId=noteData.customerNotesPageId||await ensureCustomerNotesChildPage(customer.id);
-  if(!customerNotesPageId) return {};
-  const stamp=fmtDateTime(new Date().toISOString());
-  const eventTitle=`${noteData.date||noteIsoDate()} ${noteData.title||'記事'}`.slice(0,90);
-  let eventPageId=noteData.eventPageId||'';
-  const baseBlocks=[
-    noteTextBlock(`ERP ${mode}記事：${noteData.title||''}`),
-    noteTextBlock(`時間：${noteData.date||'未排日期'} ${noteData.time||''}`.trim()),
-    noteTextBlock(`類型 / 狀態：${noteData.type||'一般'} / ${noteData.status||'未處理'}${noteData.priority?` / ${noteData.priority}`:''}`),
-    noteTextBlock(`建立者：${noteData.authorRole||noteData.author||loginRoleLabel()}　負責人：${noteData.owner||'—'}`),
-    noteTextBlock(`指定角色：${(noteData.targetRoles||[]).join('、')||'—'}`),
-    noteTextBlock(`關聯訂單：${noteData.linkedOrder||'—'}　關聯料號：${noteData.linkedMaterial||'—'}`),
-    noteTextBlock(`內容：${noteData.body||'—'}`),
-    noteTextBlock(`同步時間：${stamp}`)
-  ];
-  if(!eventPageId){
-    const created=await appendBlocksSafe(customerNotesPageId,[{type:'child_page',child_page:{title:eventTitle}}]);
-    eventPageId=created?.results?.[0]?.id||'';
-    await appendBlocksSafe(eventPageId||customerNotesPageId,baseBlocks);
-  }else{
-    await appendBlocksSafe(eventPageId,[noteTextBlock(`--- ${stamp} ${mode}更新 ---`),...baseBlocks.slice(1)]);
-  }
-  return {
-    customer,
-    customerNotesPageId,
-    eventPageId,
-    backendUrl:eventPageId?notionPageUrl(eventPageId):notionPageUrl(customerNotesPageId)
-  };
 }
 async function markNoteRead(id){
   const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
@@ -7970,6 +7983,7 @@ async function openNoteDetail(id){
     ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      ${n.customerCode?`<button class="btn btn-cyan" onclick="resyncNoteCustomer('${n.id}')">同步客戶頁</button>`:''}
       ${noteCanReply(n)?`<button class="btn btn-cyan" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
       ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green" onclick="completeNote('${n.id}')">完成</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
@@ -7978,6 +7992,31 @@ async function openNoteDetail(id){
   if(wasPending){
     const ok=await markNoteRead(id);
     if(ok&&CURRENT_TAB==='notes') renderTab('notes');
+  }
+}
+async function resyncNoteCustomer(id){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  if(!n.customerCode){showToast('此記事沒有客戶編號','warn');return;}
+  showToast('⏳ 同步客戶記事頁...','warn');
+  const syncInfo=await syncNoteToCustomerPage(id,n,n.backendUrl?'更新':'補同步');
+  if(!syncInfo.backendUrl){return;}
+  const props={};
+  if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
+  if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
+  props['後台連結']={url:syncInfo.backendUrl};
+  try{
+    assertNotionPage(await updatePage(id,props),'同步客戶記事連結');
+    Object.assign(n,{
+      customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
+      eventPageId:syncInfo.eventPageId||n.eventPageId,
+      backendUrl:syncInfo.backendUrl
+    });
+    logUserAction('同步客戶記事',n.title,n.customerCode,ROLE);
+    showToast('✅ 已同步到客戶頁','ok');
+    openNoteDetail(id);
+    if(CURRENT_TAB==='notes') renderTab('notes');
+  }catch(e){
+    showToast('❌ 同步連結寫回失敗：'+e.message,'err',7000);
   }
 }
 function openEditNote(id){
