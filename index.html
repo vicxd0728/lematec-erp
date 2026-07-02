@@ -7881,12 +7881,39 @@ function noteFindOverseasCustomerByCode(code=''){
   return (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase()===q)||
     (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase().includes(q));
 }
-async function ensureCustomerNotesChildPage(customerPageId){
-  if(!customerPageId) throw new Error('缺少客戶頁 ID');
-  const children=await getBlockChildren(customerPageId);
+async function noteChildPages(parentPageId,title){
+  if(!parentPageId) return [];
+  const children=await getBlockChildren(parentPageId);
   if(children?.object==='error') throw new Error(children.message||JSON.stringify(children));
-  const found=(children?.results||[]).find(b=>b.type==='child_page'&&b.child_page?.title==='記事');
-  if(found?.id) return found.id;
+  return (children?.results||[]).filter(b=>b.type==='child_page'&&(!title||b.child_page?.title===title));
+}
+async function noteFindChildPageByTitle(parentPageId,title){
+  const pages=await noteChildPages(parentPageId,title);
+  return pages[0]?.id||'';
+}
+async function findExistingCustomerNotePath(customerPageId,noteData={}){
+  if(!customerPageId) return {};
+  const notePages=await noteChildPages(customerPageId,'記事');
+  const dateTitle=noteEventDateTitle(noteData);
+  const eventTitle=noteEventPageTitle(noteData);
+  let dateOnly=null;
+
+  for(const notePage of notePages){
+    const datePages=await noteChildPages(notePage.id,dateTitle);
+    for(const datePage of datePages){
+      if(!dateOnly) dateOnly={customerNotesPageId:notePage.id,datePageId:datePage.id,eventPageId:''};
+      const eventPageId=await noteFindChildPageByTitle(datePage.id,eventTitle);
+      if(eventPageId) return {customerNotesPageId:notePage.id,datePageId:datePage.id,eventPageId};
+    }
+  }
+
+  if(dateOnly) return dateOnly;
+  return {customerNotesPageId:notePages[0]?.id||'',datePageId:'',eventPageId:''};
+}
+async function ensureCustomerNotesChildPage(customerPageId,noteData={}){
+  if(!customerPageId) throw new Error('缺少客戶頁 ID');
+  const existing=await findExistingCustomerNotePath(customerPageId,noteData);
+  if(existing.customerNotesPageId) return existing.customerNotesPageId;
   return await createNoteChildPage(customerPageId,'記事');
 }
 function noteEventDateTitle(noteData={}){
@@ -7909,7 +7936,15 @@ async function ensureNoteDateChildPage(customerNotesPageId,noteData={}){
   ]);
 }
 function noteTextBlock(content){
-  return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(content,1900)}}]}};
+  return {type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:safeRt(noteCleanText(content),1900)}}]}};
+}
+function noteCleanText(content){
+  return String(content??'')
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/&nbsp;/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>');
 }
 async function appendNoteBlocks(pageId,children){
   if(!pageId) throw new Error('缺少 Notion 頁面 ID');
@@ -7953,24 +7988,26 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
       showToast(`⚠ 找不到國外客戶編號 ${code}，記事已保存但未同步客戶頁`,'warn',7000);
       return {};
     }
-    const customerNotesPageId=noteData.customerNotesPageId||await ensureCustomerNotesChildPage(customer.id);
+    const existingPath=await findExistingCustomerNotePath(customer.id,noteData);
+    const customerNotesPageId=existingPath.customerNotesPageId||noteData.customerNotesPageId||await createNoteChildPage(customer.id,'記事');
     if(!customerNotesPageId) throw new Error('無法建立或取得客戶頁下的「記事」分頁');
     const stamp=fmtDateTime(new Date().toISOString());
-    const datePageId=await ensureNoteDateChildPage(customerNotesPageId,noteData);
+    const datePageId=existingPath.datePageId||await ensureNoteDateChildPage(customerNotesPageId,noteData);
     const eventTitle=noteEventPageTitle(noteData);
-    let eventPageId=noteData.eventPageId||'';
+    let eventPageId=noteData.eventPageId||existingPath.eventPageId||await noteFindChildPageByTitle(datePageId,eventTitle);
+    const empty='—';
     const baseBlocks=[
-      noteTextBlock(`ERP ${mode}???${noteData.title||''}`),
-      noteTextBlock(`???${noteData.date||'????'} ${noteData.time||''}`.trim()),
-      noteTextBlock(`?? / ???${noteData.type||'??'} / ${noteData.status||'???'}${noteData.priority?` / ${noteData.priority}`:''}`),
-      noteTextBlock(`????${noteData.authorRole||noteData.author||loginRoleLabel()}?????${noteData.owner||'?'}`),
-      noteTextBlock(`?????${(noteData.targetRoles||[]).join('?')||'?'}`),
-      noteTextBlock(`?????${noteData.linkedOrder||'?'}??????${noteData.linkedMaterial||'?'}`),
-      noteTextBlock(`???${noteData.body||'?'}`),
-      noteData.lastReply?noteTextBlock(`?????${noteData.lastReplyBy||'?'} / ${noteData.lastReply||'?'} / ${noteData.lastReplyAt?fmtDateTime(noteData.lastReplyAt):'?'}`):null,
-      noteData.replies?noteTextBlock(`?????
+      noteTextBlock(`ERP ${mode}：${noteData.title||empty}`),
+      noteTextBlock(`日期：${noteData.date||empty} ${noteData.time||''}`.trim()),
+      noteTextBlock(`類型 / 狀態：${noteData.type||empty} / ${noteData.status||empty}${noteData.priority?` / ${noteData.priority}`:''}`),
+      noteTextBlock(`建立者：${noteData.authorRole||noteData.author||loginRoleLabel()}　負責人：${noteData.owner||empty}`),
+      noteTextBlock(`通知角色：${(noteData.targetRoles||[]).join('、')||empty}`),
+      noteTextBlock(`關聯訂單：${noteData.linkedOrder||empty}　關聯料號：${noteData.linkedMaterial||empty}`),
+      noteTextBlock(`內容：${noteData.body||empty}`),
+      noteData.lastReply?noteTextBlock(`最後回覆：${noteData.lastReplyBy||empty} / ${noteData.lastReply||empty} / ${noteData.lastReplyAt?fmtDateTime(noteData.lastReplyAt):empty}`):null,
+      noteData.replies?noteTextBlock(`回覆紀錄：
 ${noteData.replies}`):null,
-      noteTextBlock(`?????${stamp}`)
+      noteTextBlock(`同步時間：${stamp}`)
     ].filter(Boolean);
     if(!eventPageId){
       eventPageId=await createNoteChildPage(datePageId,eventTitle,baseBlocks);
@@ -7995,7 +8032,7 @@ async function syncNoteCustomerLinkBack(id,n,syncInfo){
   if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
   if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
   props['後台連結']={url:syncInfo.backendUrl};
-  assertNotionPage(await updatePage(id,props),'????????');
+  assertNotionPage(await updatePage(id,props),'同步客戶記事連結');
   Object.assign(n,{
     customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
     eventPageId:syncInfo.eventPageId||n.eventPageId,
