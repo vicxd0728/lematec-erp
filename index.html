@@ -5559,6 +5559,14 @@ async function updatePage(id,props){
     else throw new Error(r.message||JSON.stringify(r));
   }
 }
+const _dbNumberPropEnsured=new Set();
+async function ensureDatabaseNumberProperty(dbId,name){
+  const key=`${dbId}:${name}`;
+  if(_dbNumberPropEnsured.has(key)) return;
+  const r=await notionAPI('PATCH',`databases/${dbId}`,{properties:{[name]:{number:{format:'number'}}}});
+  if(r?.object==='error') throw new Error(`建立欄位「${name}」失敗：${r.message||r.code||'未知錯誤'}`);
+  _dbNumberPropEnsured.add(key);
+}
 const archivePage=id=>notionAPI('PATCH',`pages/${id}`,{archived:true});
 const getBlockChildren=id=>notionAPI('GET',`blocks/${id}/children?page_size=100`);
 const getBlock=id=>notionAPI('GET',`blocks/${id}`);
@@ -6398,6 +6406,7 @@ async function refreshAll(manual=false){
         matCode,
         product:matCode||productMat?.name||productMat?.code||'',
         qty:p.properties?.['訂購數量']?.number??0,
+        unitPrice:p.properties?.['產品單價']?.number??null,
         deadline:p.properties?.['交期']?.date?.start||'',
         shipDate:p.properties?.['實際出貨日']?.date?.start||p.properties?.['出貨日']?.date?.start||'',
         status:p.properties?.['狀態']?.select?.name||'',
@@ -6752,6 +6761,9 @@ function TH(tid,col,label,type='str',cls=''){const s=SORT[tid]||{};const a=s.col
 function applyDateFilter(filterId,data,dateKey='created'){
   const sel=document.getElementById(filterId+'DateFilter');
   const val=sel?sel.value:'0';
+  return applyDateFilterValue(val,data,dateKey);
+}
+function applyDateFilterValue(val,data,dateKey='created'){
   if(!val||val==='0') return data; // 全部，不篩選
 
   const today=new Date();
@@ -6773,6 +6785,47 @@ function applyDateFilter(filterId,data,dateKey='created'){
     if(!d) return false; // 沒有日期的不顯示（避免永遠出現）
     return d>=cs;
   });
+}
+function getOrderFilters(){
+  return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',date:'0',hide:false});
+}
+function updateOrderFilter(key,value,focusId=''){
+  const f=getOrderFilters();
+  f[key]=value;
+  const render=()=>{
+    renderTab('orders');
+    if(focusId){
+      setTimeout(()=>{
+        const el=document.getElementById(focusId);
+        if(!el) return;
+        el.focus();
+        try{
+          const pos=el.value.length;
+          el.setSelectionRange(pos,pos);
+        }catch(_){}
+      },0);
+    }
+  };
+  if(focusId){
+    clearTimeout(window._orderFilterTimer);
+    window._orderFilterTimer=setTimeout(render,180);
+  }else{
+    render();
+  }
+}
+function orderSearchBlob(o){
+  const prod=mats.find(m=>m.id===o.productId);
+  return [
+    o.no,o.cust,o.customer,orderCustomerLabel(o),
+    o.product,o.matCode,prod?.name,prod?.code,
+    o.orderType,o.status,o.deadline,o.shipDate,o.note
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+function formatOptionalMoney(n){
+  if(n===null||n===undefined||n==='') return '—';
+  const num=Number(n);
+  if(!Number.isFinite(num)) return '—';
+  return num.toLocaleString('zh-TW',{maximumFractionDigits:2});
 }
 
 // ═══════════════════════════════════════════════
@@ -9070,17 +9123,19 @@ function _renderOrdersList(tabs){
   const canAdd=!isViewOnly()&&(ROLE==='sales'||isAdminRole());
   const canOperate=!isViewOnly();
   
-  const dateVal=document.getElementById('orderDateFilter')?.value||'0';
-  const hideComp=document.getElementById('hideCompleted')?.checked||false;
+  const filters=getOrderFilters();
+  const dateVal=filters.date||'0';
+  const hideComp=!!filters.hide;
   // 預設依建立日期降冪排序
   const sorted=SORT['orders']?applySort('orders',[...orders]):[...orders].sort((a,b)=>(b.created||'').localeCompare(a.created||''));
-  let data=applyDateFilter('order',sorted,'created');
+  let data=applyDateFilterValue(dateVal,sorted,'created');
   if(hideComp)data=data.filter(o=>o.status!=='已完成'&&o.status!=='取消');
 
   // ── 搜尋過濾 ──
-  const _ordQ = (document.getElementById('ordSearchQ')?.value||'').toLowerCase().trim();
-  const _ordType = document.getElementById('ordTypeFilter')?.value||'all';
-  if(_ordQ) data=data.filter(o=>(o.no||'').toLowerCase().includes(_ordQ)||(o.cust||'').toLowerCase().includes(_ordQ)||orderCustomerLabel(o).toLowerCase().includes(_ordQ)||(o.product||'').toLowerCase().includes(_ordQ));
+  const _ordQ = String(filters.q||'').trim();
+  const _ordKey = _ordQ.toLowerCase();
+  const _ordType = filters.type||'all';
+  if(_ordKey) data=data.filter(o=>orderSearchBlob(o).includes(_ordKey));
   if(_ordType!=='all') data=data.filter(o=>{
     if(_ordType==='shopee') return (o.orderType==='shopee'||o.orderType==='蝦皮'||(o.product||'').startsWith('S-')||(o.matCode||'').startsWith('S-'));
     if(_ordType==='overseas') return (!o.orderType||o.orderType==='overseas'||o.orderType==='國外');
@@ -9091,33 +9146,36 @@ function _renderOrdersList(tabs){
 
   return _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input class="inp" id="ordSearchQ" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${_ordQ}"
-        oninput="renderTab('orders')"
+      <input class="inp" id="ordSearchQ" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordQ)}"
+        oncompositionstart="this._composing=true"
+        oncompositionend="this._composing=false;updateOrderFilter('q',this.value,'ordSearchQ')"
+        oninput="if(!this._composing)updateOrderFilter('q',this.value,'ordSearchQ')"
         style="min-width:180px;padding:5px 10px;font-size:0.6875rem">
-      <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('orders')">
+      <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('type',this.value)">
         <option value="all" ${_ordType==='all'?'selected':''}>全部類型</option>
         <option value="overseas" ${_ordType==='overseas'?'selected':''}>🌍 國外</option>
         <option value="domestic" ${_ordType==='domestic'?'selected':''}>🏠 國內</option>
         <option value="sfg" ${_ordType==='sfg'?'selected':''}>📦 SFG</option>
         <option value="shopee" ${_ordType==='shopee'?'selected':''}>🛒 蝦皮</option>
       </select>
-      <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('orders')">
-        <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option>
+      <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('date',this.value)">
+        <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option>
       </select>
       <label style="font-size:0.6875rem;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
-        <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="renderTab('orders')" style="accent-color:var(--blue)">隱藏完成/取消
+        <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="updateOrderFilter('hide',this.checked)" style="accent-color:var(--blue)">隱藏完成/取消
       </label>
     </div>
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
+  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
     <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${o.no||'—'}</td>
     <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
-    <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
+    <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
+    <td class="hide-m" style="font-family:monospace">${formatOptionalMoney(o.unitPrice)}</td>
     <td style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
@@ -9373,6 +9431,20 @@ function videoLibraryCopyText(text){
     const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();
   }
 }
+const VIDEO_LIBRARY_YOUTUBE_MAP={
+  'https://www.lematec-tools.com/video-brown-corundum-sandblasting-application':'hMS9MTyfHIk',
+  'https://www.lematec-tools.com/video-sand-consumption-test-lematec':'1Bo2IgYBHJQ',
+  'https://www.lematec-tools.com/video-use-sandblaster-remove-stubborn-carbon':'GyI3JYQQtpw',
+  'https://www.lematec-tools.com/data-208566':'pQRIDaeOwnA',
+  'https://www.lematec-tools.com/data-186623':'X4J8ciYAiMw',
+  'https://www.lematec-tools.com/data-149970':'kzHp0WjbNOY',
+  'https://www.lematec-tools.com/data-143890':'V3yxWweSiZM',
+  'https://www.lematec-tools.com/choosing-right-air-powered-tool-video':'bJ4_3Qh2jFU',
+  'https://www.lematec-tools.com/sand-media-application':'N8SML-qgH9A',
+  'https://www.lematec-tools.com/data-40319':'gD4ymANkVg0',
+  'https://www.lematec-tools.com/precautions-sandblasting':'8MKEyokPAUw',
+  'https://www.lematec-tools.com/lematec-sandblaster-comparison':'Q-b8KXAmXX4'
+};
 function copyVideoLibraryItem(idx,mode){
   const v=(window._videoLibraryLast||[])[idx];
   if(!v) return;
@@ -9384,6 +9456,8 @@ function copyVideoLibraryItem(idx,mode){
 }
 function videoLibraryYoutubeId(url){
   const s=String(url||'');
+  const clean=s.replace(/\/$/,'');
+  if(VIDEO_LIBRARY_YOUTUBE_MAP[clean]) return VIDEO_LIBRARY_YOUTUBE_MAP[clean];
   let m=s.match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
   if(m) return m[1];
   m=s.match(/youtu\.be\/([a-zA-Z0-9_-]{6,})/);
@@ -13387,6 +13461,7 @@ function openEditOrder(orderId){
     <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="eo_cust" value="${(o.customer||'').replace(/"/g,'&quot;')}"></div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂購數量</label><input class="inp" type="number" id="eo_qty" value="${o.qty}" min="1"></div>
+      <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">產品單價</label><input class="inp" type="number" id="eo_unit_price" value="${o.unitPrice??''}" min="0" step="0.01" placeholder="選填"></div>
       <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">交期</label><input class="inp" type="date" id="eo_date" value="${o.deadline||''}"></div>
     </div>
     <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">備註</label><input class="inp" id="eo_note" value="${(o.note||'').replace(/"/g,'&quot;')}"></div>
@@ -13398,17 +13473,26 @@ function openEditOrder(orderId){
 async function doEditOrder(orderId){
   const cust=document.getElementById('eo_cust').value.trim();
   const qty=parseInt(document.getElementById('eo_qty').value)||0;
+  const unitPriceRaw=(document.getElementById('eo_unit_price')?.value||'').trim();
   const date=document.getElementById('eo_date').value;
   const note=document.getElementById('eo_note').value.trim();
   if(!cust||!qty||!date){alert('請填入所有欄位');return;}
   closeModal();showToast('更新中...','warn');
   try{
-    await updatePage(orderId,{
+    const props={
       '客戶名稱':{select:{name:cust}},
       '訂購數量':{number:qty},
       '交期':{date:{start:date}},
       '業務備註':{rich_text:[{text:{content:note}}]}
-    });
+    };
+    if(unitPriceRaw){
+      await ensureDatabaseNumberProperty(DB.orders,'產品單價');
+      props['產品單價']={number:parseMoneyNumber(unitPriceRaw)};
+    }else if((orders.find(o=>o.id===orderId)?.unitPrice??null)!==null){
+      await ensureDatabaseNumberProperty(DB.orders,'產品單價');
+      props['產品單價']={number:null};
+    }
+    await updatePage(orderId,props);
     await refreshAll();showToast('✅ 訂單已更新','ok');
   }catch(e){showToast('更新失敗：'+e.message,'err');}
 }
@@ -14911,12 +14995,19 @@ function renderItems(){
   <div style="width:90px">
     <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">數量</label>
     <input class="inp" type="number" id="m_qty" value="1" min="1">
+  </div>
+  <div style="width:120px">
+    <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">產品單價</label>
+    <input class="inp" type="number" id="m_unit_price" min="0" step="0.01" placeholder="選填">
   </div>`;
 }
 
 function productCandidates(q=''){
   const key=String(q||'').trim().toLowerCase();
-  let list=mats.filter(m=>m.type==='成品'||m.type==='半成品'||!m.type);
+  let list=mats.filter(m=>{
+    const sku=String(m.code||m.name||'');
+    return m.type==='成品'||m.type==='半成品'||m.type==='蝦皮用'||m.type==='蝦皮用(S-)'||/^S-/i.test(sku)||!m.type;
+  });
   if(key) list=list.filter(m=>(m.code||'').toLowerCase().includes(key)||(m.name||'').toLowerCase().includes(key));
   return list.sort((a,b)=>(a.code||a.name||'').localeCompare(b.code||b.name||'')).slice(0,40);
 }
@@ -15208,6 +15299,8 @@ async function submitNormalOrder(isDomestic){
   const productId=document.getElementById('m_product')?.value;
   const productInput=(document.getElementById('m_product_search')?.value||'').trim();
   const qty=parseInt(document.getElementById('m_qty')?.value)||1;
+  const unitPriceRaw=(document.getElementById('m_unit_price')?.value||'').trim();
+  const unitPrice=unitPriceRaw?parseMoneyNumber(unitPriceRaw):null;
   const deadline=document.getElementById('m_date')?.value||'';
   const note=document.getElementById('m_note')?.value?.trim()||'';
   const orderType=isDomestic?'國內':'國外';
@@ -15223,6 +15316,7 @@ async function submitNormalOrder(isDomestic){
   const product=mats.find(m=>m.id===productId);
   closeModal(); showToast('建立訂單中...','warn');
   try{
+    if(unitPriceRaw) await ensureDatabaseNumberProperty(DB.orders,'產品單價');
     const buildItems=piItems.length?piItems:[{model:product?.code||product?.name||productInput,qty,matId:productId}];
     let ok=0,fail=0,failList=[];
     for(let i=0;i<buildItems.length;i++){
@@ -15241,6 +15335,7 @@ async function submitNormalOrder(isDomestic){
           '成品':      {relation:[{id:mat.id}]},
           '交期':      {date:{start:deadline}},
         };
+        if(unitPriceRaw) props['產品單價']={number:unitPrice};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
         await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
         if(isDomestic){
