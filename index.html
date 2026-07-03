@@ -5510,23 +5510,71 @@ function openModal(type,data){
 // ═══════════════════════════════════════════════
 // API
 // ═══════════════════════════════════════════════
+const sleep=ms=>new Promise(res=>setTimeout(res,ms));
+const NOTION_MIN_INTERVAL_MS=380;
+const NOTION_MAX_RETRIES=6;
+let _notionQueue=Promise.resolve();
+let _notionLastAt=0;
+async function waitNotionTurn(){
+  const run=async()=>{
+    const wait=Math.max(0,NOTION_MIN_INTERVAL_MS-(Date.now()-_notionLastAt));
+    if(wait) await sleep(wait);
+    _notionLastAt=Date.now();
+  };
+  _notionQueue=_notionQueue.then(run,run);
+  return _notionQueue;
+}
+function isNotionRateLimit(res,data){
+  const msg=String(data?.message||data?.error||'').toLowerCase();
+  return res?.status===429||data?.status===429||data?.code==='rate_limited'||msg.includes('rate limited');
+}
+function notionRetryDelay(attempt){
+  const steps=[1400,2600,4800,8000,13000,21000];
+  return steps[Math.min(attempt,steps.length-1)];
+}
+async function notionProxyRequest(payload,actionLabel='Notion API'){
+  let lastData=null,lastText='';
+  for(let attempt=0;attempt<=NOTION_MAX_RETRIES;attempt++){
+    await waitNotionTurn();
+    let res,text,data;
+    try{
+      res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      text=await res.text();
+      lastText=text;
+      try{data=JSON.parse(text);}catch{data={object:'error',status:res.status,code:'parse_error',message:'解析失敗: '+text.slice(0,100)};}
+      lastData=data;
+    }catch(e){
+      lastData={object:'error',status:0,code:'network_error',message:e.message||String(e)};
+      if(attempt<NOTION_MAX_RETRIES){
+        await sleep(notionRetryDelay(attempt));
+        continue;
+      }
+      return lastData;
+    }
+    if(isNotionRateLimit(res,data)&&attempt<NOTION_MAX_RETRIES){
+      const wait=notionRetryDelay(attempt);
+      if(attempt===0) showToast(`⏳ Notion 忙碌，正在自動重試 ${actionLabel}...`,'warn',6000);
+      await sleep(wait);
+      continue;
+    }
+    if(!res.ok&&data?.object!=='error'){
+      return {object:'error',status:res.status,code:'http_error',message:lastText||`HTTP ${res.status}`};
+    }
+    return data;
+  }
+  return lastData||{object:'error',status:429,code:'rate_limited',message:'Notion API 仍忙碌，請稍後再試'};
+}
 async function notionAPI(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN,method,endpoint,body})});
-  const text=await res.text();
-  try{return JSON.parse(text);}catch{throw new Error('解析失敗: '+text.slice(0,100));}
+  return notionProxyRequest({token:TOKEN,method,endpoint,body},`${method} ${endpoint}`);
 }
 async function notionAPI2026(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:TOKEN,method,endpoint,body,notionVersion:'2026-03-11'})});
-  const text=await res.text();
-  try{return JSON.parse(text);}catch{throw new Error('解析失敗: '+text.slice(0,100));}
+  return notionProxyRequest({token:TOKEN,method,endpoint,body,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
 }
 async function dbQueryAll(dbId){
   let all=[],c=null,tries=0;
