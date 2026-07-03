@@ -16549,12 +16549,22 @@ function renderQCTab(){
   if(QC_SUB==='pending'){
     if(!pendingInbound.length) return _notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有入料待品檢項目</div></div>`;
     return _notionBar+tabs+`<div class="panel">
-      <div class="panel-hdr"><span class="panel-title">📥 入料待品檢</span><span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span></div>
+      <div class="panel-hdr" style="gap:10px;flex-wrap:wrap">
+        <span class="panel-title">📥 入料待品檢</span>
+        <span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span>
+        ${canQC?`<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="qcBatchCount" style="font-size:.78rem;color:var(--text2)">尚未選取</span>
+          <button class="btn btn-green btn-sm" id="qcBatchPassBtn" onclick="batchApproveInboundQC()" disabled>✓ 批量通過</button>
+          <span id="qcBatchProgress" style="font-size:.72rem;color:var(--text3)"></span>
+        </div>`:''}
+      </div>
+      ${canQC?`<div class="help-box" style="margin:0 12px 10px">大量入料請勾選後使用「批量通過」，系統會逐筆入庫、寫入品管與庫存異動紀錄，避免快速連點造成 Notion 限流。</div>`:''}
       <div class="table-wrap"><table>
-        <tr>${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str','hide-m')}<th>操作</th></tr>
+        <tr>${canQC?`<th style="width:42px"><input type="checkbox" onchange="toggleQCBatchInboundAll(this)"></th>`:''}${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str','hide-m')}<th>操作</th></tr>
         ${applySort('qcp',pendingInbound).map(i=>{
           const mat=mats.find(m=>m.id===i.matId);
           return `<tr>
+            ${canQC?`<td><input type="checkbox" class="qc-inbound-batch" value="${i.id}" onchange="updateQCBatchButton()"></td>`:''}
             <td style="font-family:monospace;font-size:0.6875rem">${i.no}</td>
             <td style="font-size:0.6875rem">${mat?.name||'—'}</td>
             <td style="font-family:monospace">${i.qty}</td>
@@ -17368,6 +17378,63 @@ async function submitInboundReject(id){
   await rejectQC(id,{skipConfirm:true,note,...opts});
 }
 
+function selectedQCBatchInboundIds(){
+  return [...document.querySelectorAll('.qc-inbound-batch:checked')].map(x=>x.value).filter(Boolean);
+}
+
+function toggleQCBatchInboundAll(chk){
+  document.querySelectorAll('.qc-inbound-batch').forEach(x=>{x.checked=!!chk.checked;});
+  updateQCBatchButton();
+}
+
+function updateQCBatchButton(){
+  const ids=selectedQCBatchInboundIds();
+  const btn=document.getElementById('qcBatchPassBtn');
+  const count=document.getElementById('qcBatchCount');
+  if(btn) btn.disabled=!ids.length;
+  if(count) count.textContent=ids.length?`已選 ${ids.length} 筆`:'尚未選取';
+}
+
+async function batchApproveInboundQC(){
+  const ids=selectedQCBatchInboundIds();
+  if(!ids.length){showToast('請先勾選要通過的入料單','warn');return;}
+  if(!confirm(`確認批量通過 ${ids.length} 筆入料品檢？系統會逐筆入庫並記錄庫存異動。`))return;
+
+  const btn=document.getElementById('qcBatchPassBtn');
+  const progress=document.getElementById('qcBatchProgress');
+  if(btn) btn.disabled=true;
+
+  let ok=0, fail=0;
+  const failed=[];
+  showToast(`⏳ 批量通過開始：共 ${ids.length} 筆，請勿重複點擊`, 'ok', 5000);
+
+  for(let idx=0;idx<ids.length;idx++){
+    const id=ids[idx];
+    const ib=inbounds.find(x=>x.id===id);
+    if(progress) progress.textContent=`處理 ${idx+1}/${ids.length}：${ib?.no||id}`;
+    try{
+      await approveQC(id,ib?.matId,ib?.qty,{skipConfirm:true,silent:true,skipRefresh:true,batch:true,note:'批量品管通過 自動入庫'});
+      ok++;
+    }catch(e){
+      fail++;
+      failed.push(`${ib?.no||id}：${e.message||e}`);
+      console.error('batchApproveInboundQC item failed:',id,e);
+    }
+  }
+
+  if(progress) progress.textContent='重新讀取資料中...';
+  await refreshAll();
+  await loadInbounds();
+  renderTab('qc');
+
+  if(fail){
+    showToast(`⚠ 批量完成：成功 ${ok} 筆 / 失敗 ${fail} 筆`, 'warn', 7000);
+    alert('以下入料品檢通過失敗，請稍後重試或單筆處理：\n\n'+failed.slice(0,30).join('\n')+(failed.length>30?`\n...另 ${failed.length-30} 筆`:'')); 
+  }else{
+    showToast(`✅ 批量通過完成：${ok} 筆已入庫`, 'ok', 6000);
+  }
+}
+
 async function approveQC(id,matId,qty,opts={}){
   if(!opts.skipConfirm&&!confirm('確認品檢通過？將增加 '+qty+' 個庫存'))return;
 
@@ -17381,7 +17448,9 @@ async function approveQC(id,matId,qty,opts={}){
 
   // ★ 驗證 matId
   if(!matId){
-    showToast('❌ 入料單未關聯料件，無法品檢通過與入庫。請先補上料件關聯。','err');
+    const err=new Error('入料單未關聯料件，無法品檢通過與入庫。請先補上料件關聯。');
+    if(opts.batch) throw err;
+    showToast('❌ '+err.message,'err');
     logUserAction('品管通過失敗',ibNo,'入料單未關聯料件',ROLE);
     return;
   }
@@ -17428,10 +17497,14 @@ async function approveQC(id,matId,qty,opts={}){
     const mat2=mats.find(m=>m.id===matId);
     await logStockChange(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),curStock,newStock,id,ROLE);
     // 6. 重整
-    await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+    if(!opts.skipRefresh){
+      await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+    }
     const mat=mats.find(m=>m.id===matId);
-    showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+curStock+' → '+newStock,'ok');
+    if(!opts.silent)showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+curStock+' → '+newStock,'ok');
+    return {ok:true,ibNo,matName:mat?.name||matId,curStock,newStock};
   }catch(e){
+    if(opts.batch) throw e;
     showToast('❌ 品管通過失敗：'+e.message,'err');
     console.error('approveQC error:',e);
   }
