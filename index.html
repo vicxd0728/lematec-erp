@@ -5576,10 +5576,14 @@ async function notionAPI2026(method,endpoint,body=null){
   }
   return notionProxyRequest({token:TOKEN,method,endpoint,body,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
 }
-async function dbQueryAll(dbId){
+async function dbQueryAll(dbId,options={}){
   let all=[],c=null,tries=0;
+  const query=options&&typeof options==='object'?options:{};
   do{
-    const b={page_size:100};if(c)b.start_cursor=c;
+    const b={page_size:query.page_size||query.pageSize||100};
+    if(query.filter)b.filter=query.filter;
+    if(query.sorts)b.sorts=query.sorts;
+    if(c)b.start_cursor=c;
     const r=await notionAPI('POST',`databases/${dbId}/query`,b);
     if(r.object==='error'){
       if(r.status===429&&tries<2){await new Promise(res=>setTimeout(res,1200*(tries+1)));tries++;continue;}
@@ -5588,6 +5592,78 @@ async function dbQueryAll(dbId){
     all=all.concat(r.results||[]);c=r.has_more?r.next_cursor:null;tries=0;
   }while(c);
   return all;
+}
+const FIRST_LOAD_DAYS=30;
+const DATA_LOAD_MODE={corders:'recent',stocklog:'recent',notes:'recent'};
+const DATA_LOAD_COUNT={corders:0,stocklog:0,notes:0};
+function isoDaysAgo(days=FIRST_LOAD_DAYS){
+  const d=new Date();
+  d.setDate(d.getDate()-days);
+  d.setHours(0,0,0,0);
+  return d.toISOString();
+}
+function recentCreatedFilter(days=FIRST_LOAD_DAYS){
+  return {timestamp:'created_time',created_time:{on_or_after:isoDaysAgo(days)}};
+}
+function activeStatusFilter(prop='狀態',done='完成'){
+  return {property:prop,select:{does_not_equal:done}};
+}
+function corderRecentFilter(){
+  return {or:[
+    recentCreatedFilter(),
+    {and:[
+      activeStatusFilter('狀態','已完成'),
+      activeStatusFilter('狀態','已取消'),
+      activeStatusFilter('狀態','取消'),
+    ]}
+  ]};
+}
+function noteRecentFilter(){
+  return {or:[
+    recentCreatedFilter(),
+    activeStatusFilter('狀態','完成'),
+  ]};
+}
+function stockLogRecentFilter(){
+  return {or:[
+    {property:'異動日期',date:{on_or_after:isoDaysAgo(FIRST_LOAD_DAYS).slice(0,10)}},
+    recentCreatedFilter(),
+  ]};
+}
+function markDataLoadMode(scope,mode,count){
+  DATA_LOAD_MODE[scope]=mode;
+  DATA_LOAD_COUNT[scope]=count||0;
+  markLoaded(scope);
+}
+function limitedDataHint(scope,label){
+  if(DATA_LOAD_MODE[scope]==='all') return '';
+  const count=DATA_LOAD_COUNT[scope]||0;
+  return `<div class="info-box" style="margin:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 100%">
+    <span>⚡ 已先載入近 ${FIRST_LOAD_DAYS} 天與待處理資料，讓第一次開頁更快。目前 ${label} 已載入 <b>${count}</b> 筆。</span>
+    <button class="btn btn-ghost btn-sm" onclick="loadFullData('${scope}')">載入全部歷史</button>
+  </div>`;
+}
+function requestFullDataForSearch(scope,value){
+  const q=String(value||'').trim();
+  if(q.length<2||DATA_LOAD_MODE[scope]==='all'||window[`_${scope}FullLoading`]) return;
+  clearTimeout(window[`_${scope}SearchTimer`]);
+  window[`_${scope}SearchTimer`]=setTimeout(()=>loadFullData(scope,true),450);
+}
+async function loadFullData(scope,quiet=false){
+  if(DATA_LOAD_MODE[scope]==='all'||window[`_${scope}FullLoading`]) return;
+  window[`_${scope}FullLoading`]=true;
+  if(!quiet)showToast('載入全部歷史資料中...','warn');
+  try{
+    if(scope==='corders')await loadCorders({mode:'all'});
+    if(scope==='stocklog')await loadStockLog({mode:'all'});
+    if(scope==='notes')await loadNotes({mode:'all'});
+    if(CURRENT_TAB===scope||scope==='stocklog'&&CURRENT_TAB==='stocklog')renderTab(CURRENT_TAB);
+    if(!quiet)showToast('✅ 已載入全部歷史資料','ok');
+  }catch(e){
+    showToast('❌ 載入歷史失敗：'+e.message,'err');
+  }finally{
+    window[`_${scope}FullLoading`]=false;
+  }
 }
 const createPage=(dbId,props)=>notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
 function assertNotionPage(r, action='Notion 寫入'){
@@ -7151,7 +7227,7 @@ function switchTab(tab){
 }
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){if(isFresh('stocklog')){c.innerHTML=renderStockLog();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}}
   else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
   else if(tab==='corders'){
     if(window._cordersLoaded&&Date.now()-(window._cordersLoadedAt||0)<120000){c.innerHTML=renderCorders();}
@@ -7452,9 +7528,11 @@ async function runHealthCheck(manual=false){
 // ══════════════════════════════════════════════
 let stockLogs = [];
 
-async function loadStockLog(){
+async function loadStockLog(options={}){
   try{
-    const r = await dbQueryAll(DB.stockLog);
+    const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
+    const query=mode==='all'?{}:{filter:stockLogRecentFilter()};
+    const r = await dbQueryAll(DB.stockLog,query);
     stockLogs = r.map(p=>({
       id: p.id,
       title: getTitle(p.properties,'異動項目'),
@@ -7468,6 +7546,7 @@ async function loadStockLog(){
       ref: getRichText(p.properties,'關聯單號'),
       operator: getRichText(p.properties,'操作人員'),
     })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+    markDataLoadMode('stocklog',mode,stockLogs.length);
   }catch(e){
     console.warn('loadStockLog error:',e);
     stockLogs=[];
@@ -7527,7 +7606,7 @@ function renderStockLog(){
 
   <!-- 篩選列 -->
   <div class="panel" style="margin-bottom:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('stocklog')">
+    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="if(this.value==='0'&&DATA_LOAD_MODE.stocklog!=='all'){loadFullData('stocklog')}else{renderTab('stocklog')}">
       <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option>
       <option value="month" ${dateVal==='month'?'selected':''}>當月</option>
       <option value="1">近1個月</option>
@@ -7542,9 +7621,10 @@ function renderStockLog(){
       <option value="手動調整" ${typeVal==='手動調整'?'selected':''}>✏️ 手動調整</option>
       <option value="品管退回" ${typeVal==='品管退回'?'selected':''}>❌ 品管退回</option>
     </select>
-    <input class="inp" id="slSearch" value="${qVal}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="renderTab('stocklog')">
+    <input class="inp" id="slSearch" value="${qVal}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="requestFullDataForSearch('stocklog',this.value);renderTab('stocklog')">
     <span style="font-size:0.6875rem;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
   </div>
+  ${limitedDataHint('stocklog','異動紀錄')}
 
   <!-- 記錄表格 -->
   <div class="panel"><div class="panel-hdr"><span class="panel-title">庫存異動記錄 <span class="badge">${data.length}</span></span></div>
@@ -8026,9 +8106,10 @@ async function ensureNotesDB(force=false){
   localStorage.setItem(NOTES_DB_KEY,created.id);
   return created.id;
 }
-async function loadNotes(){
+async function loadNotes(options={}){
   const dbId=await ensureNotesDB(true);
-  const rows=await dbQueryAll(dbId);
+  const mode=options.mode||DATA_LOAD_MODE.notes||'recent';
+  const rows=await dbQueryAll(dbId,mode==='all'?{}:{filter:noteRecentFilter()});
   notes=rows.map(p=>{
     const props=p.properties||{};
     return {
@@ -8067,7 +8148,7 @@ async function loadNotes(){
     };
   }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
   _notesLoaded=true;
-  markLoaded('notes');
+  markDataLoadMode('notes',mode,notes.length);
   schedulePendingNoteNotification();
   return notes;
 }
@@ -8169,9 +8250,10 @@ function renderNotes(){
       </div>
     </section>
     <div class="note-toolbar">
-      <input class="inp" id="noteQ" value="${escapeHtml(document.getElementById('noteQ')?.value||'')}" oninput="renderTab('notes')" placeholder="搜尋標題、內容、建立者、角色...">
+      <input class="inp" id="noteQ" value="${escapeHtml(document.getElementById('noteQ')?.value||'')}" oninput="requestFullDataForSearch('notes',this.value);renderTab('notes')" placeholder="搜尋標題、內容、建立者、角色...">
       <select class="inp" id="noteTypeFilter" onchange="renderTab('notes')"><option value="all">全部類型</option>${NOTE_TYPES.map(x=>`<option value="${x}" ${type===x?'selected':''}>${x}</option>`).join('')}</select>
       <select class="inp" id="noteStatusFilter" onchange="renderTab('notes')"><option value="all">全部狀態</option>${NOTE_STATUS.map(x=>`<option value="${x}" ${status===x?'selected':''}>${x}</option>`).join('')}</select>
+      ${limitedDataHint('notes','記事')}
       ${canAdd?`<button class="btn btn-blue" onclick="openModal('newNote')">＋ 新增記事</button>`:''}
     </div>
     <div class="note-layout">
@@ -16560,12 +16642,13 @@ function renderCorders(){
       <span style="font-size:.8125rem;color:var(--text3)">下一張：<b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono)">${nextNo}</b>。蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
     </div>`:''}
     <div class="corder-toolbar">
-      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;renderTab('corders')" style="flex:1;min-width:150px">
+      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;requestFullDataForSearch('corders',this.value);renderTab('corders')" style="flex:1;min-width:150px">
       <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
       <select class="inp" style="width:170px" onchange="window._CO_SHIP=this.value;renderTab('corders')">${shipOpts}</select>
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
       <div class="corder-sort-group" style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
+    ${limitedDataHint('corders','C端訂單')}
     <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 直接子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
   if(!filtered.length){
     html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
@@ -19217,9 +19300,10 @@ async function submitSFGOrder(){
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
 }
 
-async function loadCorders(){
+async function loadCorders(options={}){
   try{
-    const r=await dbQueryAll(DB.corders);
+    const mode=options.mode||DATA_LOAD_MODE.corders||'recent';
+    const r=await dbQueryAll(DB.corders,mode==='all'?{}:{filter:corderRecentFilter()});
     window.corders=r.map(p=>({
       id:p.id,
       no:getTitle(p.properties,'訂單號碼')||getTitle(p.properties,'Name'),
@@ -19241,6 +19325,7 @@ async function loadCorders(){
     }));
     window._cordersLoaded=true;
     window._cordersLoadedAt=Date.now();
+    markDataLoadMode('corders',mode,window.corders.length);
     await autoCompleteCordersAfter7Days();
   }catch(e){window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);}
 }
