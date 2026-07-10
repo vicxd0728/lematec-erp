@@ -6568,9 +6568,257 @@ async function refreshAll(manual=false){
     _refreshing=false;
   }
 }
+
+function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+function markLoaded(key){window['_'+key+'Loaded']=true;window['_'+key+'LoadedAt']=Date.now();}
+function isFresh(key,ttl=120000){return !!window['_'+key+'Loaded']&&Date.now()-(window['_'+key+'LoadedAt']||0)<ttl;}
+function uniqueTabs(list){return [...new Set((list||[]).filter(Boolean))];}
+function rolePriorityTabs(role=ROLE){
+  const map={
+    vic:['dashboard','ops','orders','corders','picking','qc','inbound','notes'],
+    manager:['dashboard','ops','orders','corders','picking','qc','inbound','notes'],
+    sales:['orders','corders','customers','inventory','notes'],
+    warehouse:['picking','orders','inventory','inbound','corders','notes'],
+    purchase:['orders','picking','inventory','inbound','schedule','notes'],
+    qc:['qc','inbound','notes'],
+    viewer:['ops','dashboard','notes']
+  };
+  return uniqueTabs([CURRENT_TAB,...(map[role]||['dashboard','ops','notes'])]);
+}
+async function loadCoreEssentials(){
+  const [mR,bR,oR]=await Promise.all([dbQueryAll(DB.materials),dbQueryAll(DB.bom),dbQueryAll(DB.orders)]);
+  mats=mR.map(p=>({
+    id:p.id,
+    name:getTitle(p.properties,'料件名稱'),
+    code:getRichText(p.properties,'料件編號'),
+    type:p.properties?.['類型']?.select?.name||'',
+    unit:p.properties?.['單位']?.select?.name||'個',
+    qty:p.properties?.['目前庫存']?.number??0,
+    stock:p.properties?.['目前庫存']?.number??0,
+    safe:p.properties?.['安全庫存']?.number??0,
+    note:getRichText(p.properties,'備註'),
+    created:p.created_time||'',
+    url:p.url||'',
+  }));
+  boms=bR.map(p=>({
+    id:p.id,
+    url:p.url||'',
+    parentId:p.properties?.['母件']?.relation?.[0]?.id||'',
+    childId:p.properties?.['子件']?.relation?.[0]?.id||'',
+    qty:p.properties?.['每台用量']?.number??1,
+    name:getTitle(p.properties,'BOM項目'),
+  }));
+  orders=oR.map(p=>{
+    const productId=p.properties?.['成品']?.relation?.[0]?.id||'';
+    const productMat=mats.find(m=>m.id===productId);
+    const matCode=getRichText(p.properties,'料件編號')||getTitle(p.properties,'料件編號')||productMat?.code||'';
+    return {
+      id:p.id,
+      no:getTitle(p.properties,'訂單號'),
+      cust:p.properties?.['客戶名稱']?.select?.name||'',
+      customer:p.properties?.['客戶名稱']?.select?.name||'',
+      productId,
+      matCode,
+      product:matCode||productMat?.name||productMat?.code||'',
+      qty:p.properties?.['訂購數量']?.number??0,
+      unitPrice:p.properties?.['產品單價']?.number??null,
+      deadline:p.properties?.['交期']?.date?.start||'',
+      shipDate:p.properties?.['實際出貨日']?.date?.start||p.properties?.['出貨日']?.date?.start||'',
+      status:p.properties?.['狀態']?.select?.name||'',
+      note:getRichText(p.properties,'業務備註'),
+      orderType:p.properties?.['訂單類型']?.select?.name||'',
+      orderTag:p.properties?.['訂單標籤']?.select?.name||'',
+      created:p.created_time?.slice(0,10)||'',
+    };
+  });
+  markLoaded('core');
+}
+async function loadCustomersOnly(){
+  const masterR=await dbQueryAll(DB.custMaster);
+  const overseasCustomers=masterR.map(p=>({
+    id:p.id,
+    name:getTitle(p.properties,'Name'),
+    code:getRichText(p.properties,'客戶編號'),
+    region:p.properties?.['國家']?.select?.name||'',
+    shipped:p.properties?.['出貨']?.select?.name||'',
+    type:'overseas',
+  })).filter(c=>c.name);
+  let domesticCustomers=[];
+  try{
+    const tradeR=await dbQueryAll(DB.domesticTrade);
+    const seenDom=new Map();
+    tradeR.forEach(p=>{
+      const name=p.properties?.['客戶']?.select?.name||'';
+      if(!name)return;
+      const code=p.properties?.['客編']?.select?.name||p.properties?.['客戶編號']?.select?.name||getRichText(p.properties,'客編','客戶編號')||'';
+      if(!seenDom.has(name))seenDom.set(name,{
+        id:'domtrade-'+name,
+        name,
+        code,
+        region:p.properties?.['出貨國家']?.select?.name||'',
+        shipped:p.properties?.['出貨']?.status?.name||p.properties?.['出貨']?.select?.name||'',
+        grade:'',
+        area:p.properties?.['出貨國家']?.select?.name||'',
+        type:'domestic',
+        source:'domesticTrade',
+      });
+    });
+    domesticCustomers=[...seenDom.values()];
+    const domR=await dbQueryAll(DB.custDomestic);
+    domR.map(p=>({
+      id:p.id,
+      name:getTitle(p.properties,'客戶名稱'),
+      code:getRichText(p.properties,'客戶編號'),
+      region:p.properties?.['地區']?.select?.name||'',
+      shipped:p.properties?.['出貨記錄']?.select?.name||'',
+      grade:p.properties?.['客戶等級']?.select?.name||'',
+      area:p.properties?.['地區']?.select?.name||'',
+      type:'domestic',
+      source:'custDomestic',
+    })).filter(c=>c.name).forEach(c=>{if(!seenDom.has(c.name))domesticCustomers.push(c);});
+  }catch(e){console.warn('國內客戶載入失敗:',e);}
+  customers=[...overseasCustomers,...domesticCustomers];
+  markLoaded('customers');
+}
+async function loadLeavesOnly(){
+  const leaveR=await dbQueryAll(DB.leave);
+  leaves=(leaveR||[]).map(p=>({
+    id:p.id,
+    name:getTitle(p.properties,'申請人姓名'),
+    title:getRichText(p.properties,'職稱'),
+    dateFrom:p.properties?.['請假日期起']?.date?.start||'',
+    dateTo:p.properties?.['請假日期迄']?.date?.start||'',
+    days:p.properties?.['請假天數']?.number||0,
+    hours:p.properties?.['請假時數']?.number??((p.properties?.['請假天數']?.number||0)*8),
+    type:p.properties?.['假別']?.select?.name||'',
+    reason:getRichText(p.properties,'請假原因'),
+    proxy:getRichText(p.properties,'職務代理人'),
+    status:p.properties?.['審核狀態']?.select?.name||'待審核',
+    rejectReason:getRichText(p.properties,'不通過原因'),
+    reviewer:getRichText(p.properties,'審核人'),
+    applyDate:p.properties?.['申請日期']?.date?.start||p.created_time||'',
+    reviewDate:p.properties?.['審核日期']?.date?.start||'',
+  }));
+  markLoaded('leaves');
+}
+async function loadAnnouncesOnly(){
+  const annR=await dbQueryAll(DB.announce);
+  announces=(annR||[]).map(p=>({
+    id:p.id,
+    title:getTitle(p.properties,'標題'),
+    content:(p.properties?.['內容']?.rich_text||p.properties?.['內容']?.text||[]).map(r=>r.plain_text||r.text?.content||'').join(''),
+    date:p.properties?.['發佈日期']?.date?.start||'',
+    status:p.properties?.['狀態']?.select?.name||'草稿',
+    pinned:p.properties?.['置頂']?.checkbox||false,
+    order:p.properties?.['顯示順序']?.number||99,
+  }));
+  markLoaded('announces');
+}
+function roleComplementLoaders(role=ROLE){
+  const jobs=[loadAnnouncesOnly];
+  if(isAdminRole(role)||role==='sales'||role==='purchase')jobs.push(loadCustomersOnly);
+  if(isAdminRole(role)||role==='viewer')jobs.push(loadLeavesOnly);
+  return jobs;
+}
+async function loadRoleComplements(){
+  const jobs=roleComplementLoaders().filter(fn=>{
+    if(fn===loadCustomersOnly)return !isFresh('customers',180000);
+    if(fn===loadLeavesOnly)return !isFresh('leaves',180000);
+    if(fn===loadAnnouncesOnly)return !isFresh('announces',180000);
+    return true;
+  });
+  await Promise.allSettled(jobs.map(fn=>fn()));
+}
+async function loadTabData(tab,{force=false}={}){
+  if(tab==='customers'&&(force||!isFresh('customers')))return loadCustomersOnly();
+  if(tab==='leave'&&(force||!isFresh('leaves')))return loadLeavesOnly();
+  if(tab==='announce'&&(force||!isFresh('announces')))return loadAnnouncesOnly();
+  if(tab==='notes'&&(force||!isFresh('notes')))return loadNotes();
+  if(tab==='corders'&&(force||!isFresh('corders')))return loadCorders();
+  if(tab==='picking'&&(force||!isFresh('picks')))return loadPicks();
+  if((tab==='inbound'||tab==='qc'||tab==='ops')&&(force||!isFresh('inbounds')))return loadInbounds();
+}
+async function queueBackgroundDataRefresh(doneTabs=[]){
+  if(window._bgDataRefreshTimer)clearTimeout(window._bgDataRefreshTimer);
+  window._bgDataRefreshTimer=setTimeout(async()=>{
+    if(!TOKEN||window._backgroundRefreshing||shouldDelayAutoSync())return;
+    window._backgroundRefreshing=true;
+    try{
+      setSyncState('背景補資料中...','syncing',true);
+      await loadRoleComplements();
+      const pending=rolePriorityTabs().filter(t=>!doneTabs.includes(t));
+      for(const tab of pending){
+        await loadTabData(tab);
+        await waitMs(250);
+      }
+      saveAppCache();
+      if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+      const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+      setSyncState(`背景已同步 ${now}`,'ok');
+    }catch(e){
+      console.warn('background data refresh failed:',e);
+      setSyncState('背景同步稍後重試','warn');
+    }finally{
+      window._backgroundRefreshing=false;
+    }
+  },900);
+}
+async function refreshAll(manual=false){
+  if(_refreshing&&!manual){scheduleRefresh(1500);return;}
+  _refreshing=true;
+  const nowMs=Date.now();
+  if(!manual&&window._lastRefresh&&(nowMs-window._lastRefresh)<3000){
+    _refreshing=false;return;
+  }
+  window._lastRefresh=nowMs;
+  const syncEl=document.getElementById('syncStatus');
+  if(syncEl)syncEl.textContent='⟳ 同步核心資料...';
+  setSyncState(manual?'手動同步中...':'同步核心資料中...','syncing',true);
+  const refreshStarted=performance.now();
+  const loadedTabs=[];
+  try{
+    await loadCoreEssentials();
+    saveAppCache();
+    if(!['notes','corders','stocklog','schedule'].includes(CURRENT_TAB)&&!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    setSyncState('核心資料已載入，優先補目前分頁...','syncing',true);
+
+    await loadTabData(CURRENT_TAB,{force:manual});
+    loadedTabs.push(CURRENT_TAB);
+    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+
+    const priorityTabs=rolePriorityTabs().filter(tab=>tab!==CURRENT_TAB).slice(0,4);
+    for(const tab of priorityTabs){
+      await loadTabData(tab,{force:manual});
+      loadedTabs.push(tab);
+      await waitMs(180);
+    }
+
+    await loadRoleComplements();
+    saveAppCache();
+    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+
+    const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+    const elapsed=((performance.now()-refreshStarted)/1000).toFixed(1);
+    if(syncEl)syncEl.textContent=`✓ ${now} · ${elapsed}s`;
+    setSyncState(`已同步 ${now} · ${elapsed}s`,'ok');
+    queueBackgroundDataRefresh(loadedTabs);
+    if(manual)showToast('✅ 主要資料已同步，其他資料背景補上','ok');
+  }catch(e){
+    if(syncEl)syncEl.textContent='❌ 失敗';
+    setSyncState('同步失敗，點此重試','err',true);
+    document.getElementById('mainContent').innerHTML=
+      `<div class="info-box" style="background:rgba(245,101,101,.08);border:1px solid rgba(245,101,101,.2);color:var(--red);margin:8px">
+        ❌ 載入失敗: ${e.message}
+        <br><button class="btn btn-ghost btn-sm" onclick="refreshAll()" style="margin-top:8px">重試</button>
+      </div>`;
+  }finally{
+    _refreshing=false;
+  }
+}
 async function loadPicks(){
   const r=await dbQueryAll(DB.pickMaster);
   picks=r.map(p=>({id:p.id,no:getTitle(p.properties,'領料主單號'),orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',person:getRichText(p.properties,'領料人員'),note:getRichText(p.properties,'備註'),created:p.created_time?.slice(0,10)||''}));
+  markLoaded('picks');
 }
 async function loadInbounds(){
   const r=await dbQueryAll(DB.inbound);
@@ -6593,6 +6841,7 @@ async function loadInbounds(){
       returnTo:getRichText(p.properties,'退回對象'),
     };
   });
+  markLoaded('inbounds');
 }
 
 function explodeBOM(pid,qty){
@@ -6880,7 +7129,26 @@ function formatOptionalMoney(n){
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
-function switchTab(tab){CURRENT_TAB=tab;document.querySelectorAll('.tab-btn').forEach((b,i)=>{const roleTabs=ROLES[ROLE]?.tabs||[];b.classList.toggle('active',roleTabs[i]===tab);});renderTab(tab);if(tab==='notes')loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});if(tab==='ops')Promise.all([loadInbounds(),loadNotes().catch(e=>console.warn('ops notes refresh failed:',e))]).then(()=>{if(CURRENT_TAB==='ops')renderTab('ops');});if(tab==='picking')loadPicks().then(()=>renderTab('picking'));if(tab==='inbound'||tab==='qc'){loadInbounds().then(()=>renderTab(tab));}if(tab==='inventory'){window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};}if(tab==='health')setTimeout(()=>runHealthCheck(false),80);}
+function switchTab(tab){
+  CURRENT_TAB=tab;
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>{
+    const roleTabs=ROLES[ROLE]?.tabs||[];
+    b.classList.toggle('active',roleTabs[i]===tab);
+  });
+  renderTab(tab);
+  if(!['notes','corders','stocklog','schedule'].includes(tab)){
+    loadTabData(tab).then(()=>{
+      if(CURRENT_TAB===tab&&!isEditingNow()&&!isModalOpen())renderTab(tab);
+    }).catch(e=>console.warn('tab data load failed:',tab,e));
+  }
+  if(tab==='ops'){
+    loadNotes().then(()=>{if(CURRENT_TAB==='ops'&&!isEditingNow()&&!isModalOpen())renderTab('ops');}).catch(e=>console.warn('ops notes refresh failed:',e));
+  }
+  if(tab==='inventory'){
+    window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};
+  }
+  if(tab==='health')setTimeout(()=>runHealthCheck(false),80);
+}
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='stocklog'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}
@@ -7799,6 +8067,7 @@ async function loadNotes(){
     };
   }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
   _notesLoaded=true;
+  markLoaded('notes');
   schedulePendingNoteNotification();
   return notes;
 }
