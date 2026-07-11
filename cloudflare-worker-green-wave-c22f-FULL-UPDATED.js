@@ -131,8 +131,18 @@ export default {
         });
       }
 
+      const normalizedMethod = String(method || 'GET').toUpperCase();
+      const cacheable = normalizedMethod === 'GET' || (normalizedMethod === 'POST' && /\/query(?:\?|$)/.test(endpoint || ''));
+      const cacheKey = cacheable
+        ? await notionReadCacheKey(request.url, token, normalizedMethod, endpoint, body, notionVersionHeader)
+        : null;
+      if (cacheKey) {
+        const cached = await caches.default.match(cacheKey);
+        if (cached) return withProxyHeaders(cached, cors, 'HIT');
+      }
+
       const opts = {
-        method,
+        method: normalizedMethod,
         headers: {
           'Authorization': `Bearer ${token}`,
           'Notion-Version': notionVersionHeader,
@@ -143,13 +153,24 @@ export default {
       if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
       const res = await fetch(`https://api.notion.com/v1/${endpoint}`, opts);
-      return new Response(await res.text(), {
+      const responseText = await res.text();
+      const response = new Response(responseText, {
         status: res.status,
         headers: {
           ...cors,
           'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          'X-ERP-Cache': cacheKey ? 'MISS' : 'BYPASS',
         },
       });
+      if (cacheKey && res.ok) {
+        const cacheResponse = new Response(responseText, {
+          status: res.status,
+          headers: {'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=30'},
+        });
+        await caches.default.put(cacheKey, cacheResponse);
+      }
+      return response;
     } catch (e) {
       return resp500(cors, e.message);
     }
@@ -158,6 +179,30 @@ export default {
 const respOK  = (c,d) => new Response(JSON.stringify(d), { headers: jh(c) });
 const resp400 = (c,e) => new Response(JSON.stringify({error:e}), { status:400, headers:jh(c) });
 const resp500 = (c,e) => new Response(JSON.stringify({error:e}), { status:500, headers:jh(c) });
+
+async function notionReadCacheKey(workerUrl, token, method, endpoint, body, notionVersion) {
+  const tokenBytes = new TextEncoder().encode(String(token || ''));
+  const tokenHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', tokenBytes))]
+    .slice(0, 12)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const payload = JSON.stringify({ tokenHash, method, endpoint, body: body || null, notionVersion });
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)))]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const url = new URL(workerUrl);
+  url.pathname = '/__notion_read_cache__/' + digest;
+  url.search = '';
+  return new Request(url.toString(), { method: 'GET' });
+}
+
+function withProxyHeaders(response, cors, cacheState) {
+  const headers = new Headers(response.headers);
+  Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-ERP-Cache', cacheState);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 
 const BOARD_DB = {
   materials: '43d801b4-a787-4101-bd12-d8b8199385c7',
