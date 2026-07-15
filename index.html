@@ -7307,16 +7307,27 @@ function renderHealthList(title, rows, okText, renderRow){
 
 function duplicateMaterialRepairPlan(dupCodes){
   return dupCodes.map(group=>{
-    const rows=group.map(m=>({m,usage:materialUsageSummary(m.id)}));
+    const rows=group.map(m=>{
+      const usage=materialUsageSummary(m.id);
+      return {m,usage,structuralUsage:materialStructuralUsageTotal(usage)};
+    });
     rows.sort((a,b)=>
+      (b.structuralUsage-a.structuralUsage) ||
       (b.usage.total-a.usage.total) ||
       ((b.m.stock||0)-(a.m.stock||0)) ||
       String(a.m.name||a.m.code||'').localeCompare(String(b.m.name||b.m.code||''))
     );
     const keep=rows[0];
-    const deletable=rows.slice(1).filter(x=>x.usage.total===0);
-    const blocked=rows.slice(1).filter(x=>x.usage.total>0);
-    return {key:group[0]?.code||group[0]?.name||'',keep,deletable,blocked,rows};
+    const remaining=rows.slice(1);
+    const nonZeroStocks=[...new Set(rows.map(x=>Number(x.m.stock)||0).filter(n=>n!==0))];
+    const targetStock=nonZeroStocks.length===1?nonZeroStocks[0]:(Number(keep?.m?.stock)||0);
+    const stockConflict=nonZeroStocks.length>1;
+    const structuralConflict=remaining.some(x=>x.structuralUsage>0);
+    const canMerge=remaining.length>0&&!stockConflict&&!structuralConflict;
+    // Direct deletion remains limited to zero-stock rows. Non-zero stock must go through merge.
+    const deletable=remaining.filter(x=>x.usage.total===0&&(Number(x.m.stock)||0)===0);
+    const blocked=remaining.filter(x=>!deletable.includes(x));
+    return {key:group[0]?.code||group[0]?.name||'',keep,deletable,blocked,rows,targetStock,stockConflict,structuralConflict,canMerge};
   });
 }
 
@@ -7325,7 +7336,7 @@ function renderDuplicateRepairList(dupCodes){
   const totalDeletable=plan.reduce((sum,g)=>sum+g.deletable.length,0);
   if(!plan.length) return `<div class="info-ok">沒有偵測到重複料號。</div>`;
   return `<div class="info-box info-tip" style="margin-bottom:10px">
-    可直接在本頁刪除系統建議的無關聯重複料號，不需要回 Notion 搜尋；有 BOM、訂單、入料、C端訂單關聯的料號只列出，不會自動刪除。
+    合併時優先保留有 BOM／訂單關聯的料號，採用本組唯一的非零庫存，並把入料紀錄改連到保留料號後才封存重複頁。若多筆非零庫存互相衝突，系統不會猜測或相加。
   </div>
   ${totalDeletable?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
     <button class="btn btn-green btn-sm" onclick="repairSelectedDuplicateMaterials()">刪除勾選建議</button>
@@ -7334,16 +7345,17 @@ function renderDuplicateRepairList(dupCodes){
   </div>`:''}
   ${plan.map(g=>`<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;background:var(--bg3)">
     <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border)">
-      <div><b style="color:var(--amber)">重複料號：${escapeHtml(g.key)}</b><div style="font-size:.76rem;color:var(--text3)">共 ${g.rows.length} 筆，可安全刪除 ${g.deletable.length} 筆</div></div>
+      <div><b style="color:var(--amber)">重複料號：${escapeHtml(g.key)}</b><div style="font-size:.76rem;color:var(--text3)">共 ${g.rows.length} 筆${g.canMerge?`，合併後庫存 ${g.targetStock}`:`，可直接刪除 ${g.deletable.length} 筆`}</div></div>
       <div style="display:flex;align-items:center;gap:8px">
+        ${g.canMerge?`<button class="btn btn-green btn-xs" onclick="mergeDuplicateMaterialGroup('${g.keep.m.id}',[${g.rows.slice(1).map(x=>`'${x.m.id}'`).join(',')}])">合併本組</button>`:''}
         ${g.deletable.length?`<button class="btn btn-red btn-xs" onclick="repairDuplicateMaterialsByIds([${g.deletable.map(x=>`'${x.m.id}'`).join(',')}],'${escapeHtml(g.key)}')">刪除本組建議</button>`:''}
-        ${g.deletable.length?healthBadge('warn','可刪除'):healthBadge('info','需人工確認')}
+        ${g.canMerge?healthBadge('ok','可安全合併'):(g.deletable.length?healthBadge('warn','可刪除'):healthBadge('info','需人工確認'))}
       </div>
     </div>
     <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(16,185,129,.06)">
       <div style="font-size:.72rem;color:var(--green2);font-weight:800;margin-bottom:4px">建議保留</div>
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-        <div><b>${escapeHtml(g.keep.m.name||'')}</b><div style="font-size:.76rem;color:var(--text3)">${escapeHtml(g.keep.m.code||'')} / 庫存 ${g.keep.m.stock||0}</div></div>
+        <div><b>${escapeHtml(g.keep.m.name||'')}</b><div style="font-size:.76rem;color:var(--text3)">${escapeHtml(g.keep.m.code||'')} / 庫存 ${g.keep.m.stock||0}${g.canMerge&&Number(g.keep.m.stock||0)!==Number(g.targetStock)?` → <b style="color:var(--green2)">${g.targetStock}</b>`:''}</div></div>
         <span style="font-size:.76rem;color:var(--text2)">${materialUsageLabel(g.keep.usage)}</span>
       </div>
     </div>
@@ -8118,6 +8130,75 @@ async function loadNotes(options={}){
   markDataLoadMode('notes',mode,notes.length);
   schedulePendingNoteNotification();
   return notes;
+}
+
+async function mergeDuplicateMaterialGroup(keepId,removeIds){
+  if(!isAdminRole()){showToast('⚠ 權限不足，無法執行健康檢查修復','warn');return;}
+  const ids=[keepId,...(removeIds||[])];
+  let group=ids.map(id=>mats.find(m=>m.id===id)).filter(Boolean);
+  if(group.length<2){showToast('找不到完整的重複料號資料，請先重新同步','err');return;}
+  const code=group[0]?.code||group[0]?.name||'重複料號';
+  const initial=duplicateMaterialRepairPlan([group])[0];
+  if(!initial.canMerge){showToast('⚠ 本組目前有多筆有效關聯或庫存衝突，不能自動合併','err');return;}
+  if(!confirm(`確定合併「${code}」？\n\n保留：${initial.keep.m.name||initial.keep.m.code}\n庫存：${initial.keep.m.stock||0} → ${initial.targetStock}\n封存：${initial.rows.length-1} 筆\n\n系統會先轉移入料關聯並驗證庫存，成功後才封存重複頁。`))return;
+
+  showToast('正在核對最新關聯與庫存...','warn');
+  try{
+    // Use complete history for the destructive check, not the 30-day startup subset.
+    await Promise.all([loadInbounds(),loadCorders({mode:'all'})]);
+    group=ids.map(id=>mats.find(m=>m.id===id)).filter(Boolean);
+    const plan=duplicateMaterialRepairPlan([group])[0];
+    if(!plan.canMerge||plan.keep.m.id!==keepId){
+      throw new Error('最新關聯已變動，系統已停止合併，請重新查看健康檢查');
+    }
+
+    const livePages=[];
+    for(const row of plan.rows){
+      const page=await notionAPI('GET',`pages/${row.m.id}`);
+      assertNotionPage(page,'讀取最新庫存');
+      livePages.push({row,page,stock:Number(page.properties?.['目前庫存']?.number)||0});
+    }
+    const nonZeroStocks=[...new Set(livePages.map(x=>x.stock).filter(n=>n!==0))];
+    if(nonZeroStocks.length>1){
+      throw new Error(`偵測到不同的非零庫存（${nonZeroStocks.join('、')}），為避免重複計算已停止合併`);
+    }
+    const keepLive=livePages.find(x=>x.row.m.id===keepId);
+    const targetStock=nonZeroStocks.length===1?nonZeroStocks[0]:(keepLive?.stock||0);
+    const removing=new Set(removeIds||[]);
+    const inboundRefs=(inbounds||[]).filter(i=>removing.has(i.matId));
+
+    for(const inbound of inboundRefs){
+      assertNotionPage(await updatePage(inbound.id,{'料件':{relation:[{id:keepId}]}}),'轉移入料關聯');
+    }
+    if((keepLive?.stock||0)!==targetStock){
+      assertNotionPage(await updatePage(keepId,{'目前庫存':{number:targetStock}}),'更新保留料號庫存');
+    }
+    const verified=await notionAPI('GET',`pages/${keepId}`);
+    assertNotionPage(verified,'驗證保留料號');
+    const verifiedStock=Number(verified.properties?.['目前庫存']?.number)||0;
+    if(verifiedStock!==targetStock)throw new Error(`庫存驗證失敗：預期 ${targetStock}，實際 ${verifiedStock}`);
+
+    for(const row of plan.rows.filter(x=>removing.has(x.m.id))){
+      assertNotionPage(await archivePage(row.m.id),'封存重複料號');
+      await _writeStockEditLog({
+        matId:row.m.id,matName:row.m.name||'',matCode:row.m.code||'',
+        changeType:'合併重複料號',
+        before:`庫存 ${livePages.find(x=>x.row.m.id===row.m.id)?.stock||0} / ${materialUsageLabel(row.usage)}`,
+        after:`封存；合併至 ${plan.keep.m.code||plan.keep.m.name}`,
+        delta:0,reason:`健康檢查合併重複料號；保留 ${keepId}`,operator:ROLE,
+      });
+    }
+    if((keepLive?.stock||0)!==targetStock){
+      await logStockChange(keepId,plan.keep.m.name||'',plan.keep.m.code||'','合併重複料號',targetStock-(keepLive?.stock||0),keepLive?.stock||0,targetStock,code,ROLE);
+    }
+    logUserAction('健康檢查合併重複料號',code,`保留 ${plan.keep.m.code||plan.keep.m.name}；庫存 ${keepLive?.stock||0} → ${targetStock}；轉移入料 ${inboundRefs.length} 筆；封存 ${removeIds.length} 筆`,ROLE);
+    await refreshAffectedData({core:true,tabs:['inbound'],background:false,label:'重複料號已合併'});
+    if(CURRENT_TAB==='health')renderTab('health');
+    showToast(`✅ ${code} 已合併：庫存 ${targetStock}，封存 ${removeIds.length} 筆`,'ok');
+  }catch(e){
+    console.warn('merge duplicate material failed',e);
+    showToast('❌ 合併停止：'+e.message,'err',10000);
+  }
 }
 function noteIsDone(n){return n.status==='完成'||n.status==='取消'||n.status==='拒絕';}
 function noteDoneExpired(n){
@@ -17185,6 +17266,10 @@ function materialUsageSummary(mid){
   const corderCount=(window.corders||[]).filter(o=>(o.matId||'').includes(mid)).length;
   const total=bomParent+bomChild+orderCount+inboundCount+corderCount;
   return {bomParent,bomChild,orderCount,inboundCount,corderCount,total};
+}
+
+function materialStructuralUsageTotal(u){
+  return (u?.bomParent||0)+(u?.bomChild||0)+(u?.orderCount||0)+(u?.corderCount||0);
 }
 
 function materialUsageLabel(u){
