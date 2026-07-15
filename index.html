@@ -6844,6 +6844,31 @@ function normalizeSku(v){
     .replace(/[－–—]/g,'-')
     .trim();
 }
+function materialReferenceKeys(m){
+  const keys=new Set();
+  const add=value=>{
+    const key=normalizeSku(value);
+    if(key) keys.add(key);
+  };
+  add(m?.code);
+  add(m?.name);
+  const name=String(m?.name||'');
+  for(const match of name.matchAll(/[（(]([^()（）]+)[）)]/g)){
+    add(match[1]);
+    match[1].split(/[、,，/／;；]+/).forEach(add);
+  }
+  return keys;
+}
+function findMaterialByReference(value){
+  const key=normalizeSku(value);
+  if(!key) return null;
+  const byId=mats.find(m=>m.id===value);
+  if(byId) return byId;
+  const direct=mats.find(m=>normalizeSku(m.code)===key)||
+    mats.find(m=>normalizeSku(m.name)===key);
+  if(direct) return direct;
+  return mats.find(m=>materialReferenceKeys(m).has(key))||null;
+}
 function materialKey(m){
   return normalizeSku(m?.code||m?.name||'');
 }
@@ -14312,14 +14337,7 @@ function isShopeeMat(m){
 function normSku(v){return String(v||'').trim().replace(/\s+/g,'').toUpperCase();}
 function looseSku(v){return normSku(v).replace(/[^A-Z0-9]/g,'');}
 function findMatBySku(sku){
-  const key=normSku(sku);
-  if(!key) return null;
-  const byId=mats.find(m=>m.id===sku);
-  if(byId) return byId;
-  return mats.find(m=>
-    normSku(m.code)===key||
-    normSku(m.name)===key
-  )||null;
+  return findMaterialByReference(sku);
 }
 
 async function importShopeeBomToNotion(){
@@ -18043,7 +18061,7 @@ function getSelectedPIItems(){
 async function ensureOrderProduct(model,initialStock=100){
   const key=String(model||'').trim();
   if(!key) return null;
-  let mat=mats.find(m=>(m.code||'').toUpperCase()===key.toUpperCase()||(m.name||'').toUpperCase()===key.toUpperCase());
+  let mat=findMaterialByReference(key);
   if(mat) return mat;
   const created=await createPage(DB.materials,{
     '料件名稱':{title:[{text:{content:key}}]},
@@ -18069,7 +18087,7 @@ function showMultiItems(items,piNo){
   div.innerHTML=`<div style="font-size:0.75rem;color:var(--cyan2);margin-bottom:6px;font-weight:700">📦 PI 品項（確認後按下方「建立訂單」送出）：</div>`+
   items.map((item,i)=>`<div style="background:var(--bg4);border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">
     <input type="checkbox" id="chk_${i}" checked style="accent-color:var(--blue);width:16px;height:16px;flex-shrink:0">
-    <div style="flex:1;min-width:0"><span style="font-family:monospace;font-weight:700;color:var(--text);font-size:0.875rem">${escapeHtml(item.model)}</span>${item.desc?`<span style="color:var(--text2);font-size:0.75rem;margin-left:6px">${escapeHtml(item.desc.substring(0,42))}</span>`:''}</div>
+    <div style="flex:1;min-width:0"><span style="font-family:monospace;font-weight:700;color:var(--text);font-size:0.875rem">${escapeHtml(item.model)}</span>${item.matchedCode&&normalizeSku(item.matchedCode)!==normalizeSku(item.model)?`<span style="color:var(--green2);font-size:0.72rem;margin-left:7px">→ ${escapeHtml(item.matchedCode)}</span>`:''}${item.desc?`<span style="color:var(--text2);font-size:0.75rem;margin-left:6px">${escapeHtml(item.desc.substring(0,42))}</span>`:''}</div>
     <input class="inp" type="number" id="qty_${i}" value="${item.qty}" min="1" style="width:70px;padding:4px 8px;font-size:0.75rem;flex-shrink:0">
   </div>`).join('')+
   `<div style="font-size:0.75rem;color:var(--text3);margin-top:8px">已帶入 ${items.length} 種品項；可取消勾選或修改數量，最後補交期後按「建立訂單」。</div>`;
@@ -18113,7 +18131,7 @@ async function submitMultiOrders(){
     if(prog)prog.innerHTML=`<div class="spin" style="margin-right:6px"></div>建立第 ${i+1}/${selected.length} 筆：${item.model}...`;
     try{
       let prodId='';
-      const ex=mats.find(m=>m.name===item.model||m.code===item.model);
+      const ex=findMaterialByReference(item.model);
       if(ex){prodId=ex.id;}
       else{
         const nm=await createPage(DB.materials,{
@@ -18809,12 +18827,12 @@ function renderItems(){
 }
 
 function productCandidates(q=''){
-  const key=String(q||'').trim().toLowerCase();
+  const key=normalizeSku(q);
   let list=mats.filter(m=>{
     const sku=String(m.code||m.name||'');
     return m.type==='成品'||m.type==='半成品'||m.type==='蝦皮用'||m.type==='蝦皮用(S-)'||/^S-/i.test(sku)||!m.type;
   });
-  if(key) list=list.filter(m=>(m.code||'').toLowerCase().includes(key)||(m.name||'').toLowerCase().includes(key));
+  if(key) list=list.filter(m=>[...materialReferenceKeys(m)].some(ref=>ref.includes(key)));
   return list.sort((a,b)=>(a.code||a.name||'').localeCompare(b.code||b.name||'')).slice(0,40);
 }
 
@@ -19072,11 +19090,15 @@ async function parsePIRows(rows, piName){
     if(result.orderNo&&document.getElementById('m_order_no')) document.getElementById('m_order_no').value=result.orderNo;
     if(result.piNo&&document.getElementById('m_note')) document.getElementById('m_note').value='PI No: '+result.piNo;
     // PI 日期是開單日，不當成交期；交期保留給使用者確認填寫。
+    result.items=result.items.map(item=>{
+      const mat=findMaterialByReference(item.model);
+      return mat?{...item,matId:mat.id,matchedCode:mat.code||mat.name||item.model}:item;
+    });
     showMultiItems(result.items,result.piNo||piName);
     const first=result.items[0];
     const prodSel=document.getElementById('m_product');
     if(prodSel&&first){
-      const mat=mats.find(m=>(m.code||'').toUpperCase()===first.model.toUpperCase()||(m.name||'').toUpperCase()===first.model.toUpperCase());
+      const mat=first.matId?mats.find(m=>m.id===first.matId):findMaterialByReference(first.model);
       if(mat) prodSel.value=mat.id;
       if(document.getElementById('m_qty')) document.getElementById('m_qty').value=first.qty||1;
     }
