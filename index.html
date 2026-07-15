@@ -8145,7 +8145,7 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
   showToast('正在核對最新關聯與庫存...','warn');
   try{
     // Use complete history for the destructive check, not the 30-day startup subset.
-    await Promise.all([loadInbounds(),loadCorders({mode:'all'})]);
+    await Promise.all([loadInbounds(),loadCorders({mode:'all',strict:true})]);
     group=ids.map(id=>mats.find(m=>m.id===id)).filter(Boolean);
     const plan=duplicateMaterialRepairPlan([group])[0];
     if(!plan.canMerge||plan.keep.m.id!==keepId){
@@ -19374,7 +19374,10 @@ async function loadCorders(options={}){
     window._cordersLoadedAt=Date.now();
     markDataLoadMode('corders',mode,window.corders.length);
     await autoCompleteCordersAfter7Days();
-  }catch(e){window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);}
+  }catch(e){
+    window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);
+    if(options.strict)throw e;
+  }
 }
 
 async function autoCompleteCordersAfter7Days(){
