@@ -7322,7 +7322,9 @@ function duplicateMaterialRepairPlan(dupCodes){
     const nonZeroStocks=[...new Set(rows.map(x=>Number(x.m.stock)||0).filter(n=>n!==0))];
     const targetStock=nonZeroStocks.length===1?nonZeroStocks[0]:(Number(keep?.m?.stock)||0);
     const stockConflict=nonZeroStocks.length>1;
-    const structuralConflict=remaining.some(x=>x.structuralUsage>0);
+    // Orders, picking, inbound and C-order references can be migrated safely.
+    // BOM references stay blocked because blindly merging duplicate BOM rows can double deductions.
+    const structuralConflict=remaining.some(x=>(x.usage.bomParent||0)+(x.usage.bomChild||0)>0);
     const canMerge=remaining.length>0&&!stockConflict&&!structuralConflict;
     // Direct deletion remains limited to zero-stock rows. Non-zero stock must go through merge.
     const deletable=remaining.filter(x=>x.usage.total===0&&(Number(x.m.stock)||0)===0);
@@ -7336,7 +7338,7 @@ function renderDuplicateRepairList(dupCodes){
   const totalDeletable=plan.reduce((sum,g)=>sum+g.deletable.length,0);
   if(!plan.length) return `<div class="info-ok">沒有偵測到重複料號。</div>`;
   return `<div class="info-box info-tip" style="margin-bottom:10px">
-    合併時優先保留有 BOM／訂單關聯的料號，採用本組唯一的非零庫存，並把入料紀錄改連到保留料號後才封存重複頁。若多筆非零庫存互相衝突，系統不會猜測或相加。
+    合併時優先保留有 BOM／訂單關聯的料號，採用本組唯一的非零庫存，並把訂單、領料、入料及 C 端關聯改連到保留料號後才封存重複頁。若 BOM 或多筆非零庫存互相衝突，系統不會猜測或相加。
   </div>
   ${totalDeletable?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
     <button class="btn btn-green btn-sm" onclick="repairSelectedDuplicateMaterials()">刪除勾選建議</button>
@@ -8132,6 +8134,82 @@ async function loadNotes(options={}){
   return notes;
 }
 
+function materialReferenceFilter(filters){
+  if(!filters.length)return null;
+  return filters.length===1?filters[0]:{or:filters};
+}
+
+async function findLiveMaterialReferences(materialIds){
+  const ids=[...new Set((materialIds||[]).filter(Boolean))];
+  if(!ids.length)return {orders:[],boms:[],pickDetails:[],inbounds:[],corders:[],total:0};
+  // Force a fresh Worker cache key before a destructive relation check.
+  _notionCacheEpoch++;
+  const relationFilters=property=>ids.map(id=>({property,relation:{contains:id}}));
+  const [orderPages,bomPages,pickPages,inboundPages,corderPages]=await Promise.all([
+    dbQueryAll(DB.orders,{filter:materialReferenceFilter(relationFilters('成品'))}),
+    dbQueryAll(DB.bom,{filter:materialReferenceFilter([
+      ...relationFilters('母件'),...relationFilters('子件')
+    ])}),
+    dbQueryAll(DB.pickDetail,{filter:materialReferenceFilter(relationFilters('料件'))}),
+    dbQueryAll(DB.inbound,{filter:materialReferenceFilter(relationFilters('料件'))}),
+    dbQueryAll(DB.corders,{filter:materialReferenceFilter(ids.map(id=>({property:'料件ID',rich_text:{contains:id}})))})
+  ]);
+  const removing=new Set(ids);
+  const hasRelation=(p,property)=>(p.properties?.[property]?.relation||[]).some(r=>removing.has(r.id));
+  const result={
+    orders:orderPages.filter(p=>hasRelation(p,'成品')),
+    boms:bomPages.filter(p=>hasRelation(p,'母件')||hasRelation(p,'子件')),
+    pickDetails:pickPages.filter(p=>hasRelation(p,'料件')),
+    inbounds:inboundPages.filter(p=>hasRelation(p,'料件')),
+    corders:corderPages.filter(p=>{
+      const value=getRichText(p.properties,'料件ID');
+      return ids.some(id=>value.includes(id));
+    })
+  };
+  result.total=result.orders.length+result.boms.length+result.pickDetails.length+result.inbounds.length+result.corders.length;
+  return result;
+}
+
+function materialReferenceLabel(refs){
+  const parts=[];
+  if(refs.orders?.length)parts.push(`訂單 ${refs.orders.length}`);
+  if(refs.boms?.length)parts.push(`BOM ${refs.boms.length}`);
+  if(refs.pickDetails?.length)parts.push(`領料 ${refs.pickDetails.length}`);
+  if(refs.inbounds?.length)parts.push(`入料 ${refs.inbounds.length}`);
+  if(refs.corders?.length)parts.push(`C端 ${refs.corders.length}`);
+  return parts.join('、')||'無';
+}
+
+async function migrateDuplicateMaterialReferences(keepId,removeIds){
+  const refs=await findLiveMaterialReferences(removeIds);
+  if(refs.boms.length){
+    throw new Error(`重複料號仍有 BOM 關聯 ${refs.boms.length} 筆，為避免重複扣料已停止合併`);
+  }
+  const keep=mats.find(m=>m.id===keepId);
+  const keepName=keep?.code||keep?.name||'';
+  for(const page of refs.orders){
+    assertNotionPage(await updatePage(page.id,{'成品':{relation:[{id:keepId}]}}),'轉移訂單成品關聯');
+  }
+  for(const page of refs.pickDetails){
+    const props={'料件':{relation:[{id:keepId}]}};
+    if(keepName)props['料件名稱']={title:[{text:{content:keepName}}]};
+    assertNotionPage(await updatePage(page.id,props),'轉移領料明細關聯');
+  }
+  for(const page of refs.inbounds){
+    assertNotionPage(await updatePage(page.id,{'料件':{relation:[{id:keepId}]}}),'轉移入料關聯');
+  }
+  for(const page of refs.corders){
+    const current=getRichText(page.properties,'料件ID');
+    const next=removeIds.reduce((value,id)=>value.split(id).join(keepId),current);
+    assertNotionPage(await updatePage(page.id,{'料件ID':{rich_text:[{text:{content:next}}]}}),'轉移 C 端料件關聯');
+  }
+  const remaining=await findLiveMaterialReferences(removeIds);
+  if(remaining.total){
+    throw new Error(`仍有未轉移關聯（${materialReferenceLabel(remaining)}），系統已停止封存`);
+  }
+  return refs;
+}
+
 async function mergeDuplicateMaterialGroup(keepId,removeIds){
   if(!isAdminRole()){showToast('⚠ 權限不足，無法執行健康檢查修復','warn');return;}
   const ids=[keepId,...(removeIds||[])];
@@ -8140,7 +8218,7 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
   const code=group[0]?.code||group[0]?.name||'重複料號';
   const initial=duplicateMaterialRepairPlan([group])[0];
   if(!initial.canMerge){showToast('⚠ 本組目前有多筆有效關聯或庫存衝突，不能自動合併','err');return;}
-  if(!confirm(`確定合併「${code}」？\n\n保留：${initial.keep.m.name||initial.keep.m.code}\n庫存：${initial.keep.m.stock||0} → ${initial.targetStock}\n封存：${initial.rows.length-1} 筆\n\n系統會先轉移入料關聯並驗證庫存，成功後才封存重複頁。`))return;
+  if(!confirm(`確定合併「${code}」？\n\n保留：${initial.keep.m.name||initial.keep.m.code}\n庫存：${initial.keep.m.stock||0} → ${initial.targetStock}\n封存：${initial.rows.length-1} 筆\n\n系統會先轉移訂單、領料、入料與 C 端關聯並驗證庫存，成功後才封存重複頁。`))return;
 
   showToast('正在核對最新關聯與庫存...','warn');
   try{
@@ -8165,11 +8243,7 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
     const keepLive=livePages.find(x=>x.row.m.id===keepId);
     const targetStock=nonZeroStocks.length===1?nonZeroStocks[0]:(keepLive?.stock||0);
     const removing=new Set(removeIds||[]);
-    const inboundRefs=(inbounds||[]).filter(i=>removing.has(i.matId));
-
-    for(const inbound of inboundRefs){
-      assertNotionPage(await updatePage(inbound.id,{'料件':{relation:[{id:keepId}]}}),'轉移入料關聯');
-    }
+    const migratedRefs=await migrateDuplicateMaterialReferences(keepId,[...removing]);
     if((keepLive?.stock||0)!==targetStock){
       assertNotionPage(await updatePage(keepId,{'目前庫存':{number:targetStock}}),'更新保留料號庫存');
     }
@@ -8191,7 +8265,7 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
     if((keepLive?.stock||0)!==targetStock){
       await logStockChange(keepId,plan.keep.m.name||'',plan.keep.m.code||'','合併重複料號',targetStock-(keepLive?.stock||0),keepLive?.stock||0,targetStock,code,ROLE);
     }
-    logUserAction('健康檢查合併重複料號',code,`保留 ${plan.keep.m.code||plan.keep.m.name}；庫存 ${keepLive?.stock||0} → ${targetStock}；轉移入料 ${inboundRefs.length} 筆；封存 ${removeIds.length} 筆`,ROLE);
+    logUserAction('健康檢查合併重複料號',code,`保留 ${plan.keep.m.code||plan.keep.m.name}；庫存 ${keepLive?.stock||0} → ${targetStock}；轉移 ${materialReferenceLabel(migratedRefs)}；封存 ${removeIds.length} 筆`,ROLE);
     await refreshAffectedData({core:true,tabs:['inbound'],background:false,label:'重複料號已合併'});
     if(CURRENT_TAB==='health')renderTab('health');
     showToast(`✅ ${code} 已合併：庫存 ${targetStock}，封存 ${removeIds.length} 筆`,'ok');
@@ -17286,8 +17360,8 @@ function openDeleteMat(mid){
   const m=mats.find(x=>x.id===mid);if(!m)return;
   const usage=materialUsageSummary(mid);
   const warn=usage.total>0
-    ? `<div class="info-box info-warn" style="margin-bottom:12px">⚠ 這個料號已被關聯：${materialUsageLabel(usage)}。若是重複料號，建議保留有關聯的那筆，刪除沒有關聯的那筆。</div>`
-    : `<div class="info-box info-tip" style="margin-bottom:12px">目前沒有在 BOM、訂單、入料、C端訂單中偵測到關聯，較適合刪除。</div>`;
+    ? `<div class="info-box info-warn" style="margin-bottom:12px">⚠ 這個料號已有關聯：${materialUsageLabel(usage)}，不能直接刪除。若為重複料號，請到健康檢查使用「合併本組」，系統會先轉移關聯再封存。</div>`
+    : `<div class="info-box info-tip" style="margin-bottom:12px">畫面快取目前未偵測到關聯。確認刪除時，系統仍會即時查詢 Notion 的 BOM、訂單、領料、入料與 C 端資料後才執行。</div>`;
   document.getElementById('modalInner').innerHTML=`
     <h3>🗑 刪除料件 — ${escapeHtml(m.name)}</h3>
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
@@ -17296,7 +17370,6 @@ function openDeleteMat(mid){
       <div style="font-family:var(--f-mono);font-size:0.8125rem;color:var(--text2);margin-top:3px">${escapeHtml(m.code||'無料件編號')} / ${escapeHtml(m.type||'未分類')} / 庫存 ${m.stock}</div>
     </div>
     ${warn}
-    ${usage.total>0?`<label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.8125rem;color:var(--amber)"><input type="checkbox" id="dm_confirm_linked" style="width:18px;height:18px;accent-color:var(--yellow)"> 我確認這是重複或錯誤料號，仍要封存刪除</label>`:''}
     <div style="margin-bottom:12px">
       <label style="font-size:0.625rem;color:var(--red);display:block;margin-bottom:4px">✳ 刪除原因（必填）</label>
       <textarea class="inp" id="dm_reason" placeholder="例如：測試誤建、重複料號，保留另一筆有關聯資料" style="border-color:rgba(239,68,68,.3);min-height:86px"></textarea>
@@ -17304,7 +17377,7 @@ function openDeleteMat(mid){
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-red" onclick="doDeleteMat('${mid}')">確認刪除</button>
+      <button class="btn btn-red" onclick="doDeleteMat('${mid}')" ${usage.total>0?'disabled title="已有關聯，請使用健康檢查安全合併"':''}>確認刪除</button>
     </div>`;
   openModal();
 }
@@ -17319,12 +17392,16 @@ async function doDeleteMat(mid){
     document.getElementById('dm_reason')?.focus();
     return;
   }
-  if(usage.total>0 && !document.getElementById('dm_confirm_linked')?.checked){
-    showToast('⚠ 此料號有關聯資料，請先勾選確認再刪除','warn');
+  if(usage.total>0){
+    showToast('⚠ 此料號已有關聯，請使用健康檢查的安全合併功能','warn');
     return;
   }
   closeModal();showToast('刪除料件中...','warn');
   try{
+    const liveRefs=await findLiveMaterialReferences([mid]);
+    if(liveRefs.total){
+      throw new Error(`仍有關聯（${materialReferenceLabel(liveRefs)}），請使用重複料號合併或先解除關聯，系統未刪除`);
+    }
     await archivePage(mid);
     await _writeStockEditLog({
       matId:mid,
@@ -17334,10 +17411,10 @@ async function doDeleteMat(mid){
       before:`${m.name||''} / ${m.code||''} / ${m.type||''} / 庫存 ${m.stock}`,
       after:'Notion 已封存',
       delta:0,
-      reason:`${reason}；關聯檢查：${materialUsageLabel(usage)}`,
+      reason:`${reason}；即時關聯檢查：無`,
       operator:ROLE,
     });
-    logUserAction('刪除料件',m.code||m.name,`原因：${reason}；${materialUsageLabel(usage)}`,ROLE);
+    logUserAction('刪除料件',m.code||m.name,`原因：${reason}；即時關聯檢查：無`,ROLE);
     mats=mats.filter(x=>x.id!==mid);
     renderTab(CURRENT_TAB);
     showToast('✅ 料件已刪除並完成紀錄','ok');
