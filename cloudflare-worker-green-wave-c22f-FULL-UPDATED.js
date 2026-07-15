@@ -112,7 +112,7 @@ export default {
 
     // ── Notion API 代理 ──
     try {
-      const { token, method, endpoint, body, downloadUrl, notionVersion } = await request.json();
+      const { token, method, endpoint, body, downloadUrl, notionVersion, cacheEpoch } = await request.json();
       const notionVersionHeader = notionVersion || '2022-06-28';
 
       if (downloadUrl) {
@@ -134,7 +134,7 @@ export default {
       const normalizedMethod = String(method || 'GET').toUpperCase();
       const cacheable = normalizedMethod === 'GET' || (normalizedMethod === 'POST' && /\/query(?:\?|$)/.test(endpoint || ''));
       const cacheKey = cacheable
-        ? await notionReadCacheKey(request.url, token, normalizedMethod, endpoint, body, notionVersionHeader)
+        ? await notionReadCacheKey(request.url, token, normalizedMethod, endpoint, body, notionVersionHeader, cacheEpoch)
         : null;
       if (cacheKey) {
         const cached = await caches.default.match(cacheKey);
@@ -180,13 +180,13 @@ const respOK  = (c,d) => new Response(JSON.stringify(d), { headers: jh(c) });
 const resp400 = (c,e) => new Response(JSON.stringify({error:e}), { status:400, headers:jh(c) });
 const resp500 = (c,e) => new Response(JSON.stringify({error:e}), { status:500, headers:jh(c) });
 
-async function notionReadCacheKey(workerUrl, token, method, endpoint, body, notionVersion) {
+async function notionReadCacheKey(workerUrl, token, method, endpoint, body, notionVersion, cacheEpoch) {
   const tokenBytes = new TextEncoder().encode(String(token || ''));
   const tokenHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', tokenBytes))]
     .slice(0, 12)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
-  const payload = JSON.stringify({ tokenHash, method, endpoint, body: body || null, notionVersion });
+  const payload = JSON.stringify({ tokenHash, method, endpoint, body: body || null, notionVersion, cacheEpoch: Number(cacheEpoch) || 0 });
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)))]
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');

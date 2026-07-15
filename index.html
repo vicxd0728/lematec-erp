@@ -1471,7 +1471,7 @@ async function doUpdateStatus(id, s){
     await updatePage(id,{'狀態':{select:{name:s}}});
     logUserAction('訂單狀態更新',o?.no||id,`${oldStatus||'—'} → ${s}`,ROLE);
     showToast('✅ 狀態→「'+s+'」','ok');
-    setTimeout(()=>refreshAll().catch(()=>{}), 1000);
+    setTimeout(()=>refreshAffectedData({core:true,label:'訂單狀態已更新'}).catch(()=>{}),300);
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
 
@@ -1516,7 +1516,7 @@ async function submitShipOrder(id){
     logUserAction('訂單出貨完成',o?.no||id,'實際出貨日 '+d+(note?' / '+note:''),ROLE);
     renderTab(CURRENT_TAB);
     showToast('✅ 已完成出貨，日期：'+d,'ok');
-    setTimeout(()=>refreshAll().catch(()=>{}),900);
+    setTimeout(()=>refreshAffectedData({core:true,label:'出貨資料已更新'}).catch(()=>{}),300);
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -1565,7 +1565,7 @@ async function doEditStock(id, name, oldStock){
     });
     const mat = mats.find(m=>m.id===id);
     if(mat){mat.qty=newVal; mat.stock=newVal;}
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'庫存已更新'});
     showToast(`✅ ${name} 庫存 ${oldStock} → ${newVal}（原因已記錄）`,'ok');
   }catch(e){showToast('❌ 失敗：'+e.message,'err');}
 }
@@ -5073,7 +5073,7 @@ async function saveAnnounce(id){
   try{
     if(id) await updatePage(id,props);
     else await createPage(DB.announce,props);
-    await refreshAll();
+    await refreshAffectedData({tabs:['announce'],label:'公告已更新'});
     showToast('✅ 公告已儲存','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
@@ -5554,6 +5554,7 @@ const NOTION_MIN_INTERVAL_MS=380;
 const NOTION_MAX_RETRIES=6;
 let _notionQueue=Promise.resolve();
 let _notionLastAt=0;
+let _notionCacheEpoch=0;
 async function waitNotionTurn(){
   const run=async()=>{
     const wait=Math.max(0,NOTION_MIN_INTERVAL_MS-(Date.now()-_notionLastAt));
@@ -5603,17 +5604,26 @@ async function notionProxyRequest(payload,actionLabel='Notion API'){
   }
   return lastData||{object:'error',status:429,code:'rate_limited',message:'Notion API 仍忙碌，請稍後再試'};
 }
+function advancesNotionCacheEpoch(method,endpoint){
+  const m=String(method||'').toUpperCase();
+  const ep=String(endpoint||'');
+  return m==='PATCH'||m==='DELETE'||(m==='POST'&&!/\/query(?:\?|$)/.test(ep)&&ep!=='search');
+}
 async function notionAPI(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  return notionProxyRequest({token:TOKEN,method,endpoint,body},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,method,endpoint,body,cacheEpoch:_notionCacheEpoch},`${method} ${endpoint}`);
+  if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
+  return result;
 }
 async function notionAPI2026(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  return notionProxyRequest({token:TOKEN,method,endpoint,body,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,method,endpoint,body,cacheEpoch:_notionCacheEpoch,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
+  if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
+  return result;
 }
 async function dbQueryAll(dbId,options={}){
   let all=[],c=null,tries=0;
@@ -6711,19 +6721,53 @@ async function loadTabData(tab,{force=false}={}){
   if(tab==='picking'&&(force||!isFresh('picks')))return loadPicks();
   if((tab==='inbound'||tab==='qc'||tab==='ops')&&(force||!isFresh('inbounds')))return loadInbounds();
 }
+function invalidateBackgroundDataRefresh(){
+  window._dataRefreshGeneration=(window._dataRefreshGeneration||0)+1;
+  if(window._bgDataRefreshTimer){
+    clearTimeout(window._bgDataRefreshTimer);
+    window._bgDataRefreshTimer=null;
+  }
+  return window._dataRefreshGeneration;
+}
+async function refreshAffectedData({core=false,tabs=[],background=true,label='相關資料已更新'}={}){
+  if(!TOKEN)return;
+  invalidateBackgroundDataRefresh();
+  const started=performance.now();
+  const affectedTabs=uniqueTabs(tabs);
+  setSyncState('更新相關資料中...','syncing',true);
+  try{
+    if(core)await loadCoreEssentials();
+    await Promise.all(affectedTabs.map(tab=>loadTabData(tab,{force:true})));
+    saveAppCache();
+    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    const elapsed=((performance.now()-started)/1000).toFixed(1);
+    setSyncState(`${label} · ${elapsed}s`,'ok');
+    if(background){
+      const coreTabs=core?['dashboard','orders','inventory']:[];
+      queueBackgroundDataRefresh(uniqueTabs([...coreTabs,...affectedTabs]));
+    }
+  }catch(e){
+    setSyncState('更新失敗，點此重試','err',true);
+    throw e;
+  }
+}
 async function queueBackgroundDataRefresh(doneTabs=[]){
   if(window._bgDataRefreshTimer)clearTimeout(window._bgDataRefreshTimer);
+  const generation=window._dataRefreshGeneration||0;
   window._bgDataRefreshTimer=setTimeout(async()=>{
-    if(!TOKEN||window._backgroundRefreshing||shouldDelayAutoSync())return;
+    window._bgDataRefreshTimer=null;
+    if(!TOKEN||generation!==(window._dataRefreshGeneration||0)||window._backgroundRefreshing||shouldDelayAutoSync())return;
     window._backgroundRefreshing=true;
     try{
       setSyncState('背景補資料中...','syncing',true);
       await loadRoleComplements();
       const pending=rolePriorityTabs().filter(t=>!doneTabs.includes(t));
       for(const tab of pending){
+        if(generation!==(window._dataRefreshGeneration||0))return;
         await loadTabData(tab);
         await waitMs(250);
       }
+      if(generation!==(window._dataRefreshGeneration||0))return;
       saveAppCache();
       if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
       const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
@@ -6738,6 +6782,7 @@ async function queueBackgroundDataRefresh(doneTabs=[]){
 }
 async function refreshAll(manual=false){
   if(_refreshing&&!manual){scheduleRefresh(1500);return;}
+  invalidateBackgroundDataRefresh();
   _refreshing=true;
   const nowMs=Date.now();
   if(!manual&&window._lastRefresh&&(nowMs-window._lastRefresh)<3000){
@@ -7345,7 +7390,7 @@ async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
       fail++;
     }
   }
-  await refreshAll(true);
+  await refreshAffectedData({core:true,background:false,label:'料號修復資料已更新'});
   if(CURRENT_TAB==='health')renderTab('health');
   showToast(`✅ 修復完成：刪除 ${ok} 筆${fail?`，失敗 ${fail} 筆`:''}`,'ok');
 }
@@ -7368,7 +7413,7 @@ async function repairOrderMisusedQcStatus(){
       fail++;
     }
   }
-  await refreshAll(true);
+  await refreshAffectedData({core:true,background:false,label:'訂單修復資料已更新'});
   if(CURRENT_TAB==='health')renderTab('health');
   showToast(`✅ 訂單狀態修復完成：${ok} 張${fail?`，失敗 ${fail} 張`:''}`,'ok');
 }
@@ -9167,7 +9212,7 @@ async function submitInspection(){
     }
 
     await loadQCInspections();
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'品檢資料已更新'});
     if(CURRENT_TAB==='qc') renderTab('qc');
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
@@ -13877,7 +13922,7 @@ async function completeManualPick(masterId){
     }
     await updatePage(masterId,{'狀態':{select:{name:'已領料'}}});
     logUserAction('完成臨時補料領料',pick.no,pick.note||'',ROLE);
-    await refreshAll(true); await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
+    await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'}); window._PICK_SUB='manual'; renderTab('picking');
     showToast('✅ 已領料並完成扣庫存','ok');
   }catch(e){showToast('❌ 扣庫存失敗：'+e.message,'err');}
 }
@@ -14344,7 +14389,7 @@ async function importShopeeBomToNotion(){
   if(!isAdminRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
   const totalRows=SHOPEE_BOM_EXCEL.reduce((sum,row)=>sum+(row.children||[]).length,0);
   showToast('⏳ 重新同步 Notion 資料中...','warn',6000);
-  await refreshAll(true);
+  await refreshAffectedData({core:true,background:false,label:'蝦皮 BOM 已更新'});
   const cleanupCandidates=findShopeeCompoundMistakeMats();
   const cleanupPreview=cleanupCandidates.length
     ? `\n\n另外偵測到 ${cleanupCandidates.length} 個舊版/錯誤料號會封存清理，例如：\n${cleanupCandidates.slice(0,12).map(m=>'・'+(m.code||m.name)+'（'+shopeeCleanupReason(m)+'）').join('\n')}${cleanupCandidates.length>12?'\n・...':''}\n\n例：Y-SKC04-3+LE-18*2 會依 Excel 拆成 Y-SKC04-3 x1、LE-18 x2，不應作為單一庫存料號；只差 -、空白、符號的舊料號也會以 Excel 標準料號為準。`
@@ -14428,7 +14473,7 @@ async function importShopeeBomToNotion(){
     cleanupResult=await cleanupShopeeCompoundMistakeMats(cleanupCandidates);
     failed=failed.concat(cleanupResult.failed||[]);
   }
-  await refreshAll(true);
+  await refreshAffectedData({core:true,background:false,label:'蝦皮 BOM 已更新'});
   const msg=`✅ 蝦皮設定更新完成：新增BOM ${created} 筆，修正數量 ${updated} 筆，略過 ${skipped} 筆，新增母件 ${parentCreated} 個，新增子件 ${childCreated} 個`
     +`，清理錯誤料號 ${cleanupResult.archivedMats||0} 個 / 關聯BOM ${cleanupResult.archivedBoms||0} 筆`
     +(failed.length?`，失敗 ${failed.length} 筆`:'');
@@ -14663,7 +14708,7 @@ async function importGeneralBomExcel(input){
     const warn=parsed.errors.length?`\n\n解析提醒：\n${parsed.errors.slice(0,10).join('\n')}${parsed.errors.length>10?'\n...':''}`:'';
     if(!confirm(`準備匯入 BOM Excel：${file.name}\n\n母件 ${parsed.rows.length} 個，BOM 關聯 ${relCount} 筆。\n\n${preview}${parsed.rows.length>8?'\n・...':''}${warn}\n\n匯入會建立缺少的料號，並新增/更新 BOM 關聯；不會刪除既有資料。要開始嗎？`)) return;
     showToast('⏳ 同步最新 Notion 資料...','warn',6000);
-    await refreshAll(true);
+    await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     const existing=new Map(boms.map(b=>[b.parentId+'|'+b.childId,b]));
     let parentCreated=0, childCreated=0, bomCreated=0, bomUpdated=0, skipped=0;
     const failed=[];
@@ -14719,7 +14764,7 @@ async function importGeneralBomExcel(input){
         }
       }
     }
-    await refreshAll(true);
+    await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     renderTab(CURRENT_TAB);
     const msg=`✅ BOM 匯入完成：新增母件 ${parentCreated}、新增子件 ${childCreated}、新增關聯 ${bomCreated}、更新用量 ${bomUpdated}、略過 ${skipped}`;
     showToast(msg+(failed.length?`，失敗 ${failed.length}`:''),failed.length?'warn':'ok',12000);
@@ -14996,7 +15041,7 @@ async function cancelCorder(id, matId, qty){
     await updatePage(id,{'狀態':{select:{name:'已取消'}}});
     logUserAction('取消C端訂單',o?.no||id,doReturn?'取消並回料':'取消報銷不回料',ROLE);
     if(o) o.status='已取消';
-    await refreshAll(); renderTab(CURRENT_TAB);
+    await refreshAffectedData({core:true,tabs:['corders'],label:'取消與庫存資料已更新'}); renderTab(CURRENT_TAB);
     showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（報銷不回料）','ok');
   }catch(e){ showToast('錯誤：'+e.message,'err'); }
 }
@@ -16726,7 +16771,7 @@ async function doInspResult(insId, orderRef, resultCode){
 
     // 3. 重新載入並刷新
     await loadQCInspections();
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'品檢資料已更新'});
 
     const passMsg = result==='通過'
       ? '✅ 檢驗通過' + (targetOrder ? ` — 訂單已更新為「${targetOrder.status||'待出貨'}」` : '')
@@ -17127,7 +17172,7 @@ async function doEditMat(mid){
       matId:mid, matName:name, matCode:code,
       changeType, before, after, delta:0, reason, operator:ROLE,
     });
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'料件資料已更新'});
     showToast('✅ 料件「'+name+'」已更新（原因已記錄）','ok');
   }catch(e){showToast('❌ 更新失敗：'+e.message,'err');}
 }
@@ -17254,7 +17299,7 @@ async function doEditOrder(orderId){
       props['產品單價']={number:null};
     }
     await updatePage(orderId,props);
-    await refreshAll();showToast('✅ 訂單已更新','ok');
+    await refreshAffectedData({core:true,label:'訂單資料已更新'});showToast('✅ 訂單已更新','ok');
   }catch(e){showToast('更新失敗：'+e.message,'err');}
 }
 
@@ -17405,8 +17450,7 @@ async function doPick(orderId){
     logUserAction('確認領料',no,`${o?.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
 
     // 4. 重新整理資料
-    await refreshAll();
-    await loadPicks();
+    await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'});
 
     const modeNote = hasBOM ? `（BOM直接子件 ${items.length} 項）` : '（直接扣成品庫存）';
     if(stockErrors.length){
@@ -17438,7 +17482,7 @@ async function doPickNoDeduct(orderId){
     });
     await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
     logUserAction('建立領料單未扣料',no,o?.no||orderId,ROLE);
-    await refreshAll();await loadPicks();
+    await refreshAffectedData({core:true,tabs:['picking'],label:'領料單已更新'});
     showToast(`⚠ 領料單 ${no} 已建立（無 BOM，未扣料），請手動調整庫存`,'warn');
   }catch(e){showToast('❌ 失敗：'+e.message,'err');}
 }
@@ -17472,7 +17516,7 @@ async function syncInboundStock(id, matId, qty){
     // 確保入庫狀態也是已入庫
     await updatePage(id, {'入庫狀態':{select:{name:'已入庫'}}});
     await logStockChange(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),mat.stock||0,newStock,id,ROLE);
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'庫存已更新'});
     showToast(`✅ ${mat.name} 庫存已同步：${mat.stock} → ${newStock}`,'ok');
   }catch(e){ showToast('❌ 同步失敗：'+e.message,'err'); }
 }
@@ -17688,8 +17732,7 @@ async function batchApproveInboundQC(){
   }
 
   if(progress) progress.textContent='重新讀取資料中...';
-  await refreshAll();
-  await loadInbounds();
+  await refreshAffectedData({core:true,tabs:['inbound'],label:'批次品檢與庫存已更新'});
   renderTab('qc');
 
   if(fail){
@@ -17763,7 +17806,7 @@ async function approveQC(id,matId,qty,opts={}){
     await logStockChange(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),curStock,newStock,id,ROLE);
     // 6. 重整
     if(!opts.skipRefresh){
-      await refreshAll();await loadInbounds();renderTab(CURRENT_TAB);
+      await refreshAffectedData({core:true,tabs:['inbound'],label:'品檢與庫存已更新'});renderTab(CURRENT_TAB);
     }
     const mat=mats.find(m=>m.id===matId);
     if(!opts.silent)showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+curStock+' → '+newStock,'ok');
@@ -18162,7 +18205,7 @@ async function submitMultiOrders(){
     }catch(e){fail++;failList.push(item.model);console.error(item.model,e);}
   }
 
-  await refreshAll();
+  await refreshAffectedData({core:true,label:'訂單資料已更新'});
 
   const prog=document.getElementById('batchProgress');
   if(prog)prog.innerHTML=`<span style="color:${ok===selected.length?'var(--green)':'var(--yellow)'}">
@@ -18429,8 +18472,7 @@ async function submitBatchInbound(){
       console.error('入料失敗:',item.code,e);
     }
   }
-  await refreshAll(true);
-  await loadInbounds();
+  await refreshAffectedData({tabs:['inbound'],label:'入料資料已更新'});
   if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc') renderTab(CURRENT_TAB);
   showToast(`${fail?'⚠':'✅'} 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管頁會讀取入料待品檢）`,fail?'warn':'ok');
   if(failMsgs.length) alert('以下入料建立失敗：\n\n'+failMsgs.join('\n'));
@@ -18468,7 +18510,7 @@ async function submitLeave(){
     }});
     const emp=await ensureLeaveEmployeeRecord(name,title,proxy);
     logUserAction('送出請假',name,`${type} ${leaveDurationLabel({days,hours})}`,ROLE);
-    await refreshAll();
+    await refreshAffectedData({tabs:['leave'],label:'請假資料已更新'});
     showToast(emp?'✅ 請假申請已送出，員工資料已確認':'✅ 請假申請已送出','ok');
   }catch(e){showToast('❌ 送出失敗：'+e.message,'err');}
 }
@@ -18505,7 +18547,7 @@ async function submitNewCustomer(){
       '國家':         region?{select:{name:region}}:undefined,
     }});
     logUserAction('建立客戶',name,code||region||'',ROLE);
-    await refreshAll(); showToast('✅ 客戶建立完成','ok');
+    await refreshAffectedData({tabs:['customers'],label:'客戶資料已更新'}); showToast('✅ 客戶建立完成','ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -18551,7 +18593,7 @@ async function submitCorder(){
     }});
     await syncToShopee115({no:orderNo,shopeeNo,buyer,matName:mat.code||mat.name,qty,shipMethod,shipDate,payDate,note,trackingNo});
     persistCorderNextNo([orderNo]);
-    await refreshAll(); await loadCorders(); renderTab('corders');
+    await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab('corders');
     showToast(`✅ C端訂單 ${orderNo} 已建立並扣庫存`,'ok');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
@@ -18723,7 +18765,7 @@ async function importShopeeExcel(input){
     }
 
     persistCorderNextNo(usedNos);
-    await refreshAll(); await loadCorders(); renderTab(CURRENT_TAB);
+    await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab(CURRENT_TAB);
     showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn?'warn':'ok');
     if(warnList.length){
       alert('⚠ 以下品項庫存未完整扣除，請確認料件主檔：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
@@ -19187,7 +19229,7 @@ async function submitNormalOrder(isDomestic){
         console.error('建立訂單品項失敗:',item,itemErr);
       }
     }
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'訂單資料已更新'});
     showToast(`${fail?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${isDomestic?'，已同步 115年貿易商':''}${fail?'，失敗：'+failList.join('、'):''}`,fail?'warn':'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
 }
@@ -19214,7 +19256,7 @@ async function submitSFGOrder(){
     if(sfgId) props['成品']={relation:[{id:sfgId}]};
     await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
     logUserAction('建立半成品單',orderNo,`${sfgMat?.code||sfgMat?.name||''} x ${qty}`,ROLE);
-    await refreshAll();
+    await refreshAffectedData({core:true,label:'半成品訂單已更新'});
     showToast(`✅ 半成品生產單 ${orderNo} 建立完成`,'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
 }
@@ -19390,7 +19432,7 @@ async function submitShopeeOrdersV2(){
     }
   }
   window._shopeeOrderItems=[];
-  await refreshAll();
+  await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});
   showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}`,fail?'warn':'ok');
   if(messages.length) alert('以下 S-料號未完成建立：\n\n'+messages.join('\n'));
 }
@@ -19421,7 +19463,7 @@ async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
       sku.qty = newQty;
       sku.stock = newQty;
     }
-    await refreshAll(); renderTab(CURRENT_TAB);
+    await refreshAffectedData({core:true,label:'蝦皮成品庫存已更新'}); renderTab(CURRENT_TAB);
     showToast(`✅ 訂單 ${orderNo} 已完成，${skuCode} 庫存已更新`,'ok');
   }catch(e){ showToast('❌ '+e.message,'err'); }
 }
