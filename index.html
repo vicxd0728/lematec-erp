@@ -7153,13 +7153,37 @@ function updateOrderFilter(key,value,focusId=''){
     render();
   }
 }
+function normalizeSearchText(value){
+  return String(value??'')
+    .normalize('NFKC')
+    .toLocaleLowerCase('zh-TW')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function searchIncludesAll(blob,query){
+  const haystack=normalizeSearchText(blob);
+  const terms=normalizeSearchText(query).split(' ').filter(Boolean);
+  return terms.length>0&&terms.every(term=>haystack.includes(term));
+}
+function findOrderCustomer(o){
+  const raw=String(o?.customer||o?.cust||'').trim();
+  if(!raw) return null;
+  const key=normalizeSearchText(raw);
+  return customers.find(x=>{
+    const code=normalizeSearchText(x.code);
+    const name=normalizeSearchText(x.name);
+    return code===key||name===key||(code&&key.includes(code));
+  })||null;
+}
 function orderSearchBlob(o){
   const prod=mats.find(m=>m.id===o.productId);
+  const customer=findOrderCustomer(o);
   return [
     o.no,o.cust,o.customer,orderCustomerLabel(o),
+    customer?.name,customer?.code,customer?.region,customer?.area,
     o.product,o.matCode,prod?.name,prod?.code,
     o.orderType,o.status,o.deadline,o.shipDate,o.note
-  ].filter(Boolean).join(' ').toLowerCase();
+  ].filter(Boolean).join(' ');
 }
 function formatOptionalMoney(n){
   if(n===null||n===undefined||n==='') return '—';
@@ -9646,12 +9670,7 @@ function orderCustomerLabel(o){
   if(!raw) return '—';
   const isDomestic=o?.orderType==='國內'||o?.orderType==='domestic';
   if(isDomestic) return raw;
-  const rawUp=raw.toUpperCase();
-  const c=customers.find(x=>(x.type==='overseas'||!x.type)&&(
-    String(x.code||'').toUpperCase()===rawUp ||
-    String(x.name||'').toUpperCase()===rawUp ||
-    rawUp.includes(String(x.code||'').toUpperCase())
-  ));
+  const c=findOrderCustomer(o);
   return c?.code||raw;
 }
 
@@ -9673,9 +9692,8 @@ function _renderOrdersList(tabs){
 
   // ── 搜尋過濾 ──
   const _ordQ = String(filters.q||'').trim();
-  const _ordKey = _ordQ.toLowerCase();
   const _ordType = filters.type||'all';
-  if(_ordKey) data=data.filter(o=>orderSearchBlob(o).includes(_ordKey));
+  if(_ordQ) data=data.filter(o=>searchIncludesAll(orderSearchBlob(o),_ordQ));
   if(_ordType!=='all') data=data.filter(o=>{
     if(_ordType==='shopee') return (o.orderType==='shopee'||o.orderType==='蝦皮'||(o.product||'').startsWith('S-')||(o.matCode||'').startsWith('S-'));
     if(_ordType==='overseas') return (!o.orderType||o.orderType==='overseas'||o.orderType==='國外');
@@ -16697,6 +16715,20 @@ async function applyCorderShippingNames(){
   }
 }
 
+function updateCorderSearch(value){
+  window._CO_Q=value;
+  clearTimeout(window._corderSearchTimer);
+  window._corderSearchTimer=setTimeout(()=>{
+    requestFullDataForSearch('corders',value);
+    renderTab('corders');
+    setTimeout(()=>{
+      const el=document.getElementById('co_search');
+      if(!el) return;
+      el.focus();
+      try{el.setSelectionRange(el.value.length,el.value.length);}catch(_){}
+    },0);
+  },180);
+}
 function renderCorders(){
   const canAdd=!isViewOnly()&&(isAdminRole()||ROLE==='sales');
   const canOperate=!isViewOnly();
@@ -16719,7 +16751,10 @@ function renderCorders(){
   const baseFiltered=data.filter(o=>{
     if(STATUS&&o.status!==STATUS) return false;
     if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
-    if(Q){const q=Q.toLowerCase();if(!(o.no||'').toLowerCase().includes(q)&&!(o.shopeeNo||'').toLowerCase().includes(q)&&!(o.buyer||'').toLowerCase().includes(q)&&!(o.customerName||'').toLowerCase().includes(q)&&!(o.matCode||o.matName||'').toLowerCase().includes(q)&&!(o.trackingNo||'').toLowerCase().includes(q)&&!(o.shipMethod||'').toLowerCase().includes(q)) return false;}
+    if(Q&&!searchIncludesAll([
+      o.no,o.shopeeNo,o.buyer,o.customerName,o.matCode,o.matName,
+      o.trackingNo,o.shipMethod,o.status,o.note
+    ].filter(Boolean).join(' '),Q)) return false;
     return true;
   });
   const shipCounts=new Map();
@@ -16774,7 +16809,10 @@ function renderCorders(){
       <span style="font-size:.8125rem;color:var(--text3)">下一張：<b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono)">${nextNo}</b>。蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
     </div>`:''}
     <div class="corder-toolbar">
-      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}" oninput="window._CO_Q=this.value;requestFullDataForSearch('corders',this.value);renderTab('corders')" style="flex:1;min-width:150px">
+      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}"
+        oncompositionstart="this._composing=true"
+        oncompositionend="this._composing=false;updateCorderSearch(this.value)"
+        oninput="if(!this._composing)updateCorderSearch(this.value)" style="flex:1;min-width:150px">
       <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
       <select class="inp" style="width:170px" onchange="window._CO_SHIP=this.value;renderTab('corders')">${shipOpts}</select>
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
