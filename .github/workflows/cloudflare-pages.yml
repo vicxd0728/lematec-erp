@@ -28,6 +28,10 @@ jobs:
           cp _headers _publish/_headers
           cp _redirects _publish/_redirects
           cp -R icons _publish/icons
+          if [ -d supabase/video_library ]; then
+            mkdir -p _publish/supabase/video_library
+            cp supabase/video_library/video_library_seed.json _publish/supabase/video_library/video_library_seed.json
+          fi
           if [ -d lematec-erp ]; then
             mkdir -p _publish/lematec-erp
             cp lematec-erp/index.html _publish/lematec-erp/index.html
