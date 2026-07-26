@@ -1,491 +1,120 @@
 # LEMATEC ERP Codex Handoff
 
-最後更新：2026-07-11
+最後更新：2026-07-27
 
-## 專案定位
+這份文件是每次接手 LEMATEC ERP 任務時的第一份交接。先讀它，再讀實際程式與資料流文件，避免靠舊聊天記憶猜流程。
 
-這是 LEMATEC 目前實際使用中的前端式 ERP。前端部署在 Cloudflare Pages，資料主要透過 Cloudflare Worker proxy 讀寫 Notion。使用者會在電腦、手機瀏覽器、加入主畫面的 PWA 類 App 中操作。
+## 專案位置
 
-維護時請優先保護既有流程，不要只做語法修正。每次改完都要用業務情境驗證：訂單、庫存、BOM、入料、品管、領料、C 端訂單、記事、手機版。
-
-## 重要路徑
-
-- 專案主資料夾：`C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp`
-- 主檔案：`C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp\index.html`
-- 正式網址：`https://lematec-erp.pages.dev/`
-- GitHub repo：`https://github.com/vicxd0728/lematec-erp`
-- Cloudflare Pages project：`lematec-erp`
-- Worker proxy：`https://green-wave-c22f.vic-e93.workers.dev`
-- Worker 程式備份：`cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`
-- Workflow：`.github/workflows/cloudflare-pages.yml`
-- 開源參考地圖：`ERP_OPEN_SOURCE_REFERENCES.md`
+- 本機專案：`C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp`
+- 主前端：`C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp\index.html`
+- 線上網址：https://lematec-erp.pages.dev/
+- GitHub：https://github.com/vicxd0728/lematec-erp
+- Cloudflare Pages 專案：`lematec-erp`
+- Notion API proxy Worker：`https://green-wave-c22f.vic-e93.workers.dev`
+- Worker 完整檔案：`cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`
 
 ## 接手順序
 
-每次重新接手 ERP 維護，請先照這個順序讀：
+1. `git status --short`，確認工作區是否有未提交變更。
+2. 讀 `CODEX_HANDOFF.md`。
+3. 讀 `ERP_DATA_FLOW.md`。
+4. 若任務與 Supabase、庫存、BOM 有關，讀 `SUPABASE_INVENTORY_MIGRATION_PLAN.md`。
+5. 若任務與異動紀錄有關，讀 `supabase\STOCK_LOG_RUNBOOK.md`。
+6. 再讀 `index.html` 的相關函式，依實際程式為準。
 
-1. `CODEX_HANDOFF.md`
-2. `ERP_OPEN_SOURCE_REFERENCES.md`
-3. `index.html` 內相關功能區塊
-4. 只在需要時讀 Notion 或 GitHub 實際狀態
+不要回復或修改無關的 dirty files。不要印出 token、DB URL、Cloudflare token、Notion token。
 
-不要直接從記憶猜流程。LEMATEC ERP 目前已有很多專用規則，尤其是 C端、S-蝦皮、BOM、半成品、入料品管、記事與手機版。
+## 目前資料主從
 
-## 部署方式
+詳細規則在 `ERP_DATA_FLOW.md`。簡版如下：
 
-目前正式流程是：
+- Notion 仍是大多數正式操作資料源與人員查閱後台。
+- Supabase 已開始承接速度敏感資料，但採漸進式切換。
+- 庫存頁可切換「Notion 正式 / Supabase 優先」。Supabase 優先需要本機已設定 anon public key，且目前只影響庫存頁顯示與搜尋。
+- 庫存新增、修改、刪除、訂單扣料、BOM 寫入目前仍以 Notion 正式流程為主，除非日後明確切換。
+- 異動紀錄正在轉向 Supabase 主讀寫，Notion 需同步保留鏡像，供人員查閱。
+- 影片庫優先讀 Supabase，失敗時退回備援清單。
 
-1. 修改本機專案。
-2. 驗證 `index.html` 語法與功能。
-3. `git add -- index.html` 或只加入正式修改檔案。
-4. `git commit`
-5. `git push origin main`
-6. GitHub Actions 觸發 `Deploy ERP to Cloudflare Pages`。
-7. 檢查 `https://lematec-erp.pages.dev/` 線上版。
+## Supabase Key 行為
 
-注意：GitHub 可能同時出現 `pages build and deployment`。那是 GitHub Pages 內建部署，不是正式 Cloudflare Pages。正式要看 `Deploy ERP to Cloudflare Pages` 是否成功。
+前端使用的是 Supabase anon public key，存在瀏覽器 `localStorage` 的 `lematec_supabase_anon_key`。
 
-若 GitHub Actions 顯示 build 成功但 deploy 失敗，優先檢查：
+- 沒有 key：不會讀 Supabase 庫存快照，庫存頁回到 Notion 正式資料。
+- 有 key：庫存頁預設可使用 Supabase 優先，但只讀；修改類操作仍需切回 Notion 正式。
+- 異動紀錄有 key 時會先讀 Supabase，失敗再退回 Notion。
+- 前端不可使用 PostgreSQL DB URL 或 postgres 密碼。
 
-- GitHub Secret `CLOUDFLARE_API_TOKEN`
-- Cloudflare Pages project name 是否仍為 `lematec-erp`
-- `.github/workflows/cloudflare-pages.yml`
-- token 是否有 Pages Read / Pages Write 權限
+## 核心流程規則
 
-## 常用命令
+### BOM / 庫存
 
-Git：
+- 成品訂單扣成品直接掛的半成品與零件。
+- 成品直接掛半成品時，只扣該半成品本身，不再展開半成品底下零件。
+- 半成品組立單扣零件，完成後增加半成品庫存。
+- 外購成品若沒有 BOM，就只扣該成品本身。
+- 零件料號原則上統一 `Y-` 開頭；若改名，必須同步 BOM、入料、訂單、領料等引用。
 
-```powershell
-$git='C:\Users\vicxd\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe'
-& $git status --short
-& $git log -1 --oneline
-```
+### C 端 / 蝦皮
 
-Node：
+- C 端使用 `S-` 料號作為獨立庫存層。
+- C 端匯入 Excel 時，SHPTW 內部單號依設定起始值自動遞增。
+- 物流/運送單上傳後，依蝦皮訂單號回填客戶名稱與寄件編號；客戶名稱可含 `*`。
+- 物流來源優先看檔名；檔名不足時再解析內容。
 
-```powershell
-$node='C:\Users\vicxd\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
-```
+### 權限
 
-Python：
-
-```powershell
-$py='C:\Users\vicxd\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-```
-
-重要：PowerShell stdin 曾多次造成中文亂碼。寫 Python 腳本時避免直接在 stdin 塞大量中文，或設定：
-
-```powershell
-$env:PYTHONIOENCODING='utf-8'
-```
-
-若要產生含中文的 JS/JSON，優先使用 `ensure_ascii=True` 或 Unicode escape，最後再用 Node 解析驗證。
-
-## Notion 主要資料庫
-
-程式內 `DB` 目前在 `index.html` 約 1586 行附近。
-
-- ERP 頁面：`b60823b3-452c-467b-a2f9-dc54f3799464`
-- 物料主檔：`43d801b4-a787-4101-bd12-d8b8199385c7`
-- BOM / 子母件：`6b67dc8d-bafb-49e8-9c39-bf66046a99fe`
-- 訂單：`50b7ce68-437e-431f-9a4f-a0d0d65a7b25`
-- 領料主檔：`55552dd1-eb31-4d68-8127-63cc062a93f8`
-- 領料明細：`267f16cf-e88a-41ed-8049-d39d618a1275`
-- 入料：`cff100a4-ddcd-4bda-b8d7-57d44c4b3ce4`
-- 國外客戶總檔：`19fff6f4-24bb-80fe-b265-c62fa39c814c`
-- 國內訂單同步：`276ff6f4-24bb-807c-bac2-e8c68c788a7e`
-- C 端訂單：`64d6326e-c82a-4f5f-bccc-b34833f823c3`
-- 115 年蝦皮同步：`276ff6f4-24bb-8024-8a2a-d39aff6800db`
-- 蝦皮訂單資料庫：`11b6df09-ee1a-4c56-b235-166bcd250f3a`
-- 品管檢驗單：`48f1a7b9-1e89-4f9c-a4db-6df8e5ee7e5f`
-- 庫存異動記錄：`0aa78528-a5bb-4a0d-8005-c0c1e0aaf8a3`
-- 庫存修改原因記錄：`808d789e-e9d3-4e6d-88d2-d58daa9aba4f`
-- 請假：`897e8784-4c2d-452c-a045-c568e175e6d5`
-- 登入紀錄：程式會在 ERP 頁面下自動尋找或建立 `ERP 登入紀錄`
-- 記事行事曆：程式會在 ERP 頁面下自動尋找或建立 `ERP 記事行事曆`
-
-## 近期速度策略
-
-2026-07-11 已加入首屏減量載入：
-
-- `C端訂單`：首次只載入近 30 天與未完成 / 待處理資料。
-- `異動紀錄`：首次只載入近 30 天。
-- `記事`：首次只載入近 30 天與未完成記事。
-- 搜尋字數達 2 個字以上會自動載入完整歷史。
-- 介面提供 `載入全部歷史` 按鈕。
-- 庫存暫時不限制首屏載入，避免倉庫查料不完整。
-
-後續若繼續加速，優先考慮：
-
-1. Worker 端 30 秒短快取。
-2. 分頁查詢與「載入更多」。
-3. 角色優先載入。
-4. 大表格虛擬列表。
-5. Notion 讀取合併與批次化。
-
-注意：任何快取都要避開剛寫入後讀到舊資料的問題。寫入、刪除、狀態變更後應刷新相關資料或跳過快取。
-
-## 角色權限摘要
-
-角色表在 `index.html` 約 1641 行附近。
-
-- `Vic`：全功能，包含權限設定與健康檢查。
-- `廠長`：全主要流程，可介入訂單、生產、品管、庫存等。
-- `業務`：訂單、C 端、客戶、庫存查詢與部分庫存調整、請假、記事、影片庫。
-- `倉管`：訂單、庫存、領料、入料、生產流程節點、請假、記事、影片庫。
-- `品管`：品管、入料瀏覽、請假、記事、影片庫。
-- `採購`：兼生管，可看訂單、庫存、領料、入料、排程，並處理生產流程節點。
-- `檢視`：只看主要流程，無建立、修改、刪除、審核等操作。
-
-Vic 與廠長有登入密碼。Vic 權限頁可以查看狀態；密碼顯示需注意隱私。
-
-權限設計原則：
-
-- 能不能看到頁面與能不能操作是兩件事。
-- `Vic` 與 `廠長` 可介入所有主要流程。
-- `採購` 目前兼生管，開放訂單、領料、排程與生產流程節點。
-- `倉管` 兼現場生管，可處理領料、生產送檢、S-蝦皮完成入庫。
-- `業務` 需要庫存查詢與部分庫存數量修改，因為回料或客戶特規料有時業務最清楚。
-- `品管` 主要處理檢驗，不應直接跳過流程完成訂單。
-- `檢視` 僅看資料，不做新增、編輯、刪除、審核、扣料或入庫。
-- 請假與異動紀錄是所有角色共同可見。
-
-## 核心流程
-
-### 一般國內 / 國外訂單
-
-1. 建立訂單。
-2. 產生領料。
-3. 領料後扣除 BOM 關聯料件。
-4. 狀態進入生產中。
-5. 生產中可由倉管、採購、Vic、廠長推到待檢驗。
-6. 品管檢驗通過後變待出貨。
-7. 待出貨由業務、倉管、Vic、廠長填實際出貨日並完成。
-
-重要 BOM 邏輯：成品若掛半成品，只扣該半成品；不要再展開扣半成品底下零件。成品若同時掛其他零件，仍需扣那些零件。半成品本身應透過半成品組裝單扣零件並增加半成品庫存。
-
-國外 PI 料號規則：物料名稱可用 `主成品料號 (外銷料號)` 保存，例如 `Z-RG-5A-C1 (AR-01)`。PI 上傳時，主成品料號或括號內外銷料號都必須精確指向同一筆既有物料；不得因外銷料號另建重複成品。主檔的 `料件編號` 精確命中優先於括號別名。
-
-### 蝦皮 S- 訂單
-
-用於製作 C 端可即時出貨的 S- 庫存。
-
-1. 在訂單頁建立蝦皮訂單，選擇 S- 開頭料號。
-2. 領料時扣 S- BOM 關聯的普通料件或半成品。
-3. 狀態進入生產中。
-4. 倉管、採購、Vic、廠長可將 S- 生產中改已完成。
-5. 完成時增加 S- 成品庫存。
-
-### C 端訂單
-
-用於直接出貨的消費端訂單。
-
-1. 匯入蝦皮 Excel。
-2. 以 `商品選項貨號` 讀 S- 料號。
-3. 建立 ERP C 端訂單，並同步到 `115 年蝦皮`。
-4. C 端出貨時扣 S- 開頭庫存本身，不應再扣 BOM 子件。
-5. SHPTW 編號可在 C 端頁設定起始值。下一張訂單自動遞增。
-6. 相同蝦皮單號與買家帳號才共用同一個 SHPTW 內部單號。
-7. 出貨中超過 7 天可自動轉已完成。
-
-常見欄位：
-
-- 蝦皮訂單號
-- SHPTW 內部訂單號
-- 客戶姓名
-- 寄件編號
-- 商品活動價格作為單價
-- 數量
-- 總價 = 數量 * 單價
-- 物流 / 寄送方式
-
-重要：C端訂單的庫存邏輯與訂單頁蝦皮生產單不同。
-
-- C端匯入或手動建立：扣 `S-` 成品庫存本身。
-- 不展開 BOM 子件。
-- 原因：C端是即時出貨區，用 `S-` 庫存管理可出貨數。
-- 若要增加 `S-` 庫存，應在訂單頁建立蝦皮 S- 生產單，領料扣 BOM 直接子件，完成後增加 `S-` 庫存。
-
-SHPTW 編號規則：
-
-- 頁面可設定下一張起始數字，開頭固定 `SHPTW`。
-- 第二張自動 +1。
-- 相同蝦皮單號與買家帳號才沿用同一 SHPTW。
-- 編輯 C端訂單時可修改 SHPTW 數字。
-- 若出現「內部單號已存在」但重新整理後成功，優先檢查本地快取與資料刷新時序。
-
-### 入料與品管
-
-1. 建立入料單。
-2. 品管出現入料待品檢。
-3. 通過後才真正入庫，入料單狀態應變成品檢通過 / 已入庫。
-4. 不合格可退回倉管或供應商，需填原因。
-5. 退回後入料單應可重新提交，並允許修改料號、數量、原因。
-
-大量品管通過：
-
-- 不要快速連點多筆通過，容易觸發 Notion rate limit。
-- 品管頁應優先使用批量通過。
-- 批量通過需逐筆排隊處理：建立品管記錄、更新入料狀態、增加庫存、寫庫存異動。
-- 若被 Notion 限流，應提示稍後重試，並避免部分資料狀態顯示為已入庫但庫存未加。
-
-退回邏輯：
-
-- 品管退回可選原因：質量異常、數量異常、其他。
-- 選其他時應可填文字。
-- 退回對象可選：倉管、供應商。
-- 倉管填錯數量時，不要要求重開入料單；應由入料單重新提交修正。
+- Vic 與廠長可介入所有流程。
+- 倉管與採購兼生管，需能處理生產中到待檢驗，以及蝦皮 S- 訂單完成入庫。
+- 業務可查庫存並可修改庫存數量。
+- 每個角色都需可看請假與異常紀錄。
+- 檢視角色只看不改。
 
 ### 記事
 
-記事是 ERP 共用行事曆與任務紀錄。
+- 記事需支援指定角色、回覆、已讀/待處理、完成、重要程度、提醒/到期。
+- 被指定角色打開記事後可判定已讀；新回覆應重新提醒相關角色。
+- 客戶關聯可用客戶編號連回客戶總檔；若同步到客戶頁，單一記事應在同一頁往下追加紀錄，不要每次新增分散頁。
 
-目前支援：
+## 驗證
 
-- 一般 / 重要 / 緊急
-- 指定需知道角色
-- 登入提醒
-- 我的待辦
-- 已讀 / 回覆
-- 完成
-- 客戶、訂單、料號等 ERP 關聯欄位
-- 國外客戶可同步到客戶頁下的記事區
-
-設計原則：
-
-- 單一事件的回覆與更新應往同一頁往下追加，不要建立多個分散頁面。
-- 已完成 30 天後可在介面隱藏，但 Notion 後台仍保留。
-- 若指定角色已打開記事，可判定已讀並記錄。
-
-記事近期正式規則：
-
-- 一個記事代表一件事情。
-- 回覆、新回覆、狀態更新應追加在同一事件下方，不應新增多個分散頁。
-- 若指定角色有新回覆未看，應重新出現在「我的待辦」。
-- 被指定角色打開記事後，系統可自動記錄已讀。
-- 發布者可回覆、編輯、刪除、完成。
-- 被指定角色可回覆，但不能刪除、編輯、完成。
-- Vic 權限全開。
-- 廠長若未被指定，原則上可回覆但不一定可完成他人記事。
-- 已完成記事超過 30 天後，前台預設隱藏；Notion 仍保留。
-- 記事可填：一般 / 重要 / 緊急。
-- 記事可填提醒日 / 到期日。
-- 登入提醒只需首次提醒，之後可透過看板「我的待辦」追蹤。
-- 手機新增記事的 modal 不應因選取文字超出視窗就關閉。
-- 手機新增記事畫面要能順暢上下滑動。
-
-記事與 ERP 關聯：
-
-- 可填客戶編號、訂單號、料號、標籤。
-- 國外客戶編號對應客戶總檔時，記事應能同步到客戶頁下。
-- 客戶頁下應建立或使用「記事」區塊。
-- 單一記事同步到客戶頁時，後續回覆應追加在同一記事頁，不要建立新的重複頁。
-- 客戶頁中的記事位置應往前靠，避免被放到頁面最底部難找。
-
-Notion 後台整理原則：
-
-- `ERP 記事行事曆` 是總資料庫，用於快速瀏覽、篩選、看板與統計。
-- 客戶總檔可用超連結連回相關記事。
-- 其他關聯若沒有固定資料庫，使用描述與分頁整理即可。
-- Notion 欄位若出現 `???`，通常是欄位名稱編碼或舊欄位問題；無資料舊欄位可刪除。
-
-### 影片庫
-
-影片庫已匯入 YouTube 全頻道，不分長短影片或直播。
-
-最新驗證：
-
-- 總數：387
-- 長影片：227
-- Shorts：157
-- 直播：3
-
-縮圖由 YouTube ID 產生，若縮圖顯示異常，先檢查影片 URL 是否為 `https://www.youtube.com/watch?v=...`。
-
-影片庫用途：
-
-- 給業務快速搜尋影片並複製連結給客戶。
-- 可用標題、分類、型號、關鍵字搜尋。
-- 長影片、Shorts、直播都要納入。
-- 目前作為 ERP 內部影片索引，不直接依賴 YouTube API 每次即時抓取。
-
-## 高風險區
-
-### 1. 運送單解析
-
-曾多次因不同物流版型抓錯收件人或物流來源。不能只針對單一 PDF 修補。
-
-需要多物流樣本一起測：
-
-- 新竹物流
-- 蝦皮店到店
-- 店到家
-- 全家
-- 7-ELEVEN
-- 萊爾富
-- 大榮
-
-判斷原則：
-
-- 優先用檔名判斷物流。
-- 檔名不足時再從版型文字判斷。
-- 收件人可能是人名、公司名、自訂名稱，不能用固定字數判斷。
-- 不要抓寄件人。
-- 再次上傳運送單時，應可覆蓋先前錯誤的客戶姓名與寄件編號。
-
-解析結果必須同步：
-
-- ERP C端訂單
-- 115年蝦皮同步資料庫
-
-若 115 年蝦皮新增了同名欄位，寫回時要同步更新，不只更新 ERP C端。
-
-運送單解析最佳策略：
-
-1. 先從檔名判斷物流。
-2. 檔名無法判斷才看 PDF / 圖片文字。
-3. 每種物流使用專屬模板切段。
-4. 收件人不可抓寄件人、門市名、物流名稱、備註、司機拍照備存等文字。
-5. 若信心不足，要提示人工確認，不要直接寫入錯誤姓名。
-
-### 2. BOM 與庫存
-
-任何修改 BOM、料號、S- 邏輯都必須模擬：
-
-- 訂單頁一般訂單
-- 訂單頁蝦皮 S- 生產單
-- C 端 Excel 匯入出貨
-- 半成品組裝
-- 入料
-- 品管通過入庫
-
-### 3. 手機版
-
-手機版曾出現：
-
-- 訂單欄位錯位，交期顯示成數量。
-- modal 開啟後滑動卡住。
-- 表格左右捲動不易。
-- PWA 更新延遲。
-
-每次改 UI 都要手機尺寸檢查，至少看：訂單、C 端、記事、新增記事、請假、品管、庫存。
-
-手機版目前要特別檢查：
-
-- 訂單列表欄位要與電腦版一致，至少不能把交期顯示成數量。
-- 客戶、品項、數量、交期、狀態要在手機上對應正確。
-- modal 內部要可捲動，外層不要卡住。
-- iPhone PWA 要允許一般手機瀏覽器的縮放手勢。
-- 表格橫向捲動要明顯，不要讓使用者以為資料被切掉。
-- 新增記事、編輯請假、建立訂單等長表單不能因點到背景或文字選取而誤關。
-
-### 4. 料號與 BOM
-
-料號分類目前包含：
-
-- 成品
-- 半成品
-- 零件
-- 蝦皮用
-- 蝦皮用(S-)
-
-零件命名策略：
-
-- 零件原則上統一用 `Y-` 開頭。
-- 若 BOM 匯入時沒有明確標示成品或半成品，且判定為零件，應補 `Y-` 前綴。
-- 修改 Notion 料號時，所有 BOM 關聯、入料、領料、半成品組裝、C端、訂單流程都要同步檢查，避免改名後扣不到料。
-
-BOM 匯入建議格式：
-
-```text
-類型 | 母件料號 | 子件清單
-成品 | FLT-B | Y-SPA-14-1*1, Y-IS502-1*1, Y-IS502-2A*1
-半成品 | ABC-SUB | Y-XXX*2, Y-ZZZ*1
-蝦皮用 | S-FLT-B-C4 | FLT-B*1, Y-AB-25B*1
-```
-
-先不處理成本；只建立母件、子件、數量與類型。
-
-BOM 修正活頁簿同步流程：
-
-- 通用工具：`sync_bom_corrections.py`；預設為唯讀乾跑，只有加上 `--apply` 才會寫入 Notion。
-- 若成品標題為 `正確料號 (舊錯料號)`，括號前是唯一正確值，括號內只作舊碼合併來源。
-- 活頁簿中的半成品、零件與 `*數量` 是該次 BOM 的完整真值；同一子件重複出現時需合計數量。
-- 只可使用人工審核過的明確別名，不可廣泛移除 `0`、`-` 或其他符號猜測相同料號。
-- 合併時優先保留仍有 BOM／訂單／領料／入料引用的頁面，再把名稱、料件編號與類型正規化。
-- 不可直接相加兩筆非零庫存。若衝突，先查庫存異動與修改紀錄；只有具可追溯依據時才設定保留值，否則中止。
-- 順序固定為：乾跑零阻擋 → 建立／正規化保留頁 → 搬移所有引用 → 重建 BOM → 驗證無舊引用 → 封存舊頁 → 再次唯讀重跑。
-- 完成標準：舊碼引用為 0、每個正確料號唯一、BOM 母子與數量完全符合活頁簿、再次重跑不新增也不合併。
-
-### 5. Notion 欄位
-
-Notion 欄位改名、select 選項不完整、data source id 錯誤都會造成前端看似成功但後台沒寫入。涉及 Notion 時要確認：
-
-- database id 與 data_source id 是否正確。
-- 欄位名稱是否與程式一致。
-- select 選項是否存在。
-- 寫入後 Notion 實際有資料。
-
-## 部署後驗證
-
-每次 push 後至少做：
+常用檢查：
 
 ```powershell
-gh run list --repo vicxd0728/lematec-erp --limit 5
+git status --short
+python .\scripts\verify_erp_static.py
 ```
 
-確認 `Deploy ERP to Cloudflare Pages` 成功。
+前端改動後，至少檢查：
 
-再抓線上頁：
+- 桌面版和手機版主要分頁不破版。
+- 角色切換後可見頁面與操作權限正確。
+- Notion / Supabase fallback 不因缺 key 失效。
+- GitHub Actions build/deploy 結果。
+
+## 部署
+
+一般流程：
 
 ```powershell
-try { (Invoke-WebRequest -Uri 'https://lematec-erp.pages.dev/' -UseBasicParsing -TimeoutSec 20).StatusCode } catch { $_.Exception.Message }
+git add -- <changed-files>
+git commit -m "<message>"
+git push origin main
 ```
 
-若改影片庫，可用 Node 解析線上 `VIDEO_LIBRARY_SEED` 數量。
+GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.dev/`。
 
-若改速度載入，線上驗證：
+若 build 成功但 deploy 失敗，優先查：
 
-- HTML 內存在 `FIRST_LOAD_DAYS=30`
-- C端、異動紀錄、記事畫面出現 `載入全部歷史`
-- 搜尋時會觸發完整歷史載入
-- 庫存不被近 30 天限制
+- GitHub Secret `CLOUDFLARE_API_TOKEN`
+- Cloudflare Pages project 名稱是否仍為 `lematec-erp`
+- `.github/workflows/cloudflare-pages.yml`
+- token 是否具備 Pages Read / Pages Write
 
-若改記事，驗證：
+## 相關文件
 
-- 建立記事
-- 指定角色
-- 指定角色登入後看見我的待辦
-- 打開後記已讀
-- 回覆後相關角色再次出現提醒
-- 完成後前台分類或隱藏邏輯正確
-- Notion 有正確記錄
-
-若改品管，驗證：
-
-- 單筆入料通過
-- 批量入料通過
-- 不合格退回倉管
-- 不合格退回供應商
-- 入料單重新提交
-- 庫存異動與品管檢驗單都有記錄
-
-## 建議未來補強
-
-- 建立 `ERP_REGRESSION_CHECKLIST.md`
-- 建立 `ERP_DATA_SCHEMA.md`
-- 建立 `scripts/verify-erp-build.js`
-- 建立 `scripts/verify-erp-online.js`
-- 建立 `lematec-erp-maintainer` skill
-- 運送單解析獨立成測試資料夾與多物流回歸測試
-- 建立 `ERP_OPEN_SOURCE_REFERENCES.md`，已於 2026-07-11 建立。
-- 後續可把本 handoff 與回歸測試清單整理成正式 Codex skill。
-
-## 維護原則
-
-- 不要改動不相關檔案。
-- 不要提交暫存檔、測試 Excel、PDF、臨時 JSON。
-- Notion 直接操作前先確認目標資料庫。
-- 使用者授權後可以操作 Notion / GitHub，但高風險刪除資料仍需清楚回報。
-- 回覆使用者時要說明：改了什麼、驗證了什麼、是否已部署。
+- `ERP_DATA_FLOW.md`
+- `SUPABASE_INVENTORY_MIGRATION_PLAN.md`
+- `supabase\STOCK_LOG_RUNBOOK.md`
+- `ERP_OPEN_SOURCE_REFERENCES.md`
+- `ERP_REGRESSION_CHECKLIST.md`
