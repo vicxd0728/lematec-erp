@@ -6414,6 +6414,7 @@ async function startApp(){
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:700;background:${ri.color}20;color:${ri.color}`;
   buildNav(); showTab('dashboard'); initOnlineTracking();
   startLoginAudit();
+  preloadSupabaseInventoryForDisplay();
 
   // 立即顯示同步中
   const syncEl=document.getElementById('syncStatus');
@@ -7311,7 +7312,8 @@ const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
 const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 只讀比對。'};
 let supabaseInventoryMats=[];
-let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0};
+let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
+let _inventorySpeedReport=null;
 
 function getSupabaseAnonKey(){
   return localStorage.getItem(SUPABASE_ANON_KEY_STORAGE)||'';
@@ -7323,9 +7325,15 @@ function setSupabaseAnonKey(){
   const clean=key.trim();
   if(!clean){
     localStorage.removeItem(SUPABASE_ANON_KEY_STORAGE);
+    if(localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)==='supabase'){
+      localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,'notion');
+    }
     showToast('已清除 Supabase 只讀 key','warn');
   }else{
     localStorage.setItem(SUPABASE_ANON_KEY_STORAGE,clean);
+    if(!localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)){
+      localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,'supabase');
+    }
     showToast('✅ Supabase 只讀 key 已儲存在此裝置','ok');
   }
   if(CURRENT_TAB==='health')renderTab('health');
@@ -7487,12 +7495,14 @@ function renderSupabaseReadCheck(){
   </div>`;
 }
 function getInventoryReadSource(){
-  return localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)==='supabase'?'supabase':'notion';
+  const saved=localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE);
+  if(saved==='supabase'||saved==='notion')return saved;
+  return getSupabaseAnonKey()?'supabase':'notion';
 }
 function getInventoryReadSet(){
   const source=getInventoryReadSource();
   if(source==='supabase'&&_supabaseInventoryState.loaded&&!_supabaseInventoryState.error){
-    return {source,label:'Supabase 試讀',rows:supabaseInventoryMats,readonly:true};
+    return {source,label:'Supabase 優先',rows:supabaseInventoryMats,readonly:true};
   }
   return {source:'notion',label:'Notion 正式',rows:mats,readonly:false};
 }
@@ -7512,6 +7522,7 @@ async function loadSupabaseInventoryForPage(force=false){
   }
   _supabaseInventoryState={..._supabaseInventoryState,running:true,error:''};
   if(CURRENT_TAB==='inventory')renderTab('inventory');
+  const started=performance.now();
   try{
     const rows=await supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at');
     const bySku=new Map();
@@ -7554,9 +7565,10 @@ async function loadSupabaseInventoryForPage(force=false){
       ts:Date.now(),
       count:supabaseInventoryMats.length,
       rawCount:rows.length,
+      durationMs:Math.round(performance.now()-started),
     };
     if(CURRENT_TAB==='inventory')renderTab('inventory');
-    showToast(`✅ Supabase 庫存試讀完成：${supabaseInventoryMats.length} 筆`,'ok');
+    showToast(`✅ Supabase 庫存讀取完成：${supabaseInventoryMats.length} 筆 · ${_supabaseInventoryState.durationMs}ms`,'ok');
   }catch(e){
     _supabaseInventoryState={
       ..._supabaseInventoryState,
@@ -7565,10 +7577,37 @@ async function loadSupabaseInventoryForPage(force=false){
       error:String(e.message||e),
       ts:Date.now(),
       count:0,
+      durationMs:Math.round(performance.now()-started),
     };
     if(CURRENT_TAB==='inventory')renderTab('inventory');
     showToast('⚠ Supabase 庫存試讀失敗：'+_supabaseInventoryState.error,'warn');
   }
+}
+function shouldPreloadSupabaseInventory(){
+  return !!TOKEN&&!!getSupabaseAnonKey()&&getInventoryReadSource()==='supabase';
+}
+function preloadSupabaseInventoryForDisplay(){
+  if(!shouldPreloadSupabaseInventory())return;
+  loadSupabaseInventoryForPage(false).catch(e=>console.warn('supabase inventory preload failed:',e));
+}
+async function runInventorySpeedTest(){
+  if(!getSupabaseAnonKey()){
+    showToast('請先設定 Supabase anon public key','warn');
+    return;
+  }
+  const notionStart=performance.now();
+  const notionRows=applySort('inventory',mats).slice(0,100);
+  const notionMs=Math.max(1,Math.round(performance.now()-notionStart));
+  await loadSupabaseInventoryForPage(true);
+  _inventorySpeedReport={
+    notionMs,
+    notionRows:notionRows.length,
+    supabaseMs:_supabaseInventoryState.durationMs||0,
+    supabaseRows:_supabaseInventoryState.count||0,
+    at:Date.now(),
+  };
+  if(CURRENT_TAB==='inventory')renderTab('inventory');
+  showToast(`速度測試完成：Supabase ${_inventorySpeedReport.supabaseMs}ms / Notion快取畫面 ${notionMs}ms`,'ok');
 }
 function renderInventorySourceSwitch(){
   const selected=getInventoryReadSource();
@@ -7578,24 +7617,29 @@ function renderInventorySourceSwitch(){
   const supActive=selected==='supabase';
   const status=supActive
     ? state.running?'Supabase 讀取中...'
-      : state.error?`Supabase 試讀失敗：${escapeHtml(state.error)}`
-      : state.loaded?`Supabase 只讀快照 · ${state.count} 筆 · ${last}`
+      : state.error?`Supabase 讀取失敗：${escapeHtml(state.error)}`
+      : state.loaded?`Supabase 只讀快照 · ${state.count} 筆 · ${state.durationMs||'?'}ms · ${last}`
       :'Supabase 尚未載入'
     :'目前使用 Notion 正式資料';
+  const speed=_inventorySpeedReport;
   return `<div class="panel" style="margin-bottom:12px">
     <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div>
         <div style="font-size:0.7rem;color:var(--text3);font-weight:800;letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px">庫存資料來源</div>
         <div style="font-size:0.86rem;color:${state.error&&supActive?'var(--amber)':'var(--text2)'}">${status}</div>
-        <div style="font-size:0.72rem;color:var(--text3);margin-top:3px">試讀模式只影響此頁顯示/搜尋；正式新增、修改、訂單扣料仍走 Notion。</div>
+        <div style="font-size:0.72rem;color:var(--text3);margin-top:3px">Supabase 優先只影響此頁顯示/搜尋；正式新增、修改、訂單扣料仍走 Notion。</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn ${selected==='notion'?'btn-blue':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('notion')">Notion 正式</button>
-        <button class="btn ${supActive?'btn-cyan':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('supabase')" ${keySet?'':'disabled'}>Supabase 試讀</button>
+        <button class="btn ${supActive?'btn-cyan':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('supabase')" ${keySet?'':'disabled'}>Supabase 優先</button>
         ${supActive?`<button class="btn btn-ghost btn-sm" onclick="loadSupabaseInventoryForPage(true)" ${state.running?'disabled':''}>重新讀取</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="runInventorySpeedTest()" ${keySet&& !state.running?'':'disabled'}>速度測試</button>
         ${!keySet?`<button class="btn btn-yellow btn-sm" onclick="setSupabaseAnonKey()">設定 key</button>`:''}
       </div>
     </div>
+    ${speed?`<div style="border-top:1px solid var(--border);padding:10px 16px;color:var(--text3);font-size:.78rem">
+      速度測試：Supabase REST ${speed.supabaseMs||'?'}ms / ${speed.supabaseRows||0} 筆；Notion 快取畫面 ${speed.notionMs}ms / ${speed.notionRows} 筆 · ${new Date(speed.at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+    </div>`:''}
     ${state.running?'<div class="loading-row" style="border-top:1px solid var(--border)"><div class="spin"></div>正在讀取 Supabase 庫存快照...</div>':''}
   </div>`;
 }
