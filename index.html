@@ -7306,6 +7306,176 @@ function renderOpsBoard(){
 }
 
 let _healthReport=null;
+const SUPABASE_READONLY_URL='https://hemqintfrvsdoplbzanx.supabase.co';
+const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
+let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 只讀比對。'};
+
+function getSupabaseAnonKey(){
+  return localStorage.getItem(SUPABASE_ANON_KEY_STORAGE)||'';
+}
+function setSupabaseAnonKey(){
+  const current=getSupabaseAnonKey();
+  const key=prompt('請貼上 Supabase anon public key（不是 DB URL，也不是 postgres 密碼）',current);
+  if(key===null)return;
+  const clean=key.trim();
+  if(!clean){
+    localStorage.removeItem(SUPABASE_ANON_KEY_STORAGE);
+    showToast('已清除 Supabase 只讀 key','warn');
+  }else{
+    localStorage.setItem(SUPABASE_ANON_KEY_STORAGE,clean);
+    showToast('✅ Supabase 只讀 key 已儲存在此裝置','ok');
+  }
+  if(CURRENT_TAB==='health')renderTab('health');
+}
+async function supabaseRestSelect(path,query){
+  const key=getSupabaseAnonKey();
+  if(!key) throw new Error('尚未設定 Supabase anon public key');
+  const url=`${SUPABASE_READONLY_URL}/rest/v1/${path}?${query}`;
+  const res=await fetch(url,{
+    headers:{
+      apikey:key,
+      Authorization:`Bearer ${key}`,
+      Accept:'application/json',
+    },
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data=text;}
+  if(!res.ok){
+    const msg=(data&&data.message)||text||`HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return Array.isArray(data)?data:[];
+}
+function buildLocalInventorySnapshot(){
+  const bySku=new Map();
+  mats.forEach(m=>{
+    const sku=normalizeSku(m.code||m.name);
+    if(!sku)return;
+    bySku.set(sku,{sku,name:m.name||'',qty:Number(m.stock)||0,type:m.type||'',id:m.id});
+  });
+  return bySku;
+}
+function buildLocalBomSnapshot(){
+  const matById=new Map(mats.map(m=>[m.id,m]));
+  const keys=new Set();
+  boms.forEach(b=>{
+    const p=matById.get(b.parentId);
+    const c=matById.get(b.childId);
+    const ps=normalizeSku(p?.code||p?.name||b.parentName||'');
+    const cs=normalizeSku(c?.code||c?.name||b.childName||'');
+    const qty=Number(b.qty)||0;
+    if(ps&&cs&&qty>0) keys.add(`${ps}|${cs}|${qty}`);
+  });
+  return keys;
+}
+async function runSupabaseReadCheck(manual=false){
+  if(_supabaseReadReport.running)return;
+  _supabaseReadReport={checked:true,running:true,level:'info',message:'讀取 Supabase 只讀資料中...'};
+  if(CURRENT_TAB==='health')renderTab('health');
+  try{
+    const [inventoryRows,bomRows]=await Promise.all([
+      supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at&limit=5000'),
+      supabaseRestSelect('active_bom_components','select=parent_sku,component_sku,quantity&limit=5000'),
+    ]);
+    const localInv=buildLocalInventorySnapshot();
+    const supInv=new Map();
+    inventoryRows.forEach(r=>{
+      const sku=normalizeSku(r.sku);
+      if(!sku)return;
+      const prev=supInv.get(sku);
+      const qty=Number(r.quantity)||0;
+      supInv.set(sku,{sku,qty:(prev?.qty||0)+qty,name:r.name||'',type:r.material_type||''});
+    });
+    const missingInSup=[];
+    const extraInSup=[];
+    const qtyMismatch=[];
+    localInv.forEach((local,sku)=>{
+      const sup=supInv.get(sku);
+      if(!sup){missingInSup.push(sku);return;}
+      if(Number(local.qty)!==Number(sup.qty)) qtyMismatch.push({sku,notion:local.qty,supabase:sup.qty});
+    });
+    supInv.forEach((_,sku)=>{if(!localInv.has(sku))extraInSup.push(sku);});
+
+    const localBom=buildLocalBomSnapshot();
+    const supBom=new Set();
+    bomRows.forEach(r=>{
+      const ps=normalizeSku(r.parent_sku);
+      const cs=normalizeSku(r.component_sku);
+      const qty=Number(r.quantity)||0;
+      if(ps&&cs&&qty>0) supBom.add(`${ps}|${cs}|${qty}`);
+    });
+    const missingBom=[];
+    const extraBom=[];
+    localBom.forEach(k=>{if(!supBom.has(k))missingBom.push(k);});
+    supBom.forEach(k=>{if(!localBom.has(k))extraBom.push(k);});
+
+    const hasMismatch=missingInSup.length||extraInSup.length||qtyMismatch.length||missingBom.length||extraBom.length;
+    _supabaseReadReport={
+      checked:true,
+      running:false,
+      level:hasMismatch?'warn':'ok',
+      message:hasMismatch?'Supabase 已可讀，但與目前 Notion 快取仍有差異。':'Supabase 只讀資料與目前 ERP 快取一致。',
+      inventoryRows:inventoryRows.length,
+      inventorySkus:supInv.size,
+      localSkus:localInv.size,
+      bomRows:bomRows.length,
+      localBomRows:localBom.size,
+      missingInSup:missingInSup.slice(0,12),
+      extraInSup:extraInSup.slice(0,12),
+      qtyMismatch:qtyMismatch.slice(0,12),
+      missingBom:missingBom.slice(0,12),
+      extraBom:extraBom.slice(0,12),
+      mismatchTotal:missingInSup.length+extraInSup.length+qtyMismatch.length+missingBom.length+extraBom.length,
+    };
+    if(manual)showToast('✅ Supabase 只讀比對完成',hasMismatch?'warn':'ok');
+  }catch(e){
+    const msg=String(e.message||e);
+    const isRls=/permission|JWT|row-level|rls|not authorized|apikey|invalid/i.test(msg);
+    _supabaseReadReport={
+      checked:true,
+      running:false,
+      level:isRls?'warn':'err',
+      message:isRls?'Supabase REST 目前被權限/RLS 擋住，這是預期的安全狀態；前端尚未切換正式讀取。':msg,
+      error:msg,
+    };
+    if(manual)showToast('⚠ Supabase 只讀比對未完成：'+msg,'warn');
+  }
+  if(CURRENT_TAB==='health')renderTab('health');
+}
+function renderSupabaseReadCheck(){
+  const r=_supabaseReadReport||{};
+  const keySet=!!getSupabaseAnonKey();
+  const badge=healthBadge(r.level||'info',r.running?'讀取中':(r.level==='ok'?'OK':r.level==='warn'?'WARN':r.level==='err'?'ERROR':'READY'));
+  const sampleList=(title,rows,formatter=x=>escapeHtml(x))=>rows?.length?`<div style="margin-top:10px"><b style="color:var(--amber)">${title}</b><div style="font-size:.78rem;color:var(--text3);line-height:1.7">${rows.map(formatter).join('、')}</div></div>`:'';
+  return `<div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <span class="panel-title">Supabase 庫存只讀比對<span class="badge">${keySet?'已設定':'未設定'}</span></span>
+      ${badge}
+    </div>
+    <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">
+        目前正式流程仍讀寫 Notion；此區只讀 Supabase，用來驗證庫存與 BOM 搬遷結果。前端不可使用 PostgreSQL DB URL 或密碼。
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">讀取並比對 Supabase</button>
+        <button class="btn btn-ghost btn-sm" onclick="setSupabaseAnonKey()">${keySet?'更新':'設定'} anon public key</button>
+      </div>
+      ${r.running?'<div class="loading-row"><div class="spin"></div>Supabase 讀取中...</div>':`<div style="color:var(--text2);line-height:1.7">${escapeHtml(r.message||'尚未執行比對。')}</div>`}
+      ${r.inventorySkus!=null?`<div class="dash-kpi-grid" style="margin-top:10px">
+        <div class="kpi-card kpi-cyan"><div class="kpi-label">Supabase 料號</div><div class="kpi-num">${r.inventorySkus}</div><div class="kpi-sub">Notion 快取 ${r.localSkus}</div></div>
+        <div class="kpi-card kpi-blue"><div class="kpi-label">Supabase BOM</div><div class="kpi-num">${r.bomRows}</div><div class="kpi-sub">Notion 快取 ${r.localBomRows}</div></div>
+        <div class="kpi-card ${r.mismatchTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">差異</div><div class="kpi-num">${r.mismatchTotal||0}</div><div class="kpi-sub">只列前 12 筆樣本</div></div>
+      </div>`:''}
+      ${sampleList('Notion 有、Supabase 缺少',r.missingInSup)}
+      ${sampleList('Supabase 多出',r.extraInSup)}
+      ${sampleList('庫存數量不同',r.qtyMismatch,x=>`${escapeHtml(x.sku)} N:${x.notion} / S:${x.supabase}`)}
+      ${sampleList('BOM 缺少',r.missingBom)}
+      ${sampleList('BOM 多出',r.extraBom)}
+      ${r.error?`<div style="margin-top:10px;font-size:.78rem;color:var(--text3)">錯誤細節：${escapeHtml(r.error)}</div>`:''}
+    </div>
+  </div>`;
+}
 function localHealthChecks(){
   const byCode={};
   mats.forEach(m=>{const k=normalizeSku(m.code||m.name);if(!k)return;(byCode[k]=byCode[k]||[]).push(m);});
@@ -7470,6 +7640,7 @@ function renderHealthCheck(){
     <div class="kpi-card kpi-blue"><div class="kpi-label">BOM</div><div class="kpi-num">${boms.length}</div><div class="kpi-sub">關聯規則筆數</div></div>
     <div class="kpi-card kpi-cyan"><div class="kpi-label">庫存料號</div><div class="kpi-num">${mats.length}</div><div class="kpi-sub">目前主檔筆數</div></div>
   </div>
+  ${renderSupabaseReadCheck()}
   ${_healthReport?.running?'<div class="loading-row"><div class="spin"></div>檢查 Notion schema 中...</div>':''}
   ${schemaRows.length?`<div class="panel"><div class="panel-hdr"><span class="panel-title">Notion 欄位與選項檢查<span class="badge">${schemaRows.length}</span></span></div><div style="padding:12px">${schemaRows.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)"><div><b>${r.db}</b><div style="font-size:.76rem;color:var(--text3)">${r.msg}</div></div>${healthBadge(r.level,r.level==='ok'?'OK':r.level==='warn'?'WARN':'ERROR')}</div>`).join('')}</div></div>`:''}
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
