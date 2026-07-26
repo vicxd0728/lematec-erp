@@ -7308,7 +7308,10 @@ function renderOpsBoard(){
 let _healthReport=null;
 const SUPABASE_READONLY_URL='https://hemqintfrvsdoplbzanx.supabase.co';
 const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
+const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 只讀比對。'};
+let supabaseInventoryMats=[];
+let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0};
 
 function getSupabaseAnonKey(){
   return localStorage.getItem(SUPABASE_ANON_KEY_STORAGE)||'';
@@ -7481,6 +7484,119 @@ function renderSupabaseReadCheck(){
       ${sampleList('BOM 多出',r.extraBom)}
       ${r.error?`<div style="margin-top:10px;font-size:.78rem;color:var(--text3)">錯誤細節：${escapeHtml(r.error)}</div>`:''}
     </div>
+  </div>`;
+}
+function getInventoryReadSource(){
+  return localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)==='supabase'?'supabase':'notion';
+}
+function getInventoryReadSet(){
+  const source=getInventoryReadSource();
+  if(source==='supabase'&&_supabaseInventoryState.loaded&&!_supabaseInventoryState.error){
+    return {source,label:'Supabase 試讀',rows:supabaseInventoryMats,readonly:true};
+  }
+  return {source:'notion',label:'Notion 正式',rows:mats,readonly:false};
+}
+function setInventoryReadSource(source){
+  localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,source==='supabase'?'supabase':'notion');
+  if(source==='supabase'){
+    loadSupabaseInventoryForPage(true);
+  }else if(CURRENT_TAB==='inventory'){
+    renderTab('inventory');
+  }
+}
+async function loadSupabaseInventoryForPage(force=false){
+  if(_supabaseInventoryState.running)return;
+  if(_supabaseInventoryState.loaded&&!force){
+    if(CURRENT_TAB==='inventory')renderTab('inventory');
+    return;
+  }
+  _supabaseInventoryState={..._supabaseInventoryState,running:true,error:''};
+  if(CURRENT_TAB==='inventory')renderTab('inventory');
+  try{
+    const rows=await supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at');
+    const bySku=new Map();
+    rows.forEach(r=>{
+      const sku=String(r.sku||'').trim();
+      if(!sku)return;
+      const key=normalizeSku(sku);
+      const prev=bySku.get(key);
+      const qty=Number(r.quantity)||0;
+      const available=Number(r.available_quantity)||0;
+      const updated=r.updated_at||'';
+      if(prev){
+        prev.stock+=qty;
+        prev.qty=prev.stock;
+        prev.available=(Number(prev.available)||0)+available;
+        if(updated&&(!prev.updatedAt||updated>prev.updatedAt))prev.updatedAt=updated;
+        if(!prev.name&&r.name)prev.name=r.name;
+        if(!prev.type&&r.material_type)prev.type=r.material_type;
+      }else{
+        bySku.set(key,{
+          id:'supabase:'+String(r.material_id||key),
+          supabaseId:r.material_id||'',
+          code:sku,
+          name:r.name||sku,
+          type:r.material_type||'未分類',
+          stock:qty,
+          qty,
+          available,
+          safe:0,
+          updatedAt:updated,
+          source:'supabase',
+        });
+      }
+    });
+    supabaseInventoryMats=[...bySku.values()].sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
+    _supabaseInventoryState={
+      loaded:true,
+      running:false,
+      error:'',
+      ts:Date.now(),
+      count:supabaseInventoryMats.length,
+      rawCount:rows.length,
+    };
+    if(CURRENT_TAB==='inventory')renderTab('inventory');
+    showToast(`✅ Supabase 庫存試讀完成：${supabaseInventoryMats.length} 筆`,'ok');
+  }catch(e){
+    _supabaseInventoryState={
+      ..._supabaseInventoryState,
+      loaded:false,
+      running:false,
+      error:String(e.message||e),
+      ts:Date.now(),
+      count:0,
+    };
+    if(CURRENT_TAB==='inventory')renderTab('inventory');
+    showToast('⚠ Supabase 庫存試讀失敗：'+_supabaseInventoryState.error,'warn');
+  }
+}
+function renderInventorySourceSwitch(){
+  const selected=getInventoryReadSource();
+  const state=_supabaseInventoryState;
+  const keySet=!!getSupabaseAnonKey();
+  const last=state.ts?new Date(state.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'尚未讀取';
+  const supActive=selected==='supabase';
+  const status=supActive
+    ? state.running?'Supabase 讀取中...'
+      : state.error?`Supabase 試讀失敗：${escapeHtml(state.error)}`
+      : state.loaded?`Supabase 只讀快照 · ${state.count} 筆 · ${last}`
+      :'Supabase 尚未載入'
+    :'目前使用 Notion 正式資料';
+  return `<div class="panel" style="margin-bottom:12px">
+    <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:0.7rem;color:var(--text3);font-weight:800;letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px">庫存資料來源</div>
+        <div style="font-size:0.86rem;color:${state.error&&supActive?'var(--amber)':'var(--text2)'}">${status}</div>
+        <div style="font-size:0.72rem;color:var(--text3);margin-top:3px">試讀模式只影響此頁顯示/搜尋；正式新增、修改、訂單扣料仍走 Notion。</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ${selected==='notion'?'btn-blue':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('notion')">Notion 正式</button>
+        <button class="btn ${supActive?'btn-cyan':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('supabase')" ${keySet?'':'disabled'}>Supabase 試讀</button>
+        ${supActive?`<button class="btn btn-ghost btn-sm" onclick="loadSupabaseInventoryForPage(true)" ${state.running?'disabled':''}>重新讀取</button>`:''}
+        ${!keySet?`<button class="btn btn-yellow btn-sm" onclick="setSupabaseAnonKey()">設定 key</button>`:''}
+      </div>
+    </div>
+    ${state.running?'<div class="loading-row" style="border-top:1px solid var(--border)"><div class="spin"></div>正在讀取 Supabase 庫存快照...</div>':''}
   </div>`;
 }
 function localHealthChecks(){
@@ -13827,9 +13943,15 @@ function renderCustomers(){
 
 function renderInventory(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
-  const low=mats.filter(m=>m.stock<=m.safe);
-  const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
-  const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
+  const readSet=getInventoryReadSet();
+  const invMats=readSet.rows||[];
+  const usingSupabase=getInventoryReadSource()==='supabase';
+  if(getInventoryReadSource()==='supabase'&&!_supabaseInventoryState.loaded&&!_supabaseInventoryState.running&&!_supabaseInventoryState.error){
+    setTimeout(()=>loadSupabaseInventoryForPage(false),0);
+  }
+  const low=invMats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
+  const canEditStock=!usingSupabase&&!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  const canEditMat=!usingSupabase&&!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
@@ -13837,17 +13959,17 @@ function renderInventory(){
   };
 
   // ── 套用篩選
-  let data = applySort('inventory', mats);
+  let data = applySort('inventory', invMats);
   if(INV.q){
     const q=INV.q.toLowerCase();
-    data=data.filter(m=>m.name.toLowerCase().includes(q)||m.code.toLowerCase().includes(q));
+    data=data.filter(m=>(m.name||'').toLowerCase().includes(q)||(m.code||'').toLowerCase().includes(q));
   }
   if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
-  if(INV.stockMin!=='') data=data.filter(m=>m.stock>=Number(INV.stockMin));
-  if(INV.stockMax!=='') data=data.filter(m=>m.stock<=Number(INV.stockMax));
-  if(INV.stockStatus==='ok')  data=data.filter(m=>m.stock>0&&(m.safe<=0||m.stock>m.safe));
-  if(INV.stockStatus==='low') data=data.filter(m=>m.stock>0&&m.safe>0&&m.stock<=m.safe);
-  if(INV.stockStatus==='out') data=data.filter(m=>m.stock<=0);
+  if(INV.stockMin!=='') data=data.filter(m=>(Number(m.stock)||0)>=Number(INV.stockMin));
+  if(INV.stockMax!=='') data=data.filter(m=>(Number(m.stock)||0)<=Number(INV.stockMax));
+  if(INV.stockStatus==='ok')  data=data.filter(m=>(Number(m.stock)||0)>0&&((Number(m.safe)||0)<=0||(Number(m.stock)||0)>Number(m.safe)));
+  if(INV.stockStatus==='low') data=data.filter(m=>(Number(m.stock)||0)>0&&(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
+  if(INV.stockStatus==='out') data=data.filter(m=>(Number(m.stock)||0)<=0);
 
   const total=data.length;
   const ps=INV.pageSize;
@@ -13872,6 +13994,10 @@ function renderInventory(){
   }
 
   let html = `
+
+  ${renderInventorySourceSwitch()}
+
+  ${usingSupabase?`<div class="info-box info-tip" style="margin-bottom:12px">Supabase 試讀模式：此頁資料來自 Supabase，只供快速瀏覽與搜尋。若要修改庫存、料件名稱或刪除料號，請切回「Notion 正式」。</div>`:''}
 
   <!-- 搜尋 & 篩選列 -->
   <div class="panel" style="margin-bottom:12px">
@@ -13926,8 +14052,8 @@ function renderInventory(){
     <!-- 結果摘要 + 每頁筆數 -->
     <div style="padding:6px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border)">
       <span style="font-size:0.75rem;color:var(--text3)">
-        共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${mats.length} 筆
-        ${INV.page>1||total<mats.length?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
+        共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${invMats.length} 筆
+        ${INV.page>1||total<invMats.length?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
       </span>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:0.6875rem;color:var(--text3)">每頁</span>
@@ -13957,9 +14083,11 @@ function renderInventory(){
         <th>操作</th>
       </tr>
       ${pageData.length?pageData.map(m=>{
-        const pct=m.safe>0?Math.min(100,(m.stock/(m.safe*2))*100):(m.stock>0?80:0);
-        const fill=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
-        const sc=m.stock<=0?'var(--red)':m.stock<=m.safe?'var(--yellow)':'var(--green)';
+        const stock=Number(m.stock)||0;
+        const safe=Number(m.safe)||0;
+        const pct=safe>0?Math.min(100,(stock/(safe*2))*100):(stock>0?80:0);
+        const fill=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
+        const sc=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
         return`<tr>
         <td style="font-weight:600">${m.name}${m.code?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${m.code}</div>`:''}</td>
         <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${m.code||'—'}</td>
@@ -13967,14 +14095,15 @@ function renderInventory(){
         <td>
           <div style="display:flex;align-items:center;gap:6px">
             <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div>
-            <span style="font-family:monospace;font-size:0.8125rem;font-weight:600;color:${sc}">${m.stock}</span>
+            <span style="font-family:monospace;font-size:0.8125rem;font-weight:600;color:${sc}">${stock}</span>
           </div>
         </td>
-        <td class="hide-m" style="font-family:monospace;color:var(--text3)">${m.safe}</td>
-        <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${m.stock<=0?'❌':m.stock<=m.safe?'⚠':'✓'}</td>
+        <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
+        <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
           ${canEditStock?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
-          ${isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
+          ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
+          ${usingSupabase?`<span class="pill" style="background:rgba(20,184,166,.12);color:var(--cyan2)">只讀</span>`:''}
         </td>
       </tr>`;}).join('')
       :`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
