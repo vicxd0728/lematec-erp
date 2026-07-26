@@ -1,0 +1,37 @@
+name: Supabase Heartbeat
+
+on:
+  schedule:
+    # Keep the free Supabase project active with two light reads per week.
+    # Times are UTC: Monday and Thursday 02:17 UTC = 10:17 Taiwan time.
+    - cron: "17 2 * * 1,4"
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read one Supabase stock-log row
+        env:
+          SUPABASE_URL: https://hemqintfrvsdoplbzanx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Missing GitHub secret SUPABASE_ANON_KEY"
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            "$SUPABASE_URL/rest/v1/stock_logs_public?select=id,created_at&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Accept: application/json" \
+            -o /tmp/supabase-heartbeat.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows = json.loads(Path("/tmp/supabase-heartbeat.json").read_text(encoding="utf-8"))
+          print(f"Supabase heartbeat OK. Rows returned: {len(rows)}")
+          PY
