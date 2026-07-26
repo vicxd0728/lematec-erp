@@ -7330,22 +7330,29 @@ function setSupabaseAnonKey(){
 async function supabaseRestSelect(path,query){
   const key=getSupabaseAnonKey();
   if(!key) throw new Error('尚未設定 Supabase anon public key');
-  const url=`${SUPABASE_READONLY_URL}/rest/v1/${path}?${query}`;
-  const res=await fetch(url,{
-    headers:{
-      apikey:key,
-      Authorization:`Bearer ${key}`,
-      Accept:'application/json',
-    },
-  });
-  const text=await res.text();
-  let data;
-  try{data=text?JSON.parse(text):null;}catch{data=text;}
-  if(!res.ok){
-    const msg=(data&&data.message)||text||`HTTP ${res.status}`;
-    throw new Error(msg);
+  const pageSize=1000;
+  const all=[];
+  for(let offset=0;offset<20000;offset+=pageSize){
+    const url=`${SUPABASE_READONLY_URL}/rest/v1/${path}?${query}&limit=${pageSize}&offset=${offset}`;
+    const res=await fetch(url,{
+      headers:{
+        apikey:key,
+        Authorization:`Bearer ${key}`,
+        Accept:'application/json',
+      },
+    });
+    const text=await res.text();
+    let data;
+    try{data=text?JSON.parse(text):null;}catch{data=text;}
+    if(!res.ok){
+      const msg=(data&&data.message)||text||`HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    const rows=Array.isArray(data)?data:[];
+    all.push(...rows);
+    if(rows.length<pageSize) break;
   }
-  return Array.isArray(data)?data:[];
+  return all;
 }
 function buildLocalInventorySnapshot(){
   const bySku=new Map();
@@ -7365,7 +7372,7 @@ function buildLocalBomSnapshot(){
     const ps=normalizeSku(p?.code||p?.name||b.parentName||'');
     const cs=normalizeSku(c?.code||c?.name||b.childName||'');
     const qty=Number(b.qty)||0;
-    if(ps&&cs&&qty>0) keys.add(`${ps}|${cs}|${qty}`);
+    if(ps&&cs&&qty>0&&ps!==cs) keys.add(`${ps}|${cs}|${qty}`);
   });
   return keys;
 }
@@ -7375,8 +7382,8 @@ async function runSupabaseReadCheck(manual=false){
   if(CURRENT_TAB==='health')renderTab('health');
   try{
     const [inventoryRows,bomRows]=await Promise.all([
-      supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at&limit=5000'),
-      supabaseRestSelect('active_bom_components','select=parent_sku,component_sku,quantity&limit=5000'),
+      supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at'),
+      supabaseRestSelect('active_bom_components','select=parent_sku,component_sku,quantity'),
     ]);
     const localInv=buildLocalInventorySnapshot();
     const supInv=new Map();
