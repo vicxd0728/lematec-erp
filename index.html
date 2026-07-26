@@ -7923,11 +7923,9 @@ async function loadStockLog(options={}){
     if(getSupabaseAnonKey()){
       try{
         const supRows=await loadSupabaseStockLog(mode);
-        if(supRows.length){
-          stockLogs=supRows;
-          markDataLoadMode('stocklog',mode,stockLogs.length);
-          return;
-        }
+        stockLogs=supRows;
+        markDataLoadMode('stocklog',mode,stockLogs.length);
+        return;
       }catch(e){
         console.warn('loadSupabaseStockLog fallback to Notion:',e.message||e);
       }
