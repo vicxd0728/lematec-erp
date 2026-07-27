@@ -471,10 +471,26 @@ async function erpStockLogList(request, env, cors) {
     filters.push('order=change_date.desc,created_at.desc');
     filters.push(`limit=${limit}`);
     const rows = await supabaseFetch(env, `/rest/v1/stock_logs_public?${filters.join('&')}`);
-    return respOK(cors, { ok: true, rows: Array.isArray(rows) ? rows : [] });
+    const visibleRows = Array.isArray(rows) ? rows.filter((row) => !isStockLogTestRow(row)) : [];
+    return respOK(cors, { ok: true, rows: visibleRows });
   } catch (e) {
     return resp500(cors, e.message);
   }
+}
+
+function isStockLogTestRow(row) {
+  const trace = String(row?.client_trace_id || '').toLowerCase();
+  const code = String(row?.material_code || '').toUpperCase();
+  const ref = String(row?.ref_no || '').toUpperCase();
+  const source = String(row?.source || '').toLowerCase();
+  return (
+    trace.startsWith('codex-') ||
+    code.startsWith('TEST-') ||
+    ref.includes('SMOKE_TEST') ||
+    ref.includes('WORKER_WRITE_TEST') ||
+    ref.endsWith('_TEST') ||
+    source === 'codex_sync'
+  );
 }
 
 async function erpStockLogMarkNotion(request, env, cors) {
