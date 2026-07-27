@@ -11,6 +11,9 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inventory/sync') {
+      return erpInventorySync(request, env, cors);
+    }
 
     const ct = request.headers.get('Content-Type') || '';
 
@@ -349,6 +352,140 @@ function taipeiISOString(date = new Date()) {
     return acc;
   }, {});
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+}
+
+async function erpInventorySync(request, env, cors) {
+  try {
+    const body = await request.json();
+    const task = body?.task || body;
+    const payload = task?.payload || {};
+    const sku = cleanSku(payload.sku || payload.code || payload.name || '');
+    if (!task?.kind) return resp400(cors, 'Missing inventory sync kind');
+    if (!sku) return resp400(cors, 'Missing inventory SKU');
+
+    const organization = await supabaseSingle(env, '/rest/v1/organizations?slug=eq.lematec&select=id&limit=1');
+    if (!organization?.id) throw new Error('Supabase organization lematec not found');
+    const warehouse = await supabaseSingle(env, `/rest/v1/warehouses?organization_id=eq.${organization.id}&code=eq.MAIN&select=id&limit=1`);
+    if (!warehouse?.id) throw new Error('Supabase MAIN warehouse not found');
+
+    let material = null;
+    if (payload.notion_page_id) {
+      material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+    }
+    if (!material) {
+      material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${organization.id}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+    }
+
+    if (task.kind === 'upsert_material' || !material) {
+      material = await upsertSupabaseMaterial(env, organization.id, material, {...payload, sku});
+    }
+    if (!material?.id) throw new Error(`Supabase material sync failed: ${sku}`);
+
+    const stock = Number(payload.stock);
+    if ((task.kind === 'set_stock' || task.kind === 'upsert_material') && Number.isFinite(stock)) {
+      await upsertSupabaseBalance(env, organization.id, warehouse.id, material.id, stock);
+    }
+
+    return respOK(cors, {
+      ok: true,
+      kind: task.kind,
+      sku,
+      material_id: material.id,
+      stock: Number.isFinite(stock) ? stock : null,
+      mirrored_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function supabaseFetch(env, path, options = {}) {
+  const base = String(env.SUPABASE_URL || env.SUPABASE_REST_URL || '').replace(/\/+$/, '');
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
+  if (!base || !serviceKey) throw new Error('Supabase sync env missing: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Worker');
+  const headers = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+  const res = await fetch(`${base}${path}`, {...options, headers});
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    throw new Error((data && data.message) || text || `Supabase HTTP ${res.status}`);
+  }
+  return data;
+}
+
+async function supabaseSingle(env, path, allowMissing = false) {
+  const data = await supabaseFetch(env, path);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row && !allowMissing) throw new Error(`Supabase row not found: ${path}`);
+  return row || null;
+}
+
+async function upsertSupabaseMaterial(env, organizationId, existing, payload) {
+  const sku = cleanSku(payload.sku || payload.code || payload.name || '');
+  const row = {
+    organization_id: organizationId,
+    sku,
+    name: cleanText(payload.name || sku),
+    material_type: normalizeMaterialType(payload.type || payload.material_type),
+    unit: cleanText(payload.unit || '個'),
+    safety_stock: Number(payload.safe ?? payload.safety_stock ?? 0) || 0,
+    notes: cleanText(payload.note || payload.notes || ''),
+  };
+  if (payload.notion_page_id) row.notion_page_id = cleanText(payload.notion_page_id);
+
+  if (existing?.id) {
+    const data = await supabaseFetch(env, `/rest/v1/materials?id=eq.${existing.id}&select=id,sku,name,material_type,notion_page_id`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(row),
+    });
+    return Array.isArray(data) ? data[0] : data;
+  }
+
+  const data = await supabaseFetch(env, '/rest/v1/materials?select=id,sku,name,material_type,notion_page_id', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(row),
+  });
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function upsertSupabaseBalance(env, organizationId, warehouseId, materialId, quantity) {
+  const data = await supabaseFetch(env, '/rest/v1/inventory_balances?on_conflict=organization_id,warehouse_id,material_id&select=id,quantity', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({
+      organization_id: organizationId,
+      warehouse_id: warehouseId,
+      material_id: materialId,
+      quantity,
+    }),
+  });
+  return Array.isArray(data) ? data[0] : data;
+}
+
+function cleanText(value) {
+  return String(value ?? '').trim();
+}
+
+function cleanSku(value) {
+  return cleanText(value).replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeMaterialType(value) {
+  const text = cleanText(value);
+  if (text.includes('蝦皮') || /^S-/i.test(text)) return '蝦皮用';
+  if (text.includes('半')) return '半成品';
+  if (text.includes('成')) return '成品';
+  if (text.includes('零') || text.includes('料')) return '零件';
+  return '零件';
 }
 
 function u8b64(u8){ let s=''; for(let i=0;i<u8.length;i++) s+=String.fromCharCode(u8[i]); return btoa(s); }

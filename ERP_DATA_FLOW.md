@@ -31,7 +31,7 @@
 
 | 模組 | 目前主資料 | 前端讀取 | 前端寫入 | Notion 角色 | Supabase 角色 |
 |---|---|---|---|---|---|
-| 庫存主檔 | Notion | Notion 正式；可切 Supabase 優先只讀 | Notion | 正式操作與查閱 | 只讀快照、速度測試、遷移驗證 |
+| 庫存主檔 | Notion | Notion 正式；可切 Supabase 優先只讀 | Notion 主流程；新增料號與庫存數量變更會自動鏡像 Supabase | 正式操作與查閱 | 只讀快照、速度測試、遷移驗證、前端庫存鏡像 |
 | BOM / 子母件 | Notion | Notion | Notion | 正式操作與查閱 | 遷移驗證與未來候選主資料 |
 | 異動紀錄 | Supabase 轉換中 | 有 key 時優先 Supabase，失敗回 Notion | Supabase；需鏡像 Notion | 人員查閱鏡像 | 主讀寫與速度來源 |
 | 影片庫 | Supabase | Supabase 優先；失敗回備援清單 | 目前非前端日常寫入 | 可作資料備援 | 主資料與快速搜尋 |
@@ -56,6 +56,18 @@
 5. Supabase 模式只讀，會禁止庫存修改與料號刪除。
 
 重點：Supabase 優先目前只影響庫存頁顯示/搜尋，不代表訂單扣料已切 Supabase。
+
+## 庫存寫入鏡像流程
+
+目前前端庫存寫入仍先走 Notion 正式流程；成功後會自動送出 Supabase 鏡像任務：
+
+1. 新增料號：`createPage(DB.materials, ...)` 成功後，建立 `upsert_material` 任務。
+2. 修改庫存數量：`updatePage(..., {'目前庫存': ...})` 成功後，建立 `set_stock` 任務。
+3. 前端會把任務存在本機 `lematec_inventory_mirror_queue_v1`，並透過 Worker `/api/inventory/sync` 寫入 Supabase。
+4. Worker 必須設定 `SUPABASE_URL` 與 `SUPABASE_SERVICE_ROLE_KEY`，由 Worker 使用 service role 寫入，前端不接觸 DB 密碼。
+5. 若 Worker、網路或 Supabase 暫時失敗，Notion 主流程不回滾，任務留在本機佇列，登入或回到前景時自動重試。
+
+重點：這是「Notion 主流程 + Supabase 鏡像」階段，還不是完整 Supabase 主資料切換。訂單扣料、BOM、入料、品管等完整庫存服務仍需 Phase 4 才能正式切成 Supabase 主資料。
 
 ## 異動紀錄流程
 
@@ -95,7 +107,7 @@
 
 - 日常庫存操作：ERP 前端或由 Codex 批量操作 Notion。
 - Notion：查閱與人工稽核。
-- Supabase：只讀驗證、速度測試、異動紀錄主資料試行。
+- Supabase：只讀驗證、速度測試、異動紀錄主資料試行、前端庫存鏡像。
 
 未來切換後：
 

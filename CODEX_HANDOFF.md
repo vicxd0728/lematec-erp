@@ -32,7 +32,7 @@
 - Notion 仍是大多數正式操作資料源與人員查閱後台。
 - Supabase 已開始承接速度敏感資料，但採漸進式切換。
 - 庫存頁可切換「Notion 正式 / Supabase 優先」。Supabase 優先需要本機已設定 anon public key，且目前只影響庫存頁顯示與搜尋。
-- 庫存新增、修改、刪除、訂單扣料、BOM 寫入目前仍以 Notion 正式流程為主，除非日後明確切換。
+- 庫存新增與庫存數量修改目前仍先以 Notion 正式流程為主，但前端會自動排入 Supabase 鏡像佇列；刪除、訂單扣料、BOM 寫入仍未正式切 Supabase。
 - 異動紀錄正在轉向 Supabase 主讀寫，Notion 需同步保留鏡像，供人員查閱。
 - 影片庫優先讀 Supabase，失敗時退回備援清單。
 
@@ -44,6 +44,7 @@
 - 有 key：庫存頁預設可使用 Supabase 優先，但只讀；修改類操作仍需切回 Notion 正式。
 - 異動紀錄有 key 時會先讀 Supabase，失敗再退回 Notion。
 - 前端不可使用 PostgreSQL DB URL 或 postgres 密碼。
+- 前端庫存鏡像不靠 anon key 寫入；它會呼叫 Worker `/api/inventory/sync`，由 Worker 內部的 `SUPABASE_SERVICE_ROLE_KEY` 寫入 Supabase。
 
 ## 核心流程規則
 
