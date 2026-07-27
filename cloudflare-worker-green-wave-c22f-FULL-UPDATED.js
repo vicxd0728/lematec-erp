@@ -14,6 +14,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/sync') {
       return erpInventorySync(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inventory/adjust') {
+      return erpInventoryAdjust(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -408,6 +411,45 @@ async function erpInventorySync(request, env, cors) {
   }
 }
 
+async function erpInventoryAdjust(request, env, cors) {
+  try {
+    const body = await request.json();
+    const payload = body?.payload || body || {};
+    const sku = cleanSku(payload.sku || payload.code || payload.name || '');
+    const delta = Number(payload.delta);
+    const requestedStock = Number(payload.stock ?? payload.next_stock ?? payload.nextStock);
+    if (!sku) return resp400(cors, 'Missing inventory SKU');
+    if (!Number.isFinite(delta) && !Number.isFinite(requestedStock)) {
+      return resp400(cors, 'Missing inventory delta or stock');
+    }
+
+    const context = await getSupabaseInventoryContext(env);
+    const material = await resolveSupabaseMaterial(env, context.organization.id, payload, sku);
+    if (!material?.id) throw new Error(`Supabase material not found or created: ${sku}`);
+
+    const balance = await getSupabaseBalance(env, context.organization.id, context.warehouse.id, material.id);
+    const beforeStock = Number(balance?.quantity || 0);
+    const afterStock = Number.isFinite(delta) ? beforeStock + delta : requestedStock;
+    if (!Number.isFinite(afterStock)) return resp400(cors, 'Invalid inventory result');
+    if (afterStock < 0 && payload.allow_negative !== true) {
+      return resp400(cors, `Insufficient inventory for ${sku}: ${beforeStock} + (${Number.isFinite(delta) ? delta : afterStock - beforeStock}) would become ${afterStock}`);
+    }
+
+    await upsertSupabaseBalance(env, context.organization.id, context.warehouse.id, material.id, afterStock);
+    return respOK(cors, {
+      ok: true,
+      sku,
+      material_id: material.id,
+      before_stock: beforeStock,
+      after_stock: afterStock,
+      delta: afterStock - beforeStock,
+      adjusted_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
 async function erpStockLogSync(request, env, cors) {
   try {
     const body = await request.json();
@@ -539,6 +581,36 @@ async function supabaseSingle(env, path, allowMissing = false) {
   const row = Array.isArray(data) ? data[0] : data;
   if (!row && !allowMissing) throw new Error(`Supabase row not found: ${path}`);
   return row || null;
+}
+
+async function getSupabaseInventoryContext(env) {
+  const organization = await supabaseSingle(env, '/rest/v1/organizations?slug=eq.lematec&select=id&limit=1');
+  if (!organization?.id) throw new Error('Supabase organization lematec not found');
+  const warehouse = await supabaseSingle(env, `/rest/v1/warehouses?organization_id=eq.${organization.id}&code=eq.MAIN&select=id&limit=1`);
+  if (!warehouse?.id) throw new Error('Supabase MAIN warehouse not found');
+  return { organization, warehouse };
+}
+
+async function resolveSupabaseMaterial(env, organizationId, payload, sku) {
+  let material = null;
+  if (payload.notion_page_id) {
+    material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+  }
+  if (!material) {
+    material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${organizationId}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+  }
+  if (!material) {
+    material = await upsertSupabaseMaterial(env, organizationId, null, {...payload, sku});
+  }
+  return material;
+}
+
+async function getSupabaseBalance(env, organizationId, warehouseId, materialId) {
+  return supabaseSingle(
+    env,
+    `/rest/v1/inventory_balances?organization_id=eq.${organizationId}&warehouse_id=eq.${warehouseId}&material_id=eq.${materialId}&select=id,quantity&limit=1`,
+    true
+  );
 }
 
 async function upsertSupabaseMaterial(env, organizationId, existing, payload) {

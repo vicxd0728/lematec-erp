@@ -49,38 +49,43 @@ as the source of truth.
 
 ## Inventory Quantity Cutover Status
 
-Important: stock operation logs are now designed as Supabase-first, but inventory
-quantity changes are not yet fully Supabase-transaction-first.
+Important: stock operation logs and the main ERP inventory quantity write paths
+are now designed as Supabase-first. Notion remains the staff-readable mirror.
 
-Current inventory write behavior after 2026-07-27 frontend guard:
+Current inventory write behavior after 2026-07-27 inventory adjustment cutover:
 
 - New material pages in the ERP frontend call `/api/inventory/sync` first with
   `upsert_material`. If Supabase rejects the material, the frontend does not create
   the Notion mirror page.
-- Stock quantity changes in the ERP frontend call `/api/inventory/sync` first with
-  `set_stock` when the current cache can identify the SKU. If Supabase rejects the
-  stock write, the Notion mirror update is not attempted.
-- After Supabase accepts the frontend write, Notion is still patched as the
-  staff-readable mirror.
-- The frontend still queues a follow-up mirror task after the Notion page is
-  created or patched, so Supabase can store the Notion page id and latest mirror
-  metadata.
-- Some legacy paths can still fall back to Notion-first when a SKU cannot be built
-  from the current frontend cache. These paths need targeted cleanup before claiming
-  full inventory cutover.
+- Stock quantity deltas and absolute stock settings in the ERP frontend call
+  Worker route `POST /api/inventory/adjust` first. The Worker writes Supabase
+  balances with the service role key.
+- If Supabase rejects the stock write, the Notion mirror update is not attempted
+  and the ERP operation must show an error.
+- After Supabase accepts the stock write, the frontend patches the Notion
+  `目前庫存` mirror and queues a follow-up `/api/inventory/sync` task so Supabase
+  can keep the Notion page id and mirror metadata.
+- Covered stock paths include manual stock edit, order picking, manual picking,
+  inbound QC pass, manual inbound stock-in, manual QC stock-in, semi-finished
+  stock-in, C-end shipment/return, Shopee BOM deduction, Shopee S-stock completion,
+  and duplicate-material stock merge.
+- Create-page initial stock is still protected by `/api/inventory/sync`
+  `upsert_material`, then mirrored to Notion.
 
 Target inventory write behavior:
 
-- ERP frontend submits inventory quantity changes to a Worker inventory transaction endpoint.
+- ERP frontend continues to submit inventory quantity changes to Worker
+  transaction endpoints.
 - Worker writes Supabase first.
-- Worker or a sync worker mirrors the successful change to Notion.
+- Worker or a sync job mirrors successful changes to Notion.
 - If Supabase rejects the write, the ERP frontend must show failure and avoid fake success.
-- Notion manual edits should be detected by a separate Notion-to-Supabase sync job.
+- Notion manual edits should be detected by a separate Notion-to-Supabase sync job
+  or change-request queue.
   Notion can be a human editing surface, but Supabase remains the accepted source of truth.
 
-Do not claim inventory is fully Supabase-primary until this target behavior is implemented
-and verified across inbound QC, order picking, Shopee S-stock flow, manual stock edits,
-duplicate material repair, and BOM maintenance.
+Do not claim Notion is fully two-way until the Notion-to-Supabase detection/sync
+job exists and is verified. BOM maintenance also remains Notion-led unless a
+separate BOM cutover is implemented.
 
 ## GitHub Heartbeat
 
