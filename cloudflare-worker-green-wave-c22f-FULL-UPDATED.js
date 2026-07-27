@@ -374,7 +374,6 @@ async function erpInventoryList(request, env, cors) {
     const url = new URL(request.url);
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 5000) || 5000, 1), 20000);
     const pageSize = Math.min(Number(url.searchParams.get('page_size') || 1000) || 1000, 1000);
-    const context = await getSupabaseInventoryContext(env);
     const rows = [];
 
     const select = [
@@ -394,7 +393,7 @@ async function erpInventoryList(request, env, cors) {
     for (let offset = 0; offset < limit; offset += pageSize) {
       const batch = await supabaseFetch(
         env,
-        `/rest/v1/materials?organization_id=eq.${context.organization.id}&archived_at=is.null&select=${encodeURIComponent(select)}&order=sku.asc&limit=${pageSize}&offset=${offset}`
+        `/rest/v1/materials?archived_at=is.null&select=${encodeURIComponent(select)}&order=sku.asc&limit=${pageSize}&offset=${offset}`
       );
       const list = Array.isArray(batch) ? batch : [];
       rows.push(...list);
@@ -451,17 +450,16 @@ async function erpInventorySync(request, env, cors) {
     if (!task?.kind) return resp400(cors, 'Missing inventory sync kind');
     if (!sku) return resp400(cors, 'Missing inventory SKU');
 
-    const organization = await supabaseSingle(env, '/rest/v1/organizations?slug=eq.lematec&select=id&limit=1');
-    if (!organization?.id) throw new Error('Supabase organization lematec not found');
-    const warehouse = await supabaseSingle(env, `/rest/v1/warehouses?organization_id=eq.${organization.id}&code=eq.MAIN&select=id&limit=1`);
-    if (!warehouse?.id) throw new Error('Supabase MAIN warehouse not found');
+    const context = await getSupabaseInventoryContext(env);
+    const organization = context.organization;
+    const warehouse = context.warehouse;
 
     let material = null;
     if (payload.notion_page_id) {
-      material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+      material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
     }
     if (!material) {
-      material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${organization.id}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+      material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organization.id)}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
     }
 
     if (task.kind === 'upsert_material' || !material) {
@@ -660,20 +658,46 @@ async function supabaseSingle(env, path, allowMissing = false) {
 }
 
 async function getSupabaseInventoryContext(env) {
-  const organization = await supabaseSingle(env, '/rest/v1/organizations?slug=eq.lematec&select=id&limit=1');
-  if (!organization?.id) throw new Error('Supabase organization lematec not found');
-  const warehouse = await supabaseSingle(env, `/rest/v1/warehouses?organization_id=eq.${organization.id}&code=eq.MAIN&select=id&limit=1`);
-  if (!warehouse?.id) throw new Error('Supabase MAIN warehouse not found');
+  const envOrganizationId = cleanText(env.SUPABASE_ORGANIZATION_ID || env.SUPABASE_ORG_ID || '');
+  const envWarehouseId = cleanText(env.SUPABASE_WAREHOUSE_ID || '');
+  if (envOrganizationId && envWarehouseId) {
+    return { organization: { id: envOrganizationId }, warehouse: { id: envWarehouseId } };
+  }
+
+  let warehouse = null;
+  if (envWarehouseId) {
+    warehouse = await supabaseSingle(env, `/rest/v1/warehouses?id=eq.${encodeURIComponent(envWarehouseId)}&select=id,organization_id,code&limit=1`, true);
+  }
+  if (!warehouse && envOrganizationId) {
+    warehouse = await supabaseSingle(env, `/rest/v1/warehouses?organization_id=eq.${encodeURIComponent(envOrganizationId)}&code=eq.MAIN&select=id,organization_id,code&limit=1`, true);
+  }
+  if (!warehouse) {
+    warehouse = await supabaseSingle(env, '/rest/v1/warehouses?code=eq.MAIN&select=id,organization_id,code&limit=1', true);
+  }
+
+  let organizationId = cleanText(envOrganizationId || warehouse?.organization_id || '');
+  if (!organizationId) {
+    const sampleMaterial = await supabaseSingle(env, '/rest/v1/materials?select=organization_id&limit=1', true);
+    organizationId = cleanText(sampleMaterial?.organization_id || '');
+  }
+  if (!organizationId) {
+    const organization = await supabaseSingle(env, '/rest/v1/organizations?slug=eq.lematec&select=id&limit=1', true);
+    organizationId = cleanText(organization?.id || '');
+  }
+  if (!organizationId) throw new Error('Supabase organization id not found. Set SUPABASE_ORGANIZATION_ID on Worker.');
+  if (!warehouse?.id) throw new Error('Supabase MAIN warehouse not found. Set SUPABASE_WAREHOUSE_ID on Worker.');
+  const organization = { id: organizationId };
   return { organization, warehouse };
 }
 
 async function resolveSupabaseMaterial(env, organizationId, payload, sku) {
   let material = null;
   if (payload.notion_page_id) {
-    material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+    material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
   }
   if (!material) {
-    material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${organizationId}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id&limit=1`, true);
+    const organizationFilter = organizationId ? `organization_id=eq.${encodeURIComponent(organizationId)}&` : '';
+    material = await supabaseSingle(env, `/rest/v1/materials?${organizationFilter}sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
   }
   if (!material) {
     material = await upsertSupabaseMaterial(env, organizationId, null, {...payload, sku});
