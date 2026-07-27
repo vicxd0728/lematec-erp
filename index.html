@@ -5721,6 +5721,9 @@ async function loadFullData(scope,quiet=false){
   }
 }
 async function createPage(dbId,props){
+  if(dbId===DB.materials){
+    await postInventoryMirrorTask(buildMaterialCreateMirrorTask(null,props));
+  }
   const r=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
   if(dbId===DB.materials&&r?.object==='page'){
     scheduleInventoryMirrorSync(buildMaterialCreateMirrorTask(r,props));
@@ -5737,10 +5740,18 @@ function assertNotionPage(r, action='Notion 寫入'){
   return r;
 }
 async function updatePage(id,props){
+  const hasStockProp=props&&Object.prototype.hasOwnProperty.call(props,'目前庫存');
+  if(hasStockProp){
+    const nextStock=props['目前庫存']?.number;
+    if(nextStock!==undefined&&nextStock!==null&&!Number.isNaN(Number(nextStock))){
+      const stockTask=buildStockSetMirrorTask(id,nextStock,null);
+      if(stockTask?.payload?.sku) await postInventoryMirrorTask(stockTask);
+    }
+  }
   for(let i=0;i<3;i++){
     const r=await notionAPI('PATCH',`pages/${id}`,{properties:props});
     if(r.object!=='error'){
-      if(props&&Object.prototype.hasOwnProperty.call(props,'目前庫存')){
+      if(hasStockProp){
         const nextStock=props['目前庫存']?.number;
         scheduleInventoryMirrorSync(buildStockSetMirrorTask(id,nextStock,r));
       }
@@ -7332,7 +7343,7 @@ const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
 const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 const INVENTORY_MIRROR_QUEUE_STORAGE='lematec_inventory_mirror_queue_v1';
 const STOCK_LOG_PENDING_STORAGE='lematec_stock_log_pending_v1';
-let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 只讀比對。'};
+let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 庫存一致性檢查。'};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -7538,7 +7549,7 @@ function buildLocalBomSnapshot(){
 }
 async function runSupabaseReadCheck(manual=false){
   if(_supabaseReadReport.running)return;
-  _supabaseReadReport={checked:true,running:true,level:'info',message:'讀取 Supabase 只讀資料中...'};
+  _supabaseReadReport={checked:true,running:true,level:'info',message:'讀取 Supabase 庫存資料中...'};
   if(CURRENT_TAB==='health')renderTab('health');
   try{
     const [inventoryRows,bomRows]=await Promise.all([
@@ -7582,7 +7593,7 @@ async function runSupabaseReadCheck(manual=false){
       checked:true,
       running:false,
       level:hasMismatch?'warn':'ok',
-      message:hasMismatch?'Supabase 已可讀，但與目前 Notion 快取仍有差異。':'Supabase 只讀資料與目前 ERP 快取一致。',
+      message:hasMismatch?'Supabase 已可讀，但與目前 ERP/Notion 快取仍有差異。':'Supabase 庫存資料與目前 ERP 快取一致。',
       inventoryRows:inventoryRows.length,
       inventorySkus:supInv.size,
       localSkus:localInv.size,
@@ -7595,7 +7606,7 @@ async function runSupabaseReadCheck(manual=false){
       extraBom:extraBom.slice(0,12),
       mismatchTotal:missingInSup.length+extraInSup.length+qtyMismatch.length+missingBom.length+extraBom.length,
     };
-    if(manual)showToast('✅ Supabase 只讀比對完成',hasMismatch?'warn':'ok');
+    if(manual)showToast('✅ Supabase 庫存一致性檢查完成',hasMismatch?'warn':'ok');
   }catch(e){
     const msg=String(e.message||e);
     const isRls=/permission|JWT|row-level|rls|not authorized|apikey|invalid/i.test(msg);
@@ -7603,10 +7614,10 @@ async function runSupabaseReadCheck(manual=false){
       checked:true,
       running:false,
       level:isRls?'warn':'err',
-      message:isRls?'Supabase REST 目前被權限/RLS 擋住，這是預期的安全狀態；前端尚未切換正式讀取。':msg,
+      message:isRls?'Supabase REST 目前被權限/RLS 擋住；請確認 anon public key 與只讀 view 權限。':msg,
       error:msg,
     };
-    if(manual)showToast('⚠ Supabase 只讀比對未完成：'+msg,'warn');
+    if(manual)showToast('⚠ Supabase 庫存一致性檢查未完成：'+msg,'warn');
   }
   if(CURRENT_TAB==='health')renderTab('health');
 }
@@ -7617,18 +7628,18 @@ function renderSupabaseReadCheck(){
   const sampleList=(title,rows,formatter=x=>escapeHtml(x))=>rows?.length?`<div style="margin-top:10px"><b style="color:var(--amber)">${title}</b><div style="font-size:.78rem;color:var(--text3);line-height:1.7">${rows.map(formatter).join('、')}</div></div>`:'';
   return `<div class="panel" style="margin-bottom:14px">
     <div class="panel-hdr">
-      <span class="panel-title">Supabase 庫存只讀比對<span class="badge">${keySet?'已設定':'未設定'}</span></span>
+      <span class="panel-title">Supabase 庫存一致性檢查<span class="badge">${keySet?'已設定':'未設定'}</span></span>
       ${badge}
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        目前正式流程仍讀寫 Notion；此區只讀 Supabase，用來驗證庫存與 BOM 搬遷結果。前端不可使用 PostgreSQL DB URL 或密碼。
+        用來檢查 Supabase 庫存/BOM 與目前 ERP 快取是否一致。新增料號與部分庫存數量修改已先送 Supabase，再同步 Notion 鏡像；尚未完成整套扣料、入料與 BOM 寫入切換。前端不可使用 PostgreSQL DB URL 或密碼。
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">讀取並比對 Supabase</button>
+        <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">檢查 Supabase 一致性</button>
         <button class="btn btn-ghost btn-sm" onclick="setSupabaseAnonKey()">${keySet?'更新':'設定'} anon public key</button>
       </div>
-      ${r.running?'<div class="loading-row"><div class="spin"></div>Supabase 讀取中...</div>':`<div style="color:var(--text2);line-height:1.7">${escapeHtml(r.message||'尚未執行比對。')}</div>`}
+      ${r.running?'<div class="loading-row"><div class="spin"></div>Supabase 讀取中...</div>':`<div style="color:var(--text2);line-height:1.7">${escapeHtml(r.message||'尚未執行一致性檢查。')}</div>`}
       ${r.inventorySkus!=null?`<div class="dash-kpi-grid" style="margin-top:10px">
         <div class="kpi-card kpi-cyan"><div class="kpi-label">Supabase 料號</div><div class="kpi-num">${r.inventorySkus}</div><div class="kpi-sub">Notion 快取 ${r.localSkus}</div></div>
         <div class="kpi-card kpi-blue"><div class="kpi-label">Supabase BOM</div><div class="kpi-num">${r.bomRows}</div><div class="kpi-sub">Notion 快取 ${r.localBomRows}</div></div>
@@ -15937,13 +15948,13 @@ async function submitBatchInbound(){
       const inboundType = ['零件','半成品','成品'].includes(item.newType) ? item.newType : '零件';
       // 若是新料號，先建立料件主檔
       if(item.isNew || !matId){
-        const newMat = await notionAPI('POST','pages',{parent:{database_id:DB.materials},properties:{
+        const newMat = await createPage(DB.materials,{
           '料件名稱':{title:[{text:{content:item.code||''}}]},
           '料件編號':{rich_text:[{text:{content:item.code||''}}]},
           '類型':{select:{name:item.newType||'零件'}},
           '目前庫存':{number:0},
           '安全庫存':{number:0},
-        }});
+        });
         matId = assertNotionPage(newMat,'建立料件').id;
       }
       // 建立入料單

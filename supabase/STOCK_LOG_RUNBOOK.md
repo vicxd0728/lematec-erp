@@ -52,12 +52,22 @@ as the source of truth.
 Important: stock operation logs are now designed as Supabase-first, but inventory
 quantity changes are not yet fully Supabase-transaction-first.
 
-Current inventory write behavior:
+Current inventory write behavior after 2026-07-27 frontend guard:
 
-- ERP inventory page changes still update Notion through existing Notion API helpers.
-- The frontend schedules a Supabase inventory mirror task through `/api/inventory/sync`.
-- This means Supabase receives inventory mirrors, but the stock quantity mutation is
-  not yet an atomic Supabase transaction.
+- New material pages in the ERP frontend call `/api/inventory/sync` first with
+  `upsert_material`. If Supabase rejects the material, the frontend does not create
+  the Notion mirror page.
+- Stock quantity changes in the ERP frontend call `/api/inventory/sync` first with
+  `set_stock` when the current cache can identify the SKU. If Supabase rejects the
+  stock write, the Notion mirror update is not attempted.
+- After Supabase accepts the frontend write, Notion is still patched as the
+  staff-readable mirror.
+- The frontend still queues a follow-up mirror task after the Notion page is
+  created or patched, so Supabase can store the Notion page id and latest mirror
+  metadata.
+- Some legacy paths can still fall back to Notion-first when a SKU cannot be built
+  from the current frontend cache. These paths need targeted cleanup before claiming
+  full inventory cutover.
 
 Target inventory write behavior:
 
@@ -65,6 +75,8 @@ Target inventory write behavior:
 - Worker writes Supabase first.
 - Worker or a sync worker mirrors the successful change to Notion.
 - If Supabase rejects the write, the ERP frontend must show failure and avoid fake success.
+- Notion manual edits should be detected by a separate Notion-to-Supabase sync job.
+  Notion can be a human editing surface, but Supabase remains the accepted source of truth.
 
 Do not claim inventory is fully Supabase-primary until this target behavior is implemented
 and verified across inbound QC, order picking, Shopee S-stock flow, manual stock edits,
