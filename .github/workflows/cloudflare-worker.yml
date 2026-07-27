@@ -25,9 +25,15 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: e933d3daf916cba77469f0b8a4202a8a
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::error::Missing GitHub secret CLOUDFLARE_API_TOKEN"
             exit 1
           fi
           npx wrangler@latest deploy --config wrangler.green-wave.jsonc
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            printf "%s" "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler@latest secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.green-wave.jsonc
+          else
+            echo "::warning::Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY; stock log Worker write routes will not work."
+          fi

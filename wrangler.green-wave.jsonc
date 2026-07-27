@@ -2,5 +2,8 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
   "name": "green-wave-c22f",
   "main": "cloudflare-worker-green-wave-c22f-FULL-UPDATED.js",
-  "compatibility_date": "2026-06-08"
+  "compatibility_date": "2026-06-08",
+  "vars": {
+    "SUPABASE_URL": "https://hemqintfrvsdoplbzanx.supabase.co"
+  }
 }
