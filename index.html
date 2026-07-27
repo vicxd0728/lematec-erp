@@ -7935,42 +7935,18 @@ async function loadNotionStockLog(mode='recent'){
     source: 'Notion'
   })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
 }
-function stockLogMergeKey(row){
-  return [
-    row.date||'',
-    row.ref||'',
-    row.matCode||row.matName||'',
-    row.type||'',
-    row.qty??'',
-    row.before??'',
-    row.after??''
-  ].join('|');
-}
-function mergeStockLogRows(primaryRows,mirrorRows){
-  const out=[];
-  const seen=new Set();
-  [...primaryRows,...mirrorRows].forEach(row=>{
-    const key=row.id||stockLogMergeKey(row);
-    const fallbackKey=stockLogMergeKey(row);
-    if(seen.has(key)||seen.has(fallbackKey))return;
-    seen.add(key);
-    seen.add(fallbackKey);
-    out.push(row);
-  });
-  return out.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.id||'').localeCompare(a.id||''));
-}
 async function loadStockLog(options={}){
   try{
     const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
     if(getSupabaseAnonKey()){
       try{
         const supRows=await loadSupabaseStockLog(mode);
-        const notionRows=await loadNotionStockLog(mode);
-        stockLogs=mergeStockLogRows(supRows,notionRows);
-        markDataLoadMode('stocklog',mode,stockLogs.length);
-        if(notionRows.length&&!supRows.length)console.warn('Supabase 異動記錄目前為空，已暫時回退讀取 Notion。');
-        else if(notionRows.length)console.warn('Supabase 異動記錄尚未完整回填，已暫時合併 Notion 鏡像資料。');
-        return;
+        if(supRows.length){
+          stockLogs=supRows;
+          markDataLoadMode('stocklog',mode,stockLogs.length);
+          return;
+        }
+        console.warn('Supabase 異動記錄目前為空，已暫時回退讀取 Notion。');
       }catch(e){
         console.warn('loadSupabaseStockLog fallback to Notion:',e.message||e);
       }
