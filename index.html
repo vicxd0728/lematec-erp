@@ -7917,34 +7917,65 @@ async function loadSupabaseStockLog(mode='recent'){
     source: r.source||'Supabase'
   }));
 }
+async function loadNotionStockLog(mode='recent'){
+  const query=mode==='all'?{}:{filter:stockLogRecentFilter()};
+  const r = await dbQueryAll(DB.stockLog,query);
+  return r.map(p=>({
+    id: p.id,
+    title: getTitle(p.properties,'異動項目'),
+    matName: getRichText(p.properties,'料件名稱'),
+    matCode: getRichText(p.properties,'料件編號'),
+    type: p.properties?.['異動類型']?.select?.name||'',
+    qty: p.properties?.['異動數量']?.number??0,
+    before: p.properties?.['異動前庫存']?.number??0,
+    after: p.properties?.['異動後庫存']?.number??0,
+    date: p.properties?.['異動日期']?.date?.start||'',
+    ref: getRichText(p.properties,'關聯單號'),
+    operator: getRichText(p.properties,'操作人員'),
+    source: 'Notion'
+  })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+}
+function stockLogMergeKey(row){
+  return [
+    row.date||'',
+    row.ref||'',
+    row.matCode||row.matName||'',
+    row.type||'',
+    row.qty??'',
+    row.before??'',
+    row.after??''
+  ].join('|');
+}
+function mergeStockLogRows(primaryRows,mirrorRows){
+  const out=[];
+  const seen=new Set();
+  [...primaryRows,...mirrorRows].forEach(row=>{
+    const key=row.id||stockLogMergeKey(row);
+    const fallbackKey=stockLogMergeKey(row);
+    if(seen.has(key)||seen.has(fallbackKey))return;
+    seen.add(key);
+    seen.add(fallbackKey);
+    out.push(row);
+  });
+  return out.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.id||'').localeCompare(a.id||''));
+}
 async function loadStockLog(options={}){
   try{
     const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
     if(getSupabaseAnonKey()){
       try{
         const supRows=await loadSupabaseStockLog(mode);
-        stockLogs=supRows;
+        const notionRows=await loadNotionStockLog(mode);
+        stockLogs=mergeStockLogRows(supRows,notionRows);
         markDataLoadMode('stocklog',mode,stockLogs.length);
+        if(notionRows.length&&!supRows.length)console.warn('Supabase 異動記錄目前為空，已暫時回退讀取 Notion。');
+        else if(notionRows.length)console.warn('Supabase 異動記錄尚未完整回填，已暫時合併 Notion 鏡像資料。');
         return;
       }catch(e){
         console.warn('loadSupabaseStockLog fallback to Notion:',e.message||e);
       }
     }
-    const query=mode==='all'?{}:{filter:stockLogRecentFilter()};
-    const r = await dbQueryAll(DB.stockLog,query);
-    stockLogs = r.map(p=>({
-      id: p.id,
-      title: getTitle(p.properties,'異動項目'),
-      matName: getRichText(p.properties,'料件名稱'),
-      matCode: getRichText(p.properties,'料件編號'),
-      type: p.properties?.['異動類型']?.select?.name||'',
-      qty: p.properties?.['異動數量']?.number??0,
-      before: p.properties?.['異動前庫存']?.number??0,
-      after: p.properties?.['異動後庫存']?.number??0,
-      date: p.properties?.['異動日期']?.date?.start||'',
-      ref: getRichText(p.properties,'關聯單號'),
-      operator: getRichText(p.properties,'操作人員'),
-    })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+    stockLogs = await loadNotionStockLog(mode);
     markDataLoadMode('stocklog',mode,stockLogs.length);
   }catch(e){
     console.warn('loadStockLog error:',e);
