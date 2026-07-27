@@ -14,6 +14,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/sync') {
       return erpInventorySync(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
+      return erpStockLogSync(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/stock-log/list') {
+      return erpStockLogList(request, env, cors);
+    }
 
     const ct = request.headers.get('Content-Type') || '';
 
@@ -399,6 +405,75 @@ async function erpInventorySync(request, env, cors) {
   }
 }
 
+async function erpStockLogSync(request, env, cors) {
+  try {
+    const body = await request.json();
+    const item = body?.item || body || {};
+    const trace = cleanText(item.client_trace_id || '');
+    const requestedSource = cleanText(item.source || 'erp_frontend') || 'erp_frontend';
+    const source = ['erp_frontend', 'notion_backfill', 'codex_sync'].includes(requestedSource)
+      ? requestedSource
+      : 'erp_frontend';
+    if (trace) {
+      const existing = await supabaseSingle(env, `/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=id,client_trace_id&limit=1`, true);
+      if (existing?.id) {
+        return respOK(cors, { ok: true, duplicate: true, id: existing.id, client_trace_id: trace });
+      }
+    }
+
+    const row = {
+      notion_page_id: cleanText(item.notion_page_id || ''),
+      item_title: cleanText(item.item_title || ''),
+      material_id: cleanText(item.material_id || ''),
+      material_name: cleanText(item.material_name || ''),
+      material_code: cleanText(item.material_code || ''),
+      change_type: cleanText(item.change_type || '手動調整'),
+      original_action: cleanText(item.original_action || item.change_type || '手動調整'),
+      quantity: Number(item.quantity) || 0,
+      before_stock: Number(item.before_stock) || 0,
+      after_stock: Number(item.after_stock) || 0,
+      change_date: cleanDate(item.change_date),
+      ref_no: cleanText(item.ref_no || ''),
+      operator_role: cleanText(item.operator_role || ''),
+      note: cleanText(item.note || ''),
+      source,
+      client_trace_id: trace || `worker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+
+    const data = await supabaseFetch(env, '/rest/v1/erp_stock_logs?select=id,client_trace_id,created_at', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(row),
+    });
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('Supabase stock log insert did not return a saved row');
+    return respOK(cors, { ok: true, id: saved.id, client_trace_id: saved.client_trace_id, created_at: saved.created_at });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpStockLogList(request, env, cors) {
+  try {
+    const url = new URL(request.url);
+    const mode = cleanText(url.searchParams.get('mode') || 'recent');
+    const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days') || 30) || 30));
+    const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get('limit') || 300) || 300));
+    const fields = 'id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at';
+    const filters = [`select=${fields}`];
+    if (mode !== 'all') {
+      const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      filters.push(`change_date=gte.${since}`);
+    }
+    filters.push('order=change_date.desc,created_at.desc');
+    filters.push(`limit=${limit}`);
+    const rows = await supabaseFetch(env, `/rest/v1/stock_logs_public?${filters.join('&')}`);
+    return respOK(cors, { ok: true, rows: Array.isArray(rows) ? rows : [] });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
 async function supabaseFetch(env, path, options = {}) {
   const base = String(env.SUPABASE_URL || env.SUPABASE_REST_URL || '').replace(/\/+$/, '');
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
@@ -473,6 +548,11 @@ async function upsertSupabaseBalance(env, organizationId, warehouseId, materialI
 
 function cleanText(value) {
   return String(value ?? '').trim();
+}
+
+function cleanDate(value) {
+  const text = cleanText(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : taipeiISOString().slice(0, 10);
 }
 
 function cleanSku(value) {

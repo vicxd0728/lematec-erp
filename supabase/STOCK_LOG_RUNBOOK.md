@@ -2,10 +2,66 @@
 
 ## Current Source-Of-Truth Rule
 
-- ERP frontend writes stock operation logs to Supabase first.
+- ERP frontend writes stock operation logs to the Cloudflare Worker first.
+- The Worker writes stock operation logs to Supabase `erp_stock_logs` with the service role key.
 - ERP frontend still mirrors each stock operation log to Notion for backup and staff browsing.
-- ERP frontend reads stock operation logs from Supabase first.
+- ERP frontend reads stock operation logs from the Worker/Supabase first.
 - Notion is a fallback/readable mirror, not the performance source for the frontend.
+- If Supabase log writing fails, the ERP operation must surface an error instead of pretending success.
+- If Supabase succeeds but Notion mirror fails, the log remains valid in Supabase and the Notion mirror is treated as pending repair.
+
+## Frontend / Worker Routes
+
+Production frontend:
+
+```text
+index.html
+```
+
+Required Worker routes:
+
+```text
+POST /api/stock-log/sync
+GET  /api/stock-log/list
+```
+
+`POST /api/stock-log/sync` accepts one stock log item from the ERP frontend and
+deduplicates by `client_trace_id`.
+
+`GET /api/stock-log/list` returns rows from `stock_logs_public`, normally limited
+to the recent window used by the ERP first-load mode.
+
+Local pending storage:
+
+```text
+lematec_stock_log_pending_v1
+```
+
+This localStorage queue is only for visible repair state. It should not be treated
+as the source of truth.
+
+## Inventory Quantity Cutover Status
+
+Important: stock operation logs are now designed as Supabase-first, but inventory
+quantity changes are not yet fully Supabase-transaction-first.
+
+Current inventory write behavior:
+
+- ERP inventory page changes still update Notion through existing Notion API helpers.
+- The frontend schedules a Supabase inventory mirror task through `/api/inventory/sync`.
+- This means Supabase receives inventory mirrors, but the stock quantity mutation is
+  not yet an atomic Supabase transaction.
+
+Target inventory write behavior:
+
+- ERP frontend submits inventory quantity changes to a Worker inventory transaction endpoint.
+- Worker writes Supabase first.
+- Worker or a sync worker mirrors the successful change to Notion.
+- If Supabase rejects the write, the ERP frontend must show failure and avoid fake success.
+
+Do not claim inventory is fully Supabase-primary until this target behavior is implemented
+and verified across inbound QC, order picking, Shopee S-stock flow, manual stock edits,
+duplicate material repair, and BOM maintenance.
 
 ## GitHub Heartbeat
 
