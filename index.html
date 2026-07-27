@@ -7327,6 +7327,7 @@ function renderOpsBoard(){
 
 let _healthReport=null;
 const SUPABASE_READONLY_URL='https://hemqintfrvsdoplbzanx.supabase.co';
+const SUPABASE_DEPLOY_ANON_KEY='__SUPABASE_ANON_KEY__';
 const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
 const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 const INVENTORY_MIRROR_QUEUE_STORAGE='lematec_inventory_mirror_queue_v1';
@@ -7338,7 +7339,11 @@ let _inventorySpeedReport=null;
 let _inventoryMirrorFlushing=false;
 
 function getSupabaseAnonKey(){
-  return localStorage.getItem(SUPABASE_ANON_KEY_STORAGE)||'';
+  const localKey=localStorage.getItem(SUPABASE_ANON_KEY_STORAGE)||'';
+  if(localKey)return localKey;
+  return SUPABASE_DEPLOY_ANON_KEY&&SUPABASE_DEPLOY_ANON_KEY!=='__SUPABASE_ANON_KEY__'
+    ? SUPABASE_DEPLOY_ANON_KEY
+    : '';
 }
 function setSupabaseAnonKey(){
   const current=getSupabaseAnonKey();

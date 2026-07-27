@@ -19,10 +19,25 @@ jobs:
 
       - name: Prepare deploy assets
         shell: bash
+        env:
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           rm -rf _publish
           mkdir -p _publish
           cp index.html _publish/index.html
+          if [ -n "$SUPABASE_ANON_KEY" ]; then
+            python - <<'PY'
+import os
+from pathlib import Path
+
+path = Path("_publish/index.html")
+text = path.read_text(encoding="utf-8")
+text = text.replace("__SUPABASE_ANON_KEY__", os.environ["SUPABASE_ANON_KEY"])
+path.write_text(text, encoding="utf-8", newline="\n")
+PY
+          else
+            echo "::warning::Missing GitHub secret SUPABASE_ANON_KEY; deployed ERP will require device-local Supabase key for direct REST fallback."
+          fi
           cp manifest.webmanifest _publish/manifest.webmanifest
           cp sw.js _publish/sw.js
           cp _headers _publish/_headers
