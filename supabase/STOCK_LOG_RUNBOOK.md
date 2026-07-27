@@ -26,6 +26,10 @@ Required GitHub secret:
 SUPABASE_ANON_KEY
 ```
 
+If this secret is missing, the workflow exits successfully with a warning instead
+of sending a failure notification. The actual keepalive read starts only after
+the secret is added.
+
 The workflow reads one row from:
 
 ```text
