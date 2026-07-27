@@ -20,6 +20,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/stock-log/list') {
       return erpStockLogList(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/stock-log/mark-notion') {
+      return erpStockLogMarkNotion(request, env, cors);
+    }
 
     const ct = request.headers.get('Content-Type') || '';
 
@@ -469,6 +472,26 @@ async function erpStockLogList(request, env, cors) {
     filters.push(`limit=${limit}`);
     const rows = await supabaseFetch(env, `/rest/v1/stock_logs_public?${filters.join('&')}`);
     return respOK(cors, { ok: true, rows: Array.isArray(rows) ? rows : [] });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpStockLogMarkNotion(request, env, cors) {
+  try {
+    const body = await request.json();
+    const id = Number(body?.id || 0);
+    const notionPageId = cleanText(body?.notion_page_id || '');
+    if (!id) return resp400(cors, 'Missing stock log id');
+    if (!notionPageId) return resp400(cors, 'Missing notion_page_id');
+    const data = await supabaseFetch(env, `/rest/v1/erp_stock_logs?id=eq.${encodeURIComponent(String(id))}&select=id,notion_page_id`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ notion_page_id: notionPageId }),
+    });
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('Supabase stock log mark did not return a saved row');
+    return respOK(cors, { ok: true, id: saved.id, notion_page_id: saved.notion_page_id });
   } catch (e) {
     return resp500(cors, e.message);
   }

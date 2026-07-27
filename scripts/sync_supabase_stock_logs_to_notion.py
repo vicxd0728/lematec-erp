@@ -11,11 +11,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "supabase" / "migration_exports" / "stock_log_supabase_to_notion"
 DEFAULT_STOCK_LOG_DB_ID = "0aa78528a5bb4a0d8005c0c1e0aaf8a3"
+DEFAULT_WORKER_URL = "https://green-wave-c22f.vic-e93.workers.dev"
 DB_ENV_NAMES = ("SUPABASE_DB_URL", "DATABASE_URL", "POSTGRES_URL")
 NOTION_ENV_NAMES = ("NOTION_TOKEN", "NOTION_API_TOKEN")
 
@@ -62,13 +64,35 @@ def as_float(value: Any) -> float:
 
 
 def as_date_text(value: Any) -> str:
-    if isinstance(value, (datetime, date)):
-        return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     return str(value or date.today().isoformat())[:10]
 
 
 def as_text(value: Any) -> str:
     return "" if value is None else str(value)
+
+
+def http_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "LEMATEC-ERP-Supabase-Notion-Sync/1.0",
+        },
+        method="GET" if payload is None else "POST",
+    )
+    try:
+        with urlopen(req, timeout=60) as res:
+            body = res.read().decode("utf-8")
+            return json.loads(body) if body else {}
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP request failed {exc.code}: {detail}") from exc
 
 
 def notion_post(endpoint: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -100,11 +124,11 @@ def notion_query_candidates(database_id: str, token: str, row: SupabaseStockLog)
     elif row.material_name:
         filters.append({"property": "料件名稱", "rich_text": {"contains": row.material_name[:20]}})
 
-    payload: dict[str, Any] = {
-        "page_size": 100,
-        "filter": {"and": filters},
-    }
-    data = notion_post(f"databases/{database_id}/query", token, payload)
+    data = notion_post(
+        f"databases/{database_id}/query",
+        token,
+        {"page_size": 100, "filter": {"and": filters}},
+    )
     return data.get("results", [])
 
 
@@ -113,6 +137,7 @@ def notion_create_page(database_id: str, token: str, row: SupabaseStockLog) -> s
     note = row.note
     if row.client_trace_id:
         note = f"{note}\nSupabase trace: {row.client_trace_id}".strip()
+
     page = notion_post(
         "pages",
         token,
@@ -213,7 +238,56 @@ def row_from_db(values: dict[str, Any]) -> SupabaseStockLog:
     )
 
 
-def fetch_pending_rows(conn: Any, limit: int, days: int, sources: tuple[str, ...]) -> list[SupabaseStockLog]:
+def is_test_row(row: SupabaseStockLog) -> bool:
+    trace = row.client_trace_id.lower()
+    ref_no = row.ref_no.upper()
+    code = row.material_code.upper()
+    return (
+        trace.startswith("codex-")
+        or ref_no.endswith("_TEST")
+        or "SMOKE_TEST" in ref_no
+        or code.startswith("TEST-")
+    )
+
+
+def fetch_pending_rows_worker(worker_url: str, limit: int, days: int, sources: tuple[str, ...]) -> list[SupabaseStockLog]:
+    params = urlencode({"limit": max(limit * 3, limit), "days": days, "mode": "recent" if days > 0 else "all"})
+    data = http_json(f"{worker_url.rstrip('/')}/api/stock-log/list?{params}")
+    if not data.get("ok"):
+        raise RuntimeError(f"Worker stock-log list failed: {data}")
+    rows = []
+    for raw in data.get("rows", []):
+        row = row_from_db(raw)
+        if row.notion_page_id:
+            continue
+        if is_test_row(row):
+            continue
+        if sources and row.source not in sources:
+            continue
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def mark_notion_page_worker(worker_url: str, row_id: int, page_id: str) -> None:
+    data = http_json(
+        f"{worker_url.rstrip('/')}/api/stock-log/mark-notion",
+        {"id": row_id, "notion_page_id": page_id},
+    )
+    if not data.get("ok"):
+        raise RuntimeError(f"Worker mark-notion failed: {data}")
+
+
+def dict_row_factory():
+    try:
+        from psycopg.rows import dict_row
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from exc
+    return dict_row
+
+
+def fetch_pending_rows_db(conn: Any, limit: int, days: int, sources: tuple[str, ...]) -> list[SupabaseStockLog]:
     where = ["coalesce(notion_page_id,'') = ''", "source = any(%s)"]
     params: list[Any] = [list(sources)]
     if days > 0:
@@ -231,18 +305,10 @@ def fetch_pending_rows(conn: Any, limit: int, days: int, sources: tuple[str, ...
     """
     with conn.cursor(row_factory=dict_row_factory()) as cur:
         cur.execute(sql, params)
-        return [row_from_db(row) for row in cur.fetchall()]
+        return [row for row in (row_from_db(row) for row in cur.fetchall()) if not is_test_row(row)]
 
 
-def dict_row_factory():
-    try:
-        from psycopg.rows import dict_row
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from exc
-    return dict_row
-
-
-def mark_notion_page(conn: Any, row_id: int, page_id: str) -> None:
+def mark_notion_page_db(conn: Any, row_id: int, page_id: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "update public.erp_stock_logs set notion_page_id = %s where id = %s",
@@ -257,6 +323,7 @@ def main() -> int:
     )
     parser.add_argument("--database-id", default=os.environ.get("NOTION_STOCK_LOG_DB_ID", DEFAULT_STOCK_LOG_DB_ID))
     parser.add_argument("--db-url", default="")
+    parser.add_argument("--worker-url", default=os.environ.get("ERP_WORKER_URL", DEFAULT_WORKER_URL))
     parser.add_argument("--apply", action="store_true", help="Create/link Notion pages and update Supabase.")
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--days", type=int, default=14, help="Only scan recent Supabase rows; use 0 for all.")
@@ -275,13 +342,7 @@ def main() -> int:
         raise SystemExit("Missing NOTION_TOKEN or NOTION_API_TOKEN.")
 
     db_name, db_url = ("--db-url", args.db_url) if args.db_url else env_first(DB_ENV_NAMES)
-    if not db_url:
-        raise SystemExit("Missing DB URL. Set SUPABASE_DB_URL/DATABASE_URL/POSTGRES_URL or pass --db-url.")
-
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from exc
+    source_mode = "db" if db_url else "worker"
 
     out_dir = Path(args.out) if args.out else OUT_DIR / time.strftime("%Y%m%d-%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -293,7 +354,9 @@ def main() -> int:
         "limit": args.limit,
         "days": args.days,
         "sources": list(sources),
+        "source_mode": source_mode,
         "db_url_source": db_name,
+        "worker_url": args.worker_url,
         "notion_token_source": token_name,
         "pending": 0,
         "linked_existing": 0,
@@ -305,11 +368,20 @@ def main() -> int:
     }
 
     pending_rows: list[SupabaseStockLog] = []
-    with psycopg.connect(db_url) as conn:
-        rows = fetch_pending_rows(conn, args.limit, args.days, sources)
-        pending_rows = rows
-        report["pending"] = len(rows)
-        for row in rows:
+    conn = None
+    if db_url:
+        try:
+            import psycopg
+        except ImportError as exc:
+            raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from exc
+        conn = psycopg.connect(db_url)
+        pending_rows = fetch_pending_rows_db(conn, args.limit, args.days, sources)
+    else:
+        pending_rows = fetch_pending_rows_worker(args.worker_url, args.limit, args.days, sources)
+
+    try:
+        report["pending"] = len(pending_rows)
+        for row in pending_rows:
             result: dict[str, Any] = {
                 "id": row.id,
                 "title": row.item_title,
@@ -325,7 +397,10 @@ def main() -> int:
                     page_id = matches[0]["id"]
                     result.update({"status": "would_link_existing" if not args.apply else "linked_existing", "notion_page_id": page_id})
                     if args.apply:
-                        mark_notion_page(conn, row.id, page_id)
+                        if conn:
+                            mark_notion_page_db(conn, row.id, page_id)
+                        else:
+                            mark_notion_page_worker(args.worker_url, row.id, page_id)
                         report["linked_existing"] += 1
                 elif len(matches) > 1:
                     result.update({"status": "ambiguous_existing_matches", "match_count": len(matches)})
@@ -334,14 +409,20 @@ def main() -> int:
                     result["status"] = "would_create" if not args.apply else "created"
                     if args.apply:
                         page_id = notion_create_page(args.database_id, notion_token, row)
-                        mark_notion_page(conn, row.id, page_id)
+                        if conn:
+                            mark_notion_page_db(conn, row.id, page_id)
+                        else:
+                            mark_notion_page_worker(args.worker_url, row.id, page_id)
                         result["notion_page_id"] = page_id
                         report["created"] += 1
                 time.sleep(0.35)
-            except Exception as exc:  # keep one bad row from stopping the whole sync
+            except Exception as exc:
                 result.update({"status": "error", "error": str(exc)})
                 report["errors"] += 1
             report["rows"].append(result)
+    finally:
+        if conn:
+            conn.close()
 
     (out_dir / "pending_rows_preview.json").write_text(
         json.dumps([asdict(row) for row in pending_rows[:100]], ensure_ascii=False, indent=2),

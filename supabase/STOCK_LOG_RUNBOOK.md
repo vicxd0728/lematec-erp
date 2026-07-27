@@ -25,6 +25,7 @@ Required Worker routes:
 ```text
 POST /api/stock-log/sync
 GET  /api/stock-log/list
+POST /api/stock-log/mark-notion
 ```
 
 `POST /api/stock-log/sync` accepts one stock log item from the ERP frontend and
@@ -32,6 +33,10 @@ deduplicates by `client_trace_id`.
 
 `GET /api/stock-log/list` returns rows from `stock_logs_public`, normally limited
 to the recent window used by the ERP first-load mode.
+
+`POST /api/stock-log/mark-notion` is used by the repair job after a Supabase log
+has been mirrored to Notion. It writes the Notion page id back to
+`erp_stock_logs.notion_page_id`, so future repair runs do not duplicate pages.
 
 Local pending storage:
 
@@ -138,11 +143,26 @@ $env:SUPABASE_DB_URL = "postgresql://..."
 python .\scripts\sync_supabase_stock_logs_to_notion.py --limit 50 --days 14
 ```
 
+If the local machine does not have `SUPABASE_DB_URL`, the script falls back to the
+Worker routes automatically:
+
+```powershell
+$env:NOTION_TOKEN = "ntn_xxx"
+python .\scripts\sync_supabase_stock_logs_to_notion.py --limit 50 --days 14
+```
+
 Apply after reviewing the report:
 
 ```powershell
 $env:NOTION_TOKEN = "ntn_xxx"
 $env:SUPABASE_DB_URL = "postgresql://..."
+python .\scripts\sync_supabase_stock_logs_to_notion.py --limit 50 --days 14 --apply
+```
+
+Worker fallback can also apply repairs without exposing the database URL locally:
+
+```powershell
+$env:NOTION_TOKEN = "ntn_xxx"
 python .\scripts\sync_supabase_stock_logs_to_notion.py --limit 50 --days 14 --apply
 ```
 
