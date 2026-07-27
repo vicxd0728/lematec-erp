@@ -6593,6 +6593,85 @@ function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function markLoaded(key){window['_'+key+'Loaded']=true;window['_'+key+'LoadedAt']=Date.now();}
 function isFresh(key,ttl=120000){return !!window['_'+key+'Loaded']&&Date.now()-(window['_'+key+'LoadedAt']||0)<ttl;}
 function uniqueTabs(list){return [...new Set((list||[]).filter(Boolean))];}
+function mapNotionMaterialPage(p){
+  return {
+    id:p.id,
+    notionId:p.id,
+    name:getTitle(p.properties,'料件名稱'),
+    code:getRichText(p.properties,'料件編號'),
+    type:p.properties?.['類型']?.select?.name||'',
+    unit:p.properties?.['單位']?.select?.name||'個',
+    qty:p.properties?.['目前庫存']?.number??0,
+    stock:p.properties?.['目前庫存']?.number??0,
+    safe:p.properties?.['安全庫存']?.number??0,
+    note:getRichText(p.properties,'備註'),
+    created:p.created_time||'',
+    url:p.url||'',
+    source:'notion',
+  };
+}
+function mapSupabaseInventoryMaterial(row){
+  const notionId=String(row.notion_page_id||row.notionId||'').trim();
+  const sku=String(row.sku||row.code||'').trim();
+  const stock=Number(row.stock??row.qty??row.quantity??0)||0;
+  return {
+    id:notionId||`supabase:${row.supabase_id||row.id||sku}`,
+    notionId,
+    supabaseId:row.supabase_id||row.id||'',
+    name:row.name||sku,
+    code:sku,
+    type:row.type||row.material_type||'未分類',
+    unit:row.unit||'個',
+    qty:stock,
+    stock,
+    safe:Number(row.safe??row.safety_stock??0)||0,
+    note:row.note||row.notes||'',
+    created:'',
+    updatedAt:row.updated_at||row.updatedAt||'',
+    url:'',
+    source:'supabase',
+    editable:!!notionId,
+  };
+}
+async function fetchWorkerInventoryMaterials(){
+  const started=performance.now();
+  const res=await fetch(`${PROXY}/api/inventory/list?limit=20000`,{headers:{Accept:'application/json'}});
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  const rows=Array.isArray(data?.materials)?data.materials:[];
+  const mapped=rows.map(mapSupabaseInventoryMaterial).filter(m=>m.code||m.name);
+  supabaseInventoryMats=mapped.sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
+  _supabaseInventoryState={
+    loaded:true,
+    running:false,
+    error:'',
+    ts:Date.now(),
+    count:supabaseInventoryMats.length,
+    rawCount:data?.raw_count??rows.length,
+    missingNotionIds:supabaseInventoryMats.filter(m=>!m.notionId).length,
+    durationMs:Math.round(performance.now()-started),
+  };
+  return supabaseInventoryMats;
+}
+async function loadInventoryMaterialsPrimary(){
+  try{
+    const rows=await fetchWorkerInventoryMaterials();
+    if(rows.length)return rows;
+  }catch(e){
+    console.warn('Supabase inventory primary load failed, fallback to Notion:',e.message||e);
+    _supabaseInventoryState={
+      ..._supabaseInventoryState,
+      loaded:false,
+      running:false,
+      error:String(e.message||e),
+      ts:Date.now(),
+    };
+  }
+  const mR=await dbQueryAll(DB.materials);
+  return mR.map(mapNotionMaterialPage);
+}
 function rolePriorityTabs(role=ROLE){
   const map={
     vic:['dashboard','ops','orders','corders','picking','qc','inbound','notes'],
@@ -6606,20 +6685,8 @@ function rolePriorityTabs(role=ROLE){
   return uniqueTabs([CURRENT_TAB,...(map[role]||['dashboard','ops','notes'])]);
 }
 async function loadCoreEssentials(){
-  const [mR,bR,oR]=await Promise.all([dbQueryAll(DB.materials),dbQueryAll(DB.bom),dbQueryAll(DB.orders)]);
-  mats=mR.map(p=>({
-    id:p.id,
-    name:getTitle(p.properties,'料件名稱'),
-    code:getRichText(p.properties,'料件編號'),
-    type:p.properties?.['類型']?.select?.name||'',
-    unit:p.properties?.['單位']?.select?.name||'個',
-    qty:p.properties?.['目前庫存']?.number??0,
-    stock:p.properties?.['目前庫存']?.number??0,
-    safe:p.properties?.['安全庫存']?.number??0,
-    note:getRichText(p.properties,'備註'),
-    created:p.created_time||'',
-    url:p.url||'',
-  }));
+  const [matsPrimary,bR,oR]=await Promise.all([loadInventoryMaterialsPrimary(),dbQueryAll(DB.bom),dbQueryAll(DB.orders)]);
+  mats=matsPrimary;
   boms=bR.map(p=>({
     id:p.id,
     url:p.url||'',
@@ -7367,7 +7434,7 @@ function getSupabaseAnonKey(){
 }
 function setSupabaseAnonKey(){
   const current=getSupabaseAnonKey();
-  const key=prompt('請貼上 Supabase anon public key（不是 DB URL，也不是 postgres 密碼）',current);
+  const key=prompt('請貼上 Supabase anon public key（僅用於健康檢查的 BOM 深度診斷；不是 DB URL，也不是 postgres 密碼）',current);
   if(key===null)return;
   const clean=key.trim();
   if(!clean){
@@ -7375,13 +7442,13 @@ function setSupabaseAnonKey(){
     if(localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)==='supabase'){
       localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,'notion');
     }
-    showToast('已清除 Supabase 只讀 key','warn');
+    showToast('已清除 Supabase 診斷 key','warn');
   }else{
     localStorage.setItem(SUPABASE_ANON_KEY_STORAGE,clean);
     if(!localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE)){
       localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,'supabase');
     }
-    showToast('✅ Supabase 只讀 key 已儲存在此裝置','ok');
+    showToast('✅ Supabase 診斷 key 已儲存在此裝置','ok');
   }
   if(CURRENT_TAB==='health')renderTab('health');
 }
@@ -7639,18 +7706,22 @@ async function runSupabaseReadCheck(manual=false){
   _supabaseReadReport={checked:true,running:true,level:'info',message:'讀取 Supabase 庫存資料中...'};
   if(CURRENT_TAB==='health')renderTab('health');
   try{
-    const [inventoryRows,bomRows]=await Promise.all([
-      supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at'),
-      supabaseRestSelect('active_bom_components','select=parent_sku,component_sku,quantity'),
-    ]);
+    const inventoryRows=await fetchWorkerInventoryMaterials();
+    let bomRows=[];
+    let bomCheckSkipped=false;
+    if(getSupabaseAnonKey()){
+      bomRows=await supabaseRestSelect('active_bom_components','select=parent_sku,component_sku,quantity');
+    }else{
+      bomCheckSkipped=true;
+    }
     const localInv=buildLocalInventorySnapshot();
     const supInv=new Map();
     inventoryRows.forEach(r=>{
-      const sku=normalizeSku(r.sku);
+      const sku=normalizeSku(r.sku||r.code);
       if(!sku)return;
       const prev=supInv.get(sku);
-      const qty=Number(r.quantity)||0;
-      supInv.set(sku,{sku,qty:(prev?.qty||0)+qty,name:r.name||'',type:r.material_type||''});
+      const qty=Number(r.quantity??r.qty??r.stock)||0;
+      supInv.set(sku,{sku,qty:(prev?.qty||0)+qty,name:r.name||'',type:r.material_type||r.type||''});
     });
     const missingInSup=[];
     const extraInSup=[];
@@ -7664,28 +7735,35 @@ async function runSupabaseReadCheck(manual=false){
 
     const localBom=buildLocalBomSnapshot();
     const supBom=new Set();
-    bomRows.forEach(r=>{
-      const ps=normalizeSku(r.parent_sku);
-      const cs=normalizeSku(r.component_sku);
-      const qty=Number(r.quantity)||0;
-      if(ps&&cs&&qty>0) supBom.add(`${ps}|${cs}|${qty}`);
-    });
     const missingBom=[];
     const extraBom=[];
-    localBom.forEach(k=>{if(!supBom.has(k))missingBom.push(k);});
-    supBom.forEach(k=>{if(!localBom.has(k))extraBom.push(k);});
+    if(!bomCheckSkipped){
+      bomRows.forEach(r=>{
+        const ps=normalizeSku(r.parent_sku);
+        const cs=normalizeSku(r.component_sku);
+        const qty=Number(r.quantity)||0;
+        if(ps&&cs&&qty>0) supBom.add(`${ps}|${cs}|${qty}`);
+      });
+      localBom.forEach(k=>{if(!supBom.has(k))missingBom.push(k);});
+      supBom.forEach(k=>{if(!localBom.has(k))extraBom.push(k);});
+    }
 
     const hasMismatch=missingInSup.length||extraInSup.length||qtyMismatch.length||missingBom.length||extraBom.length;
     _supabaseReadReport={
       checked:true,
       running:false,
       level:hasMismatch?'warn':'ok',
-      message:hasMismatch?'Supabase 已可讀，但與目前 ERP/Notion 快取仍有差異。':'Supabase 庫存資料與目前 ERP 快取一致。',
+      message:hasMismatch
+        ? 'Supabase 庫存主資料已可讀，但與目前 ERP 快取仍有差異。'
+        : bomCheckSkipped
+          ? 'Supabase 庫存主資料與目前 ERP 快取一致；BOM 深度比對需設定 anon key 才會執行。'
+          : 'Supabase 庫存與 BOM 資料與目前 ERP 快取一致。',
       inventoryRows:inventoryRows.length,
       inventorySkus:supInv.size,
       localSkus:localInv.size,
       bomRows:bomRows.length,
       localBomRows:localBom.size,
+      bomCheckSkipped,
       missingInSup:missingInSup.slice(0,12),
       extraInSup:extraInSup.slice(0,12),
       qtyMismatch:qtyMismatch.slice(0,12),
@@ -7701,7 +7779,7 @@ async function runSupabaseReadCheck(manual=false){
       checked:true,
       running:false,
       level:isRls?'warn':'err',
-      message:isRls?'Supabase REST 目前被權限/RLS 擋住；請確認 anon public key 與只讀 view 權限。':msg,
+      message:isRls?'Supabase BOM 深度比對被權限/RLS 擋住；庫存主讀取會改用 Worker，請確認診斷用 anon key 與 view 權限。':msg,
       error:msg,
     };
     if(manual)showToast('⚠ Supabase 庫存一致性檢查未完成：'+msg,'warn');
@@ -7720,11 +7798,11 @@ function renderSupabaseReadCheck(){
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        用來檢查 Supabase 庫存/BOM 與目前 ERP 快取是否一致。新增料號與部分庫存數量修改已先送 Supabase，再同步 Notion 鏡像；尚未完成整套扣料、入料與 BOM 寫入切換。前端不可使用 PostgreSQL DB URL 或密碼。
+        庫存正式讀寫已改走 Worker / Supabase，成功後同步 Notion 鏡像供人工查閱。此區用來比對 Supabase 主資料與 ERP 快取；BOM 深度比對仍可使用 anon key 做診斷，但前端不可使用 PostgreSQL DB URL 或密碼。
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">檢查 Supabase 一致性</button>
-        <button class="btn btn-ghost btn-sm" onclick="setSupabaseAnonKey()">${keySet?'更新':'設定'} anon public key</button>
+        <button class="btn btn-ghost btn-sm" onclick="setSupabaseAnonKey()">${keySet?'更新':'設定'} BOM 診斷 key</button>
       </div>
       ${r.running?'<div class="loading-row"><div class="spin"></div>Supabase 讀取中...</div>':`<div style="color:var(--text2);line-height:1.7">${escapeHtml(r.message||'尚未執行一致性檢查。')}</div>`}
       ${r.inventorySkus!=null?`<div class="dash-kpi-grid" style="margin-top:10px">
@@ -7732,6 +7810,7 @@ function renderSupabaseReadCheck(){
         <div class="kpi-card kpi-blue"><div class="kpi-label">Supabase BOM</div><div class="kpi-num">${r.bomRows}</div><div class="kpi-sub">Notion 快取 ${r.localBomRows}</div></div>
         <div class="kpi-card ${r.mismatchTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">差異</div><div class="kpi-num">${r.mismatchTotal||0}</div><div class="kpi-sub">只列前 12 筆樣本</div></div>
       </div>`:''}
+      ${r.bomCheckSkipped?`<div style="margin-top:10px;font-size:.78rem;color:var(--text3)">BOM 深度比對已略過：未設定診斷用 anon key；不影響庫存主讀取與正式庫存寫入。</div>`:''}
       ${sampleList('Notion 有、Supabase 缺少',r.missingInSup)}
       ${sampleList('Supabase 多出',r.extraInSup)}
       ${sampleList('庫存數量不同',r.qtyMismatch,x=>`${escapeHtml(x.sku)} N:${x.notion} / S:${x.supabase}`)}
@@ -7743,15 +7822,16 @@ function renderSupabaseReadCheck(){
 }
 function getInventoryReadSource(){
   const saved=localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE);
-  if(saved==='supabase'||saved==='notion')return saved;
-  return getSupabaseAnonKey()?'supabase':'notion';
+  if(saved==='notion')return 'notion';
+  return 'supabase';
 }
 function getInventoryReadSet(){
   const source=getInventoryReadSource();
   if(source==='supabase'&&_supabaseInventoryState.loaded&&!_supabaseInventoryState.error){
-    return {source,label:'Supabase 優先',rows:supabaseInventoryMats,readonly:true};
+    return {source,label:'Supabase 主資料',rows:supabaseInventoryMats,readonly:false};
   }
-  return {source:'notion',label:'Notion 正式',rows:mats,readonly:false};
+  const fallbackLabel=(mats||[]).some(m=>m.source==='supabase')?'Supabase 主資料':'Notion 備援';
+  return {source:fallbackLabel.includes('Supabase')?'supabase':'notion',label:fallbackLabel,rows:mats,readonly:false};
 }
 function setInventoryReadSource(source){
   localStorage.setItem(INVENTORY_READ_SOURCE_STORAGE,source==='supabase'?'supabase':'notion');
@@ -7771,49 +7851,8 @@ async function loadSupabaseInventoryForPage(force=false){
   if(CURRENT_TAB==='inventory')renderTab('inventory');
   const started=performance.now();
   try{
-    const rows=await supabaseRestSelect('inventory_snapshot','select=material_id,sku,name,material_type,quantity,available_quantity,updated_at');
-    const bySku=new Map();
-    rows.forEach(r=>{
-      const sku=String(r.sku||'').trim();
-      if(!sku)return;
-      const key=normalizeSku(sku);
-      const prev=bySku.get(key);
-      const qty=Number(r.quantity)||0;
-      const available=Number(r.available_quantity)||0;
-      const updated=r.updated_at||'';
-      if(prev){
-        prev.stock+=qty;
-        prev.qty=prev.stock;
-        prev.available=(Number(prev.available)||0)+available;
-        if(updated&&(!prev.updatedAt||updated>prev.updatedAt))prev.updatedAt=updated;
-        if(!prev.name&&r.name)prev.name=r.name;
-        if(!prev.type&&r.material_type)prev.type=r.material_type;
-      }else{
-        bySku.set(key,{
-          id:'supabase:'+String(r.material_id||key),
-          supabaseId:r.material_id||'',
-          code:sku,
-          name:r.name||sku,
-          type:r.material_type||'未分類',
-          stock:qty,
-          qty,
-          available,
-          safe:0,
-          updatedAt:updated,
-          source:'supabase',
-        });
-      }
-    });
-    supabaseInventoryMats=[...bySku.values()].sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
-    _supabaseInventoryState={
-      loaded:true,
-      running:false,
-      error:'',
-      ts:Date.now(),
-      count:supabaseInventoryMats.length,
-      rawCount:rows.length,
-      durationMs:Math.round(performance.now()-started),
-    };
+    await fetchWorkerInventoryMaterials();
+    _supabaseInventoryState.durationMs=Math.round(performance.now()-started);
     if(CURRENT_TAB==='inventory')renderTab('inventory');
     showToast(`✅ Supabase 庫存讀取完成：${supabaseInventoryMats.length} 筆 · ${_supabaseInventoryState.durationMs}ms`,'ok');
   }catch(e){
@@ -7831,17 +7870,13 @@ async function loadSupabaseInventoryForPage(force=false){
   }
 }
 function shouldPreloadSupabaseInventory(){
-  return !!TOKEN&&!!getSupabaseAnonKey()&&getInventoryReadSource()==='supabase';
+  return !!TOKEN&&getInventoryReadSource()==='supabase';
 }
 function preloadSupabaseInventoryForDisplay(){
   if(!shouldPreloadSupabaseInventory())return;
   loadSupabaseInventoryForPage(false).catch(e=>console.warn('supabase inventory preload failed:',e));
 }
 async function runInventorySpeedTest(){
-  if(!getSupabaseAnonKey()){
-    showToast('請先設定 Supabase anon public key','warn');
-    return;
-  }
   const notionStart=performance.now();
   const notionRows=applySort('inventory',mats).slice(0,100);
   const notionMs=Math.max(1,Math.round(performance.now()-notionStart));
@@ -7859,33 +7894,31 @@ async function runInventorySpeedTest(){
 function renderInventorySourceSwitch(){
   const selected=getInventoryReadSource();
   const state=_supabaseInventoryState;
-  const keySet=!!getSupabaseAnonKey();
   const last=state.ts?new Date(state.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'尚未讀取';
   const supActive=selected==='supabase';
   const status=supActive
     ? state.running?'Supabase 讀取中...'
       : state.error?`Supabase 讀取失敗：${escapeHtml(state.error)}`
-      : state.loaded?`Supabase 只讀快照 · ${state.count} 筆 · ${state.durationMs||'?'}ms · ${last}`
+      : state.loaded?`Supabase 主資料 · ${state.count} 筆 · ${state.durationMs||'?'}ms · ${last}`
       :'Supabase 尚未載入'
-    :'目前使用 Notion 正式資料';
+    :'目前使用 Notion 備援資料';
   const speed=_inventorySpeedReport;
   return `<div class="panel" style="margin-bottom:12px">
     <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div>
         <div style="font-size:0.7rem;color:var(--text3);font-weight:800;letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px">庫存資料來源</div>
         <div style="font-size:0.86rem;color:${state.error&&supActive?'var(--amber)':'var(--text2)'}">${status}</div>
-        <div style="font-size:0.72rem;color:var(--text3);margin-top:3px">Supabase 優先只影響此頁顯示/搜尋；正式新增、修改、訂單扣料仍走 Notion。</div>
+        <div style="font-size:0.72rem;color:var(--text3);margin-top:3px">庫存正式讀寫以 Supabase 為主；Notion 會作為鏡像備份與人工查閱。</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn ${selected==='notion'?'btn-blue':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('notion')">Notion 正式</button>
-        <button class="btn ${supActive?'btn-cyan':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('supabase')" ${keySet?'':'disabled'}>Supabase 優先</button>
+        <button class="btn ${supActive?'btn-cyan':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('supabase')">Supabase 主資料</button>
+        <button class="btn ${selected==='notion'?'btn-blue':'btn-ghost'} btn-sm" onclick="setInventoryReadSource('notion')">Notion 備援</button>
         ${supActive?`<button class="btn btn-ghost btn-sm" onclick="loadSupabaseInventoryForPage(true)" ${state.running?'disabled':''}>重新讀取</button>`:''}
-        <button class="btn btn-ghost btn-sm" onclick="runInventorySpeedTest()" ${keySet&& !state.running?'':'disabled'}>速度測試</button>
-        ${!keySet?`<button class="btn btn-yellow btn-sm" onclick="setSupabaseAnonKey()">設定 key</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="runInventorySpeedTest()" ${!state.running?'':'disabled'}>速度測試</button>
       </div>
     </div>
     ${speed?`<div style="border-top:1px solid var(--border);padding:10px 16px;color:var(--text3);font-size:.78rem">
-      速度測試：Supabase REST ${speed.supabaseMs||'?'}ms / ${speed.supabaseRows||0} 筆；Notion 快取畫面 ${speed.notionMs}ms / ${speed.notionRows} 筆 · ${new Date(speed.at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+      速度測試：Worker / Supabase ${speed.supabaseMs||'?'}ms / ${speed.supabaseRows||0} 筆；Notion 快取畫面 ${speed.notionMs}ms / ${speed.notionRows} 筆 · ${new Date(speed.at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
     </div>`:''}
     ${state.running?'<div class="loading-row" style="border-top:1px solid var(--border)"><div class="spin"></div>正在讀取 Supabase 庫存快照...</div>':''}
   </div>`;
@@ -10924,8 +10957,8 @@ function renderInventory(){
     setTimeout(()=>loadSupabaseInventoryForPage(false),0);
   }
   const low=invMats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
-  const canEditStock=!usingSupabase&&!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
-  const canEditMat=!usingSupabase&&!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
+  const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
@@ -10971,7 +11004,7 @@ function renderInventory(){
 
   ${renderInventorySourceSwitch()}
 
-  ${usingSupabase?`<div class="info-box info-tip" style="margin-bottom:12px">Supabase 試讀模式：此頁資料來自 Supabase，只供快速瀏覽與搜尋。若要修改庫存、料件名稱或刪除料號，請切回「Notion 正式」。</div>`:''}
+  ${usingSupabase?`<div class="info-box info-tip" style="margin-bottom:12px">Supabase 主資料模式：庫存查詢與修改優先寫入 Supabase，成功後同步 Notion 鏡像供查閱。</div>`:''}
 
   <!-- 搜尋 & 篩選列 -->
   <div class="panel" style="margin-bottom:12px">
@@ -11075,9 +11108,9 @@ function renderInventory(){
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
-          ${canEditStock?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
+          ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
-          ${usingSupabase?`<span class="pill" style="background:rgba(20,184,166,.12);color:var(--cyan2)">只讀</span>`:''}
+          ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
         </td>
       </tr>`;}).join('')
       :`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}

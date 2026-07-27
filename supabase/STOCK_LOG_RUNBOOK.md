@@ -52,6 +52,20 @@ as the source of truth.
 Important: stock operation logs and the main ERP inventory quantity write paths
 are now designed as Supabase-first. Notion remains the staff-readable mirror.
 
+Current inventory read behavior after 2026-07-27 Worker inventory list cutover:
+
+- ERP frontend loads inventory materials from Worker route `GET /api/inventory/list`.
+- The Worker reads Supabase `materials` and `inventory_balances` with the service
+  role key, so staff devices do not need to enter a Supabase anon key for normal
+  inventory browsing.
+- Rows with `notion_page_id` keep that Notion page id as the frontend operational
+  id, so existing order, picking, inbound, and BOM relation flows can still match
+  existing Notion-linked records.
+- If Worker/Supabase inventory loading fails, the frontend falls back to Notion
+  materials so staff are not blocked.
+- The health-check anon key is only for deeper diagnostic reads such as BOM view
+  comparison; it is not required for normal inventory read/write operation.
+
 Current inventory write behavior after 2026-07-27 inventory adjustment cutover:
 
 - New material pages in the ERP frontend call `/api/inventory/sync` first with

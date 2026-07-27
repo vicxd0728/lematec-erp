@@ -11,6 +11,9 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/inventory/list') {
+      return erpInventoryList(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/inventory/sync') {
       return erpInventorySync(request, env, cors);
     }
@@ -364,6 +367,79 @@ function taipeiISOString(date = new Date()) {
     return acc;
   }, {});
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+}
+
+async function erpInventoryList(request, env, cors) {
+  try {
+    const url = new URL(request.url);
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 5000) || 5000, 1), 20000);
+    const pageSize = Math.min(Number(url.searchParams.get('page_size') || 1000) || 1000, 1000);
+    const context = await getSupabaseInventoryContext(env);
+    const rows = [];
+
+    const select = [
+      'id',
+      'sku',
+      'name',
+      'material_type',
+      'unit',
+      'safety_stock',
+      'notes',
+      'notion_page_id',
+      'status',
+      'updated_at',
+      'inventory_balances(quantity,reserved_quantity,updated_at,warehouses(code))',
+    ].join(',');
+
+    for (let offset = 0; offset < limit; offset += pageSize) {
+      const batch = await supabaseFetch(
+        env,
+        `/rest/v1/materials?organization_id=eq.${context.organization.id}&archived_at=is.null&select=${encodeURIComponent(select)}&order=sku.asc&limit=${pageSize}&offset=${offset}`
+      );
+      const list = Array.isArray(batch) ? batch : [];
+      rows.push(...list);
+      if (list.length < pageSize || rows.length >= limit) break;
+    }
+
+    const materials = rows.slice(0, limit).map((row) => {
+      const balances = Array.isArray(row.inventory_balances) ? row.inventory_balances : [];
+      const main = balances.find((b) => b?.warehouses?.code === 'MAIN') || balances[0] || {};
+      const quantity = Number(main.quantity || 0);
+      const reserved = Number(main.reserved_quantity || 0);
+      return {
+        id: row.id,
+        supabase_id: row.id,
+        notion_page_id: cleanText(row.notion_page_id || ''),
+        sku: cleanText(row.sku || ''),
+        code: cleanText(row.sku || ''),
+        name: cleanText(row.name || row.sku || ''),
+        material_type: cleanText(row.material_type || ''),
+        type: cleanText(row.material_type || ''),
+        unit: cleanText(row.unit || ''),
+        stock: quantity,
+        qty: quantity,
+        reserved_quantity: reserved,
+        available_quantity: quantity - reserved,
+        safety_stock: Number(row.safety_stock || 0),
+        safe: Number(row.safety_stock || 0),
+        note: cleanText(row.notes || ''),
+        status: cleanText(row.status || ''),
+        updated_at: main.updated_at || row.updated_at || '',
+        source: 'supabase',
+      };
+    }).filter((row) => row.sku || row.name);
+
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      count: materials.length,
+      raw_count: rows.length,
+      fetched_at: taipeiISOString(),
+      materials,
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
 }
 
 async function erpInventorySync(request, env, cors) {

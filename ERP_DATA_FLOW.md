@@ -1,5 +1,20 @@
 # LEMATEC ERP Data Flow
 
+## Current Effective Inventory Rule 2026-07-27
+
+This section overrides older Supabase inventory notes below if they conflict.
+
+- Inventory is intended to be Supabase-first through the Cloudflare Worker.
+- Normal staff devices do not need a Supabase anon public key to browse inventory.
+- Frontend inventory read calls Worker route `GET /api/inventory/list`.
+- Worker reads Supabase `materials` and `inventory_balances` with the service role key.
+- Inventory quantity writes call Worker routes such as `POST /api/inventory/adjust` or `POST /api/inventory/sync`.
+- Supabase must accept the inventory write before the ERP shows success.
+- After Supabase accepts a write, Notion is updated as a staff-readable mirror/backup.
+- If Worker/Supabase inventory read fails, the frontend may fall back to Notion so staff are not blocked.
+- The local `lematec_supabase_anon_key` is only for optional health-check diagnostics such as deeper BOM view comparison. It is not required for normal inventory browsing or editing.
+- Do not claim Notion manual edits are fully two-way until a verified Notion-to-Supabase sync job exists.
+
 最後更新：2026-07-27
 
 本文件定義 ERP 前端、Notion、Supabase 之間的資料責任。實際程式仍以 `index.html` 為準；若程式改變，需同步更新本文件。
