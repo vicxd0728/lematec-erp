@@ -14989,17 +14989,32 @@ function stockLogPayload(item,today,safeType){
 }
 async function writeSupabaseStockLog(item,today,safeType){
   const payload=stockLogPayload(item,today,safeType);
-  const res=await fetch(`${PROXY}/api/stock-log/sync`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({item:payload})
-  });
-  const text=await res.text();
-  let data;
-  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
-  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
-  item.client_trace_id=payload.client_trace_id;
-  return data;
+  let workerErr=null;
+  try{
+    const res=await fetch(`${PROXY}/api/stock-log/sync`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({item:payload})
+    });
+    const text=await res.text();
+    let data;
+    try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+    if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+    item.client_trace_id=payload.client_trace_id;
+    return data;
+  }catch(e){
+    workerErr=e;
+  }
+  if(getSupabaseAnonKey()){
+    try{
+      const data=await supabaseRestInsert('erp_stock_logs',[payload]);
+      item.client_trace_id=payload.client_trace_id;
+      return data;
+    }catch(e){
+      throw new Error(`Worker 寫入失敗：${workerErr?.message||workerErr}; REST 寫入失敗：${e.message||e}`);
+    }
+  }
+  throw workerErr||new Error('Supabase 異動紀錄寫入失敗');
 }
 async function writeNotionStockLog(item,today,safeType){
   let lastErr=null;
@@ -15038,8 +15053,15 @@ async function persistStockLog(item){
     await writeSupabaseStockLog(item,today,safeType);
   }catch(e){
     rememberPendingStockLog(item,'supabase',e);
-    showToast('❌ Supabase 異動紀錄寫入失敗，請稍後重試：'+(e.message||e),'err',9000);
-    throw e;
+    try{
+      await writeNotionStockLog(item,today,safeType);
+      showToast('⚠️ Supabase 異動紀錄待補同步；已先寫入 Notion 鏡像','warn',9000);
+      return;
+    }catch(mirrorErr){
+      rememberPendingStockLog(item,'notion',mirrorErr);
+      showToast('❌ 異動紀錄寫入失敗，請稍後重試：'+(e.message||e),'err',9000);
+      throw e;
+    }
   }
   try{
     await writeNotionStockLog(item,today,safeType);

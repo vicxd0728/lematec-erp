@@ -9,6 +9,8 @@
 - Notion is a fallback/readable mirror, not the performance source for the frontend.
 - If Supabase log writing fails, the ERP operation must surface an error instead of pretending success.
 - If Supabase succeeds but Notion mirror fails, the log remains valid in Supabase and the Notion mirror is treated as pending repair.
+- During Worker rollout, the frontend may temporarily fall back to direct Supabase REST when an anon key exists.
+- If both Worker and REST are unavailable, the frontend writes the Notion mirror and stores a pending Supabase repair entry so staff operations are not blocked silently.
 
 ## Frontend / Worker Routes
 
