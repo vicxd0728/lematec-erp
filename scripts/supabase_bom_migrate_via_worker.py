@@ -27,7 +27,10 @@ def request_json(
     payload: dict | None = None,
     timeout: int = 240,
 ) -> dict:
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 LEMATEC-ERP-BOM-Migrator/1.0",
+    }
     data = None
     if token:
         headers["Authorization"] = f"Bearer {token}"
