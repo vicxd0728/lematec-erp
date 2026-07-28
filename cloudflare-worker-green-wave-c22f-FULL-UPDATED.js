@@ -26,6 +26,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/material/archive') {
       return erpInventoryMaterialArchive(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/inventory/bom/list') {
+      return erpInventoryBomList(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/inventory/bom/migrate') {
+      return erpInventoryBomMigrate(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -373,6 +379,325 @@ function taipeiISOString(date = new Date()) {
     return acc;
   }, {});
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+}
+
+function chunkRows(rows, size = 100) {
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size));
+  return chunks;
+}
+
+async function supabaseAll(env, path, pageSize = 1000) {
+  const rows = [];
+  const separator = path.includes('?') ? '&' : '?';
+  for (let offset = 0; ; offset += pageSize) {
+    const batch = await supabaseFetch(env, `${path}${separator}limit=${pageSize}&offset=${offset}`);
+    const list = Array.isArray(batch) ? batch : [];
+    rows.push(...list);
+    if (list.length < pageSize) return rows;
+  }
+}
+
+function migrationAuthorized(request, env) {
+  const expected = cleanText(env.ERP_MIGRATION_TOKEN || env.NOTION_TOKEN || env.ERP_NOTION_TOKEN || '');
+  const header = cleanText(request.headers.get('Authorization') || '');
+  const supplied = header.replace(/^Bearer\s+/i, '');
+  return !!expected && supplied === expected;
+}
+
+async function erpInventoryBomList(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const materials = await supabaseAll(
+      env,
+      `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,notion_page_id,archived_at`
+    );
+    const headers = await supabaseAll(
+      env,
+      `/rest/v1/bom_headers?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,parent_material_id,notion_page_id,status`
+    );
+    const headerIds = new Set(headers.map((row) => cleanText(row.id)).filter(Boolean));
+    const items = await supabaseAll(
+      env,
+      `/rest/v1/bom_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,bom_header_id,component_material_id,quantity,notion_page_id,notes`
+    );
+    const materialById = new Map(materials.map((row) => [cleanText(row.id), row]));
+    const headerById = new Map(headers.map((row) => [cleanText(row.id), row]));
+    const rows = items.filter((item) => headerIds.has(cleanText(item.bom_header_id))).map((item) => {
+      const header = headerById.get(cleanText(item.bom_header_id)) || {};
+      const parent = materialById.get(cleanText(header.parent_material_id)) || {};
+      const component = materialById.get(cleanText(item.component_material_id)) || {};
+      return {
+        id: item.id,
+        notion_page_id: cleanText(item.notion_page_id || ''),
+        parent_notion_page_id: cleanText(parent.notion_page_id || ''),
+        child_notion_page_id: cleanText(component.notion_page_id || ''),
+        parent_sku: cleanText(parent.sku || ''),
+        child_sku: cleanText(component.sku || ''),
+        quantity: Number(item.quantity || 0),
+        notes: cleanText(item.notes || ''),
+      };
+    });
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      parent_count: headers.length,
+      row_count: rows.length,
+      fetched_at: taipeiISOString(),
+      rows,
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInventoryBomMigrate(request, env, cors) {
+  try {
+    if (!migrationAuthorized(request, env)) {
+      return new Response(JSON.stringify({error: 'Unauthorized BOM migration request'}), {
+        status: 401,
+        headers: jh(cors),
+      });
+    }
+
+    const body = await request.json();
+    const sourceMaterials = Array.isArray(body?.materials) ? body.materials : [];
+    const sourceRows = Array.isArray(body?.bom_rows) ? body.bom_rows : [];
+    const fullSnapshot = body?.full_snapshot === true;
+    if (!sourceMaterials.length) return resp400(cors, 'Missing BOM material snapshot');
+    if (!sourceRows.length) return resp400(cors, 'Missing BOM rows');
+
+    const materialSourceByNotion = new Map();
+    for (const row of sourceMaterials) {
+      const notionId = cleanText(row.notion_page_id);
+      const sku = cleanSku(row.sku || row.code || row.name || '');
+      if (notionId && sku) materialSourceByNotion.set(notionId, {...row, sku});
+    }
+
+    const desiredPairs = new Set();
+    const requiredMaterialNotionIds = new Set();
+    for (const row of sourceRows) {
+      const notionId = cleanText(row.notion_page_id);
+      const parentNotionId = cleanText(row.parent_notion_page_id);
+      const childNotionId = cleanText(row.child_notion_page_id);
+      const quantity = Number(row.quantity);
+      if (!notionId || !parentNotionId || !childNotionId) throw new Error('BOM row is missing a Notion page id');
+      if (parentNotionId === childNotionId) throw new Error(`Self-referencing BOM is not allowed: ${notionId}`);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`Invalid BOM quantity: ${notionId}`);
+      const pair = `${parentNotionId}|${childNotionId}`;
+      if (desiredPairs.has(pair)) throw new Error(`Duplicate BOM parent/component pair: ${pair}`);
+      desiredPairs.add(pair);
+      requiredMaterialNotionIds.add(parentNotionId);
+      requiredMaterialNotionIds.add(childNotionId);
+    }
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const warehouseId = context.warehouse.id;
+    const existingMaterials = await supabaseAll(
+      env,
+      `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,name,material_type,unit,safety_stock,status,notes,notion_page_id,archived_at`
+    );
+    const materialByNotion = new Map(
+      existingMaterials.filter((row) => cleanText(row.notion_page_id)).map((row) => [cleanText(row.notion_page_id), row])
+    );
+    const materialBySku = new Map(
+      existingMaterials.filter((row) => cleanSku(row.sku)).map((row) => [cleanSku(row.sku), row])
+    );
+    const archivedRequiredMaterialIds = existingMaterials
+      .filter((row) => row.archived_at && requiredMaterialNotionIds.has(cleanText(row.notion_page_id)))
+      .map((row) => cleanText(row.id));
+    for (const chunk of chunkRows(archivedRequiredMaterialIds)) {
+      await supabaseFetch(env, `/rest/v1/materials?id=in.(${chunk.join(',')})`, {
+        method: 'PATCH',
+        headers: {Prefer: 'return=minimal'},
+        body: JSON.stringify({archived_at: null}),
+      });
+    }
+
+    const newMaterialRows = [];
+    for (const notionId of requiredMaterialNotionIds) {
+      if (materialByNotion.has(notionId)) continue;
+      const source = materialSourceByNotion.get(notionId);
+      if (!source) throw new Error(`BOM material is absent from source snapshot: ${notionId}`);
+      const existingBySku = materialBySku.get(cleanSku(source.sku));
+      if (existingBySku) {
+        const patched = await supabaseFetch(
+          env,
+          `/rest/v1/materials?id=eq.${encodeURIComponent(existingBySku.id)}&select=id,sku,notion_page_id`,
+          {
+            method: 'PATCH',
+            headers: {Prefer: 'return=representation'},
+            body: JSON.stringify({notion_page_id: notionId, archived_at: null}),
+          }
+        );
+        const material = Array.isArray(patched) ? patched[0] : patched;
+        materialByNotion.set(notionId, {...existingBySku, ...material});
+        continue;
+      }
+      const id = crypto.randomUUID();
+      newMaterialRows.push({
+        id,
+        organization_id: organizationId,
+        sku: cleanSku(source.sku),
+        name: cleanText(source.name || source.sku),
+        material_type: cleanText(source.material_type || source.type),
+        unit: cleanText(source.unit || ''),
+        safety_stock: Number(source.safety_stock || 0),
+        status: cleanText(existingMaterials[0]?.status || ''),
+        notes: cleanText(source.notes || ''),
+        notion_page_id: notionId,
+        archived_at: null,
+      });
+      materialByNotion.set(notionId, {id, ...source});
+    }
+
+    for (const chunk of chunkRows(newMaterialRows)) {
+      await supabaseFetch(env, '/rest/v1/materials?on_conflict=id&select=id', {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(chunk),
+      });
+    }
+    const newBalanceRows = newMaterialRows.map((material) => ({
+      organization_id: organizationId,
+      warehouse_id: warehouseId,
+      material_id: material.id,
+      quantity: Number(materialSourceByNotion.get(material.notion_page_id)?.stock || 0),
+    }));
+    for (const chunk of chunkRows(newBalanceRows)) {
+      await supabaseFetch(
+        env,
+        '/rest/v1/inventory_balances?on_conflict=organization_id,warehouse_id,material_id&select=id',
+        {
+          method: 'POST',
+          headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+          body: JSON.stringify(chunk),
+        }
+      );
+    }
+
+    const allHeaders = await supabaseAll(
+      env,
+      `/rest/v1/bom_headers?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,parent_material_id,version,status,notion_page_id,archived_at`
+    );
+    const activeStatus = cleanText(allHeaders.find((row) => !row.archived_at)?.status || '');
+    if (!activeStatus) throw new Error('Cannot determine the active Supabase BOM status');
+    const headerByParent = new Map();
+    for (const header of allHeaders) {
+      const key = cleanText(header.parent_material_id);
+      const current = headerByParent.get(key);
+      if (
+        !current ||
+        (!header.archived_at && current.archived_at) ||
+        (!!header.archived_at === !!current.archived_at && Number(header.version) < Number(current.version))
+      ) {
+        headerByParent.set(key, header);
+      }
+    }
+
+    const desiredParentNotionIds = [...new Set(sourceRows.map((row) => cleanText(row.parent_notion_page_id)))];
+    const headerRows = desiredParentNotionIds.map((parentNotionId) => {
+      const parent = materialByNotion.get(parentNotionId);
+      if (!parent?.id) throw new Error(`Supabase parent material mapping failed: ${parentNotionId}`);
+      const existing = headerByParent.get(cleanText(parent.id));
+      return {
+        id: existing?.id || crypto.randomUUID(),
+        organization_id: organizationId,
+        parent_material_id: parent.id,
+        version: Number(existing?.version || 1),
+        status: activeStatus,
+        notion_page_id: parentNotionId,
+        notes: cleanText(existing?.notes || 'Migrated from Notion BOM'),
+        archived_at: null,
+      };
+    });
+    for (const chunk of chunkRows(headerRows)) {
+      await supabaseFetch(env, '/rest/v1/bom_headers?on_conflict=id&select=id,parent_material_id', {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(chunk),
+      });
+    }
+    const desiredHeaderByParentMaterial = new Map(headerRows.map((row) => [cleanText(row.parent_material_id), row]));
+
+    const allItems = await supabaseAll(
+      env,
+      `/rest/v1/bom_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,bom_header_id,component_material_id,quantity,notion_page_id`
+    );
+    const existingItemByPair = new Map(
+      allItems.map((row) => [`${cleanText(row.bom_header_id)}|${cleanText(row.component_material_id)}`, row])
+    );
+    const itemRows = sourceRows.map((source, index) => {
+      const parent = materialByNotion.get(cleanText(source.parent_notion_page_id));
+      const component = materialByNotion.get(cleanText(source.child_notion_page_id));
+      const header = desiredHeaderByParentMaterial.get(cleanText(parent?.id));
+      if (!header?.id || !component?.id) throw new Error(`Supabase BOM mapping failed: ${source.notion_page_id}`);
+      const pair = `${header.id}|${component.id}`;
+      const existing = existingItemByPair.get(pair);
+      return {
+        id: existing?.id || crypto.randomUUID(),
+        organization_id: organizationId,
+        bom_header_id: header.id,
+        component_material_id: component.id,
+        quantity: Number(source.quantity),
+        sequence: Number(existing?.sequence || ((index + 1) * 10)),
+        scrap_rate: Number(existing?.scrap_rate || 0),
+        notes: cleanText(source.notes || ''),
+        notion_page_id: cleanText(source.notion_page_id),
+      };
+    });
+    for (const chunk of chunkRows(itemRows)) {
+      await supabaseFetch(env, '/rest/v1/bom_items?on_conflict=id&select=id', {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(chunk),
+      });
+    }
+
+    let deletedItems = 0;
+    let archivedHeaders = 0;
+    if (fullSnapshot) {
+      const desiredHeaderIds = new Set(headerRows.map((row) => cleanText(row.id)));
+      const desiredItemIds = new Set(itemRows.map((row) => cleanText(row.id)));
+      const staleItemIds = allItems
+        .filter((row) => desiredHeaderIds.has(cleanText(row.bom_header_id)) && !desiredItemIds.has(cleanText(row.id)))
+        .map((row) => cleanText(row.id));
+      for (const chunk of chunkRows(staleItemIds)) {
+        await supabaseFetch(env, `/rest/v1/bom_items?id=in.(${chunk.join(',')})`, {method: 'DELETE'});
+        deletedItems += chunk.length;
+      }
+      const desiredParentMaterialIds = new Set(headerRows.map((row) => cleanText(row.parent_material_id)));
+      const staleHeaderIds = allHeaders
+        .filter((row) => !row.archived_at && !desiredParentMaterialIds.has(cleanText(row.parent_material_id)))
+        .map((row) => cleanText(row.id));
+      for (const chunk of chunkRows(staleHeaderIds)) {
+        await supabaseFetch(env, `/rest/v1/bom_headers?id=in.(${chunk.join(',')})`, {
+          method: 'PATCH',
+          headers: {Prefer: 'return=minimal'},
+          body: JSON.stringify({archived_at: new Date().toISOString()}),
+        });
+        archivedHeaders += chunk.length;
+      }
+    }
+
+    return respOK(cors, {
+      ok: true,
+      source: 'notion_export',
+      target: 'supabase',
+      full_snapshot: fullSnapshot,
+      material_count: sourceMaterials.length,
+      created_materials: newMaterialRows.length,
+      parent_count: headerRows.length,
+      bom_row_count: itemRows.length,
+      deleted_stale_items: deletedItems,
+      archived_stale_headers: archivedHeaders,
+      migrated_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
 }
 
 async function erpInventoryList(request, env, cors) {
