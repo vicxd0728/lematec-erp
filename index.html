@@ -6534,6 +6534,7 @@ function initAccessibilityObserver(){
 let _refreshTimer=null,_refreshing=false;
 function scheduleRefresh(ms=800){clearTimeout(_refreshTimer);_refreshTimer=setTimeout(()=>refreshAll(),ms);}
 const CACHE_KEY='lematec_erp_cache_v5';
+let _coreDataVersions={inventory:'',bom:'',checkedAt:0};
 function setSyncState(text,type='ok',persist=false){
   const syncEl=document.getElementById('syncStatus');
   if(syncEl) syncEl.textContent=text;
@@ -6549,7 +6550,8 @@ function setSyncState(text,type='ok',persist=false){
 function saveAppCache(){
   try{
     localStorage.setItem(CACHE_KEY,JSON.stringify({
-      ts:Date.now(),mats,boms,orders,customers,announces,leaves
+      ts:Date.now(),mats,boms,orders,customers,announces,leaves,
+      coreDataVersions:_coreDataVersions
     }));
   }catch(e){console.warn('cache save skipped:',e);}
 }
@@ -6565,11 +6567,19 @@ function hydrateAppCache(){
     customers=Array.isArray(c.customers)?c.customers:[];
     announces=Array.isArray(c.announces)?c.announces:[];
     leaves=Array.isArray(c.leaves)?c.leaves:[];
+    if(c.coreDataVersions&&typeof c.coreDataVersions==='object'){
+      _coreDataVersions={
+        inventory:String(c.coreDataVersions.inventory||''),
+        bom:String(c.coreDataVersions.bom||''),
+        checkedAt:Number(c.coreDataVersions.checkedAt||0),
+      };
+    }
     return mats.length||orders.length||customers.length;
   }catch(e){console.warn('cache hydrate skipped:',e);return false;}
 }
 function clearAppCache(){
   localStorage.removeItem(CACHE_KEY);
+  _coreDataVersions={inventory:'',bom:'',checkedAt:0};
   showToast('✅ 本機快取已清除，下次會完整重新同步','ok');
 }
 const AUTO_SYNC_DEFAULT_MS=3*60*1000;
@@ -6660,9 +6670,26 @@ function mapSupabaseInventoryMaterial(row){
     editable:!!notionId,
   };
 }
-async function fetchWorkerInventoryMaterials(){
+async function fetchWorkerInventoryVersions(){
+  const res=await fetch(`${PROXY}/api/inventory/versions`,{
+    headers:{Accept:'application/json'},
+    cache:'no-store',
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error||data?.ok===false)throw new Error(data?.error||text||`HTTP ${res.status}`);
+  const inventory=String(data?.inventory_version||'');
+  const bom=String(data?.bom_version||'');
+  if(!/^[a-f0-9]{24}$/i.test(inventory)||!/^[a-f0-9]{24}$/i.test(bom)){
+    throw new Error('Supabase 資料版本格式不正確');
+  }
+  return {inventory,bom,counts:data?.counts||{},checkedAt:Date.now()};
+}
+async function fetchWorkerInventoryMaterials(revision=''){
   const started=performance.now();
-  const res=await fetch(`${PROXY}/api/inventory/list?limit=20000`,{headers:{Accept:'application/json'}});
+  const revisionQuery=revision?`&revision=${encodeURIComponent(revision)}`:'';
+  const res=await fetch(`${PROXY}/api/inventory/list?limit=20000${revisionQuery}`,{headers:{Accept:'application/json'}});
   const text=await res.text();
   let data;
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
@@ -6682,8 +6709,9 @@ async function fetchWorkerInventoryMaterials(){
   };
   return supabaseInventoryMats;
 }
-async function fetchWorkerInventoryBomRows(){
-  const res=await fetch(`${PROXY}/api/inventory/bom/list`,{headers:{Accept:'application/json'}});
+async function fetchWorkerInventoryBomRows(revision=''){
+  const revisionQuery=revision?`?revision=${encodeURIComponent(revision)}`:'';
+  const res=await fetch(`${PROXY}/api/inventory/bom/list${revisionQuery}`,{headers:{Accept:'application/json'}});
   const text=await res.text();
   let data;
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
@@ -6920,9 +6948,9 @@ function mapNotionInventoryBomRows(rows){
     source:'notion',
   }));
 }
-async function loadInventoryMaterialsPrimary(){
+async function loadInventoryMaterialsPrimary(revision=''){
   try{
-    const rows=await fetchWorkerInventoryMaterials();
+    const rows=await fetchWorkerInventoryMaterials(revision);
     if(rows.length)return rows;
   }catch(e){
     console.warn('Supabase inventory primary load failed, fallback to Notion:',e.message||e);
@@ -6949,7 +6977,7 @@ function rolePriorityTabs(role=ROLE){
   };
   return uniqueTabs([CURRENT_TAB,...(map[role]||['dashboard','ops','notes'])]);
 }
-async function loadCoreEssentials(){
+async function loadCoreEssentials({force=false}={}){
   _bomDataReady=false;
   _bomDataError='';
   _bomDataSource='loading';
@@ -6957,13 +6985,27 @@ async function loadCoreEssentials(){
   // Retire the old Notion-to-Supabase snapshot queue. Replaying it could
   // overwrite newer Supabase BOM data after the source-of-truth cutover.
   localStorage.removeItem('lematec_pending_bom_snapshot_v1');
+  let versions=null;
+  let versionCheckFailed=false;
+  try{
+    versions=await fetchWorkerInventoryVersions();
+  }catch(e){
+    versionCheckFailed=true;
+    console.warn('Supabase core version check failed; keeping loaded core data when available:',e.message||e);
+  }
+  const refreshInventory=force||!mats.length||(!versionCheckFailed&&(!versions||_coreDataVersions.inventory!==versions.inventory));
+  const refreshBom=force||!boms.length||(!versionCheckFailed&&(!versions||_coreDataVersions.bom!==versions.bom));
   let matsPrimary,bomResult,oR;
   try{
     [matsPrimary,bomResult,oR]=await Promise.all([
-      loadInventoryMaterialsPrimary(),
-      fetchWorkerInventoryBomRows()
-        .then(rows=>({rows,error:null}))
-        .catch(error=>({rows:null,error})),
+      refreshInventory
+        ? loadInventoryMaterialsPrimary(versions?.inventory||'')
+        : Promise.resolve(mats),
+      refreshBom
+        ? fetchWorkerInventoryBomRows(versions?.bom||'')
+          .then(rows=>({rows,error:null}))
+          .catch(error=>({rows:null,error}))
+        : Promise.resolve({rows:null,error:null,reused:true}),
       dbQueryAll(DB.orders),
     ]);
   }catch(e){
@@ -6972,8 +7014,10 @@ async function loadCoreEssentials(){
     throw e;
   }
   mats=matsPrimary;
-  let loadedBoms=[];
-  if(bomResult?.rows){
+  let loadedBoms=bomResult?.reused?boms:[];
+  if(bomResult?.reused){
+    _bomDataSource='supabase-cache';
+  }else if(bomResult?.rows){
     try{
       loadedBoms=mapSupabaseInventoryBomRows(bomResult.rows,mats);
       _bomDataSource='supabase';
@@ -6999,6 +7043,13 @@ async function loadCoreEssentials(){
   }
   boms=loadedBoms;
   _bomDataReady=true;
+  if(versions){
+    _coreDataVersions={
+      inventory:(!refreshInventory||_supabaseInventoryState.loaded)?versions.inventory:_coreDataVersions.inventory,
+      bom:(!refreshBom||_bomDataSource==='supabase')?versions.bom:_coreDataVersions.bom,
+      checkedAt:versions.checkedAt,
+    };
+  }
   orders=oR.map(p=>{
     const productId=p.properties?.['成品']?.relation?.[0]?.id||'';
     const productMat=mats.find(m=>m.id===productId);
@@ -7151,7 +7202,7 @@ async function refreshAffectedData({core=false,tabs=[],background=true,label='�
   const affectedTabs=uniqueTabs(tabs);
   setSyncState('更新相關資料中...','syncing',true);
   try{
-    if(core)await loadCoreEssentials();
+    if(core)await loadCoreEssentials({force:true});
     await Promise.all(affectedTabs.map(tab=>loadTabData(tab,{force:true})));
     saveAppCache();
     if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
@@ -7210,7 +7261,7 @@ async function refreshAll(manual=false){
   const refreshStarted=performance.now();
   const loadedTabs=[];
   try{
-    await loadCoreEssentials();
+    await loadCoreEssentials({force:manual});
     saveAppCache();
     if(!['notes','corders','stocklog','schedule'].includes(CURRENT_TAB)&&!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
     setSyncState('核心資料已載入，優先補目前分頁...','syncing',true);
@@ -8739,7 +8790,7 @@ function renderHealthCheck(){
   <div class="dash-kpi-grid">
     <div class="kpi-card ${errorCount+schemaErr?'kpi-red':'kpi-green'}"><div class="kpi-label">錯誤</div><div class="kpi-num">${errorCount+schemaErr}</div><div class="kpi-sub">需立即修正</div></div>
     <div class="kpi-card ${warnCount+schemaWarn?'kpi-amber':'kpi-green'}"><div class="kpi-label">警示</div><div class="kpi-num">${warnCount+schemaWarn}</div><div class="kpi-sub">建議上線前整理</div></div>
-    <div class="kpi-card ${_bomDataSource==='supabase'?'kpi-green':'kpi-amber'}"><div class="kpi-label">BOM</div><div class="kpi-num">${boms.length}</div><div class="kpi-sub">${_bomDataSource==='supabase'?'Supabase 主資料':_bomDataSource==='notion-fallback'?'Notion 備援資料':_bomDataSource==='sync-pending'?'待補同步，流程已阻擋':'尚未載入'}</div></div>
+    <div class="kpi-card ${['supabase','supabase-cache'].includes(_bomDataSource)?'kpi-green':'kpi-amber'}"><div class="kpi-label">BOM</div><div class="kpi-num">${boms.length}</div><div class="kpi-sub">${_bomDataSource==='supabase'?'Supabase 主資料':_bomDataSource==='supabase-cache'?'Supabase 快取（版本未變）':_bomDataSource==='notion-fallback'?'Notion 備援資料':_bomDataSource==='sync-pending'?'待補同步，流程已阻擋':'尚未載入'}</div></div>
     <div class="kpi-card kpi-cyan"><div class="kpi-label">庫存料號</div><div class="kpi-num">${mats.length}</div><div class="kpi-sub">目前主檔筆數</div></div>
   </div>
   ${renderSupabaseReadCheck()}

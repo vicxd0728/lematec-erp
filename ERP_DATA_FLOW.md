@@ -1,5 +1,16 @@
 # LEMATEC ERP Data Flow
 
+## Conditional Core Sync 2026-07-28
+
+- Inventory and BOM remain Supabase-first through the Cloudflare Worker.
+- Each automatic sync first calls `GET /api/inventory/versions`.
+- The frontend downloads the full inventory or BOM payload only when its version changed, local data is empty, or the user starts a manual forced sync.
+- A temporary version-check failure keeps the last known inventory and BOM in memory. It must not clear data or report a false successful refresh.
+- Full payload requests include a revision query. The Worker caches immutable revision URLs for seven days and returns `X-ERP-Cache` and `X-ERP-Data-Version` headers.
+- The version endpoint is cached briefly to reduce repeated Supabase metadata reads.
+- Order data remains on its existing Notion path and is refreshed independently of unchanged inventory and BOM data.
+- Manual sync remains available and intentionally performs a full inventory and BOM refresh.
+
 ## Current Effective Inventory Rule 2026-07-28
 
 This section overrides older Supabase inventory notes below if they conflict.

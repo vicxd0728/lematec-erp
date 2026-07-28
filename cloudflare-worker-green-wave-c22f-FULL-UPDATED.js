@@ -11,8 +11,11 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/inventory/versions') {
+      return cachedInventoryVersions(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/inventory/list') {
-      return erpInventoryList(request, env, cors);
+      return versionedInventoryResponse(request, cors, () => erpInventoryList(request, env, cors));
     }
     if (request.method === 'POST' && url.pathname === '/api/inventory/sync') {
       return erpInventorySync(request, env, cors);
@@ -27,7 +30,7 @@ export default {
       return erpInventoryMaterialArchive(request, env, cors);
     }
     if (request.method === 'GET' && url.pathname === '/api/inventory/bom/list') {
-      return erpInventoryBomList(request, env, cors);
+      return versionedInventoryResponse(request, cors, () => erpInventoryBomList(request, env, cors));
     }
     if (request.method === 'POST' && url.pathname === '/api/inventory/bom/migrate') {
       return erpInventoryBomMigrate(request, env, cors);
@@ -399,6 +402,139 @@ async function supabaseAll(env, path, pageSize = 1000) {
     rows.push(...list);
     if (list.length < pageSize) return rows;
   }
+}
+
+async function sha256Short(value) {
+  return [...new Uint8Array(await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(String(value || ''))
+  ))].slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function supabaseTableVersion(env, table, organizationId) {
+  const base = String(env.SUPABASE_URL || env.SUPABASE_REST_URL || '').replace(/\/+$/, '');
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
+  if (!base || !serviceKey) throw new Error('Supabase version env missing');
+  const query = new URLSearchParams({
+    organization_id: `eq.${organizationId}`,
+    select: 'updated_at',
+    order: 'updated_at.desc',
+    limit: '1',
+  });
+  const res = await fetch(`${base}/rest/v1/${table}?${query}`, {
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: 'application/json',
+      Prefer: 'count=exact',
+      Range: '0-0',
+    },
+  });
+  const text = await res.text();
+  let rows = null;
+  try { rows = text ? JSON.parse(text) : []; } catch { rows = null; }
+  if (!res.ok || !Array.isArray(rows)) {
+    throw new Error(rows?.message || text || `Supabase ${table} version HTTP ${res.status}`);
+  }
+  const contentRange = res.headers.get('Content-Range') || '';
+  const countText = contentRange.includes('/') ? contentRange.split('/').pop() : '';
+  const count = /^\d+$/.test(countText) ? Number(countText) : null;
+  if (count === null) throw new Error(`Supabase ${table} exact count unavailable`);
+  return { table, count, latest_updated_at: cleanText(rows[0]?.updated_at || '') };
+}
+
+async function buildInventoryVersions(env) {
+  const versionStep = async (label, work) => {
+    try { return await work(); }
+    catch (error) { throw new Error(`${label}: ${error?.message || error}`); }
+  };
+  const context = await versionStep('inventory context', () => getSupabaseInventoryContext(env));
+  const organizationId = context.organization.id;
+  const [materials, balances, bomHeaders, bomItems] = await Promise.all([
+    versionStep('materials version', () => supabaseTableVersion(env, 'materials', organizationId)),
+    versionStep('inventory balances version', () => supabaseTableVersion(env, 'inventory_balances', organizationId)),
+    versionStep('BOM headers version', () => supabaseTableVersion(env, 'bom_headers', organizationId)),
+    versionStep('BOM items version', () => supabaseTableVersion(env, 'bom_items', organizationId)),
+  ]);
+  const inventoryPayload = JSON.stringify({ materials, balances });
+  const bomPayload = JSON.stringify({ materials, bomHeaders, bomItems });
+  return {
+    ok: true,
+    source: 'supabase',
+    inventory_version: await sha256Short(inventoryPayload),
+    bom_version: await sha256Short(bomPayload),
+    counts: {
+      materials: materials.count,
+      inventory_balances: balances.count,
+      bom_headers: bomHeaders.count,
+      bom_items: bomItems.count,
+    },
+    latest_updated_at: {
+      materials: materials.latest_updated_at,
+      inventory_balances: balances.latest_updated_at,
+      bom_headers: bomHeaders.latest_updated_at,
+      bom_items: bomItems.latest_updated_at,
+    },
+    checked_at: taipeiISOString(),
+  };
+}
+
+function responseWithHeaders(response, extraHeaders = {}) {
+  const headers = new Headers(response.headers);
+  Object.entries(extraHeaders).forEach(([key, value]) => headers.set(key, value));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function cachedInventoryVersions(request, env, cors) {
+  const cache = caches.default;
+  const cacheUrl = new URL(request.url);
+  cacheUrl.search = '';
+  cacheUrl.pathname = '/__erp_inventory_versions__';
+  const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' });
+  const cached = await cache.match(cacheKey);
+  if (cached) return responseWithHeaders(cached, {...cors, 'X-ERP-Cache': 'HIT'});
+  try {
+    const payload = await buildInventoryVersions(env);
+    const body = JSON.stringify(payload);
+    const stored = new Response(body, {
+      headers: {'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=15'},
+    });
+    await cache.put(cacheKey, stored.clone());
+    return new Response(body, {
+      headers: {...jh(cors), 'Cache-Control': 'public, max-age=15', 'X-ERP-Cache': 'MISS'},
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function versionedInventoryResponse(request, cors, loader) {
+  const url = new URL(request.url);
+  const revision = cleanText(url.searchParams.get('revision') || '');
+  if (!revision || !/^[a-f0-9]{24}$/i.test(revision)) return loader();
+  const cache = caches.default;
+  const cacheKey = new Request(url.toString(), { method: 'GET' });
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return responseWithHeaders(cached, {
+      ...cors,
+      'X-ERP-Cache': 'HIT',
+      'X-ERP-Data-Version': revision,
+    });
+  }
+  const response = await loader();
+  if (!response.ok) return response;
+  const body = await response.text();
+  const stored = new Response(body, {
+    status: response.status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=604800, immutable',
+      'X-ERP-Data-Version': revision,
+    },
+  });
+  await cache.put(cacheKey, stored.clone());
+  return responseWithHeaders(stored, {...cors, 'X-ERP-Cache': 'MISS'});
 }
 
 function migrationAuthorized(request, env) {
