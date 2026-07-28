@@ -1,6 +1,6 @@
 # LEMATEC ERP Codex Handoff
 
-最後更新：2026-07-27
+最後更新：2026-07-28
 
 這份文件是每次接手 LEMATEC ERP 任務時的第一份交接。先讀它，再讀實際程式與資料流文件，避免靠舊聊天記憶猜流程。
 
@@ -29,10 +29,12 @@
 
 詳細規則在 `ERP_DATA_FLOW.md`。簡版如下：
 
-- Notion 仍是大多數正式操作資料源與人員查閱後台。
-- Supabase 已開始承接速度敏感資料，但採漸進式切換。
-- 庫存頁可切換「Notion 正式 / Supabase 優先」。Supabase 優先需要本機已設定 anon public key，且目前只影響庫存頁顯示與搜尋。
-- 庫存新增與庫存數量修改目前仍先以 Notion 正式流程為主，但前端會自動排入 Supabase 鏡像佇列；刪除、訂單扣料、BOM 寫入仍未正式切 Supabase。
+- Notion 仍是多數非庫存模組的正式資料源與人員查閱後台。
+- 庫存主檔、庫存餘額與相關交易以 Supabase 為主，前端透過 Worker 讀寫，不要求每台裝置設定 anon key。
+- 料號建立、修改、刪除、重複清理與合併皆為 Supabase 優先；Supabase 成功後才鏡像 Notion。
+- 刪除與合併使用 Supabase 原子 RPC；非零庫存或未核准的 BOM 關聯一律拒絕，不允許部分成功。
+- Notion 鏡像失敗會排入前端重試佇列；Supabase 失敗則整個主操作失敗。
+- 直接在 Notion 修改庫存目前仍不保證自動回寫 Supabase，日常操作以 ERP 前端為準。
 - 異動紀錄正在轉向 Supabase 主讀寫，Notion 需同步保留鏡像，供人員查閱。
 - 影片庫優先讀 Supabase，失敗時退回備援清單。
 
@@ -40,11 +42,11 @@
 
 前端使用的是 Supabase anon public key，存在瀏覽器 `localStorage` 的 `lematec_supabase_anon_key`。
 
-- 沒有 key：不會讀 Supabase 庫存快照，庫存頁回到 Notion 正式資料。
-- 有 key：庫存頁預設可使用 Supabase 優先，但只讀；修改類操作仍需切回 Notion 正式。
+- 沒有 key：一般庫存瀏覽與修改仍透過 Worker 使用 Supabase，不受影響。
+- 有 key：只增加健康檢查中的 Supabase REST 深度比對能力。
 - 異動紀錄有 key 時會先讀 Supabase，失敗再退回 Notion。
 - 前端不可使用 PostgreSQL DB URL 或 postgres 密碼。
-- 前端庫存鏡像不靠 anon key 寫入；它會呼叫 Worker `/api/inventory/sync`，由 Worker 內部的 `SUPABASE_SERVICE_ROLE_KEY` 寫入 Supabase。
+- 前端庫存讀寫不靠 anon key；它會呼叫 Worker 庫存 API，由 Worker 內部的 `SUPABASE_SERVICE_ROLE_KEY` 存取 Supabase。
 
 ## 核心流程規則
 

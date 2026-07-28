@@ -5727,10 +5727,34 @@ async function loadFullData(scope,quiet=false){
   }
 }
 async function createPage(dbId,props){
+  let inventoryCreate=null;
+  let materialTask=null;
   if(dbId===DB.materials){
-    await postInventoryMirrorTask(buildMaterialCreateMirrorTask(null,props));
+    materialTask=buildMaterialCreateMirrorTask(null,props);
+    inventoryCreate=await postInventoryMirrorTask(materialTask);
+    if(inventoryCreate?.created===false&&inventoryCreate?.notion_page_id){
+      throw new Error(`料號 ${materialTask.payload.sku} 已存在，系統未重複建立`);
+    }
   }
-  const r=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+  let r;
+  try{
+    r=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+    if(dbId===DB.materials)assertNotionPage(r,'建立料件 Notion 鏡像');
+  }catch(e){
+    if(dbId===DB.materials&&inventoryCreate?.created===true&&materialTask?.payload?.sku){
+      try{
+        await postInventoryMaterialArchive({
+          items:[materialTask.payload],
+          mode:'create_rollback',
+          allow_nonzero:true,
+          reason:'Notion 料件鏡像建立失敗，自動回復新建 Supabase 主檔'
+        });
+      }catch(rollbackError){
+        throw new Error(`${e.message||e}；Supabase 自動回復也失敗：${rollbackError.message||rollbackError}`);
+      }
+    }
+    throw e;
+  }
   if(dbId===DB.materials&&r?.object==='page'){
     scheduleInventoryMirrorSync(buildMaterialCreateMirrorTask(r,props));
   }
@@ -7551,8 +7575,23 @@ function queueWorkflowNotionSync(pageId,properties,label,error=''){
   if(!pageId||!properties) return;
   const queue=readWorkflowNotionSyncQueue().filter(x=>x?.page_id!==pageId);
   queue.push({
+    action:'update',
     page_id:pageId,
     properties,
+    label:label||pageId,
+    retry_count:0,
+    created_at:new Date().toISOString(),
+    last_error:error||''
+  });
+  writeWorkflowNotionSyncQueue(queue);
+  setTimeout(()=>flushWorkflowNotionSyncQueue({quiet:true}),500);
+}
+function queueWorkflowNotionArchive(pageId,label,error=''){
+  if(!pageId) return;
+  const queue=readWorkflowNotionSyncQueue().filter(x=>x?.page_id!==pageId);
+  queue.push({
+    action:'archive',
+    page_id:pageId,
     label:label||pageId,
     retry_count:0,
     created_at:new Date().toISOString(),
@@ -7679,6 +7718,50 @@ async function postInventoryBatchAdjustTask(payload){
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
   if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
   return data;
+}
+async function postInventoryMaterialArchive(payload){
+  const res=await fetch(`${PROXY}/api/inventory/material/archive`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload})
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  return data;
+}
+async function archiveMaterialsSupabaseFirst(materials,{mode='archive',reason='',allowNonzero=false,bomNotionPageIds=[],dryRun=false}={}){
+  const rows=(materials||[]).filter(Boolean);
+  if(!rows.length)return {count:0,mirrorPending:0,materials:[]};
+  const items=rows.map(m=>({
+    notion_page_id:m.id||m.notionId||'',
+    sku:normalizeSku(m.code||m.sku||m.name||''),
+    name:m.name||m.code||m.sku||'',
+    allow_nonzero:allowNonzero===true,
+  }));
+  const result=await postInventoryMaterialArchive({
+    items,
+    mode,
+    reason,
+    allow_nonzero:allowNonzero===true,
+    dry_run:dryRun===true,
+    bom_notion_page_ids:(bomNotionPageIds||[]).filter(Boolean),
+  });
+  if(dryRun===true)return {...result,mirrorPending:0};
+  let mirrorPending=0;
+  for(const m of rows){
+    const pageId=m.id||m.notionId||'';
+    if(!pageId)continue;
+    try{
+      assertNotionPage(await archivePage(pageId),`封存 Notion 料件鏡像 ${m.code||m.name||pageId}`);
+    }catch(e){
+      mirrorPending++;
+      queueWorkflowNotionArchive(pageId,`封存料件鏡像 ${m.code||m.name||pageId}`,e.message||String(e));
+      console.warn(`Supabase 料件已封存，Notion 鏡像待補同步：${m.code||m.name||pageId}`,e);
+    }
+  }
+  return {...result,mirrorPending};
 }
 const _inventoryAdjustLocks=new Set();
 function withInventoryAdjustLock(key,fn){
@@ -7918,7 +8001,11 @@ async function flushWorkflowNotionSyncQueue({quiet=false}={}){
   try{
     for(const task of queue){
       try{
-        assertNotionPage(await updatePage(task.page_id,task.properties),task.label||'流程狀態補同步');
+        if(task.action==='archive'){
+          assertNotionPage(await archivePage(task.page_id),task.label||'料件封存補同步');
+        }else{
+          assertNotionPage(await updatePage(task.page_id,task.properties),task.label||'流程狀態補同步');
+        }
         synced++;
       }catch(e){
         remain.push({
@@ -8315,12 +8402,20 @@ async function repairDuplicateMaterialsByIds(ids,label='建議項目'){
   for(const m of targets){
     try{
       const reason='健康檢查修復：刪除無關聯重複料號';
-      await archivePage(m.id);
+      const liveRefs=await findLiveMaterialReferences([m.id]);
+      if(liveRefs.total){
+        throw new Error(`即時檢查仍有關聯（${materialReferenceLabel(liveRefs)}）`);
+      }
+      const archived=await archiveMaterialsSupabaseFirst([m],{
+        mode:'health_duplicate_cleanup',
+        reason,
+        allowNonzero:false,
+      });
       await _writeStockEditLog({
         matId:m.id,matName:m.name||'',matCode:m.code||'',
         changeType:'健康檢查刪除重複料號',
         before:`${m.name||''} / ${m.code||''} / ${m.type||''} / 庫存 ${m.stock}`,
-        after:'Notion 已封存',
+        after:archived.mirrorPending?'Supabase 已封存；Notion 待補同步':'Supabase 與 Notion 已封存',
         delta:0,reason,operator:ROLE,
       });
       logUserAction('健康檢查修復',m.code||m.name,reason,ROLE);
@@ -9220,16 +9315,20 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
       throw new Error('建議保留的料號已封存，請重新同步後再檢查');
     }
     const requestedRemoveIds=[...(removeIds||[])];
-    const activeRemoveIds=livePages
-      .filter(x=>requestedRemoveIds.includes(x.row.m.id)&&!x.archived)
-      .map(x=>x.row.m.id);
-    const stockPages=livePages.filter(x=>x.row.m.id===keepId||activeRemoveIds.includes(x.row.m.id));
+    const stockPages=livePages.filter(x=>x.row.m.id===keepId||requestedRemoveIds.includes(x.row.m.id));
     const nonZeroStocks=[...new Set(stockPages.map(x=>x.stock).filter(n=>n!==0))];
     if(nonZeroStocks.length>1){
       throw new Error(`偵測到不同的非零庫存（${nonZeroStocks.join('、')}），為避免重複計算已停止合併`);
     }
     const targetStock=nonZeroStocks.length===1?nonZeroStocks[0]:(keepLive?.stock||0);
-    const removing=new Set(activeRemoveIds);
+    const removing=new Set(requestedRemoveIds);
+    const removeRows=plan.rows.filter(x=>removing.has(x.m.id));
+    await archiveMaterialsSupabaseFirst(removeRows.map(row=>row.m),{
+      mode:'duplicate_merge_preflight',
+      reason:`健康檢查合併預演；保留 ${keepId}`,
+      allowNonzero:true,
+      dryRun:true,
+    });
     // Include pages already archived by an interrupted run so any remaining references are still repaired.
     const migratedRefs=await migrateDuplicateMaterialReferences(keepId,requestedRemoveIds);
     if((keepLive?.stock||0)!==targetStock){
@@ -9247,13 +9346,17 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
     const verifiedStock=Number(verified.properties?.['目前庫存']?.number)||0;
     if(verifiedStock!==targetStock)throw new Error(`庫存驗證失敗：預期 ${targetStock}，實際 ${verifiedStock}`);
 
-    let archivedCount=0;
-    for(const row of plan.rows.filter(x=>removing.has(x.m.id))){
+    for(const row of removeRows){
       const latest=await notionAPI('GET',`pages/${row.m.id}`);
       assertNotionPage(latest,'封存前重新核對重複料號');
-      if(latest.archived||latest.in_trash)continue;
-      assertNotionPage(await archivePage(row.m.id),'封存重複料號');
-      archivedCount++;
+    }
+    const archivedResult=await archiveMaterialsSupabaseFirst(removeRows.map(row=>row.m),{
+      mode:'duplicate_merge',
+      reason:`健康檢查合併重複料號；保留 ${keepId}`,
+      allowNonzero:true,
+    });
+    const archivedCount=Number(archivedResult.count)||0;
+    for(const row of removeRows){
       await _writeStockEditLog({
         matId:keepId,matName:plan.keep.m.name||'',matCode:plan.keep.m.code||'',
         changeType:'合併重複料號',
@@ -9265,11 +9368,10 @@ async function mergeDuplicateMaterialGroup(keepId,removeIds){
     if((keepLive?.stock||0)!==targetStock){
       await logStockChange(keepId,plan.keep.m.name||'',plan.keep.m.code||'','合併重複料號',targetStock-(keepLive?.stock||0),keepLive?.stock||0,targetStock,code,ROLE);
     }
-    const alreadyArchivedCount=requestedRemoveIds.length-archivedCount;
-    logUserAction('健康檢查合併重複料號',code,`保留 ${plan.keep.m.code||plan.keep.m.name}；庫存 ${keepLive?.stock||0} → ${targetStock}；轉移 ${materialReferenceLabel(migratedRefs)}；本次封存 ${archivedCount} 筆；先前已封存 ${alreadyArchivedCount} 筆`,ROLE);
+    logUserAction('健康檢查合併重複料號',code,`保留 ${plan.keep.m.code||plan.keep.m.name}；庫存 ${keepLive?.stock||0} → ${targetStock}；轉移 ${materialReferenceLabel(migratedRefs)}；Supabase 封存 ${archivedCount} 筆；Notion 待補同步 ${archivedResult.mirrorPending||0} 筆`,ROLE);
     await refreshAffectedData({core:true,tabs:['inbound'],background:false,label:'重複料號已合併'});
     if(CURRENT_TAB==='health')renderTab('health');
-    showToast(`✅ ${code} 已合併：庫存 ${targetStock}，本次封存 ${archivedCount} 筆${alreadyArchivedCount?`，略過已封存 ${alreadyArchivedCount} 筆`:''}`,'ok');
+    showToast(`✅ ${code} 已合併：庫存 ${targetStock}，Supabase 封存 ${archivedCount} 筆${archivedResult.mirrorPending?`，Notion 待補同步 ${archivedResult.mirrorPending} 筆`:''}`,'ok');
   }catch(e){
     console.warn('merge duplicate material failed',e);
     showToast('❌ 合併停止：'+e.message,'err',10000);
@@ -12421,33 +12523,40 @@ async function cleanupShopeeCompoundMistakeMats(candidates){
   const ids=new Set(list.map(m=>m.id));
   const affectedBoms=boms.filter(b=>ids.has(b.parentId)||ids.has(b.childId));
   let archivedMats=0, archivedBoms=0, failed=[];
-  for(const b of affectedBoms){
-    try{
-      await archivePage(b.id);
-      archivedBoms++;
-    }catch(e){
-      failed.push(`BOM ${b.name||b.id} 封存失敗：${e.message}`);
+  try{
+    const archived=await archiveMaterialsSupabaseFirst(list,{
+      mode:'shopee_cleanup',
+      reason:'依最新蝦皮編號 Excel 清理舊版或錯誤料號',
+      allowNonzero:false,
+      bomNotionPageIds:affectedBoms.map(b=>b.id),
+    });
+    archivedMats=Number(archived.count)||0;
+    for(const b of affectedBoms){
+      try{
+        assertNotionPage(await archivePage(b.id),`封存 BOM 鏡像 ${b.name||b.id}`);
+        archivedBoms++;
+      }catch(e){
+        queueWorkflowNotionArchive(b.id,`封存 BOM 鏡像 ${b.name||b.id}`,e.message||String(e));
+        failed.push(`BOM ${b.name||b.id} 已從 Supabase 封存，Notion 待補同步：${e.message}`);
+      }
     }
-  }
-  for(const m of list){
-    try{
-      await archivePage(m.id);
-      archivedMats++;
+    for(const m of list){
       await _writeStockEditLog({
         matId:m.id,
         matName:m.name||'',
         matCode:m.code||'',
         changeType:'刪除料件',
         before:`${m.name||''} / ${m.code||''} / ${m.type||''} / 庫存 ${m.stock}`,
-        after:'Shopee Excel 標準化清理，Notion 已封存',
+        after:'Shopee Excel 標準化清理，Supabase 已封存並同步 Notion',
         delta:0,
         reason:'依最新蝦皮編號 Excel 清理舊版/錯誤料號；'+shopeeCleanupReason(m),
         operator:ROLE,
       });
       logUserAction('清理蝦皮錯誤料號',m.code||m.name,'依最新蝦皮編號 Excel 封存舊版/錯誤料號；'+shopeeCleanupReason(m),ROLE);
-    }catch(e){
-      failed.push(`${m.code||m.name} 封存失敗：${e.message}`);
     }
+  }catch(e){
+    failed.push(`Supabase 安全檢查或封存失敗：${e.message}`);
+    return {archivedMats:0,archivedBoms:0,failed};
   }
   mats=mats.filter(m=>!ids.has(m.id));
   boms=boms.filter(b=>!affectedBoms.some(x=>x.id===b.id));
@@ -15113,13 +15222,38 @@ async function doEditMat(mid){
   const oldSafe = oldMat?.safe||0;
   closeModal();showToast('更新中...','warn');
   try{
+    const nextSku=normalizeSku(code||name);
+    if(!nextSku)throw new Error('料件編號不可空白');
     const props={
       '料件名稱':{title:[{text:{content:name}}]},
       '類型':{select:{name:type}},
       '安全庫存':{number:safe},
     };
     if(code!==undefined)props['料件編號']={rich_text:[{text:{content:code}}]};
-    await updatePage(mid,props);
+    const current=materialSnapshotFromState(mid,null);
+    await postInventoryMirrorTask(buildInventoryMirrorTask('upsert_material',{
+      ...current,
+      notion_page_id:mid,
+      sku:nextSku,
+      name,
+      type,
+      safe,
+    }));
+    let mirrorPending=false;
+    try{
+      assertNotionPage(await updatePage(mid,props,{skipInventorySync:true}),'更新 Notion 料件鏡像');
+    }catch(e){
+      mirrorPending=true;
+      queueWorkflowNotionSync(mid,props,`更新料件鏡像 ${nextSku}`,e.message||String(e));
+      console.warn(`Supabase 料件已更新，Notion 鏡像待補同步：${nextSku}`,e);
+    }
+    if(oldMat){
+      oldMat.name=name;
+      oldMat.code=nextSku;
+      oldMat.type=type;
+      oldMat.safe=safe;
+      oldMat.source='supabase';
+    }
     // 判斷修改類型
     const changeType = name!==oldName ? '料件名稱修改' : safe!==oldSafe ? '安全庫存修改' : '其他修改';
     const before = name!==oldName ? oldName : String(oldSafe);
@@ -15129,7 +15263,12 @@ async function doEditMat(mid){
       changeType, before, after, delta:0, reason, operator:ROLE,
     });
     await refreshAffectedData({core:true,label:'料件資料已更新'});
-    showToast('✅ 料件「'+name+'」已更新（原因已記錄）','ok');
+    showToast(
+      mirrorPending
+        ? `✅ 料件「${name}」已更新；Notion 鏡像待自動補同步`
+        : `✅ 料件「${name}」已更新（原因已記錄）`,
+      mirrorPending?'warn':'ok'
+    );
   }catch(e){showToast('❌ 更新失敗：'+e.message,'err');}
 }
 
@@ -15174,7 +15313,7 @@ function openDeleteMat(mid){
     <div style="margin-bottom:12px">
       <label style="font-size:0.625rem;color:var(--red);display:block;margin-bottom:4px">✳ 刪除原因（必填）</label>
       <textarea class="inp" id="dm_reason" placeholder="例如：測試誤建、重複料號，保留另一筆有關聯資料" style="border-color:rgba(239,68,68,.3);min-height:86px"></textarea>
-      <div style="font-size:0.625rem;color:var(--text3);margin-top:4px">會封存 Notion 料件頁，並寫入庫存修改記錄與異動記錄。</div>
+      <div style="font-size:0.625rem;color:var(--text3);margin-top:4px">會先安全封存 Supabase 主檔，再同步封存 Notion 鏡像，並寫入修改與異動記錄。</div>
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
@@ -15203,14 +15342,18 @@ async function doDeleteMat(mid){
     if(liveRefs.total){
       throw new Error(`仍有關聯（${materialReferenceLabel(liveRefs)}），請使用重複料號合併或先解除關聯，系統未刪除`);
     }
-    await archivePage(mid);
+    const archived=await archiveMaterialsSupabaseFirst([m],{
+      mode:'direct_delete',
+      reason,
+      allowNonzero:false,
+    });
     await _writeStockEditLog({
       matId:mid,
       matName:m.name||'',
       matCode:m.code||'',
       changeType:'刪除料件',
       before:`${m.name||''} / ${m.code||''} / ${m.type||''} / 庫存 ${m.stock}`,
-      after:'Notion 已封存',
+      after:archived.mirrorPending?'Supabase 已封存；Notion 待補同步':'Supabase 與 Notion 已封存',
       delta:0,
       reason:`${reason}；即時關聯檢查：無`,
       operator:ROLE,

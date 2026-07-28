@@ -1,6 +1,6 @@
 # LEMATEC ERP Data Flow
 
-## Current Effective Inventory Rule 2026-07-27
+## Current Effective Inventory Rule 2026-07-28
 
 This section overrides older Supabase inventory notes below if they conflict.
 
@@ -9,13 +9,18 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Frontend inventory read calls Worker route `GET /api/inventory/list`.
 - Worker reads Supabase `materials` and `inventory_balances` with the service role key.
 - Inventory quantity writes call Worker routes such as `POST /api/inventory/adjust` or `POST /api/inventory/sync`.
+- Inventory master creation and metadata edits write Supabase first, then mirror to Notion.
+- Inventory master deletion, duplicate cleanup, and merge use the atomic Supabase RPC `archive_inventory_materials`.
+- The archive RPC locks the affected rows and rejects non-zero inventory or active BOM references unless the caller explicitly supplies an approved merge plan.
+- A rejected or failed Supabase operation must not archive the Notion page or report success.
 - Supabase must accept the inventory write before the ERP shows success.
 - After Supabase accepts a write, Notion is updated as a staff-readable mirror/backup.
+- If the Notion mirror temporarily fails, the ERP stores a retry task and continues retrying without undoing the accepted Supabase truth.
 - If Worker/Supabase inventory read fails, the frontend may fall back to Notion so staff are not blocked.
 - The local `lematec_supabase_anon_key` is only for optional health-check diagnostics such as deeper BOM view comparison. It is not required for normal inventory browsing or editing.
 - Do not claim Notion manual edits are fully two-way until a verified Notion-to-Supabase sync job exists.
 
-最後更新：2026-07-27
+最後更新：2026-07-28
 
 本文件定義 ERP 前端、Notion、Supabase 之間的資料責任。實際程式仍以 `index.html` 為準；若程式改變，需同步更新本文件。
 
@@ -46,8 +51,8 @@ This section overrides older Supabase inventory notes below if they conflict.
 
 | 模組 | 目前主資料 | 前端讀取 | 前端寫入 | Notion 角色 | Supabase 角色 |
 |---|---|---|---|---|---|
-| 庫存主檔 | Notion | Notion 正式；可切 Supabase 優先只讀 | Notion 主流程；新增料號與庫存數量變更會自動鏡像 Supabase | 正式操作與查閱 | 只讀快照、速度測試、遷移驗證、前端庫存鏡像 |
-| BOM / 子母件 | Notion | Notion | Notion | 正式操作與查閱 | 遷移驗證與未來候選主資料 |
+| 庫存主檔 | Supabase | Worker 讀 Supabase；失敗才回退 Notion | Worker 先寫 Supabase；成功後鏡像 Notion | 查閱、鏡像與備援 | 正式主資料 |
+| BOM / 子母件 | Supabase + Notion 鏡像 | 交易與封存檢查使用 Supabase BOM | 既有 BOM 維護流程須同步兩邊 | 查閱與鏡像 | 扣料、關聯與封存安全檢查 |
 | 異動紀錄 | Supabase 轉換中 | 有 key 時優先 Supabase，失敗回 Notion | Supabase；需鏡像 Notion | 人員查閱鏡像 | 主讀寫與速度來源 |
 | 影片庫 | Supabase | Supabase 優先；失敗回備援清單 | 目前非前端日常寫入 | 可作資料備援 | 主資料與快速搜尋 |
 | 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
@@ -62,27 +67,25 @@ This section overrides older Supabase inventory notes below if they conflict.
 
 目前庫存頁邏輯：
 
-1. `getInventoryReadSource()` 讀本機設定。
-2. 若本機沒有明確設定：
-   - 有 Supabase anon key：預設 `supabase`
-   - 沒有 Supabase anon key：預設 `notion`
-3. 若選 Supabase 且快照已載入成功，庫存頁使用 `inventory_snapshot`。
-4. 若 Supabase 未載入、失敗、或沒有 key，庫存頁使用 Notion `mats` 快取。
-5. Supabase 模式只讀，會禁止庫存修改與料號刪除。
+1. 前端呼叫 Worker `GET /api/inventory/list`。
+2. Worker 以 service role 讀取 Supabase 料號、庫存餘額與必要的 BOM 資料。
+3. 正常瀏覽與修改不需要在每台裝置輸入 anon public key。
+4. Worker/Supabase 暫時無法讀取時，前端才可使用 Notion 快取作為唯讀備援，並清楚顯示目前為備援資料。
+5. 備援狀態不得執行庫存修改、刪除或合併，以免產生雙主資料。
 
-重點：Supabase 優先目前只影響庫存頁顯示/搜尋，不代表訂單扣料已切 Supabase。
+## 庫存主檔寫入與鏡像流程
 
-## 庫存寫入鏡像流程
+目前庫存主檔操作以 Supabase 為先：
 
-目前前端庫存寫入仍先走 Notion 正式流程；成功後會自動送出 Supabase 鏡像任務：
+1. 新增料號：先呼叫 Worker 寫入 Supabase，再建立 Notion 鏡像；若全新 Supabase 料號的 Notion 建立失敗，前端會安全回滾該新料號。
+2. 修改料號名稱、類型或中英文名稱：先寫 Supabase，成功後更新 Notion；Notion 暫時失敗時加入重試佇列。
+3. 修改庫存數量：透過 Worker 的庫存調整/同步路由寫入 Supabase，再鏡像 Notion 並建立異動紀錄。
+4. 刪除、重複清理、合併：呼叫 Worker `POST /api/inventory/material/archive`，由 Supabase RPC 在單一交易中鎖定並檢查料號、庫存與 BOM。
+5. 只要庫存非零、BOM 關聯未被核准、資料衝突或資料庫錯誤，整筆操作失敗，不封存 Notion、不顯示成功。
+6. Supabase 成功後才封存 Notion 鏡像；Notion 暫時失敗時加入 `lematec_workflow_notion_queue_v1` 重試。
+7. 前端不可持有 PostgreSQL DB URL、postgres 密碼或 service role key。
 
-1. 新增料號：`createPage(DB.materials, ...)` 成功後，建立 `upsert_material` 任務。
-2. 修改庫存數量：`updatePage(..., {'目前庫存': ...})` 成功後，建立 `set_stock` 任務。
-3. 前端會把任務存在本機 `lematec_inventory_mirror_queue_v1`，並透過 Worker `/api/inventory/sync` 寫入 Supabase。
-4. Worker 必須設定 `SUPABASE_URL` 與 `SUPABASE_SERVICE_ROLE_KEY`，由 Worker 使用 service role 寫入，前端不接觸 DB 密碼。
-5. 若 Worker、網路或 Supabase 暫時失敗，Notion 主流程不回滾，任務留在本機佇列，登入或回到前景時自動重試。
-
-重點：這是「Notion 主流程 + Supabase 鏡像」階段，還不是完整 Supabase 主資料切換。訂單扣料、BOM、入料、品管等完整庫存服務仍需 Phase 4 才能正式切成 Supabase 主資料。
+重點：日常料號與庫存操作請使用 ERP 前端。直接在 Notion 修改目前仍不保證即時回寫 Supabase。
 
 ## 異動紀錄流程
 

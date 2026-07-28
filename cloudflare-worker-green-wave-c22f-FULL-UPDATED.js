@@ -23,6 +23,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/adjust-batch') {
       return erpInventoryBatchAdjust(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inventory/material/archive') {
+      return erpInventoryMaterialArchive(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -465,6 +468,7 @@ async function erpInventorySync(request, env, cors) {
       material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organization.id)}&sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
     }
 
+    const existedBeforeSync = !!material;
     if (task.kind === 'upsert_material' || !material) {
       material = await upsertSupabaseMaterial(env, organization.id, material, {...payload, sku});
     }
@@ -480,8 +484,130 @@ async function erpInventorySync(request, env, cors) {
       kind: task.kind,
       sku,
       material_id: material.id,
+      notion_page_id: cleanText(material.notion_page_id || ''),
       stock: Number.isFinite(stock) ? stock : null,
+      created: !existedBeforeSync,
       mirrored_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function activeSupabaseBomReferences(env, materialId) {
+  const parentRows = await supabaseFetch(
+    env,
+    `/rest/v1/bom_headers?parent_material_id=eq.${encodeURIComponent(materialId)}&archived_at=is.null&select=id,notion_page_id&limit=2000`
+  );
+  const componentRows = await supabaseFetch(
+    env,
+    `/rest/v1/bom_items?component_material_id=eq.${encodeURIComponent(materialId)}&select=id,bom_header_id&limit=2000`
+  );
+  const headerIds = [...new Set((Array.isArray(componentRows) ? componentRows : [])
+    .map((row) => cleanText(row.bom_header_id))
+    .filter(Boolean))];
+  let activeComponentRows = [];
+  if (headerIds.length) {
+    const filter = headerIds.join(',');
+    activeComponentRows = await supabaseFetch(
+      env,
+      `/rest/v1/bom_headers?id=in.(${encodeURIComponent(filter)})&archived_at=is.null&select=id,notion_page_id&limit=2000`
+    );
+  }
+  const parent = Array.isArray(parentRows) ? parentRows : [];
+  const component = Array.isArray(activeComponentRows) ? activeComponentRows : [];
+  return {
+    parent,
+    component,
+    all: [...new Map([...parent, ...component].map((row) => [row.id, row])).values()],
+  };
+}
+
+async function erpInventoryMaterialArchive(request, env, cors) {
+  try {
+    const body = await request.json();
+    const payload = body?.payload || body || {};
+    const requested = Array.isArray(payload.items) ? payload.items : [payload];
+    if (!requested.length) return resp400(cors, 'Missing inventory materials');
+
+    const context = await getSupabaseInventoryContext(env);
+    const resolved = [];
+    const seen = new Set();
+    const allowedBomNotionIds = new Set(
+      (Array.isArray(payload.bom_notion_page_ids) ? payload.bom_notion_page_ids : [])
+        .map((id) => cleanText(id))
+        .filter(Boolean)
+    );
+    const bomHeaderIdsToArchive = new Set();
+    for (const item of requested) {
+      const sku = cleanSku(item?.sku || item?.code || item?.name || '');
+      const material = await resolveSupabaseMaterial(
+        env,
+        context.organization.id,
+        item || {},
+        sku,
+        false
+      );
+      if (!material?.id) {
+        if (payload.ignore_missing === true || item?.ignore_missing === true) continue;
+        throw new Error(`Supabase 找不到料號：${sku || item?.notion_page_id || '未知料號'}`);
+      }
+      if (seen.has(material.id)) continue;
+      seen.add(material.id);
+      const balance = await getSupabaseBalance(
+        env,
+        context.organization.id,
+        context.warehouse.id,
+        material.id
+      );
+      const stock = Number(balance?.quantity || 0);
+      const bom = await activeSupabaseBomReferences(env, material.id);
+      const unmatchedBom = bom.all.filter((row) => !allowedBomNotionIds.has(cleanText(row.notion_page_id)));
+      if (unmatchedBom.length) {
+        throw new Error(`料號 ${material.sku} 仍有 Supabase BOM 關聯（母件 ${bom.parent.length}、子件 ${bom.component.length}），已停止封存`);
+      }
+      for (const row of bom.all) {
+        bomHeaderIdsToArchive.add(row.id);
+      }
+      const allowNonzero = payload.allow_nonzero === true || item?.allow_nonzero === true;
+      if (stock !== 0 && !allowNonzero) {
+        throw new Error(`料號 ${material.sku} 庫存仍為 ${stock}，已停止封存`);
+      }
+      resolved.push({material, stock, bom});
+    }
+
+    if (!resolved.length) {
+      return respOK(cors, {
+        ok: true,
+        mode: cleanText(payload.mode || 'archive'),
+        dry_run: payload.dry_run === true,
+        count: 0,
+        materials: [],
+        bom_headers_archived: 0,
+      });
+    }
+
+    const allowNonzero = payload.allow_nonzero === true ||
+      (requested.length > 0 && requested.every((item) => item?.allow_nonzero === true));
+    const rpcResult = await supabaseFetch(env, '/rest/v1/rpc/archive_inventory_materials', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_organization_id: context.organization.id,
+        p_warehouse_id: context.warehouse.id,
+        p_material_ids: resolved.map((row) => row.material.id),
+        p_allowed_bom_notion_ids: [...allowedBomNotionIds],
+        p_allow_nonzero: allowNonzero,
+        p_dry_run: payload.dry_run === true,
+      }),
+    });
+    const materials = Array.isArray(rpcResult?.materials) ? rpcResult.materials : [];
+    const archivedCount = materials.filter((item) => item?.already_archived !== true).length;
+
+    return respOK(cors, {
+      ok: true,
+      mode: cleanText(payload.mode || 'archive'),
+      count: payload.dry_run === true ? materials.length : archivedCount,
+      ...rpcResult,
     });
   } catch (e) {
     return resp500(cors, e.message);
@@ -848,7 +974,9 @@ async function upsertSupabaseMaterial(env, organizationId, existing, payload) {
     material_type: normalizeMaterialType(payload.type || payload.material_type),
     unit: cleanText(payload.unit || '個'),
     safety_stock: Number(payload.safe ?? payload.safety_stock ?? 0) || 0,
+    status: '啟用',
     notes: cleanText(payload.note || payload.notes || ''),
+    archived_at: null,
   };
   if (payload.notion_page_id) row.notion_page_id = cleanText(payload.notion_page_id);
 
