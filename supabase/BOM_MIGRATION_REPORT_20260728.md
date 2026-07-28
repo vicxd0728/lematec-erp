@@ -57,11 +57,19 @@ picking and deduction remain blocked.
 
 ## Ongoing Maintenance
 
-ERP BOM imports and automatic Shopee BOM creation keep the Notion database as a
-staff-readable mirror, then submit a complete validated snapshot to Supabase.
-The Worker response count must match the submitted BOM count. Failed writes are
-retried three times and kept as a local pending snapshot; while that snapshot
-cannot be flushed, BOM-dependent picking and deduction remain blocked.
+ERP BOM imports and automatic Shopee BOM creation now submit a normalized BOM
+plan to Supabase first through `POST /api/inventory/bom/upsert`. The Worker
+rejects missing SKUs, non-positive quantities, duplicate pairs, self references,
+and over-large requests. The response row count must exactly match the submitted
+row count before the frontend continues.
+
+Only after Supabase accepts the plan does the ERP update the Notion BOM database
+as a staff-readable mirror. A temporary Notion mirror failure is queued for
+background retry and does not undo the accepted Supabase truth. A failed
+Supabase write stops before Notion is changed.
+
+The retired Notion-to-Supabase snapshot queue is deleted on load and is never
+replayed, so an older browser snapshot cannot overwrite the production BOM.
 
 Direct manual BOM edits in Notion are not automatically pushed to Supabase.
 Use the ERP BOM maintenance flow for production changes.

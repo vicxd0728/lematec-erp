@@ -6693,97 +6693,183 @@ async function fetchWorkerInventoryBomRows(){
   if(Number(data?.row_count||rows.length)!==rows.length) throw new Error(`Supabase BOM 筆數不一致：宣告 ${data?.row_count}，實際 ${rows.length}`);
   return rows;
 }
-const BOM_SYNC_QUEUE_KEY='lematec_pending_bom_snapshot_v1';
-function buildBomMigrationSnapshot(){
-  const materialById=new Map();
-  const materialRows=mats.map(mat=>{
-    const notionId=String(mat.notionId||mat.id||'').trim();
-    if(!notionId||notionId.startsWith('supabase:'))return null;
-    materialById.set(mat.id,notionId);
-    return {
-      notion_page_id:notionId,
-      sku:mat.code||mat.name||'',
-      name:mat.name||mat.code||'',
-      material_type:mat.type||'未分類',
-      unit:mat.unit||'個',
-      stock:Number(mat.stock??mat.qty??0)||0,
-      safety_stock:Number(mat.safe||0)||0,
-      notes:mat.note||'',
-    };
-  }).filter(Boolean);
-  const pairs=new Set();
-  const bomRows=boms.map(row=>{
-    const notionId=String(row.id||'').trim();
-    const parentNotionId=materialById.get(row.parentId)||String(row.parentId||'').trim();
-    const childNotionId=materialById.get(row.childId)||String(row.childId||'').trim();
-    const quantity=Number(row.qty);
-    const pair=`${parentNotionId}|${childNotionId}`;
-    if(
-      !notionId||!parentNotionId||!childNotionId||
-      notionId.startsWith('supabase:')||parentNotionId.startsWith('supabase:')||childNotionId.startsWith('supabase:')||
-      parentNotionId===childNotionId||!Number.isFinite(quantity)||quantity<=0||pairs.has(pair)
-    ){
-      throw new Error(`BOM 快照驗證失敗：${row.name||notionId||pair||'未知關聯'}`);
-    }
-    pairs.add(pair);
-    return {
-      notion_page_id:notionId,
-      parent_notion_page_id:parentNotionId,
-      child_notion_page_id:childNotionId,
-      quantity,
-      notes:row.name||'ERP BOM sync',
-    };
+const BOM_NOTION_MIRROR_QUEUE_KEY='lematec_pending_bom_notion_mirror_v1';
+function normalizeBomWritePlan(label,rows,materials=[]){
+  const pairSet=new Set();
+  const normalizedRows=(rows||[]).map(row=>{
+    const parent_sku=normalizeSku(row.parent_sku||row.parent);
+    const child_sku=normalizeSku(row.child_sku||row.child);
+    const quantity=Number(row.quantity??row.qty);
+    if(!parent_sku||!child_sku)throw new Error('BOM 母件或子件料號空白');
+    if(parent_sku===child_sku)throw new Error(`BOM 不可自我關聯：${parent_sku}`);
+    if(!Number.isFinite(quantity)||quantity<=0)throw new Error(`BOM 用量錯誤：${parent_sku} → ${child_sku}`);
+    const pair=`${parent_sku}|${child_sku}`;
+    if(pairSet.has(pair))throw new Error(`BOM 關聯重複：${parent_sku} → ${child_sku}`);
+    pairSet.add(pair);
+    return {parent_sku,child_sku,quantity,notes:String(row.notes||'ERP BOM').trim()};
   });
-  if(!materialRows.length||!bomRows.length)throw new Error('禁止以空白料號或空白 BOM 覆蓋 Supabase');
-  return {materials:materialRows,bom_rows:bomRows,full_snapshot:true,queued_at:new Date().toISOString()};
-}
-async function postBomSnapshotToSupabase(snapshot){
-  const res=await fetch(`${PROXY}/api/inventory/bom/migrate`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json',Authorization:`Bearer ${TOKEN}`},
-    body:JSON.stringify(snapshot),
+  const materialMap=new Map();
+  (materials||[]).forEach(source=>{
+    const sku=normalizeSku(source.sku||source.code||source.name);
+    if(!sku)return;
+    const current=materialMap.get(sku)||{};
+    materialMap.set(sku,{
+      ...current,
+      ...source,
+      sku,
+      name:source.name||current.name||sku,
+      material_type:source.material_type||source.type||current.material_type||current.type||(/^S-/i.test(sku)?'蝦皮用':'零件'),
+      unit:source.unit||current.unit||'個',
+      stock:Number(source.stock??source.quantity??current.stock??0)||0,
+      safety_stock:Number(source.safety_stock??source.safe??current.safety_stock??0)||0,
+      notes:String(source.notes||source.note||current.notes||'').trim(),
+    });
   });
-  const text=await res.text();
-  let data;
-  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
-  if(!res.ok||data?.error||data?.ok===false)throw new Error(data?.error||text||`HTTP ${res.status}`);
-  if(Number(data?.bom_row_count)!==snapshot.bom_rows.length){
-    throw new Error(`Supabase BOM 寫入筆數不一致：預期 ${snapshot.bom_rows.length}，實際 ${data?.bom_row_count??0}`);
-  }
-  return data;
+  normalizedRows.forEach(row=>{
+    [row.parent_sku,row.child_sku].forEach(sku=>{
+      if(!materialMap.has(sku))materialMap.set(sku,{sku,name:sku,material_type:/^S-/i.test(sku)?'蝦皮用':'零件',unit:'個',stock:0,safety_stock:0,notes:''});
+    });
+  });
+  return {
+    id:`bom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+    label:label||'BOM 更新',
+    rows:normalizedRows,
+    materials:[...materialMap.values()],
+    queued_at:new Date().toISOString(),
+  };
 }
-async function syncBomSnapshotToSupabase(label='BOM 更新'){
-  const snapshot=buildBomMigrationSnapshot();
-  localStorage.setItem(BOM_SYNC_QUEUE_KEY,JSON.stringify(snapshot));
+async function postBomRowsToSupabase(plan){
   let lastError;
   for(let attempt=1;attempt<=3;attempt++){
     try{
-      const data=await postBomSnapshotToSupabase(snapshot);
-      localStorage.removeItem(BOM_SYNC_QUEUE_KEY);
-      _bomDataSource='supabase';
-      _bomDataFallbackReason='';
+      const res=await fetch(`${PROXY}/api/inventory/bom/upsert`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${TOKEN}`},
+        body:JSON.stringify({rows:plan.rows,materials:plan.materials}),
+      });
+      const text=await res.text();
+      let data;
+      try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+      if(!res.ok||data?.error||data?.ok===false)throw new Error(data?.error||text||`HTTP ${res.status}`);
+      if(Number(data?.bom_row_count)!==plan.rows.length){
+        throw new Error(`Supabase BOM 寫入筆數不一致：預期 ${plan.rows.length}，實際 ${data?.bom_row_count??0}`);
+      }
       return data;
     }catch(e){
       lastError=e;
       if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*1000));
     }
   }
-  _bomDataReady=false;
-  _bomDataSource='sync-pending';
-  _bomDataError=`${label}尚未寫入 Supabase：${lastError?.message||lastError}`;
-  throw new Error(_bomDataError);
+  throw new Error(`${plan.label}未寫入 Supabase：${lastError?.message||lastError}`);
 }
-async function flushPendingBomSnapshot(){
-  const raw=localStorage.getItem(BOM_SYNC_QUEUE_KEY);
-  if(!raw)return false;
-  let snapshot;
-  try{snapshot=JSON.parse(raw);}catch{
-    localStorage.removeItem(BOM_SYNC_QUEUE_KEY);
-    throw new Error('待補同步 BOM 快照格式損壞，已停止載入');
+function readPendingBomNotionMirrors(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(BOM_NOTION_MIRROR_QUEUE_KEY)||'[]');
+    return Array.isArray(rows)?rows:[];
+  }catch{return [];}
+}
+function writePendingBomNotionMirrors(rows){
+  const clean=(rows||[]).filter(row=>row?.id&&Array.isArray(row.rows)&&row.rows.length).slice(-20);
+  if(clean.length)localStorage.setItem(BOM_NOTION_MIRROR_QUEUE_KEY,JSON.stringify(clean));
+  else localStorage.removeItem(BOM_NOTION_MIRROR_QUEUE_KEY);
+}
+function queueBomNotionMirror(plan){
+  const queue=readPendingBomNotionMirrors().filter(row=>row.id!==plan.id);
+  queue.push(plan);
+  writePendingBomNotionMirrors(queue);
+}
+function completeBomNotionMirror(planId){
+  writePendingBomNotionMirrors(readPendingBomNotionMirrors().filter(row=>row.id!==planId));
+}
+async function mirrorBomPlanToNotion(plan){
+  const notionMaterials=await dbQueryAll(DB.materials);
+  const materialBySku=new Map();
+  notionMaterials.forEach(page=>{
+    const mat=mapNotionMaterialPage(page);
+    const sku=normalizeSku(mat.code||mat.name);
+    if(sku&&!materialBySku.has(sku))materialBySku.set(sku,{...mat,page});
+  });
+  for(const spec of plan.materials){
+    const sku=normalizeSku(spec.sku);
+    if(!sku||materialBySku.has(sku))continue;
+    const props={
+      '料件名稱':{title:[{text:{content:spec.name||sku}}]},
+      '料件編號':{rich_text:[{text:{content:sku}}]},
+      '類型':{select:{name:spec.material_type||'零件'}},
+      '單位':{select:{name:spec.unit||'個'}},
+      '目前庫存':{number:Number(spec.stock)||0},
+      '安全庫存':{number:Number(spec.safety_stock)||0},
+      '備註':{rich_text:[{text:{content:spec.notes||''}}]},
+    };
+    const page=await notionAPI('POST','pages',{parent:{database_id:DB.materials},properties:props});
+    assertNotionPage(page,`建立料件 ${sku} 的 Notion 鏡像`);
+    const mat={...mapNotionMaterialPage(page),page};
+    materialBySku.set(sku,mat);
+    try{await postInventoryMirrorTask(buildMaterialCreateMirrorTask(page,props));}
+    catch(e){console.warn(`Supabase 料件 ${sku} 補 notion_page_id 失敗：`,e);}
   }
-  await postBomSnapshotToSupabase(snapshot);
-  localStorage.removeItem(BOM_SYNC_QUEUE_KEY);
-  return true;
+  const notionBomPages=await dbQueryAll(DB.bom);
+  const bomByPair=new Map();
+  notionBomPages.forEach(page=>{
+    const parentId=page.properties?.['母件']?.relation?.[0]?.id||'';
+    const childId=page.properties?.['子件']?.relation?.[0]?.id||'';
+    if(parentId&&childId&&!bomByPair.has(`${parentId}|${childId}`))bomByPair.set(`${parentId}|${childId}`,page);
+  });
+  let created=0,updated=0,skipped=0;
+  for(const row of plan.rows){
+    const parent=materialBySku.get(normalizeSku(row.parent_sku));
+    const child=materialBySku.get(normalizeSku(row.child_sku));
+    if(!parent||!child)throw new Error(`Notion 鏡像找不到料號：${row.parent_sku} → ${row.child_sku}`);
+    const pair=`${parent.id}|${child.id}`;
+    const current=bomByPair.get(pair);
+    if(current){
+      const currentQty=Number(current.properties?.['每台用量']?.number??1);
+      if(currentQty!==Number(row.quantity)){
+        const result=await updatePage(current.id,{
+          '每台用量':{number:Number(row.quantity)},
+          '備註':{rich_text:[{text:{content:row.notes||'Supabase BOM mirror'}}]},
+        });
+        assertNotionPage(result,'更新 BOM Notion 鏡像');
+        updated++;
+      }else skipped++;
+      continue;
+    }
+    const title=`${row.parent_sku} → ${row.child_sku}`;
+    const page=await notionAPI('POST','pages',{parent:{database_id:DB.bom},properties:{
+      'BOM項目':{title:[{text:{content:title}}]},
+      '母件':{relation:[{id:parent.id}]},
+      '子件':{relation:[{id:child.id}]},
+      '每台用量':{number:Number(row.quantity)},
+      '備註':{rich_text:[{text:{content:row.notes||'Supabase BOM mirror'}}]},
+    }});
+    assertNotionPage(page,'建立 BOM Notion 鏡像');
+    bomByPair.set(pair,page);
+    created++;
+  }
+  return {created,updated,skipped};
+}
+async function commitBomPlanSupabaseFirst(plan){
+  const result=await postBomRowsToSupabase(plan);
+  queueBomNotionMirror(plan);
+  _bomDataSource='supabase';
+  _bomDataReady=true;
+  _bomDataError='';
+  return result;
+}
+async function flushPendingBomNotionMirrors(){
+  const queue=readPendingBomNotionMirrors();
+  if(!queue.length)return {completed:0,pending:0};
+  let completed=0;
+  for(const plan of queue){
+    try{
+      await mirrorBomPlanToNotion(plan);
+      completeBomNotionMirror(plan.id);
+      completed++;
+    }catch(e){
+      console.warn(`BOM Notion 鏡像待重試：${plan.label}`,e);
+    }
+  }
+  return {completed,pending:readPendingBomNotionMirrors().length};
 }
 function mapSupabaseInventoryBomRows(rows,materialRows){
   const byNotionId=new Map();
@@ -6868,15 +6954,9 @@ async function loadCoreEssentials(){
   _bomDataError='';
   _bomDataSource='loading';
   _bomDataFallbackReason='';
-  if(localStorage.getItem(BOM_SYNC_QUEUE_KEY)){
-    try{
-      await flushPendingBomSnapshot();
-    }catch(e){
-      _bomDataError=e.message||String(e);
-      _bomDataSource='sync-pending';
-      throw new Error(`BOM 待補同步仍失敗，已阻擋領料與扣料：${_bomDataError}`);
-    }
-  }
+  // Retire the old Notion-to-Supabase snapshot queue. Replaying it could
+  // overwrite newer Supabase BOM data after the source-of-truth cutover.
+  localStorage.removeItem('lematec_pending_bom_snapshot_v1');
   let matsPrimary,bomResult,oR;
   try{
     [matsPrimary,bomResult,oR]=await Promise.all([
@@ -6943,6 +7023,13 @@ async function loadCoreEssentials(){
     };
   });
   markLoaded('core');
+  if(readPendingBomNotionMirrors().length){
+    setTimeout(()=>{
+      flushPendingBomNotionMirrors().then(result=>{
+        if(result.completed)showToast(`✅ 已補同步 ${result.completed} 批 BOM 到 Notion 鏡像`,'ok',6000);
+      }).catch(e=>console.warn('BOM Notion 鏡像背景補同步失敗：',e));
+    },0);
+  }
 }
 async function loadCustomersOnly(){
   const masterR=await dbQueryAll(DB.custMaster);
@@ -12560,7 +12647,32 @@ async function importShopeeBomToNotion(){
   const cleanupPreview=cleanupCandidates.length
     ? `\n\n另外偵測到 ${cleanupCandidates.length} 個舊版/錯誤料號會封存清理，例如：\n${cleanupCandidates.slice(0,12).map(m=>'・'+(m.code||m.name)+'（'+shopeeCleanupReason(m)+'）').join('\n')}${cleanupCandidates.length>12?'\n・...':''}\n\n例：Y-SKC04-3+LE-18*2 會依 Excel 拆成 Y-SKC04-3 x1、LE-18 x2，不應作為單一庫存料號；只差 -、空白、符號的舊料號也會以 Excel 標準料號為準。`
     : '';
-  if(!confirm(`準備依照最新蝦皮編號 Excel 更新 Notion。\n\n會處理：\n1. 缺少的 S-母件自動建成「蝦皮用」庫存，預設庫存20 / 安全10\n2. 缺少的子件自動建成「零件」，庫存0\n3. 缺少的 BOM 關係會新增\n4. 已有 BOM 但數量不同會修正\n5. 清理 Excel 複合表示式或格式差異造成的舊版錯誤料號${cleanupPreview}\n\n母件：${SHOPEE_BOM_EXCEL.length} 個\nBOM關係：${totalRows} 筆\n\n要開始嗎？`)) return;
+  if(!confirm(`準備依照最新蝦皮編號 Excel 更新 BOM。\n\n正式流程：Supabase 主資料先寫入成功，再同步 Notion 查閱鏡像。\n\n會處理：\n1. 缺少的 S-母件自動建成「蝦皮用」庫存，預設庫存20 / 安全10\n2. 缺少的子件自動建成「零件」，庫存0\n3. 缺少的 BOM 關係會新增\n4. 已有 BOM 但數量不同會修正\n5. 清理 Excel 複合表示式或格式差異造成的舊版錯誤料號${cleanupPreview}\n\n母件：${SHOPEE_BOM_EXCEL.length} 個\nBOM關係：${totalRows} 筆\n\n要開始嗎？`)) return;
+  const supPlan=normalizeBomWritePlan(
+    '蝦皮 BOM 更新',
+    SHOPEE_BOM_EXCEL.flatMap(row=>(row.children||[]).map(ch=>({
+      parent_sku:row.parent,
+      child_sku:normalizeBomChildSku(ch.code),
+      quantity:Number(ch.qty)||1,
+      notes:'Shopee Excel BOM',
+    }))),
+    SHOPEE_BOM_EXCEL.flatMap(row=>[
+      {sku:row.parent,name:row.parent,material_type:'蝦皮用',stock:20,safety_stock:10,notes:shopeeBomNoteForSku(row.parent)},
+      ...(row.children||[]).map(ch=>{
+        const sku=normalizeBomChildSku(ch.code);
+        return {sku,name:sku,material_type:bomImportChildType(sku),stock:0,safety_stock:0,notes:`Shopee BOM 子件，來源母件 ${row.parent}`};
+      }),
+    ])
+  );
+  showToast('⏳ 寫入 Supabase BOM 主資料...','warn',8000);
+  try{
+    await commitBomPlanSupabaseFirst(supPlan);
+  }catch(e){
+    showToast('❌ '+e.message,'err',12000);
+    alert('Supabase BOM 主資料未成功寫入，已停止本次更新，Notion 不會先行變更。');
+    return;
+  }
+  showToast('✅ Supabase BOM 已完成，正在同步 Notion 鏡像...','ok',7000);
   let created=0, updated=0, skipped=0, parentCreated=0, childCreated=0, failed=[];
   let cleanupResult={archivedMats:0,archivedBoms:0,failed:[]};
   const existing=new Map(boms.map(b=>[b.parentId+'|'+b.childId,b]));
@@ -12639,20 +12751,11 @@ async function importShopeeBomToNotion(){
     cleanupResult=await cleanupShopeeCompoundMistakeMats(cleanupCandidates);
     failed=failed.concat(cleanupResult.failed||[]);
   }
-  if(created||updated||cleanupResult.archivedBoms){
-    showToast('⏳ 驗證並同步 Supabase BOM 主資料...','warn',8000);
-    try{
-      await syncBomSnapshotToSupabase('蝦皮 BOM 更新');
-    }catch(e){
-      showToast('❌ '+e.message,'err',12000);
-      alert('Notion 已完成部分 BOM 更新，但 Supabase 主資料尚未同步成功。系統已保留待重試快照並阻擋 BOM 流程，請保持連線後重新整理。');
-      return;
-    }
-  }
+  if(!failed.length)completeBomNotionMirror(supPlan.id);
   await refreshAffectedData({core:true,background:false,label:'蝦皮 BOM 已更新'});
   const msg=`✅ 蝦皮設定更新完成：新增BOM ${created} 筆，修正數量 ${updated} 筆，略過 ${skipped} 筆，新增母件 ${parentCreated} 個，新增子件 ${childCreated} 個`
     +`，清理錯誤料號 ${cleanupResult.archivedMats||0} 個 / 關聯BOM ${cleanupResult.archivedBoms||0} 筆`
-    +(failed.length?`，失敗 ${failed.length} 筆`:'');
+    +(failed.length?`，Notion 鏡像待補同步 ${failed.length} 筆`:'');
   showToast(msg,failed.length?'warn':'ok',12000);
   if(failed.length){
     alert(msg+'\n\n失敗：\n'+failed.slice(0,80).join('\n'));
@@ -12882,6 +12985,7 @@ async function importGeneralBomExcel(input){
   if(!file) return;
   if(!canImportBomRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
   showToast('⏳ 讀取 BOM Excel...','warn',6000);
+  let supPlan=null,supCommitted=false;
   try{
     await ensureXlsxLoaded();
     const buf=await file.arrayBuffer();
@@ -12889,8 +12993,28 @@ async function importGeneralBomExcel(input){
     const relCount=parsed.rows.reduce((sum,r)=>sum+r.parts.length,0);
     const preview=parsed.rows.slice(0,8).map(r=>`・${r.parent}：${r.parts.map(p=>p.code+'×'+p.qty).join('、')}`).join('\n');
     const warn=parsed.errors.length?`\n\n解析提醒：\n${parsed.errors.slice(0,10).join('\n')}${parsed.errors.length>10?'\n...':''}`:'';
-    if(!confirm(`準備匯入 BOM Excel：${file.name}\n\n母件 ${parsed.rows.length} 個，BOM 關聯 ${relCount} 筆。\n\n${preview}${parsed.rows.length>8?'\n・...':''}${warn}\n\n匯入會建立缺少的料號，並新增/更新 BOM 關聯；不會刪除既有資料。要開始嗎？`)) return;
-    showToast('⏳ 同步最新 Notion 資料...','warn',6000);
+    if(!confirm(`準備匯入 BOM Excel：${file.name}\n\n母件 ${parsed.rows.length} 個，BOM 關聯 ${relCount} 筆。\n\n${preview}${parsed.rows.length>8?'\n・...':''}${warn}\n\nSupabase 主資料會先寫入成功，再同步 Notion 查閱鏡像；不會刪除既有資料。要開始嗎？`)) return;
+    supPlan=normalizeBomWritePlan(
+      `BOM Excel 匯入：${file.name}`,
+      parsed.rows.flatMap(row=>row.parts.map(part=>({
+        parent_sku:row.parent,
+        child_sku:normalizeBomChildSku(part.code),
+        quantity:Number(part.qty)||1,
+        notes:['BOM Excel import',row.note].filter(Boolean).join(' / '),
+      }))),
+      parsed.rows.flatMap(row=>[
+        {sku:row.parent,name:row.parent,material_type:row.type||'成品',stock:0,safety_stock:0,notes:['BOM Excel匯入',row.note].filter(Boolean).join(' / ')},
+        ...row.parts.map(part=>{
+          const sku=normalizeBomChildSku(part.code);
+          return {sku,name:sku,material_type:bomImportChildType(sku),stock:0,safety_stock:0,notes:`BOM Excel子件，來源母件 ${row.parent}`};
+        }),
+      ])
+    );
+    showToast('⏳ 寫入 Supabase BOM 主資料...','warn',8000);
+    await commitBomPlanSupabaseFirst(supPlan);
+    supCommitted=true;
+    showToast('✅ Supabase BOM 已完成，正在同步 Notion 鏡像...','ok',7000);
+    showToast('⏳ 同步最新 Notion 鏡像資料...','warn',6000);
     await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     const existing=new Map(boms.map(b=>[b.parentId+'|'+b.childId,b]));
     let parentCreated=0, childCreated=0, bomCreated=0, bomUpdated=0, skipped=0;
@@ -12947,10 +13071,7 @@ async function importGeneralBomExcel(input){
         }
       }
     }
-    if(bomCreated||bomUpdated){
-      showToast('⏳ 驗證並同步 Supabase BOM 主資料...','warn',8000);
-      await syncBomSnapshotToSupabase('BOM Excel 匯入');
-    }
+    if(!failed.length&&supPlan)completeBomNotionMirror(supPlan.id);
     await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     renderTab(CURRENT_TAB);
     const msg=`✅ BOM 匯入完成：新增母件 ${parentCreated}、新增子件 ${childCreated}、新增關聯 ${bomCreated}、更新用量 ${bomUpdated}、略過 ${skipped}`;
@@ -12961,7 +13082,11 @@ async function importGeneralBomExcel(input){
     }
   }catch(e){
     console.error('importGeneralBomExcel error:',e);
-    showToast('❌ BOM 匯入失敗：'+e.message,'err',10000);
+    if(supCommitted){
+      showToast('⚠️ Supabase BOM 已完成；Notion 鏡像將於背景重試：'+e.message,'warn',12000);
+    }else{
+      showToast('❌ BOM 匯入失敗：'+e.message,'err',10000);
+    }
   }
 }
 async function ensureShopeeParentMaterial(sku){
@@ -12978,34 +13103,32 @@ async function ensureShopeeBomRows(parentMat){
   const sku=parentMat.code||parentMat.name;
   const rows=shopeeBomRowsForSku(sku);
   if(!rows.length) return {created:0,missing:0,total:0};
-  const existing=new Set(boms.map(b=>b.parentId+'|'+b.childId));
-  let created=0, childCreated=0;
-  for(const row of rows){
-    const childCode=normalizeBomChildSku(row.code);
-    let child=findMatBySku(childCode);
-    if(!child){
-      child=await createMaterialFromSku(childCode,bomImportChildType(childCode),0,0,'Shopee Excel BOM 自動建檔');
-      childCreated++;
-    }
-    const key=parentMat.id+'|'+child.id;
-    if(existing.has(key)) continue;
-    const title=`${sku} → ${childCode}`;
-    const r=await createPage(DB.bom,{
-      'BOM項目':{title:[{text:{content:title}}]},
-      '母件':{relation:[{id:parentMat.id}]},
-      '子件':{relation:[{id:child.id}]},
-      '每台用量':{number:Number(row.qty)||1},
-      '備註':{rich_text:[{text:{content:'Shopee Excel BOM 自動建立'}}]},
-    });
-    if(r?.object==='error') throw new Error(title+'：'+(r.message||'BOM 建立失敗'));
-    boms.push({id:r.id,parentId:parentMat.id,childId:child.id,qty:Number(row.qty)||1,name:title,source:'notion'});
-    existing.add(key);
-    created++;
+  const plan=normalizeBomWritePlan(
+    `蝦皮料號 ${sku} 自動建立 BOM`,
+    rows.map(row=>({
+      parent_sku:sku,
+      child_sku:normalizeBomChildSku(row.code),
+      quantity:Number(row.qty)||1,
+      notes:'Shopee Excel BOM 自動建立',
+    })),
+    [
+      {sku,name:sku,material_type:'蝦皮用',stock:Number(parentMat.stock??parentMat.qty??20)||20,safety_stock:Number(parentMat.safe??10)||10,notes:shopeeBomNoteForSku(sku)},
+      ...rows.map(row=>{
+        const childCode=normalizeBomChildSku(row.code);
+        return {sku:childCode,name:childCode,material_type:bomImportChildType(childCode),stock:0,safety_stock:0,notes:'Shopee Excel BOM 自動建檔'};
+      }),
+    ]
+  );
+  await commitBomPlanSupabaseFirst(plan);
+  try{
+    const mirrored=await mirrorBomPlanToNotion(plan);
+    completeBomNotionMirror(plan.id);
+    return {created:mirrored.created,updated:mirrored.updated,childCreated:0,total:rows.length,source:'supabase'};
+  }catch(e){
+    console.warn(`蝦皮料號 ${sku} 的 Notion BOM 鏡像待補同步：`,e);
+    showToast(`⚠️ ${sku} BOM 已寫入 Supabase；Notion 鏡像將背景補同步`,'warn',9000);
+    return {created:rows.length,updated:0,childCreated:0,total:rows.length,source:'supabase',mirrorPending:true};
   }
-  if(created){
-    await syncBomSnapshotToSupabase(`蝦皮料號 ${sku} 自動建立 BOM`);
-  }
-  return {created,childCreated,total:rows.length};
 }
 async function auditShopeeBomInventory(){
   await refreshAll(true);

@@ -39,7 +39,9 @@
 - 影片庫優先讀 Supabase，失敗時退回備援清單。
 - BOM 正式讀取已改為 Worker / Supabase 優先；前端會逐筆驗證母件、子件、用量與重複關聯，失敗時才使用 Notion BOM 鏡像。
 - Supabase 與 Notion BOM 都無法安全載入時，領料與扣料必須保持阻擋，不得用空 BOM 繼續。
-- ERP 內的 BOM 匯入或自動建立完成後，必須把完整快照寫入 Supabase 並核對筆數；失敗會保留本機補同步快照並阻擋 BOM 流程。
+- ERP 內的 BOM 匯入與自動建立必須先透過 Worker `POST /api/inventory/bom/upsert` 寫入 Supabase 並核對筆數；Supabase 失敗時不得先改 Notion。
+- Supabase 接受 BOM 後才更新 Notion 查閱鏡像；Notion 鏡像失敗會排入 `lematec_pending_bom_notion_mirror_v1` 重試佇列。
+- 舊的 `lematec_pending_bom_snapshot_v1` 不得再回放到 Supabase，登入時只清除，避免舊 Notion 快照覆蓋正式 BOM。
 - 不得宣稱直接在 Notion 手動改 BOM 會自動回寫 Supabase；目前正式 BOM 維護入口是 ERP 前端。
 
 ## Supabase Key 行為

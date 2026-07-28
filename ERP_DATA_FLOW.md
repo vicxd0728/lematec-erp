@@ -18,6 +18,12 @@ This section overrides older Supabase inventory notes below if they conflict.
 - If the Notion mirror temporarily fails, the ERP stores a retry task and continues retrying without undoing the accepted Supabase truth.
 - If Worker/Supabase inventory read fails, the frontend may fall back to Notion so staff are not blocked.
 - BOM reads call Worker route `GET /api/inventory/bom/list` and use Supabase first.
+- BOM imports and automatic Shopee BOM creation call Worker route `POST /api/inventory/bom/upsert`.
+- Every BOM write validates parent SKU, component SKU, positive quantity, duplicate pairs, and self references before writing.
+- Supabase must accept the complete submitted BOM plan and return the exact row count before any Notion BOM mirror is changed.
+- A failed Supabase BOM write stops the operation and leaves Notion untouched.
+- After Supabase accepts a BOM write, Notion is updated as a staff-readable mirror. A temporary Notion failure is queued for retry and does not roll back Supabase.
+- The retired `lematec_pending_bom_snapshot_v1` queue is deleted on load and is never replayed, preventing an older Notion snapshot from overwriting current Supabase BOM data.
 - Supabase BOM is accepted only when it is non-empty and every parent, component, quantity, and pair can be mapped safely.
 - If Supabase BOM is empty, malformed, duplicated, self-referencing, or cannot map to the loaded material master, the frontend rejects it and loads the Notion BOM mirror as an explicit fallback.
 - If both Supabase and Notion BOM reads fail, BOM-dependent picking and deduction remain blocked.
