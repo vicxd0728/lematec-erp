@@ -6,11 +6,12 @@
 - The Worker writes stock operation logs to Supabase `erp_stock_logs` with the service role key.
 - ERP frontend still mirrors each stock operation log to Notion for backup and staff browsing.
 - ERP frontend reads stock operation logs from the Worker/Supabase first.
-- Notion is a fallback/readable mirror, not the performance source for the frontend.
+- Notion is a readable mirror, not a frontend fallback or performance source.
 - If Supabase log writing fails, the ERP operation must surface an error instead of pretending success.
 - If Supabase succeeds but Notion mirror fails, the log remains valid in Supabase and the Notion mirror is treated as pending repair.
-- During Worker rollout, the frontend may temporarily fall back to direct Supabase REST when an anon key exists.
-- If both Worker and REST are unavailable, the frontend writes the Notion mirror and stores a pending Supabase repair entry so staff operations are not blocked silently.
+- Normal staff devices do not need a Supabase anon public key for stock logs.
+- If the Worker/Supabase write fails, the Notion mirror is not written first and the ERP operation reports failure.
+- If Supabase succeeds but the immediate Notion mirror fails, the frontend stores a visible retry task and the scheduled repair job completes the mirror.
 
 ## Frontend / Worker Routes
 
@@ -31,8 +32,9 @@ POST /api/stock-log/mark-notion
 `POST /api/stock-log/sync` accepts one stock log item from the ERP frontend and
 deduplicates by `client_trace_id`.
 
-`GET /api/stock-log/list` returns rows from `stock_logs_public`, normally limited
-to the recent window used by the ERP first-load mode.
+`GET /api/stock-log/list` returns rows from `stock_logs_public`. It supports
+`limit`, `offset`, `mode=recent|all`, and `pending_notion=true`. The ERP loads
+the recent 30-day window first and only requests the full history when needed.
 
 `POST /api/stock-log/mark-notion` is used by the repair job after a Supabase log
 has been mirrored to Notion. It writes the Notion page id back to
@@ -44,8 +46,17 @@ Local pending storage:
 lematec_stock_log_pending_v1
 ```
 
-This localStorage queue is only for visible repair state. It should not be treated
-as the source of truth.
+This localStorage queue is only for automatic delivery retry. Supabase remains
+the source of truth. The queue is retried when the device reconnects, when the
+stock-log page loads, and when the user presses the retry button.
+
+Scheduled mirror repair:
+
+```text
+.github/workflows/stock-log-notion-mirror.yml
+```
+
+The job runs every six hours and requires the GitHub secret `NOTION_TOKEN`.
 
 ## Inventory Quantity Cutover Status
 
@@ -141,11 +152,11 @@ $env:NOTION_TOKEN = "ntn_xxx"
 python .\scripts\backfill_notion_stock_logs_to_supabase.py
 ```
 
-Apply after reviewing the generated report:
+Apply after reviewing the generated report. A DB URL is optional; without one,
+the script uses the Worker service-role route:
 
 ```powershell
 $env:NOTION_TOKEN = "ntn_xxx"
-$env:SUPABASE_DB_URL = "postgresql://..."
 python .\scripts\backfill_notion_stock_logs_to_supabase.py --apply
 ```
 

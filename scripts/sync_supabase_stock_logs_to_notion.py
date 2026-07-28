@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -188,6 +188,47 @@ def almost_equal(a: float, b: float) -> bool:
     return abs(as_float(a) - as_float(b)) < 0.0001
 
 
+def parse_timestamp(value: str) -> datetime | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def closest_unclaimed_match(
+    matches: list[dict[str, Any]],
+    row: SupabaseStockLog,
+    claimed_page_ids: set[str],
+) -> dict[str, Any] | None:
+    available = [page for page in matches if page.get("id") not in claimed_page_ids]
+    if len(available) == 1:
+        return available[0]
+    row_time = parse_timestamp(row.created_at)
+    if not available or not row_time:
+        return None
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for page in available:
+        page_time = parse_timestamp(as_text(page.get("created_time")))
+        if page_time:
+            scored.append((abs((page_time - row_time).total_seconds()), page))
+    scored.sort(key=lambda item: item[0])
+    if not scored:
+        return sorted(available, key=lambda page: as_text(page.get("id")))[0]
+    if len(scored) > 1 and abs(scored[0][0] - scored[1][0]) < 0.001:
+        # Notion timestamps are minute-granular in some older rows. The strict
+        # field matcher already proved these pages are equivalent, so allocate
+        # them deterministically while claimed_page_ids enforces one-to-one use.
+        return sorted(available, key=lambda page: (as_text(page.get("created_time")), as_text(page.get("id"))))[0]
+    return scored[0][1]
+
+
 def is_matching_notion_page(page: dict[str, Any], row: SupabaseStockLog) -> bool:
     props = page.get("properties", {})
     if date_prop(props, "異動日期") != row.change_date:
@@ -251,7 +292,15 @@ def is_test_row(row: SupabaseStockLog) -> bool:
 
 
 def fetch_pending_rows_worker(worker_url: str, limit: int, days: int, sources: tuple[str, ...]) -> list[SupabaseStockLog]:
-    params = urlencode({"limit": max(limit * 3, limit), "days": days, "mode": "recent" if days > 0 else "all"})
+    params = urlencode(
+        {
+            "limit": min(max(limit * 3, limit), 1000),
+            "days": days,
+            "mode": "recent" if days > 0 else "all",
+            "pending_notion": "true",
+            "offset": 0,
+        }
+    )
     data = http_json(f"{worker_url.rstrip('/')}/api/stock-log/list?{params}")
     if not data.get("ok"):
         raise RuntimeError(f"Worker stock-log list failed: {data}")
@@ -268,6 +317,29 @@ def fetch_pending_rows_worker(worker_url: str, limit: int, days: int, sources: t
         if len(rows) >= limit:
             break
     return rows
+
+
+def fetch_linked_notion_ids_worker(worker_url: str, days: int) -> set[str]:
+    linked: set[str] = set()
+    offset = 0
+    while True:
+        params = urlencode(
+            {
+                "limit": 995,
+                "days": days,
+                "mode": "recent" if days > 0 else "all",
+                "offset": offset,
+            }
+        )
+        data = http_json(f"{worker_url.rstrip('/')}/api/stock-log/list?{params}")
+        if not data.get("ok"):
+            raise RuntimeError(f"Worker stock-log list failed: {data}")
+        rows = data.get("rows", [])
+        linked.update(as_text(row.get("notion_page_id")) for row in rows if row.get("notion_page_id"))
+        if not data.get("has_more") or not rows:
+            break
+        offset = int(data.get("next_offset") or (offset + len(rows)))
+    return linked
 
 
 def mark_notion_page_worker(worker_url: str, row_id: int, page_id: str) -> None:
@@ -376,8 +448,18 @@ def main() -> int:
             raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from exc
         conn = psycopg.connect(db_url)
         pending_rows = fetch_pending_rows_db(conn, args.limit, args.days, sources)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select notion_page_id
+                from public.erp_stock_logs
+                where coalesce(notion_page_id, '') <> ''
+                """
+            )
+            claimed_notion_ids = {as_text(row[0]) for row in cur.fetchall() if row[0]}
     else:
         pending_rows = fetch_pending_rows_worker(args.worker_url, args.limit, args.days, sources)
+        claimed_notion_ids = fetch_linked_notion_ids_worker(args.worker_url, args.days)
 
     try:
         report["pending"] = len(pending_rows)
@@ -393,9 +475,11 @@ def main() -> int:
             try:
                 candidates = notion_query_candidates(args.database_id, notion_token, row)
                 matches = [page for page in candidates if is_matching_notion_page(page, row)]
-                if len(matches) == 1:
-                    page_id = matches[0]["id"]
+                selected = closest_unclaimed_match(matches, row, claimed_notion_ids)
+                if selected:
+                    page_id = selected["id"]
                     result.update({"status": "would_link_existing" if not args.apply else "linked_existing", "notion_page_id": page_id})
+                    claimed_notion_ids.add(page_id)
                     if args.apply:
                         if conn:
                             mark_notion_page_db(conn, row.id, page_id)

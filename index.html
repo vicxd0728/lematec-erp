@@ -8856,10 +8856,15 @@ async function runHealthCheck(manual=false){
 // 庫存異動記錄模組
 // ══════════════════════════════════════════════
 let stockLogs = [];
+let stockLogLoadError = '';
+let stockLogHasMore = false;
 
 function mapSupabaseStockRows(rows){
   return (Array.isArray(rows)?rows:[]).map(r=>({
     id: String(r.id||r.client_trace_id||''),
+    supabaseId: Number(r.id||0),
+    notionPageId: r.notion_page_id||'',
+    clientTraceId: r.client_trace_id||'',
     title: r.item_title||'',
     matName: r.material_name||'',
     matCode: r.material_code||'',
@@ -8870,68 +8875,60 @@ function mapSupabaseStockRows(rows){
     date: r.change_date||'',
     ref: r.ref_no||'',
     operator: r.operator_role||'',
+    note: r.note||'',
+    createdAt: r.created_at||'',
     source: r.source||'Supabase'
   }));
 }
 async function loadWorkerStockLog(mode='recent'){
-  const params=new URLSearchParams({mode,days:String(FIRST_LOAD_DAYS),limit:'500'});
-  const res=await fetch(`${PROXY}/api/stock-log/list?${params.toString()}`);
-  const text=await res.text();
-  let data;
-  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
-  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
-  return mapSupabaseStockRows(data?.rows||[]);
-}
-async function loadSupabaseStockLog(mode='recent'){
-  const parts=['select=id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at'];
-  if(mode!=='all')parts.push(`change_date=gte.${isoDaysAgo(FIRST_LOAD_DAYS).slice(0,10)}`);
-  parts.push('order=change_date.desc,created_at.desc');
-  const rows=await supabaseRestSelect('stock_logs_public',parts.join('&'));
+  const pageLimit=500;
+  const rows=[];
+  let offset=0;
+  let hasMore=false;
+  do{
+    const params=new URLSearchParams({
+      mode,
+      days:String(FIRST_LOAD_DAYS),
+      limit:String(pageLimit),
+      offset:String(offset)
+    });
+    const res=await fetch(`${PROXY}/api/stock-log/list?${params.toString()}`,{cache:'no-store'});
+    const text=await res.text();
+    let data;
+    try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+    if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+    rows.push(...(data?.rows||[]));
+    hasMore=data?.has_more===true;
+    offset=Number(data?.next_offset||0);
+  }while(mode==='all'&&hasMore&&offset>0&&rows.length<20000);
+  stockLogHasMore=mode!=='all'&&hasMore;
   return mapSupabaseStockRows(rows);
 }
-async function loadNotionStockLog(mode='recent'){
-  const query=mode==='all'?{}:{filter:stockLogRecentFilter()};
-  const r = await dbQueryAll(DB.stockLog,query);
-  return r.map(p=>({
-    id: p.id,
-    title: getTitle(p.properties,'異動項目'),
-    matName: getRichText(p.properties,'料件名稱'),
-    matCode: getRichText(p.properties,'料件編號'),
-    type: p.properties?.['異動類型']?.select?.name||'',
-    qty: p.properties?.['異動數量']?.number??0,
-    before: p.properties?.['異動前庫存']?.number??0,
-    after: p.properties?.['異動後庫存']?.number??0,
-    date: p.properties?.['異動日期']?.date?.start||'',
-    ref: getRichText(p.properties,'關聯單號'),
-    operator: getRichText(p.properties,'操作人員'),
-    source: 'Notion'
-  })).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
-}
 async function loadStockLog(options={}){
+  const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
   try{
-    const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
-    try{
-      let supRows=await loadWorkerStockLog(mode);
-      if(!supRows.length&&getSupabaseAnonKey()) supRows=await loadSupabaseStockLog(mode);
-      if(supRows.length){
-        stockLogs=supRows;
-        markDataLoadMode('stocklog',mode,stockLogs.length);
-        return;
-      }
-      console.warn('Supabase 異動記錄目前為空，已暫時回退讀取 Notion。');
-    }catch(e){
-      console.warn('loadSupabaseStockLog fallback to Notion:',e.message||e);
-    }
-    stockLogs = await loadNotionStockLog(mode);
+    stockLogs=await loadWorkerStockLog(mode);
+    stockLogLoadError='';
     markDataLoadMode('stocklog',mode,stockLogs.length);
+    void flushPendingStockLogs({quiet:true});
   }catch(e){
     console.warn('loadStockLog error:',e);
-    stockLogs=[];
+    stockLogLoadError=e?.message||String(e);
+    if(!stockLogs.length) stockLogs=[];
   }
 }
 
 function renderStockLog(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
+  const pendingCount=readPendingStockLogs().length;
+  const syncStatus=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:${stockLogLoadError?'rgba(255,91,112,.08)':'rgba(61,220,151,.07)'};border:1px solid ${stockLogLoadError?'rgba(255,91,112,.32)':'rgba(61,220,151,.22)'};border-radius:8px">
+    <div style="font-size:.72rem;color:${stockLogLoadError?'var(--red2)':'var(--text2)'}">
+      <b>${stockLogLoadError?'異動紀錄暫時無法讀取':'Supabase 主資料已連線'}</b>
+      <span style="margin-left:7px">${stockLogLoadError?escapeHtml(stockLogLoadError):`近 ${FIRST_LOAD_DAYS} 天優先載入；Notion 為查閱鏡像。`}</span>
+      ${pendingCount?`<span style="margin-left:7px;color:var(--yellow)">待補同步 ${pendingCount} 筆</span>`:''}
+    </div>
+    ${(stockLogLoadError||pendingCount)?`<button class="btn btn-ghost btn-xs" onclick="retryStockLogSync()">重新同步</button>`:''}
+  </div>`;
   const dateVal=document.getElementById('slDateFilter')?.value||'month';
   const typeVal=document.getElementById('slTypeFilter')?.value||'all';
   const qVal=(document.getElementById('slSearch')?.value||'').toLowerCase().trim();
@@ -8966,7 +8963,7 @@ function renderStockLog(){
 
   const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)'};
 
-  return _notionBar + `
+  return _notionBar + syncStatus + `
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
@@ -9035,6 +9032,13 @@ function renderStockLog(){
   </div>`;
 }
 
+async function retryStockLogSync(){
+  const result=await flushPendingStockLogs({max:50});
+  await loadStockLog({mode:DATA_LOAD_MODE.stocklog||'recent'});
+  if(CURRENT_TAB==='stocklog')renderTab('stocklog');
+  if(result.remaining) showToast(`⚠️ 尚有 ${result.remaining} 筆等待補同步`,'warn',7000);
+  else showToast('✅ 異動紀錄同步完成','ok');
+}
 
 // ══════════════════════════════════════════════
 // 📅 排程模組
@@ -16133,7 +16137,6 @@ function normalizeStockLogType(type){
 }
 
 // 逐一寫入（避免同時大量 API 請求）
-const _logQueue = [];
 let _logFlushing = false;
 let _logWriteChain=Promise.resolve();
 function readPendingStockLogs(){
@@ -16145,9 +16148,19 @@ function readPendingStockLogs(){
 function writePendingStockLogs(rows){
   localStorage.setItem(STOCK_LOG_PENDING_STORAGE,JSON.stringify((Array.isArray(rows)?rows:[]).slice(-500)));
 }
-function rememberPendingStockLog(item,stage,error){
+function rememberPendingStockLog(item,stage,error,extra={}){
   const rows=readPendingStockLogs();
-  rows.push({...item,stage,last_error:error?.message||String(error||''),failed_at:new Date().toISOString()});
+  const pending={
+    ...item,
+    ...extra,
+    stage,
+    last_error:error?.message||String(error||''),
+    failed_at:new Date().toISOString()
+  };
+  const key=`${pending.client_trace_id||''}|${stage}`;
+  const found=rows.findIndex(row=>`${row.client_trace_id||''}|${row.stage||''}`===key);
+  if(found>=0) rows[found]=pending;
+  else rows.push(pending);
   writePendingStockLogs(rows);
 }
 function stockLogTrace(item,safeType){
@@ -16183,32 +16196,20 @@ function stockLogPayload(item,today,safeType){
 }
 async function writeSupabaseStockLog(item,today,safeType){
   const payload=stockLogPayload(item,today,safeType);
-  let workerErr=null;
-  try{
-    const res=await fetch(`${PROXY}/api/stock-log/sync`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({item:payload})
-    });
-    const text=await res.text();
-    let data;
-    try{data=text?JSON.parse(text):null;}catch{data={error:text};}
-    if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
-    item.client_trace_id=payload.client_trace_id;
-    return data;
-  }catch(e){
-    workerErr=e;
-  }
-  if(getSupabaseAnonKey()){
-    try{
-      const data=await supabaseRestInsert('erp_stock_logs',[payload]);
-      item.client_trace_id=payload.client_trace_id;
-      return data;
-    }catch(e){
-      throw new Error(`Worker 寫入失敗：${workerErr?.message||workerErr}; REST 寫入失敗：${e.message||e}`);
-    }
-  }
-  throw workerErr||new Error('Supabase 異動紀錄寫入失敗');
+  item.client_trace_id=payload.client_trace_id;
+  const res=await fetch(`${PROXY}/api/stock-log/sync`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({item:payload})
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  if(!data?.id) throw new Error('Supabase 異動紀錄未回傳資料 ID');
+  item.supabase_log_id=Number(data.id);
+  item.notion_page_id=data.notion_page_id||item.notion_page_id||'';
+  return data;
 }
 async function writeNotionStockLog(item,today,safeType){
   let lastErr=null;
@@ -16240,31 +16241,103 @@ async function writeNotionStockLog(item,today,safeType){
   }
   throw lastErr||new Error('Notion 異動紀錄鏡像失敗');
 }
+async function markStockLogNotion(item){
+  const id=Number(item.supabase_log_id||0);
+  const notionPageId=item.notion_page_id||'';
+  if(!id||!notionPageId) throw new Error('異動紀錄鏡像回標資料不完整');
+  const res=await fetch(`${PROXY}/api/stock-log/mark-notion`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,notion_page_id:notionPageId})
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  return data;
+}
+async function flushPendingStockLogs(options={}){
+  if(_logFlushing||!navigator.onLine) return {processed:0,remaining:readPendingStockLogs().length};
+  const quiet=options.quiet===true;
+  const max=Math.max(1,Math.min(50,Number(options.max||20)));
+  const rows=readPendingStockLogs();
+  if(!rows.length) return {processed:0,remaining:0};
+  _logFlushing=true;
+  const remaining=[];
+  let processed=0;
+  try{
+    for(let i=0;i<rows.length;i++){
+      let row={...rows[i]};
+      if(processed>=max){
+        remaining.push(row);
+        continue;
+      }
+      try{
+        const today=row.stock_log_date||new Date().toISOString().slice(0,10);
+        const safeType=row.stock_log_type||normalizeStockLogType(row.changeType);
+        if(row.stage==='supabase'){
+          await writeSupabaseStockLog(row,today,safeType);
+          row.stage='notion';
+        }
+        if(row.stage==='notion'){
+          if(!row.notion_page_id){
+            const page=await writeNotionStockLog(row,today,safeType);
+            row.notion_page_id=page.id;
+          }
+          row.stage='mark_notion';
+        }
+        if(row.stage==='mark_notion'){
+          await markStockLogNotion(row);
+        }
+        processed++;
+        await sleep(350);
+      }catch(e){
+        remaining.push({
+          ...row,
+          last_error:e?.message||String(e),
+          failed_at:new Date().toISOString()
+        });
+      }
+    }
+    writePendingStockLogs(remaining);
+    if(!quiet&&processed) showToast(`✅ 已補同步 ${processed} 筆異動紀錄`,'ok');
+    return {processed,remaining:remaining.length};
+  }finally{
+    _logFlushing=false;
+  }
+}
 async function persistStockLog(item){
   const today=new Date().toISOString().slice(0,10);
   const safeType=normalizeStockLogType(item.changeType);
+  item.stock_log_date=today;
+  item.stock_log_type=safeType;
   try{
-    await writeSupabaseStockLog(item,today,safeType);
+    const saved=await writeSupabaseStockLog(item,today,safeType);
+    if(saved.notion_page_id) return saved;
   }catch(e){
     rememberPendingStockLog(item,'supabase',e);
-    try{
-      await writeNotionStockLog(item,today,safeType);
-      showToast('⚠️ Supabase 異動紀錄待補同步；已先寫入 Notion 鏡像','warn',9000);
-      return;
-    }catch(mirrorErr){
-      rememberPendingStockLog(item,'notion',mirrorErr);
-      showToast('❌ 異動紀錄寫入失敗，請稍後重試：'+(e.message||e),'err',9000);
-      throw e;
-    }
+    showToast('⚠️ 異動紀錄尚未寫入 Supabase，系統將自動補同步','warn',9000);
+    throw e;
   }
   try{
-    await writeNotionStockLog(item,today,safeType);
+    const page=await writeNotionStockLog(item,today,safeType);
+    item.notion_page_id=page.id;
   }catch(e){
     rememberPendingStockLog(item,'notion',e);
     console.warn('Notion 異動紀錄鏡像待補：',e.message||e);
     showToast('⚠️ 異動已寫入 Supabase；Notion 鏡像待補','warn',7000);
+    return {ok:true,id:item.supabase_log_id,mirror_pending:true};
   }
+  try{
+    await markStockLogNotion(item);
+  }catch(e){
+    rememberPendingStockLog(item,'mark_notion',e);
+    console.warn('Supabase 異動紀錄鏡像回標待補：',e.message||e);
+  }
+  return {ok:true,id:item.supabase_log_id,notion_page_id:item.notion_page_id};
 }
+
+window.addEventListener('online',()=>{ void flushPendingStockLogs(); });
 
 function openInboundPhotoQC(id,matId,qty){
   resetQCPhotos();

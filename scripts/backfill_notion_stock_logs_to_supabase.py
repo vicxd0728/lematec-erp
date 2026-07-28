@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "supabase" / "migration_exports" / "stock_log_backfill"
 DEFAULT_STOCK_LOG_DB_ID = "0aa78528a5bb4a0d8005c0c1e0aaf8a3"
+DEFAULT_WORKER_URL = "https://green-wave-c22f.vic-e93.workers.dev"
 DB_ENV_NAMES = ("SUPABASE_DB_URL", "DATABASE_URL", "POSTGRES_URL")
 
 
@@ -58,6 +59,24 @@ def notion_query_all(database_id: str, token: str, page_size: int = 100) -> list
             return rows
         cursor = data.get("next_cursor")
         time.sleep(0.35)
+
+
+def worker_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "LEMATEC-ERP-Stock-Log-Backfill/1.0",
+        },
+        method="POST" if payload is not None else "GET",
+    )
+    try:
+        with urlopen(req, timeout=60) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Worker API failed {e.code}: {detail}") from e
 
 
 def title_prop(props: dict[str, Any], name: str) -> str:
@@ -149,11 +168,53 @@ def insert_rows(conn: Any, rows: list[StockLogRow]) -> int:
     return len(payloads)
 
 
+def load_existing_notion_ids_worker(worker_url: str) -> set[str]:
+    existing: set[str] = set()
+    offset = 0
+    while True:
+        data = worker_json(
+            f"{worker_url.rstrip('/')}/api/stock-log/list?mode=all&limit=995&offset={offset}"
+        )
+        if not data.get("ok"):
+            raise RuntimeError(f"Worker stock-log list failed: {data}")
+        for row in data.get("rows", []):
+            page_id = str(row.get("notion_page_id") or "").strip()
+            if page_id:
+                existing.add(page_id)
+        if not data.get("has_more"):
+            return existing
+        offset = int(data.get("next_offset") or 0)
+        if offset <= 0:
+            return existing
+
+
+def insert_rows_worker(worker_url: str, rows: list[StockLogRow]) -> int:
+    inserted = 0
+    for row in rows:
+        payload = row.__dict__.copy()
+        payload.update(
+            {
+                "source": "notion_backfill",
+                "client_trace_id": f"notion-backfill-{row.notion_page_id}",
+            }
+        )
+        data = worker_json(
+            f"{worker_url.rstrip('/')}/api/stock-log/sync",
+            {"item": payload},
+        )
+        if not data.get("ok") or not data.get("id"):
+            raise RuntimeError(f"Worker stock-log sync failed for {row.notion_page_id}: {data}")
+        inserted += 1
+        time.sleep(0.08)
+    return inserted
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill Notion stock logs into Supabase.")
     parser.add_argument("--database-id", default=os.environ.get("NOTION_STOCK_LOG_DB_ID", DEFAULT_STOCK_LOG_DB_ID))
     parser.add_argument("--apply", action="store_true", help="Write missing Notion stock logs to Supabase.")
     parser.add_argument("--db-url", default="")
+    parser.add_argument("--worker-url", default=os.environ.get("ERP_WORKER_URL", DEFAULT_WORKER_URL))
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 
@@ -182,19 +243,26 @@ def main() -> int:
 
     if args.apply:
         db_source, db_url = ("--db-url", args.db_url) if args.db_url else env_first(DB_ENV_NAMES)
-        if not db_url:
-            raise SystemExit("Missing DB URL. Set SUPABASE_DB_URL/DATABASE_URL/POSTGRES_URL or pass --db-url.")
-        try:
-            import psycopg
-        except ImportError as e:
-            raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from e
+        if db_url:
+            try:
+                import psycopg
+            except ImportError as e:
+                raise SystemExit("Missing psycopg. Run: python -m pip install -r supabase/requirements-inventory-apply.txt") from e
 
-        with psycopg.connect(db_url) as conn:
-            existing = load_existing_notion_ids(conn)
+            with psycopg.connect(db_url) as conn:
+                existing = load_existing_notion_ids(conn)
+                missing = [row for row in rows if row.notion_page_id not in existing]
+                report["write_path"] = "postgres"
+                report["db_url_source"] = db_source
+                report["skipped_existing"] = len(rows) - len(missing)
+                report["inserted"] = insert_rows(conn, missing) if missing else 0
+        else:
+            existing = load_existing_notion_ids_worker(args.worker_url)
             missing = [row for row in rows if row.notion_page_id not in existing]
-            report["db_url_source"] = db_source
+            report["write_path"] = "worker"
+            report["worker_url"] = args.worker_url
             report["skipped_existing"] = len(rows) - len(missing)
-            report["inserted"] = insert_rows(conn, missing) if missing else 0
+            report["inserted"] = insert_rows_worker(args.worker_url, missing) if missing else 0
 
     (out_dir / "stock_log_backfill_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2),

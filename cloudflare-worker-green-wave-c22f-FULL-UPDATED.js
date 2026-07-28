@@ -1398,14 +1398,21 @@ async function erpStockLogSync(request, env, cors) {
       ? requestedSource
       : 'erp_frontend';
     if (trace) {
-      const existing = await supabaseSingle(env, `/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=id,client_trace_id&limit=1`, true);
+      const existing = await supabaseSingle(env, `/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=id,client_trace_id,notion_page_id,created_at&limit=1`, true);
       if (existing?.id) {
-        return respOK(cors, { ok: true, duplicate: true, id: existing.id, client_trace_id: trace });
+        return respOK(cors, {
+          ok: true,
+          duplicate: true,
+          id: existing.id,
+          client_trace_id: trace,
+          notion_page_id: existing.notion_page_id || '',
+          created_at: existing.created_at || '',
+        });
       }
     }
 
     const row = {
-      notion_page_id: cleanText(item.notion_page_id || ''),
+      notion_page_id: cleanText(item.notion_page_id || '') || null,
       item_title: cleanText(item.item_title || ''),
       material_id: cleanText(item.material_id || ''),
       material_name: cleanText(item.material_name || ''),
@@ -1441,18 +1448,35 @@ async function erpStockLogList(request, env, cors) {
     const url = new URL(request.url);
     const mode = cleanText(url.searchParams.get('mode') || 'recent');
     const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days') || 30) || 30));
-    const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get('limit') || 300) || 300));
-    const fields = 'id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at';
+    // Keep one row below PostgREST's common 1,000-row response cap so the
+    // extra look-ahead row remains available for reliable pagination.
+    const limit = Math.max(1, Math.min(995, Number(url.searchParams.get('limit') || 300) || 300));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
+    const pendingNotion = url.searchParams.get('pending_notion') === 'true';
+    const fields = 'id,notion_page_id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at';
     const filters = [`select=${fields}`];
     if (mode !== 'all') {
       const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
       filters.push(`change_date=gte.${since}`);
     }
+    if (pendingNotion) {
+      filters.push('or=(notion_page_id.is.null,notion_page_id.eq.)');
+    }
     filters.push('order=change_date.desc,created_at.desc');
-    filters.push(`limit=${limit}`);
+    filters.push(`limit=${limit + 1}`);
+    filters.push(`offset=${offset}`);
     const rows = await supabaseFetch(env, `/rest/v1/stock_logs_public?${filters.join('&')}`);
-    const visibleRows = Array.isArray(rows) ? rows.filter((row) => !isStockLogTestRow(row)) : [];
-    return respOK(cors, { ok: true, rows: visibleRows });
+    const rawRows = Array.isArray(rows) ? rows : [];
+    const hasMore = rawRows.length > limit;
+    const visibleRows = rawRows.slice(0, limit).filter((row) => !isStockLogTestRow(row));
+    return respOK(cors, {
+      ok: true,
+      rows: visibleRows,
+      has_more: hasMore,
+      next_offset: hasMore ? offset + limit : null,
+      mode,
+      days,
+    });
   } catch (e) {
     return resp500(cors, e.message);
   }

@@ -74,7 +74,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 |---|---|---|---|---|---|
 | 庫存主檔 | Supabase | Worker 讀 Supabase；失敗才回退 Notion | Worker 先寫 Supabase；成功後鏡像 Notion | 查閱、鏡像與備援 | 正式主資料 |
 | BOM / 子母件 | Supabase | Worker 優先讀 Supabase；驗證失敗才回退 Notion | ERP 維護 Notion 鏡像後，必須把完整驗證快照同步到 Supabase 才算成功 | 查閱、鏡像與緊急備援 | 正式領料、扣料、關聯與封存安全檢查 |
-| 異動紀錄 | Supabase 轉換中 | 有 key 時優先 Supabase，失敗回 Notion | Supabase；需鏡像 Notion | 人員查閱鏡像 | 主讀寫與速度來源 |
+| 異動紀錄 | Supabase | Worker 讀 Supabase，預設近 30 天並支援分頁 | Worker 先寫 Supabase；成功後鏡像 Notion | 人員查閱鏡像，不作正式 fallback | 正式唯一主資料 |
 | 影片庫 | Supabase | Supabase 優先；失敗回備援清單 | 目前非前端日常寫入 | 可作資料備援 | 主資料與快速搜尋 |
 | 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
 | 訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
@@ -129,18 +129,15 @@ This section overrides older Supabase inventory notes below if they conflict.
 
 ## 異動紀錄流程
 
-目前異動紀錄邏輯：
+目前異動紀錄正式邏輯：
 
-1. 有 Supabase anon key 時，先讀 `stock_logs_public`。
-2. Supabase 讀取失敗時，fallback 到 Notion 異動紀錄資料庫。
-3. 前端操作產生異動時，應優先寫 `erp_stock_logs`。
-4. Notion 仍需鏡像，以便非技術人員查閱。
-
-下一步建議：
-
-- 保留 Supabase to Notion mirror script。
-- 加入補同步佇列或定期同步，避免只存在 Supabase。
-- 回填舊 Notion 異動紀錄到 Supabase 前，先讓新資料跑一段時間確認穩定。
+1. 前端透過 Worker `GET /api/stock-log/list` 讀取 Supabase，不需要 anon public key。
+2. 第一次只載入近 30 天；選擇全部或搜尋舊資料時再用 `offset` 分頁載入。
+3. 每次庫存異動先透過 Worker `POST /api/stock-log/sync` 寫入 Supabase，並以 `client_trace_id` 防止重送造成重複。
+4. Supabase 寫入失敗時不先寫 Notion，也不回報假成功。
+5. Supabase 成功後建立 Notion 查閱鏡像，再以 `POST /api/stock-log/mark-notion` 把 page id 回標至 Supabase。
+6. Notion 暫時失敗時，前端重試佇列與每六小時 GitHub Actions 補同步；排程會先查既有頁面，避免重複建立。
+7. 舊 Notion 異動紀錄已用 `notion_page_id` 去重回填 Supabase，後續增量可用 Worker 模式安全補回填。
 
 ## 庫存搬遷啟動條件
 

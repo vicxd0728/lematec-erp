@@ -1,0 +1,31 @@
+name: Repair stock log Notion mirror
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Repair missing Notion mirrors
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          ERP_WORKER_URL: https://green-wave-c22f.vic-e93.workers.dev
+        run: |
+          if [ -z "$NOTION_TOKEN" ]; then
+            echo "::error::Missing GitHub secret NOTION_TOKEN"
+            exit 1
+          fi
+          python scripts/sync_supabase_stock_logs_to_notion.py \
+            --apply \
+            --limit 100 \
+            --days 30 \
+            --source erp_frontend
