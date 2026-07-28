@@ -538,7 +538,6 @@ async function erpInventoryMaterialArchive(request, env, cors) {
         .map((id) => cleanText(id))
         .filter(Boolean)
     );
-    const bomHeaderIdsToArchive = new Set();
     for (const item of requested) {
       const sku = cleanSku(item?.sku || item?.code || item?.name || '');
       const material = await resolveSupabaseMaterial(
@@ -554,26 +553,7 @@ async function erpInventoryMaterialArchive(request, env, cors) {
       }
       if (seen.has(material.id)) continue;
       seen.add(material.id);
-      const balance = await getSupabaseBalance(
-        env,
-        context.organization.id,
-        context.warehouse.id,
-        material.id
-      );
-      const stock = Number(balance?.quantity || 0);
-      const bom = await activeSupabaseBomReferences(env, material.id);
-      const unmatchedBom = bom.all.filter((row) => !allowedBomNotionIds.has(cleanText(row.notion_page_id)));
-      if (unmatchedBom.length) {
-        throw new Error(`料號 ${material.sku} 仍有 Supabase BOM 關聯（母件 ${bom.parent.length}、子件 ${bom.component.length}），已停止封存`);
-      }
-      for (const row of bom.all) {
-        bomHeaderIdsToArchive.add(row.id);
-      }
-      const allowNonzero = payload.allow_nonzero === true || item?.allow_nonzero === true;
-      if (stock !== 0 && !allowNonzero) {
-        throw new Error(`料號 ${material.sku} 庫存仍為 ${stock}，已停止封存`);
-      }
-      resolved.push({material, stock, bom});
+      resolved.push({material});
     }
 
     if (!resolved.length) {

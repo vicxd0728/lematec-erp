@@ -22,6 +22,8 @@ class InventoryMasterSafetyTest(unittest.TestCase):
         ]
         self.assertNotIn("method: 'PATCH'", section)
         self.assertNotIn("/rest/v1/bom_headers?id=in.", section)
+        self.assertNotIn("activeSupabaseBomReferences", section)
+        self.assertNotIn("getSupabaseBalance", section)
 
     def test_archive_rpc_is_one_locked_fail_closed_transaction(self):
         sql = RPC_SQL.lower()
