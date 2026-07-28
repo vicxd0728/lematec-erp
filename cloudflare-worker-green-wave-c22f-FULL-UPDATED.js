@@ -501,8 +501,17 @@ async function erpInventoryAdjust(request, env, cors) {
     }
 
     const context = await getSupabaseInventoryContext(env);
-    const material = await resolveSupabaseMaterial(env, context.organization.id, payload, sku);
-    if (!material?.id) throw new Error(`Supabase material not found or created: ${sku}`);
+    const shouldCreateMaterial = Number.isFinite(delta) ? delta > 0 : Number.isFinite(requestedStock);
+    const material = await resolveSupabaseMaterial(
+      env,
+      context.organization.id,
+      payload,
+      sku,
+      shouldCreateMaterial
+    );
+    if (!material?.id) {
+      throw new Error(`Supabase material not found; inventory was not changed: ${sku}`);
+    }
 
     let adjusted;
     const idempotencyKey = cleanText(payload.idempotency_key || '');
@@ -584,8 +593,16 @@ async function erpInventoryBatchAdjust(request, env, cors) {
       if (!Number.isFinite(delta) || delta === 0) {
         throw new Error(`Inventory batch contains an invalid delta: ${sku}`);
       }
-      const material = await resolveSupabaseMaterial(env, context.organization.id, item, sku);
-      if (!material?.id) throw new Error(`Supabase material not found or created: ${sku}`);
+      const material = await resolveSupabaseMaterial(
+        env,
+        context.organization.id,
+        item,
+        sku,
+        delta > 0
+      );
+      if (!material?.id) {
+        throw new Error(`Supabase material not found; inventory batch was not changed: ${sku}`);
+      }
       if (materialIds.has(material.id)) throw new Error(`Inventory batch contains a duplicate material: ${sku}`);
       materialIds.add(material.id);
       resolved.push({
@@ -799,7 +816,7 @@ async function getSupabaseInventoryContext(env) {
   return { organization, warehouse };
 }
 
-async function resolveSupabaseMaterial(env, organizationId, payload, sku) {
+async function resolveSupabaseMaterial(env, organizationId, payload, sku, createIfMissing = true) {
   let material = null;
   if (payload.notion_page_id) {
     material = await supabaseSingle(env, `/rest/v1/materials?notion_page_id=eq.${encodeURIComponent(payload.notion_page_id)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
@@ -808,7 +825,7 @@ async function resolveSupabaseMaterial(env, organizationId, payload, sku) {
     const organizationFilter = organizationId ? `organization_id=eq.${encodeURIComponent(organizationId)}&` : '';
     material = await supabaseSingle(env, `/rest/v1/materials?${organizationFilter}sku=eq.${encodeURIComponent(sku)}&select=id,sku,name,material_type,notion_page_id,organization_id&limit=1`, true);
   }
-  if (!material) {
+  if (!material && createIfMissing) {
     material = await upsertSupabaseMaterial(env, organizationId, null, {...payload, sku});
   }
   return material;

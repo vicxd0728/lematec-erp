@@ -74,6 +74,9 @@ class InventoryTransactionSafetyTest(unittest.TestCase):
         self.assertIn("/rest/v1/rpc/apply_inventory_transaction", WORKER)
         self.assertIn("/rest/v1/rpc/apply_inventory_batch", WORKER)
         self.assertIn("async function erpInventoryBatchAdjust", WORKER)
+        self.assertIn("delta > 0", WORKER)
+        self.assertIn("createIfMissing = true", WORKER)
+        self.assertIn("inventory batch was not changed", WORKER)
         self.assertIn("duplicate: result.duplicate === true", WORKER)
 
     def test_sql_locks_rows_blocks_negative_and_is_idempotent(self):
