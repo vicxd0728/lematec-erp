@@ -17,6 +17,10 @@ This section overrides older Supabase inventory notes below if they conflict.
 - After Supabase accepts a write, Notion is updated as a staff-readable mirror/backup.
 - If the Notion mirror temporarily fails, the ERP stores a retry task and continues retrying without undoing the accepted Supabase truth.
 - If Worker/Supabase inventory read fails, the frontend may fall back to Notion so staff are not blocked.
+- BOM reads call Worker route `GET /api/inventory/bom/list` and use Supabase first.
+- Supabase BOM is accepted only when it is non-empty and every parent, component, quantity, and pair can be mapped safely.
+- If Supabase BOM is empty, malformed, duplicated, self-referencing, or cannot map to the loaded material master, the frontend rejects it and loads the Notion BOM mirror as an explicit fallback.
+- If both Supabase and Notion BOM reads fail, BOM-dependent picking and deduction remain blocked.
 - The local `lematec_supabase_anon_key` is only for optional health-check diagnostics such as deeper BOM view comparison. It is not required for normal inventory browsing or editing.
 - Do not claim Notion manual edits are fully two-way until a verified Notion-to-Supabase sync job exists.
 
@@ -52,7 +56,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 | 模組 | 目前主資料 | 前端讀取 | 前端寫入 | Notion 角色 | Supabase 角色 |
 |---|---|---|---|---|---|
 | 庫存主檔 | Supabase | Worker 讀 Supabase；失敗才回退 Notion | Worker 先寫 Supabase；成功後鏡像 Notion | 查閱、鏡像與備援 | 正式主資料 |
-| BOM / 子母件 | Supabase + Notion 鏡像 | 交易與封存檢查使用 Supabase BOM | 既有 BOM 維護流程須同步兩邊 | 查閱與鏡像 | 扣料、關聯與封存安全檢查 |
+| BOM / 子母件 | Supabase | Worker 優先讀 Supabase；驗證失敗才回退 Notion | ERP 維護 Notion 鏡像後，必須把完整驗證快照同步到 Supabase 才算成功 | 查閱、鏡像與緊急備援 | 正式領料、扣料、關聯與封存安全檢查 |
 | 異動紀錄 | Supabase 轉換中 | 有 key 時優先 Supabase，失敗回 Notion | Supabase；需鏡像 Notion | 人員查閱鏡像 | 主讀寫與速度來源 |
 | 影片庫 | Supabase | Supabase 優先；失敗回備援清單 | 目前非前端日常寫入 | 可作資料備援 | 主資料與快速搜尋 |
 | 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
@@ -86,6 +90,25 @@ This section overrides older Supabase inventory notes below if they conflict.
 7. 前端不可持有 PostgreSQL DB URL、postgres 密碼或 service role key。
 
 重點：日常料號與庫存操作請使用 ERP 前端。直接在 Notion 修改目前仍不保證即時回寫 Supabase。
+
+## BOM 正式讀取流程
+
+1. ERP 核心載入時，同時請求 Supabase 庫存、Supabase BOM 與 Notion 訂單，避免把網路等待時間串接。
+2. BOM 由 Worker `GET /api/inventory/bom/list` 讀取 Supabase `bom_headers` 與 `bom_items`。
+3. 前端以 Notion page ID 優先對應料號，必要時才用標準化料號補對應。
+4. 只要有任一筆缺母件、缺子件、用量小於等於 0、自我關聯或重複關聯，整批 Supabase BOM 不採用。
+5. Supabase BOM 無法安全採用時，前端自動改讀 Notion BOM 鏡像，健康檢查會標示 `Notion 備援資料`。
+6. Supabase 與 Notion 都無法提供非空 BOM 時，`_bomDataReady` 保持失敗，領料預覽與扣料會停止。
+7. 訂單與領料仍可保留在 Notion；其成品 relation 使用的 Notion page ID 會與 Supabase material 的 `notion_page_id` 對齊，因此可直接套用 Supabase BOM。
+
+## BOM 維護與補同步
+
+1. ERP 的 BOM Excel、蝦皮 BOM 與自動建立 BOM 流程會先更新 Notion 人工查閱鏡像。
+2. 更新後，前端以目前完整料號與 BOM 建立快照，拒絕空資料、缺少 page ID、自我關聯、重複關聯及非正數用量。
+3. 快照由 Worker `POST /api/inventory/bom/migrate` 寫入 Supabase，回傳筆數必須與送出筆數完全相同才算成功。
+4. 寫入失敗會自動重試 3 次，並把完整快照保留在目前裝置的 `localStorage`。
+5. 只要仍有待補同步快照，下一次核心載入會先補送；補送失敗時，BOM 相關領料與扣料保持阻擋。
+6. 直接在 Notion 手動修改 BOM 目前不會自動推送 Supabase；正式維護請使用 ERP 的 BOM 匯入與管理流程。
 
 ## 異動紀錄流程
 

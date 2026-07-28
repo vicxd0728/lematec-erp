@@ -14,7 +14,7 @@ Date: 2026-07-28
 - Quantity mismatches: 0
 - Duplicate target rows: 0
 - Existing stock quantities changed by this migration: no
-- Production BOM read source switched by this migration: no
+- Production BOM read source switched after verification: yes, Supabase first through the Worker
 
 The exact verification key is:
 
@@ -48,7 +48,20 @@ The complete held-back rows remain in:
 
 ## Safety Boundary
 
-This migration populated and verified Supabase BOM data only. Existing ERP
-orders, picking, inbound inspection, and stock deduction continue using the
-current production behavior until a separate controlled BOM read cutover and
-workflow regression test are completed.
+The controlled BOM read cutover now uses Supabase first through
+`GET /api/inventory/bom/list`. The frontend validates every returned relation
+against the loaded material master before enabling BOM-dependent picking. Empty,
+malformed, duplicate, self-referencing, or unmapped Supabase BOM data is rejected
+as a whole and triggers the Notion BOM mirror fallback. If both sources fail,
+picking and deduction remain blocked.
+
+## Ongoing Maintenance
+
+ERP BOM imports and automatic Shopee BOM creation keep the Notion database as a
+staff-readable mirror, then submit a complete validated snapshot to Supabase.
+The Worker response count must match the submitted BOM count. Failed writes are
+retried three times and kept as a local pending snapshot; while that snapshot
+cannot be flushed, BOM-dependent picking and deduction remain blocked.
+
+Direct manual BOM edits in Notion are not automatically pushed to Supabase.
+Use the ERP BOM maintenance flow for production changes.
