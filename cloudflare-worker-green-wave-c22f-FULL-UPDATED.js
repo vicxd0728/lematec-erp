@@ -20,6 +20,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/adjust') {
       return erpInventoryAdjust(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inventory/adjust-batch') {
+      return erpInventoryBatchAdjust(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -501,22 +504,128 @@ async function erpInventoryAdjust(request, env, cors) {
     const material = await resolveSupabaseMaterial(env, context.organization.id, payload, sku);
     if (!material?.id) throw new Error(`Supabase material not found or created: ${sku}`);
 
-    const balance = await getSupabaseBalance(env, context.organization.id, context.warehouse.id, material.id);
-    const beforeStock = Number(balance?.quantity || 0);
-    const afterStock = Number.isFinite(delta) ? beforeStock + delta : requestedStock;
-    if (!Number.isFinite(afterStock)) return resp400(cors, 'Invalid inventory result');
-    if (afterStock < 0 && payload.allow_negative !== true) {
-      return resp400(cors, `Insufficient inventory for ${sku}: ${beforeStock} + (${Number.isFinite(delta) ? delta : afterStock - beforeStock}) would become ${afterStock}`);
+    let adjusted;
+    const idempotencyKey = cleanText(payload.idempotency_key || '');
+    if (Number.isFinite(delta) && idempotencyKey && payload.allow_negative !== true) {
+      const existingTx = await supabaseSingle(
+        env,
+        `/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(context.organization.id)}&idempotency_key=eq.${encodeURIComponent(idempotencyKey)}&select=id&limit=1`,
+        true
+      );
+      const sourceId = cleanText(payload.source_id || '');
+      const rpcData = await supabaseFetch(env, '/rest/v1/rpc/apply_inventory_transaction', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_organization_id: context.organization.id,
+          p_warehouse_id: context.warehouse.id,
+          p_material_id: material.id,
+          p_transaction_type: inventoryTransactionType(payload.source_type, delta),
+          p_quantity_delta: delta,
+          p_reason: cleanText(payload.reason || 'ERP inventory adjustment'),
+          p_idempotency_key: idempotencyKey,
+          p_source_type: cleanText(payload.source_type || 'erp'),
+          p_source_id: isUuid(sourceId) ? sourceId : null,
+          p_source_number: cleanText(payload.ref_no || sourceId || sku),
+        }),
+      });
+      const tx = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (!tx?.id) throw new Error(`Supabase inventory transaction failed: ${sku}`);
+      adjusted = {
+        beforeStock: Number(tx.quantity_before),
+        afterStock: Number(tx.quantity_after),
+        transactionId: tx.id,
+        duplicate: !!existingTx?.id,
+      };
+    } else {
+      adjusted = await compareAndSwapSupabaseBalance(env, {
+        organizationId: context.organization.id,
+        warehouseId: context.warehouse.id,
+        materialId: material.id,
+        sku,
+        delta,
+        requestedStock,
+        allowNegative: payload.allow_negative === true,
+      });
     }
-
-    await upsertSupabaseBalance(env, context.organization.id, context.warehouse.id, material.id, afterStock);
     return respOK(cors, {
       ok: true,
       sku,
       material_id: material.id,
-      before_stock: beforeStock,
-      after_stock: afterStock,
-      delta: afterStock - beforeStock,
+      before_stock: adjusted.beforeStock,
+      after_stock: adjusted.afterStock,
+      delta: adjusted.afterStock - adjusted.beforeStock,
+      transaction_id: adjusted.transactionId || null,
+      idempotency_key: idempotencyKey || null,
+      duplicate: adjusted.duplicate === true,
+      adjusted_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInventoryBatchAdjust(request, env, cors) {
+  try {
+    const body = await request.json();
+    const payload = body?.payload || body || {};
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const idempotencyKey = cleanText(payload.idempotency_key || '');
+    if (!items.length) return resp400(cors, 'Missing inventory batch items');
+    if (items.length > 100) return resp400(cors, 'Inventory batch exceeds 100 items');
+    if (!idempotencyKey) return resp400(cors, 'Missing inventory batch idempotency key');
+
+    const context = await getSupabaseInventoryContext(env);
+    const resolved = [];
+    const materialIds = new Set();
+    for (const item of items) {
+      const sku = cleanSku(item.sku || item.code || item.name || '');
+      const delta = Number(item.delta);
+      if (!sku) throw new Error('Inventory batch contains a missing SKU');
+      if (!Number.isFinite(delta) || delta === 0) {
+        throw new Error(`Inventory batch contains an invalid delta: ${sku}`);
+      }
+      const material = await resolveSupabaseMaterial(env, context.organization.id, item, sku);
+      if (!material?.id) throw new Error(`Supabase material not found or created: ${sku}`);
+      if (materialIds.has(material.id)) throw new Error(`Inventory batch contains a duplicate material: ${sku}`);
+      materialIds.add(material.id);
+      resolved.push({
+        material_id: material.id,
+        notion_page_id: cleanText(item.notion_page_id || material.notion_page_id || ''),
+        sku,
+        delta,
+      });
+    }
+
+    const sourceId = cleanText(payload.source_id || '');
+    const rpcData = await supabaseFetch(env, '/rest/v1/rpc/apply_inventory_batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_organization_id: context.organization.id,
+        p_warehouse_id: context.warehouse.id,
+        p_items: resolved,
+        p_transaction_type: inventoryTransactionType(payload.source_type, -1),
+        p_reason: cleanText(payload.reason || 'ERP inventory batch'),
+        p_idempotency_key: idempotencyKey,
+        p_source_type: cleanText(payload.source_type || 'erp_batch'),
+        p_source_id: isUuid(sourceId) ? sourceId : null,
+        p_source_number: cleanText(payload.ref_no || sourceId || idempotencyKey),
+      }),
+    });
+    const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+    const rows = Array.isArray(result?.items) ? result.items : [];
+    if (rows.length !== resolved.length) {
+      throw new Error('Supabase inventory batch returned an unexpected item count');
+    }
+    const metadata = new Map(resolved.map(item => [item.material_id, item]));
+    return respOK(cors, {
+      ok: true,
+      duplicate: result.duplicate === true,
+      idempotency_key: idempotencyKey,
+      items: rows.map(row => ({
+        ...row,
+        notion_page_id: metadata.get(row.material_id)?.notion_page_id || '',
+        sku: metadata.get(row.material_id)?.sku || row.sku || '',
+      })),
       adjusted_at: taipeiISOString(),
     });
   } catch (e) {
@@ -757,8 +866,61 @@ async function upsertSupabaseBalance(env, organizationId, warehouseId, materialI
   return Array.isArray(data) ? data[0] : data;
 }
 
+async function compareAndSwapSupabaseBalance(env, {
+  organizationId,
+  warehouseId,
+  materialId,
+  sku,
+  delta,
+  requestedStock,
+  allowNegative = false,
+}) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    let balance = await getSupabaseBalance(env, organizationId, warehouseId, materialId);
+    if (!balance?.id) {
+      await upsertSupabaseBalance(env, organizationId, warehouseId, materialId, 0);
+      balance = await getSupabaseBalance(env, organizationId, warehouseId, materialId);
+    }
+    if (!balance?.id) throw new Error(`Supabase inventory balance unavailable: ${sku}`);
+
+    const beforeStock = Number(balance.quantity || 0);
+    const afterStock = Number.isFinite(delta) ? beforeStock + delta : requestedStock;
+    if (!Number.isFinite(afterStock)) throw new Error(`Invalid inventory result for ${sku}`);
+    if (afterStock < 0 && !allowNegative) {
+      throw new Error(`Insufficient inventory for ${sku}: ${beforeStock} + (${Number.isFinite(delta) ? delta : afterStock - beforeStock}) would become ${afterStock}`);
+    }
+
+    const data = await supabaseFetch(
+      env,
+      `/rest/v1/inventory_balances?id=eq.${encodeURIComponent(balance.id)}&quantity=eq.${encodeURIComponent(String(balance.quantity))}&select=id,quantity`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ quantity: afterStock }),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (saved?.id) return { beforeStock, afterStock: Number(saved.quantity) };
+  }
+  throw new Error(`Inventory changed concurrently for ${sku}; retry the operation`);
+}
+
 function cleanText(value) {
   return String(value ?? '').trim();
+}
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleanText(value));
+}
+function inventoryTransactionType(sourceType, delta) {
+  const type = cleanText(sourceType).toLowerCase();
+  if (type.includes('corder_ship')) return 'C端出貨';
+  if (type.includes('order_pick') || type.includes('manual_pick') || type.includes('bom_deduct')) return '領料扣除';
+  if (type.includes('shopee_order_complete') || type.includes('sfg_qc_pass') || type.includes('sfg_inspection')) return '生產完成';
+  if (type.includes('inbound') || type.includes('qc_stock_in')) return Number(delta) >= 0 ? '入料入庫' : '取消回料';
+  if (type.includes('return') || type.includes('compensation') || type.includes('rollback')) return '取消回料';
+  if (type.includes('merge')) return '合併料號';
+  if (type.includes('manual')) return '手動調整';
+  return '其他';
 }
 
 function cleanDate(value) {

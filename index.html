@@ -1703,6 +1703,7 @@ const PILL={
 
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
+let _bomDataReady=false,_bomDataError='';
 let QC_SUB='pending',QC_FILTER='all',QC_DATE='0';
 let announces=[],leaves=[],notes=[];
 let leaveEmployees=[];
@@ -6465,6 +6466,8 @@ async function startApp(){
 
   await refreshAll();
   flushInventoryMirrorQueue({quiet:true}).catch(e=>console.warn('inventory mirror retry failed:',e));
+  flushInventoryNotionMirrorQueue({quiet:true}).catch(e=>console.warn('Notion inventory mirror retry failed:',e));
+  flushWorkflowNotionSyncQueue({quiet:true}).catch(e=>console.warn('Notion workflow retry failed:',e));
   loadNotes().then(()=>schedulePendingNoteNotification(true)).catch(e=>console.warn('notes notify failed:',e));
   initAutoSync();
   initAccessibilityObserver();
@@ -6685,7 +6688,15 @@ function rolePriorityTabs(role=ROLE){
   return uniqueTabs([CURRENT_TAB,...(map[role]||['dashboard','ops','notes'])]);
 }
 async function loadCoreEssentials(){
-  const [matsPrimary,bR,oR]=await Promise.all([loadInventoryMaterialsPrimary(),dbQueryAll(DB.bom),dbQueryAll(DB.orders)]);
+  _bomDataReady=false;
+  _bomDataError='';
+  let matsPrimary,bR,oR;
+  try{
+    [matsPrimary,bR,oR]=await Promise.all([loadInventoryMaterialsPrimary(),dbQueryAll(DB.bom),dbQueryAll(DB.orders)]);
+  }catch(e){
+    _bomDataError=e.message||String(e);
+    throw e;
+  }
   mats=matsPrimary;
   boms=bR.map(p=>({
     id:p.id,
@@ -6695,6 +6706,7 @@ async function loadCoreEssentials(){
     qty:p.properties?.['每台用量']?.number??1,
     name:getTitle(p.properties,'BOM項目'),
   }));
+  _bomDataReady=true;
   orders=oR.map(p=>{
     const productId=p.properties?.['成品']?.relation?.[0]?.id||'';
     const productMat=mats.find(m=>m.id===productId);
@@ -6967,6 +6979,7 @@ async function loadInbounds(){
 }
 
 function explodeBOM(pid,qty){
+  if(!_bomDataReady) return [];
   const res={};
   boms.filter(b=>b.parentId===pid).forEach(b=>{
     const mat=mats.find(x=>x.id===b.childId);
@@ -7184,15 +7197,19 @@ async function deductShopeeBom(mat, qty, orderNo){
   const items=getShopeeBomItems(mat,qty);
   const missing=items.filter(x=>x.missing||!x.id);
   if(missing.length) throw new Error('找不到 BOM 子料號：'+missing.map(x=>x.code||x.name).join('、'));
-  for(const item of items){
-    const stockMove=await applyInventoryDeltaAndMirror(item.id,{
-      delta:-item.needed,
+  const batchMoves=await applyInventoryBatchAndMirror(
+    items.map(item=>({pageId:item.id,delta:-Number(item.needed)})),
+    {
       reason:'蝦皮組裝扣料',
       refNo:orderNo,
-      sourceType:'shopee_bom_deduct',
+      sourceType:'shopee_bom_deduct_batch',
       sourceId:orderNo
-    });
-    await logStockChange(item.id,item.name||'',item.code||'','蝦皮組裝扣料',-item.needed,stockMove.before,stockMove.after,orderNo,ROLE);
+    }
+  );
+  for(const item of items){
+    const stockMove=batchMoves.items.find(move=>move.pageId===item.id);
+    if(!stockMove) throw new Error(`蝦皮 BOM 批次回傳缺少料號：${item.code||item.name}`);
+    await logStockChangeQuietly(item.id,item.name||'',item.code||'','蝦皮組裝扣料',-item.needed,stockMove.before,stockMove.after,orderNo,ROLE);
     const local=mats.find(m=>m.id===item.id);
     if(local){local.stock=stockMove.after;local.qty=stockMove.after;}
   }
@@ -7418,6 +7435,8 @@ const SUPABASE_DEPLOY_ANON_KEY='__SUPABASE_ANON_KEY__';
 const SUPABASE_ANON_KEY_STORAGE='lematec_supabase_anon_key';
 const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 const INVENTORY_MIRROR_QUEUE_STORAGE='lematec_inventory_mirror_queue_v1';
+const INVENTORY_NOTION_MIRROR_QUEUE_STORAGE='lematec_inventory_notion_mirror_queue_v1';
+const WORKFLOW_NOTION_SYNC_QUEUE_STORAGE='lematec_workflow_notion_sync_queue_v1';
 const STOCK_LOG_PENDING_STORAGE='lematec_stock_log_pending_v1';
 let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 庫存一致性檢查。'};
 let supabaseInventoryMats=[];
@@ -7509,6 +7528,69 @@ function writeInventoryMirrorQueue(rows){
   const clean=(Array.isArray(rows)?rows:[]).slice(-300);
   localStorage.setItem(INVENTORY_MIRROR_QUEUE_STORAGE,JSON.stringify(clean));
 }
+function readInventoryNotionMirrorQueue(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(INVENTORY_NOTION_MIRROR_QUEUE_STORAGE)||'[]');
+    return Array.isArray(rows)?rows:[];
+  }catch{return [];}
+}
+function writeInventoryNotionMirrorQueue(rows){
+  const clean=(Array.isArray(rows)?rows:[]).slice(-300);
+  localStorage.setItem(INVENTORY_NOTION_MIRROR_QUEUE_STORAGE,JSON.stringify(clean));
+}
+function readWorkflowNotionSyncQueue(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(WORKFLOW_NOTION_SYNC_QUEUE_STORAGE)||'[]');
+    return Array.isArray(rows)?rows:[];
+  }catch{return [];}
+}
+function writeWorkflowNotionSyncQueue(rows){
+  localStorage.setItem(WORKFLOW_NOTION_SYNC_QUEUE_STORAGE,JSON.stringify((Array.isArray(rows)?rows:[]).slice(-300)));
+}
+function queueWorkflowNotionSync(pageId,properties,label,error=''){
+  if(!pageId||!properties) return;
+  const queue=readWorkflowNotionSyncQueue().filter(x=>x?.page_id!==pageId);
+  queue.push({
+    page_id:pageId,
+    properties,
+    label:label||pageId,
+    retry_count:0,
+    created_at:new Date().toISOString(),
+    last_error:error||''
+  });
+  writeWorkflowNotionSyncQueue(queue);
+  setTimeout(()=>flushWorkflowNotionSyncQueue({quiet:true}),500);
+}
+async function updateWorkflowPageAfterInventory(pageId,properties,label){
+  try{
+    return {
+      pending:false,
+      page:assertNotionPage(await updatePage(pageId,properties),label||'流程狀態更新')
+    };
+  }catch(e){
+    queueWorkflowNotionSync(pageId,properties,label,e.message||String(e));
+    console.warn(`${label||pageId} 已排入 Notion 補同步`,e);
+    return {pending:true,error:e.message||String(e)};
+  }
+}
+function queueInventoryNotionMirror(pageId,stock,sku,error=''){
+  if(!pageId||!Number.isFinite(Number(stock))) return;
+  const queue=readInventoryNotionMirrorQueue();
+  const key=`${pageId}:${Number(stock)}`;
+  const task={
+    key,
+    page_id:pageId,
+    stock:Number(stock),
+    sku:sku||'',
+    retry_count:0,
+    created_at:new Date().toISOString(),
+    last_error:error||''
+  };
+  const next=queue.filter(x=>x?.page_id!==pageId);
+  next.push(task);
+  writeInventoryNotionMirrorQueue(next);
+  setTimeout(()=>flushInventoryNotionMirrorQueue({quiet:true}),500);
+}
 function materialSnapshotFromProps(page,props={}){
   const p=page?.properties||props||{};
   const title=p['料件名稱']?.title?.[0]?.plain_text||p['料件名稱']?.title?.[0]?.text?.content||'';
@@ -7586,11 +7668,47 @@ async function postInventoryAdjustTask(payload){
   if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
   return data;
 }
+async function postInventoryBatchAdjustTask(payload){
+  const res=await fetch(`${PROXY}/api/inventory/adjust-batch`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload})
+  });
+  const text=await res.text();
+  let data;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  return data;
+}
 const _inventoryAdjustLocks=new Set();
 function withInventoryAdjustLock(key,fn){
   if(_inventoryAdjustLocks.has(key)) throw new Error('此庫存異動正在處理中，請勿重複點擊');
   _inventoryAdjustLocks.add(key);
   return Promise.resolve().then(fn).finally(()=>setTimeout(()=>_inventoryAdjustLocks.delete(key),1200));
+}
+function inventoryIdempotencyKey({sourceType='',sourceId='',refNo='',pageId='',delta}={}){
+  const source=String(sourceId||refNo||'').trim();
+  if(!sourceType||!source) return '';
+  return [
+    'erp',
+    sourceType,
+    source,
+    pageId,
+    Number(delta)
+  ].map(v=>String(v).replace(/[^a-zA-Z0-9._:-]+/g,'_')).join(':').slice(0,180);
+}
+async function inventoryBatchIdempotencyKey({sourceType='',sourceId='',refNo='',items=[]}={}){
+  const raw=JSON.stringify({
+    sourceType:String(sourceType||'erp'),
+    source:String(sourceId||refNo||''),
+    items:[...items]
+      .map(item=>[String(item.pageId||''),Number(item.delta)])
+      .sort((a,b)=>a[0].localeCompare(b[0]))
+  });
+  const bytes=new TextEncoder().encode(raw);
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  const hex=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+  return `erp-batch:${String(sourceType||'erp').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,40)}:${hex}`;
 }
 async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sourceType='',sourceId='',allowNegative=false}={}){
   const snap=materialSnapshotFromState(pageId,null);
@@ -7599,6 +7717,7 @@ async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sou
   if(!Number.isFinite(qty)||qty===0) throw new Error(`料號 ${snap.sku} 的庫存異動數量無效`);
   const lockKey=`delta:${sourceType||'erp'}:${sourceId||refNo||''}:${pageId}:${qty}`;
   return withInventoryAdjustLock(lockKey,async()=>{
+    const idempotencyKey=inventoryIdempotencyKey({sourceType,sourceId,refNo,pageId,delta:qty});
     const result=await postInventoryAdjustTask({
       ...snap,
       delta:qty,
@@ -7609,20 +7728,111 @@ async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sou
       operator_role:ROLE||localStorage.getItem('lr')||'',
       display_name:localStorage.getItem('ldn')||'',
       allow_negative:allowNegative===true,
+      idempotency_key:idempotencyKey,
       client_trace_id:`inv-adj-${sourceType||'erp'}-${refNo||pageId}-${pageId}-${qty}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
       source_url:location.href,
     });
     const after=Number(result.after_stock);
     if(!Number.isFinite(after)) throw new Error(`Supabase 庫存回傳異常：${snap.sku}`);
-    const notionResult=await updatePage(pageId,{'目前庫存':{number:after}},{skipInventorySync:true});
-    scheduleInventoryMirrorSync(buildStockSetMirrorTask(pageId,after,notionResult));
+    let notionResult=null;
+    let mirrorPending=false;
+    let mirrorError='';
+    try{
+      notionResult=assertNotionPage(
+        await updatePage(pageId,{'目前庫存':{number:after}},{skipInventorySync:true}),
+        `Notion 庫存鏡像 ${snap.sku}`
+      );
+    }catch(e){
+      mirrorPending=true;
+      mirrorError=e.message||String(e);
+      queueInventoryNotionMirror(pageId,after,snap.sku,mirrorError);
+      console.warn(`Supabase 庫存已成功，Notion 鏡像待補同步：${snap.sku}`,e);
+    }
     return {
       sku:snap.sku,
       before:Number(result.before_stock)||0,
       after,
       delta:Number(result.delta)||qty,
+      duplicate:result.duplicate===true,
       notion:notionResult,
+      mirrorPending,
+      mirrorError,
     };
+  });
+}
+async function applyInventoryBatchAndMirror(changes,{reason='',refNo='',sourceType='',sourceId=''}={}){
+  const normalized=(changes||[]).map(change=>{
+    const pageId=change.pageId||change.id||'';
+    const snap=materialSnapshotFromState(pageId,null);
+    const delta=Number(change.delta);
+    if(!snap.sku) throw new Error('無法辨識批次庫存料號，已停止整批異動');
+    if(!Number.isFinite(delta)||delta===0) throw new Error(`料號 ${snap.sku} 的批次異動數量無效`);
+    return {pageId,snap,delta};
+  });
+  if(!normalized.length) throw new Error('批次庫存異動沒有任何料件');
+  const duplicatePages=new Set();
+  normalized.forEach(item=>{
+    if(duplicatePages.has(item.pageId)) throw new Error(`批次庫存料號重複：${item.snap.sku}`);
+    duplicatePages.add(item.pageId);
+  });
+  const batchKey=await inventoryBatchIdempotencyKey({
+    sourceType,
+    sourceId,
+    refNo,
+    items:normalized
+  });
+  return withInventoryAdjustLock(`batch:${batchKey}`,async()=>{
+    const result=await postInventoryBatchAdjustTask({
+      items:normalized.map(item=>({...item.snap,delta:item.delta})),
+      reason,
+      ref_no:refNo,
+      source_type:sourceType,
+      source_id:sourceId,
+      operator_role:ROLE||localStorage.getItem('lr')||'',
+      display_name:localStorage.getItem('ldn')||'',
+      idempotency_key:batchKey,
+      source_url:location.href,
+    });
+    const rows=Array.isArray(result.items)?result.items:[];
+    if(rows.length!==normalized.length) throw new Error('Supabase 批次庫存回傳筆數異常');
+    const output=[];
+    for(const item of normalized){
+      const row=rows.find(x=>x.notion_page_id===item.pageId||x.sku===item.snap.sku);
+      const after=Number(row?.after_stock);
+      const before=Number(row?.before_stock);
+      if(!Number.isFinite(after)||!Number.isFinite(before)){
+        throw new Error(`Supabase 批次庫存回傳異常：${item.snap.sku}`);
+      }
+      let mirrorPending=false;
+      let mirrorError='';
+      try{
+        assertNotionPage(
+          await updatePage(item.pageId,{'目前庫存':{number:after}},{skipInventorySync:true}),
+          `Notion 庫存鏡像 ${item.snap.sku}`
+        );
+      }catch(e){
+        mirrorPending=true;
+        mirrorError=e.message||String(e);
+        queueInventoryNotionMirror(item.pageId,after,item.snap.sku,mirrorError);
+      }
+      const local=mats.find(m=>m.id===item.pageId);
+      if(local){
+        local.stock=after;
+        local.qty=after;
+      }
+      output.push({
+        pageId:item.pageId,
+        sku:item.snap.sku,
+        before,
+        after,
+        delta:item.delta,
+        transactionId:row.transaction_id||'',
+        duplicate:result.duplicate===true,
+        mirrorPending,
+        mirrorError,
+      });
+    }
+    return {items:output,duplicate:result.duplicate===true,idempotencyKey:batchKey};
   });
 }
 async function applyInventorySetAndMirror(pageId,nextStock,{reason='',refNo='',sourceType='',sourceId=''}={}){
@@ -7647,10 +7857,85 @@ async function applyInventorySetAndMirror(pageId,nextStock,{reason='',refNo='',s
     const after=Number(result.after_stock);
     const before=Number(result.before_stock)||0;
     if(!Number.isFinite(after)) throw new Error(`Supabase 庫存回傳異常：${snap.sku}`);
-    const notionResult=await updatePage(pageId,{'目前庫存':{number:after}},{skipInventorySync:true});
-    scheduleInventoryMirrorSync(buildStockSetMirrorTask(pageId,after,notionResult));
-    return {sku:snap.sku,before,after,delta:Number(result.delta)||after-before,notion:notionResult};
+    let notionResult=null;
+    let mirrorPending=false;
+    let mirrorError='';
+    try{
+      notionResult=assertNotionPage(
+        await updatePage(pageId,{'目前庫存':{number:after}},{skipInventorySync:true}),
+        `Notion 庫存鏡像 ${snap.sku}`
+      );
+    }catch(e){
+      mirrorPending=true;
+      mirrorError=e.message||String(e);
+      queueInventoryNotionMirror(pageId,after,snap.sku,mirrorError);
+      console.warn(`Supabase 庫存已成功，Notion 鏡像待補同步：${snap.sku}`,e);
+    }
+    return {sku:snap.sku,before,after,delta:Number(result.delta)||after-before,notion:notionResult,mirrorPending,mirrorError};
   });
+}
+let _inventoryNotionMirrorFlushing=false;
+async function flushInventoryNotionMirrorQueue({quiet=false}={}){
+  if(_inventoryNotionMirrorFlushing||!TOKEN) return;
+  const queue=readInventoryNotionMirrorQueue();
+  if(!queue.length) return;
+  _inventoryNotionMirrorFlushing=true;
+  const remain=[];
+  let synced=0;
+  try{
+    for(const task of queue){
+      try{
+        assertNotionPage(
+          await updatePage(task.page_id,{'目前庫存':{number:Number(task.stock)}},{skipInventorySync:true}),
+          `Notion 庫存補同步 ${task.sku||task.page_id}`
+        );
+        synced++;
+      }catch(e){
+        remain.push({
+          ...task,
+          retry_count:(Number(task.retry_count)||0)+1,
+          last_retry_at:new Date().toISOString(),
+          last_error:e.message||String(e)
+        });
+      }
+      await sleep(180);
+    }
+    writeInventoryNotionMirrorQueue(remain);
+    if(synced&&!quiet) showToast(`✅ Notion 庫存鏡像已補同步 ${synced} 筆`,'ok');
+    if(remain.length&&!quiet) showToast(`⚠ Notion 庫存鏡像尚有 ${remain.length} 筆待重試`,'warn');
+  }finally{
+    _inventoryNotionMirrorFlushing=false;
+  }
+}
+let _workflowNotionSyncFlushing=false;
+async function flushWorkflowNotionSyncQueue({quiet=false}={}){
+  if(_workflowNotionSyncFlushing||!TOKEN) return;
+  const queue=readWorkflowNotionSyncQueue();
+  if(!queue.length) return;
+  _workflowNotionSyncFlushing=true;
+  const remain=[];
+  let synced=0;
+  try{
+    for(const task of queue){
+      try{
+        assertNotionPage(await updatePage(task.page_id,task.properties),task.label||'流程狀態補同步');
+        synced++;
+      }catch(e){
+        remain.push({
+          ...task,
+          retry_count:(Number(task.retry_count)||0)+1,
+          last_retry_at:new Date().toISOString(),
+          last_error:e.message||String(e)
+        });
+      }
+      await sleep(180);
+    }
+    writeWorkflowNotionSyncQueue(remain);
+    if(synced&&!quiet) showToast(`✅ 流程狀態已補同步 ${synced} 筆`,'ok');
+    if(remain.length&&!quiet) showToast(`⚠ 尚有 ${remain.length} 筆流程狀態待同步`,'warn');
+  }finally{
+    _workflowNotionSyncFlushing=false;
+  }
 }
 async function flushInventoryMirrorQueue({quiet=false}={}){
   if(_inventoryMirrorFlushing) return;
@@ -9999,6 +10284,8 @@ async function submitInspection(){
   const no = document.getElementById('ins_no').value;
   closeModal(); showToast('建立檢驗單中...','warn');
 
+  let createdInspection=null;
+  let transactionCommitted=false;
   try{
     const props = {
       '檢驗單號':   {title:[{text:{content:no}}]},
@@ -10019,7 +10306,10 @@ async function submitInspection(){
     if(handling)  props['處理方式']={select:{name:handling}};
     if(badDesc)   props['不良描述']={rich_text:[{text:{content:badDesc}}]};
 
-    const createdInspection=await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:props});
+    createdInspection=assertNotionPage(
+      await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:props}),
+      `檢驗單 ${no}`
+    );
     logUserAction('新增品檢', no, `${matCode||matName} ${result}${isManual?' / 手動新增':''}`, inspector||ROLE);
     if(photos.length){
       try{await uploadQCPhotosToNotion({
@@ -10039,21 +10329,31 @@ async function submitInspection(){
         const isSfgOrder = o && (o.orderType==='半成品' || o.orderType==='sfg' || (o.no||'').startsWith('SFG-'));
         if(isSfgOrder){
           const mat = mats.find(m=>m.id===o.productId);
+          let sfgStockMove=null;
+          let inQty=0;
           if(mat){
-            const inQty = o.qty||qtyAct||qtyReq||0;
-            const stockMove=await applyInventoryDeltaAndMirror(mat.id,{
+            inQty = o.qty||qtyAct||qtyReq||0;
+            sfgStockMove=await applyInventoryDeltaAndMirror(mat.id,{
               delta:inQty,
               reason:'半成品品管通過入庫',
               refNo:orderNo||orderId,
               sourceType:'sfg_qc_pass',
               sourceId:orderId
             });
-            await logStockChange(mat.id, mat.name, mat.code||'', '半成品入庫', inQty, stockMove.before, stockMove.after, orderNo||orderId, inspector||ROLE);
           }
-          await updatePage(orderId, {'狀態':{select:{name:'已完成'}}});
+          const statusSync=await updateWorkflowPageAfterInventory(
+            orderId,
+            {'狀態':{select:{name:'已完成'}}},
+            `半成品訂單 ${orderNo||orderId} 完成狀態`
+          );
           o.status='已完成';
+          if(sfgStockMove&&mat){
+            await logStockChangeQuietly(mat.id, mat.name, mat.code||'', '半成品入庫', inQty, sfgStockMove.before, sfgStockMove.after, orderNo||orderId, inspector||ROLE);
+          }
           renderTab(CURRENT_TAB);
-          showToast('✅ 半成品檢驗通過，已入庫並更新為「已完成」','ok');
+          showToast(statusSync.pending
+            ? '✅ 半成品已入庫；訂單完成狀態待自動補同步'
+            : '✅ 半成品檢驗通過，已入庫並更新為「已完成」',statusSync.pending?'warn':'ok');
         }else{
           // 一般訂單推進到待出貨，不動庫存
           await updatePage(orderId, {'狀態':{select:{name:'待出貨'}}});
@@ -10080,7 +10380,7 @@ async function submitInspection(){
             sourceType:'manual_qc_stock_in',
             sourceId:createdInspection?.id||no
           });
-          await logStockChange(matSel, mat.name, mat.code, '品管入庫', inQty, stockMove.before, stockMove.after, no, inspector||ROLE);
+          await logStockChangeQuietly(matSel, mat.name, mat.code, '品管入庫', inQty, stockMove.before, stockMove.after, no, inspector||ROLE);
           showToast('✅ 檢驗單 '+no+' 已建立，庫存 +'+inQty,'ok');
         }
       } else {
@@ -10088,10 +10388,19 @@ async function submitInspection(){
       }
     }
 
+    transactionCommitted=true;
     await loadQCInspections();
     await refreshAffectedData({core:true,label:'品檢資料已更新'});
     if(CURRENT_TAB==='qc') renderTab('qc');
-  }catch(e){ showToast('❌ '+e.message,'err'); }
+  }catch(e){
+    if(transactionCommitted){
+      console.error('submitInspection post-commit refresh error:',e);
+      showToast('⚠ 檢驗核心交易已完成，但畫面更新失敗；請按同步鍵確認，勿重複送出','warn',8000);
+    }else{
+      await archiveNotionPageQuietly(createdInspection?.id);
+      showToast('❌ '+e.message,'err');
+    }
+  }
 }
 
 function renderDashboard(){
@@ -11404,36 +11713,94 @@ async function submitManualPick(){
     showToast('✅ 臨時補料單已建立，待領料確認扣庫存','ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
 }
+const _manualPickLocks=new Set();
 async function completeManualPick(masterId){
   if(denyViewOnlyAction()) return;
+  if(_manualPickLocks.has(masterId)){
+    showToast('此補料單正在扣庫存，請勿重複點擊','warn');
+    return;
+  }
   const pick=picks.find(p=>p.id===masterId);
   if(!pick){showToast('找不到領料單','err');return;}
   if(!confirm('確認此臨時補料單已領料？\n確認後會依明細扣除庫存。')) return;
+  _manualPickLocks.add(masterId);
   showToast('扣除臨時補料庫存中...','warn');
+  let inventoryCommitted=false;
+  let workflowCommitted=false;
   try{
     const details=(await dbQueryAll(DB.pickDetail)).filter(p=>p.properties?.['領料主單']?.relation?.some(r=>r.id===masterId));
     if(!details.length) throw new Error('找不到領料明細');
-    for(const d of details){
+    const batchItems=details.map(d=>{
       const matId=d.properties?.['料件']?.relation?.[0]?.id||'';
       const qty=d.properties?.['需求數量']?.number||d.properties?.['實領數量']?.number||0;
-      if(!matId||!qty) continue;
+      if(!matId||!qty) throw new Error(`補料明細 ${d.id} 缺少料號或數量`);
       const mat=mats.find(m=>m.id===matId);
-      const stockMove=await applyInventoryDeltaAndMirror(matId,{
-        delta:-qty,
+      return {detail:d,matId,qty:Number(qty),mat};
+    });
+    const grouped=[...batchItems.reduce((map,item)=>{
+      const current=map.get(item.matId)||{pageId:item.matId,delta:0,mat:item.mat};
+      current.delta-=item.qty;
+      map.set(item.matId,current);
+      return map;
+    },new Map()).values()];
+    const batchMoves=await applyInventoryBatchAndMirror(
+      grouped,
+      {
         reason:'臨時補料領料扣庫',
         refNo:pick.no,
-        sourceType:'manual_pick',
+        sourceType:'manual_pick_batch',
         sourceId:masterId
-      });
+      }
+    );
+    inventoryCommitted=true;
+    for(const item of batchItems){
+      const {detail:d,matId,qty,mat}=item;
+      const stockMove=batchMoves.items.find(move=>move.pageId===matId);
+      if(!stockMove) throw new Error(`補料批次回傳缺少料號：${mat?.code||matId}`);
       await updatePage(d.id,{'實領數量':{number:qty},'狀態':{select:{name:stockMove.before>=qty?'足夠':'缺料'}}});
-      await logStockChange(matId,mat?.name||getTitle(d.properties,'料件名稱'),mat?.code||'','臨時補料領料',-qty,stockMove.before,stockMove.after,pick.no,ROLE);
       if(mat) mat.stock=stockMove.after;
     }
-    await updatePage(masterId,{'狀態':{select:{name:'已領料'}}});
+    if(!batchMoves.duplicate){
+      for(const group of grouped){
+        const stockMove=batchMoves.items.find(move=>move.pageId===group.pageId);
+        await logStockChangeQuietly(
+          group.pageId,
+          group.mat?.name||'',
+          group.mat?.code||'',
+          '臨時補料領料',
+          group.delta,
+          stockMove.before,
+          stockMove.after,
+          pick.no,
+          ROLE
+        );
+      }
+    }
+    const statusSync=await updateWorkflowPageAfterInventory(
+      masterId,
+      {'狀態':{select:{name:'已領料'}}},
+      `補料單 ${pick.no||masterId} 已領料狀態`
+    );
+    workflowCommitted=true;
     logUserAction('完成臨時補料領料',pick.no,pick.note||'',ROLE);
     await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'}); window._PICK_SUB='manual'; renderTab('picking');
-    showToast('✅ 已領料並完成扣庫存','ok');
-  }catch(e){showToast('❌ 扣庫存失敗：'+e.message,'err');}
+    showToast(statusSync.pending?'✅ 已完成扣庫存；領料狀態待自動補同步':'✅ 已領料並完成扣庫存',statusSync.pending?'warn':'ok');
+  }catch(e){
+    if(inventoryCommitted){
+      console.error('completeManualPick post-commit refresh/log error:',e);
+      showToast(
+        workflowCommitted
+          ? '⚠ 扣庫存與領料狀態已完成，但畫面更新失敗；請按同步鍵確認，勿重複操作'
+          : '⚠ 整批扣庫存已完成，但領料明細或狀態尚未同步；可再次按原補料單續跑，系統不會重複扣除',
+        'warn',
+        10000
+      );
+    }else{
+      showToast('❌ 整批扣庫存未完成：'+e.message+'；所有料號均未扣除，可修正後再次執行','err',10000);
+    }
+  }finally{
+    _manualPickLocks.delete(masterId);
+  }
 }
 
 function renderPicking(){
@@ -12472,38 +12839,47 @@ function previewCorderMatStock(){
   const after=stock-qty;
   hint.innerHTML=`庫存 ${stock}，本次扣 ${qty}，建立後剩 <b style="color:${after<0?'var(--red)':'var(--green)'}">${after}</b>`;
 }
-async function deductCorderStock(mat, qty, refNo, operator){
+async function deductCorderStock(mat, qty, refNo, operator, operationKey=''){
   const need=parseInt(qty)||1;
   const stockMove=await applyInventoryDeltaAndMirror(mat.id,{
     delta:-need,
     reason:'C端出貨扣庫',
     refNo,
     sourceType:'corder_ship',
-    sourceId:refNo
+    sourceId:operationKey||refNo
   });
-  await logStockChange(mat.id,mat.name||'',mat.code||'','C端出貨',-need,stockMove.before,stockMove.after,refNo,operator||ROLE);
+  await logStockChangeQuietly(mat.id,mat.name||'',mat.code||'','C端出貨',-need,stockMove.before,stockMove.after,refNo,operator||ROLE);
   mat.stock=stockMove.after;
   return {before:stockMove.before,after:stockMove.after};
 }
-async function deductCorderStockByBom(mat, qty, refNo, operator){
+async function deductCorderStockByBom(mat, qty, refNo, operator, operationKey=''){
   const need=parseInt(qty)||1;
   // C端訂單是現貨出貨：扣除被出貨的 S- 成品庫存本身。
   // BOM 直接子件扣料只保留在「訂單 > 蝦皮」的生產/領料流程中，完成後再增加 S- 庫存。
-  await deductCorderStock(mat,need,refNo,operator);
+  await deductCorderStock(mat,need,refNo,operator,operationKey);
   return {mode:'direct',refs:[{id:mat.id,qty:need}],items:[{...mat,needed:need}]};
 }
 async function returnCorderStock(refs, refNo){
-  for(const r of refs){
-    const mat=mats.find(m=>m.id===r.id);
-    const returnQty=parseInt(r.qty)||1;
-    const stockMove=await applyInventoryDeltaAndMirror(r.id,{
-      delta:returnQty,
+  const valid=(refs||[]).map(r=>({
+    ...r,
+    qty:parseInt(r.qty)||1,
+    mat:mats.find(m=>m.id===r.id)
+  })).filter(r=>r.id&&r.qty>0);
+  if(!valid.length) throw new Error('C端退料沒有可回庫的料號');
+  const batchMoves=await applyInventoryBatchAndMirror(
+    valid.map(r=>({pageId:r.id,delta:r.qty})),
+    {
       reason:'C端退料回庫',
       refNo,
-      sourceType:'corder_return',
+      sourceType:'corder_return_batch',
       sourceId:refNo
-    });
-    await logStockChange(r.id,mat?.name||'',mat?.code||'','C端退料',returnQty,stockMove.before,stockMove.after,refNo,ROLE);
+    }
+  );
+  for(const r of valid){
+    const mat=r.mat;
+    const stockMove=batchMoves.items.find(move=>move.pageId===r.id);
+    if(!stockMove) throw new Error(`C端退料批次回傳缺少料號：${mat?.code||r.id}`);
+    await logStockChangeQuietly(r.id,mat?.name||'',mat?.code||'','C端退料',r.qty,stockMove.before,stockMove.after,refNo,ROLE);
     if(mat) mat.stock=stockMove.after;
   }
 }
@@ -14007,7 +14383,7 @@ async function applyCorderShippingNames(){
   showToast('寫入客戶名稱中...','warn');
   let cOk=0,sOk=0,fail=0;
   try{
-    for(const row of rows){
+    for(const [sourceIndex,row] of rows.entries()){
       for(const o of row.cMatches){
         try{
           const props=await buildShippingUpdateProps(DB.corders,row);
@@ -14264,6 +14640,13 @@ async function doInspResult(insId, orderRef, resultCode){
 
   showToast('更新中...','warn');
 
+  const previousInspection=(window._qcInspections||[]).find(x=>x.id===insId);
+  const previousResult=previousInspection?.result||'待檢驗';
+  let appliedStockMove=null;
+  let appliedMaterial=null;
+  let appliedQty=0;
+  let criticalCommitted=false;
+  let targetOrder=null;
   try{
     // 1. 更新檢驗單結果
     const props = { '檢驗結果':{select:{name:result}} };
@@ -14271,7 +14654,6 @@ async function doInspResult(insId, orderRef, resultCode){
     await updatePage(insId, props);
 
     // 2. 若有關聯訂單 → 更新訂單狀態
-    let targetOrder = null;
     if(orderId){
       targetOrder = orders.find(x=>x.id===orderId);
     } else if(orderNo){
@@ -14286,28 +14668,50 @@ async function doInspResult(insId, orderRef, resultCode){
           const mat = mats.find(m=>m.id===targetOrder.productId);
           if(mat){
             const inQty = targetOrder.qty||0;
-            const stockMove=await applyInventoryDeltaAndMirror(mat.id,{
+            appliedMaterial=mat;
+            appliedQty=inQty;
+            appliedStockMove=await applyInventoryDeltaAndMirror(mat.id,{
               delta:inQty,
               reason:'半成品檢驗結果通過入庫',
               refNo:orderNo||orderId,
               sourceType:'sfg_inspection_result_pass',
               sourceId:targetOrder.id
             });
-            await logStockChange(mat.id, mat.name, mat.code||'', '半成品入庫', inQty, stockMove.before, stockMove.after, orderNo||orderId, ROLE);
+            criticalCommitted=true;
           }
-          await updatePage(targetOrder.id, {'狀態':{select:{name:'已完成'}}});
+          await updateWorkflowPageAfterInventory(
+            targetOrder.id,
+            {'狀態':{select:{name:'已完成'}}},
+            `半成品訂單 ${targetOrder.no||targetOrder.id} 完成狀態`
+          );
           targetOrder.status = '已完成';
+          criticalCommitted=true;
+          if(appliedStockMove&&appliedMaterial){
+            await logStockChangeQuietly(
+              appliedMaterial.id,
+              appliedMaterial.name,
+              appliedMaterial.code||'',
+              '半成品入庫',
+              appliedQty,
+              appliedStockMove.before,
+              appliedStockMove.after,
+              orderNo||orderId,
+              ROLE
+            );
+          }
         } else {
           // 一般訂單通過 → 待出貨（不動庫存）
           await updatePage(targetOrder.id, {'狀態':{select:{name:'待出貨'}}});
           targetOrder.status = '待出貨';
+          criticalCommitted=true;
         }
       } else {
         // 不通過 → 維持待檢驗
         await updatePage(targetOrder.id, {'狀態':{select:{name:'待檢驗'}}});
         targetOrder.status = '待檢驗';
+        criticalCommitted=true;
       }
-    }
+    }else criticalCommitted=true;
 
     // 3. 重新載入並刷新
     await loadQCInspections();
@@ -14318,7 +14722,19 @@ async function doInspResult(insId, orderRef, resultCode){
       : '❌ 檢驗不通過，訂單維持待檢驗狀態';
     showToast(passMsg, result==='通過'?'ok':'warn');
 
-  }catch(e){ showToast('❌ '+e.message,'err'); }
+  }catch(e){
+    if(!criticalCommitted){
+      let repairError='';
+      try{
+        await updatePage(insId,{'檢驗結果':{select:{name:previousResult}}});
+      }catch(revertError){
+        repairError+=`；檢驗結果還原失敗：${revertError.message}`;
+      }
+      showToast('❌ 品檢流程未完成，已嘗試還原：'+e.message+repairError,'err',9000);
+    }else{
+      showToast('⚠ 品檢核心交易已完成，但畫面重新整理失敗，請按同步鍵確認','warn',7000);
+    }
+  }
 }
 
 async function updateInspectionStatus(id, status){
@@ -14853,6 +15269,10 @@ async function doEditOrder(orderId){
 
 function openPickPreview(orderId){
   const o=orders.find(x=>x.id===orderId);
+  if(!_bomDataReady){
+    showToast('❌ BOM 資料尚未成功載入，已停止領料預覽。請同步後重試。','err',8000);
+    return;
+  }
   const prod=mats.find(m=>m.id===o.productId);
   const items=explodeBOM(o.productId,o.qty);
   const mustHaveBom=requiresBOMMaterial(prod,o?.orderType);
@@ -14908,135 +15328,195 @@ function openPickPreview(orderId){
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" ${missing.length?'disabled':''} onclick="doPick('${orderId}')">✓ 確認產出並扣料</button></div>`}`;
   openModal();
 }
+const _orderPickLocks=new Set();
+async function archiveNotionPageQuietly(pageId){
+  if(!pageId) return;
+  try{await notionAPI('PATCH',`pages/${pageId}`,{archived:true});}
+  catch(e){console.error('封存失敗流程單據',pageId,e);}
+}
+async function logStockChangeQuietly(...args){
+  try{return await logStockChange(...args);}
+  catch(e){
+    console.warn('庫存已完成，但異動記錄暫待補同步：',e);
+    showToast('⚠ 庫存已完成；異動記錄將自動補同步','warn',5000);
+    return null;
+  }
+}
 async function doPick(orderId){
+  if(_orderPickLocks.has(orderId)){
+    showToast('此訂單正在領料處理中，請勿重複點擊','warn');
+    return;
+  }
+  _orderPickLocks.add(orderId);
   const o=orders.find(x=>x.id===orderId);
-  const prod=mats.find(m=>m.id===o.productId);
+  const prod=mats.find(m=>m.id===o?.productId);
   const ds=new Date().toISOString().slice(0,10);
-  const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
+  let no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
+  const appliedMoves=[];
+  let master=null;
+  let criticalCommitted=false;
   closeModal();
   showToast('建立領料單中...','warn');
 
   try{
-    // ── BOM 直接子件領料邏輯（蝦皮 S-、半成品、有 BOM 成品都走這裡）──
-    const items=explodeBOM(o.productId,o.qty);
-    const hasBOM = items.length > 0;
+    if(!o) throw new Error('找不到訂單，請同步後重試');
+    if(!_bomDataReady) throw new Error('BOM 資料尚未成功載入，為避免錯扣庫存，已停止領料。請同步後重試。');
+    const existing=await notionAPI('POST',`databases/${DB.pickMaster}/query`,{
+      page_size:5,
+      filter:{property:'對應訂單',relation:{contains:orderId}}
+    });
+    if(existing?.object==='error') throw new Error('無法確認既有領料單：'+existing.message);
+    const existingMaster=(existing?.results||[])[0]||null;
+    const existingStatus=existingMaster?.properties?.['狀態']?.select?.name||'';
+    if(existingMaster&&['已領料','已確認扣料'].includes(existingStatus)){
+      throw new Error('此訂單已完成領料，已停止重複扣料');
+    }
+
+    // BOM 只取直接子件；半成品本身會被扣除，不再向下展開。
+    const bomItems=explodeBOM(o.productId,o.qty);
+    const hasBOM=bomItems.length>0;
     if(!hasBOM&&requiresBOMMaterial(prod,o?.orderType)){
       throw new Error('此品項必須設定 BOM 才能領料，避免誤扣成品庫存。請先補 BOM 關係。');
     }
-    // 1. 建立領料主單
-    const master=await createPage(DB.pickMaster,{
-      '領料主單號':{title:[{text:{content:no}}]},
-      '對應訂單':{relation:[{id:orderId}]},
-      '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
-      '生產數量':{number:o.qty},
-      '狀態':{select:{name:'已確認扣料'}},
-      '領料日期':{date:{start:ds}}
-    });
-    if(master.object==='error') throw new Error('領料主單建立失敗：'+master.message);
-
-    let stockErrors=[];
-
-    if(hasBOM){
-      // ══ 有 BOM：直接子件逐項扣庫存；若子件是半成品，也扣半成品庫存，不再展開到零件 ══
-      for(const item of items){
-        if(item.missing||!item.id){
-          stockErrors.push((item.code||item.name)+': BOM 子料號尚未建檔');
-          continue;
-        }
-        try{
-          await createPage(DB.pickDetail,{
-            '料件名稱':{title:[{text:{content:item.name}}]},
-            '領料主單':{relation:[{id:master.id}]},
-            '料件':{relation:[{id:item.id}]},
-            '類型':{select:{name:item.type}},
-            '需求數量':{number:item.needed},
-            '實領數量':{number:Math.min(item.needed,item.stock)},
-            '狀態':{select:{name:item.stock>=item.needed?'足夠':'缺料'}}
-          });
-          const stockMove=await applyInventoryDeltaAndMirror(item.id,{
-            delta:-item.needed,
-            reason:'訂單領料扣庫',
-            refNo:no,
-            sourceType:'order_pick',
-            sourceId:orderId
-          });
-          await logStockChange(item.id,item.name,item.code||'','領料',-item.needed,stockMove.before,stockMove.after,no,ROLE);
-        }catch(itemErr){
-          stockErrors.push(item.name+': '+itemErr.message);
-          console.error('領料明細錯誤',item.name,itemErr);
-        }
-      }
-    } else {
-      // ══ 無 BOM：直接扣成品本身庫存 ══
-      if(!prod){
-        stockErrors.push('訂單未關聯成品料件，無法扣庫存');
-      } else {
-        try{
-          // 建立一筆領料明細（成品本身）
-          await createPage(DB.pickDetail,{
-            '料件名稱':{title:[{text:{content:prod.name}}]},
-            '領料主單':{relation:[{id:master.id}]},
-            '料件':{relation:[{id:prod.id}]},
-            '類型':{select:{name:prod.type||'成品'}},
-            '需求數量':{number:o.qty},
-            '實領數量':{number:o.qty},
-            '狀態':{select:{name:'足夠'}}
-          });
-          const stockMove=await applyInventoryDeltaAndMirror(prod.id,{
-            delta:-o.qty,
-            reason:'訂單成品直接扣庫',
-            refNo:no,
-            sourceType:'order_pick',
-            sourceId:orderId
-          });
-          await logStockChange(prod.id,prod.name,prod.code||'','領料',-o.qty,stockMove.before,stockMove.after,no,ROLE);
-        }catch(prodErr){
-          stockErrors.push(prod.name+': '+prodErr.message);
-          console.error('成品直接扣料錯誤',prodErr);
-        }
-      }
+    const items=hasBOM?bomItems:(prod?[{...prod,needed:o.qty}]:[]);
+    if(!items.length) throw new Error('訂單未關聯成品料件，無法扣庫存');
+    const missing=items.filter(item=>item.missing||!item.id);
+    if(missing.length) throw new Error('BOM 子料號尚未建檔：'+missing.map(x=>x.code||x.name).join('、'));
+    const shortages=items.filter(item=>Number(item.stock)<Number(item.needed));
+    if(shortages.length&&!existingMaster){
+      throw new Error('庫存不足：'+shortages.map(x=>`${x.code||x.name} 缺 ${Number(x.needed)-Number(x.stock)}`).join('、'));
     }
+    const pickFingerprint=items
+      .map(item=>`${item.id}:${Number(item.needed)}`)
+      .sort()
+      .join('|');
 
-    // 3. 更新訂單狀態為「生產中」
-    await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
-    logUserAction('確認領料',no,`${o?.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
-
-    // 4. 重新整理資料
-    await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'});
-
-    const modeNote = hasBOM ? `（BOM直接子件 ${items.length} 項）` : '（直接扣成品庫存）';
-    if(stockErrors.length){
-      showToast(`⚠ 領料單 ${no} 建立，部分失敗：${stockErrors.join('、')}`,'warn');
+    // 主單先暫存在「待領料」。若中途失敗，重試會續跑同一張單，
+    // Supabase 防重鍵會略過已成功料件，不會少扣或重扣。
+    let stagedFingerprint='';
+    if(existingMaster){
+      master=existingMaster;
+      no=getTitle(existingMaster.properties,'領料主單號')||no;
+      const stagedQty=Number(existingMaster.properties?.['生產數量']?.number)||0;
+      if(stagedQty&&stagedQty!==Number(o.qty)){
+        throw new Error(`領料開始後訂單數量由 ${stagedQty} 變成 ${o.qty}；已停止續扣，請由管理者確認`);
+      }
+      const stagedNote=getRichText(existingMaster.properties,'備註');
+      stagedFingerprint=stagedNote.match(/交易指紋:([^\s]+)/)?.[1]||'';
+      if(stagedFingerprint&&stagedFingerprint!==pickFingerprint){
+        throw new Error('領料開始後 BOM 組成或需求數量已變更；已停止續扣，請由管理者確認');
+      }
     }else{
-      showToast(`✅ 領料單 ${no} 建立完成 ${modeNote}`,'ok');
+      master=await createPage(DB.pickMaster,{
+        '領料主單號':{title:[{text:{content:no}}]},
+        '對應訂單':{relation:[{id:orderId}]},
+        '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
+        '生產數量':{number:o.qty},
+        '狀態':{select:{name:'待領料'}},
+        '領料日期':{date:{start:ds}},
+        '備註':{rich_text:[{text:{content:`交易指紋:${pickFingerprint}`}}]}
+      });
+      if(master?.object==='error'||!master?.id) throw new Error('領料主單建立失敗：'+(master?.message||'未回傳單據'));
     }
+
+    // 新式領料單整批扣除：同一張 BOM 全部成功或全部失敗。
+    // 有交易指紋的待領料主單一律以相同批次鍵續跑；部署前的舊主單
+    // 沒有指紋，才沿用逐項防重續跑，避免既有部分成功被重扣。
+    let batchMoves=null;
+    if(!existingMaster||stagedFingerprint){
+      batchMoves=await applyInventoryBatchAndMirror(
+        items.map(item=>({pageId:item.id,delta:-Number(item.needed)})),
+        {
+          reason:hasBOM?'訂單領料扣庫':'訂單成品直接扣庫',
+          refNo:no,
+          sourceType:'order_pick_batch',
+          sourceId:orderId
+        }
+      );
+    }
+
+    for(const item of items){
+      const existingDetail=await notionAPI('POST',`databases/${DB.pickDetail}/query`,{
+        page_size:1,
+        filter:{and:[
+          {property:'領料主單',relation:{contains:master.id}},
+          {property:'料件',relation:{contains:item.id}}
+        ]}
+      });
+      if(existingDetail?.object==='error') throw new Error(`${item.name} 無法確認領料明細：${existingDetail.message}`);
+      const existingDetailRow=(existingDetail?.results||[])[0]||null;
+      if(existingDetailRow){
+        const stagedQty=Number(existingDetailRow.properties?.['需求數量']?.number)||0;
+        if(stagedQty!==Number(item.needed)){
+          throw new Error(`${item.name} 已開始領料後需求數量由 ${stagedQty} 變成 ${item.needed}；為避免錯扣，請先由管理者確認原領料單`);
+        }
+      }
+      const stockMove=batchMoves
+        ? batchMoves.items.find(move=>move.pageId===item.id)
+        : await applyInventoryDeltaAndMirror(item.id,{
+            delta:-item.needed,
+            reason:hasBOM?'訂單領料扣庫':'訂單成品直接扣庫',
+            refNo:no,
+            sourceType:'order_pick',
+            sourceId:orderId
+          });
+      appliedMoves.push({id:item.id,name:item.name,code:item.code||'',qty:item.needed});
+      if(!stockMove.duplicate){
+        await logStockChangeQuietly(item.id,item.name,item.code||'','領料',-item.needed,stockMove.before,stockMove.after,no,ROLE);
+      }
+      if(!existingDetailRow){
+        const detail=await createPage(DB.pickDetail,{
+          '料件名稱':{title:[{text:{content:item.name}}]},
+          '領料主單':{relation:[{id:master.id}]},
+          '料件':{relation:[{id:item.id}]},
+          '類型':{select:{name:item.type||prod?.type||'成品'}},
+          '需求數量':{number:item.needed},
+          '實領數量':{number:item.needed},
+          '狀態':{select:{name:'足夠'}}
+        });
+        if(detail?.object==='error'||!detail?.id) throw new Error(`${item.name} 領料明細建立失敗：${detail?.message||'未回傳明細'}`);
+      }
+    }
+
+    const pickStatusSync=await updateWorkflowPageAfterInventory(
+      master.id,
+      {'狀態':{select:{name:'已領料'}}},
+      `領料單 ${no} 完成狀態`
+    );
+    const statusSync=await updateWorkflowPageAfterInventory(
+      orderId,
+      {'狀態':{select:{name:'生產中'}}},
+      `訂單 ${o.no||orderId} 生產中狀態`
+    );
+    criticalCommitted=true;
+    logUserAction('確認領料',no,`${o.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
+    await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'});
+    const modeNote=hasBOM?`（BOM直接子件 ${items.length} 項）`:'（直接扣成品庫存）';
+    const pending=pickStatusSync.pending||statusSync.pending;
+    showToast(pending
+      ? `✅ 領料單 ${no} 已扣庫完成；流程狀態待自動補同步 ${modeNote}`
+      : `✅ 領料單 ${no} 建立完成 ${modeNote}`,pending?'warn':'ok');
   }catch(e){
-    showToast('❌ 領料失敗：'+e.message,'err');
-    console.error('doPick error:',e);
+    if(criticalCommitted){
+      showToast('⚠ 領料與扣庫已完成，但畫面重新整理失敗；請按同步鍵確認，勿重複領料','warn',8000);
+      console.error('doPick post-commit refresh error:',e);
+      return;
+    }
+    const resumeNote=appliedMoves.length
+      ? '；已成功扣除的料件已保留，請修正問題後按原訂單重新領料，系統會接續處理且不會重扣'
+      : '';
+    showToast('❌ 領料尚未完成，訂單未推進：'+e.message+resumeNote,'err',10000);
+    console.error('doPick resumable error:',e,{masterId:master?.id,appliedMoves});
+  }finally{
+    _orderPickLocks.delete(orderId);
   }
 }
 // ══ 品管直接在 Notion 改狀態後，手動同步庫存 ══
 // ══ 強制建立領料單（沒有 BOM，不扣料）══
 async function doPickNoDeduct(orderId){
-  const o=orders.find(x=>x.id===orderId);
-  const prod=mats.find(m=>m.id===o.productId);
-  const ds=new Date().toISOString().slice(0,10);
-  const no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
-  closeModal();showToast('建立領料單（不扣料）...','warn');
-  try{
-    await createPage(DB.pickMaster,{
-      '領料主單號':{title:[{text:{content:no}}]},
-      '對應訂單':{relation:[{id:orderId}]},
-      '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
-      '生產數量':{number:o.qty},
-      '狀態':{select:{name:'已確認扣料'}},
-      '領料日期':{date:{start:ds}}
-    });
-    await updatePage(orderId,{'狀態':{select:{name:'生產中'}}});
-    logUserAction('建立領料單未扣料',no,o?.no||orderId,ROLE);
-    await refreshAffectedData({core:true,tabs:['picking'],label:'領料單已更新'});
-    showToast(`⚠ 領料單 ${no} 已建立（無 BOM，未扣料），請手動調整庫存`,'warn');
-  }catch(e){showToast('❌ 失敗：'+e.message,'err');}
+  closeModal();
+  console.error('已攔截舊版不扣料領料入口',orderId);
+  showToast('❌ 已停用「不扣料領料單」。請補齊 BOM 或將外購成品正確設為可直接扣庫後再領料。','err',8000);
 }
 
 async function syncInboundStock(id, matId, qty){
@@ -15063,20 +15543,38 @@ async function syncInboundStock(id, matId, qty){
 同步後：${newStock}`)) return;
 
   showToast('同步中...','warn');
+  let stockMove=null;
+  let committed=false;
   try{
-    const stockMove=await applyInventoryDeltaAndMirror(matId,{
+    stockMove=await applyInventoryDeltaAndMirror(matId,{
       delta:parseInt(qty)||0,
       reason:'手動同步入庫',
       refNo:id,
       sourceType:'manual_inbound_stock_in',
       sourceId:id
     });
-    // 確保入庫狀態也是已入庫
-    await updatePage(id, {'入庫狀態':{select:{name:'已入庫'}}});
-    await logStockChange(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
+    committed=true;
+    const statusSync=await updateWorkflowPageAfterInventory(
+      id,
+      {'入庫狀態':{select:{name:'已入庫'}}},
+      `入料單 ${inbound.no||id} 已入庫狀態`
+    );
+    await logStockChangeQuietly(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
     await refreshAffectedData({core:true,label:'庫存已更新'});
-    showToast(`✅ ${mat.name} 庫存已同步：${stockMove.before} → ${stockMove.after}`,'ok');
-  }catch(e){ showToast('❌ 同步失敗：'+e.message,'err'); }
+    showToast(
+      statusSync.pending
+        ? `✅ ${mat.name} 庫存已同步：${stockMove.before} → ${stockMove.after}；入料狀態待自動補同步`
+        : `✅ ${mat.name} 庫存已同步：${stockMove.before} → ${stockMove.after}`,
+      statusSync.pending?'warn':'ok'
+    );
+  }catch(e){
+    if(committed){
+      console.error('syncInboundStock post-commit refresh/status error:',e);
+      showToast('⚠ 入庫數量已寫入 Supabase，但畫面或狀態更新未完成；請按同步鍵確認，勿重複入庫','warn',8000);
+    }else{
+      showToast('❌ 入庫未完成：'+e.message,'err');
+    }
+  }
 }
 
 // ══ 庫存異動記錄（每次入料/領料/手動調整都呼叫）══
@@ -15428,6 +15926,9 @@ async function approveQC(id,matId,qty,opts={}){
     logUserAction('品管通過失敗',ibNo,'入料單未關聯料件',ROLE);
     return;
   }
+  let createdInspection=null;
+  let stockMove=null;
+  let committed=false;
   try{
     // 1. 建立品管檢驗單記錄（寫入品管資料庫）
     const insProps = {
@@ -15446,7 +15947,26 @@ async function approveQC(id,matId,qty,opts={}){
       '處理方式':   {select:{name:'正常入庫'}},
     };
     if(ibDate) insProps['檢驗日期']={date:{start:ibDate}};
-    const createdInspection=await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:insProps});
+    createdInspection=assertNotionPage(
+      await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:insProps}),
+      `入料檢驗單 ${insNo}`
+    );
+
+    // 2. 由 Supabase 主資料先入庫，再回寫 Notion 鏡像
+    stockMove=await applyInventoryDeltaAndMirror(matId,{
+      delta:parseInt(qty)||0,
+      reason:'入料品管通過入庫',
+      refNo:ibNo,
+      sourceType:'inbound_qc_pass',
+      sourceId:id
+    });
+    // 3. 庫存成功即為核心交易完成；Notion 狀態失敗時排入補同步，禁止反向補償造成重送少算。
+    const statusSync=await updateWorkflowPageAfterInventory(
+      id,
+      {'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}},
+      `入料單 ${ibNo} 品檢通過與已入庫狀態`
+    );
+    committed=true;
     if(opts.photos?.length){
       try{await uploadQCPhotosToNotion({
         photos:opts.photos,
@@ -15457,29 +15977,36 @@ async function approveQC(id,matId,qty,opts={}){
       });}
       catch(e){showToast('⚠ 入料已通過，但照片上傳失敗：'+e.message,'warn',6000);}
     }
-
-    // 2. 由 Supabase 主資料先入庫，再回寫 Notion 鏡像
-    const stockMove=await applyInventoryDeltaAndMirror(matId,{
-      delta:parseInt(qty)||0,
-      reason:'入料品管通過入庫',
-      refNo:ibNo,
-      sourceType:'inbound_qc_pass',
-      sourceId:id
-    });
-    // 3. 庫存成功後，才更新入料單品管/入庫狀態
-    await updatePage(id,{'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}});
     logUserAction('品管通過',ibNo,ibMat||ibCode,ROLE);
     // 4. 庫存異動記錄
     const mat2=mats.find(m=>m.id===matId);
-    await logStockChange(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
+    await logStockChangeQuietly(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
     // 5. 重整
     if(!opts.skipRefresh){
       await refreshAffectedData({core:true,tabs:['inbound'],label:'品檢與庫存已更新'});renderTab(CURRENT_TAB);
     }
     const mat=mats.find(m=>m.id===matId);
-    if(!opts.silent)showToast('✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+stockMove.before+' → '+stockMove.after,'ok');
-    return {ok:true,ibNo,matName:mat?.name||matId,curStock:stockMove.before,newStock:stockMove.after};
+    if(!opts.silent)showToast(
+      statusSync.pending
+        ? '✅ 品檢入庫已完成；入料單狀態待自動補同步'
+        : '✅ 品檢通過！'+(mat?.name||'料件')+' 庫存 '+stockMove.before+' → '+stockMove.after,
+      statusSync.pending?'warn':'ok'
+    );
+    return {ok:true,ibNo,matName:mat?.name||matId,curStock:stockMove.before,newStock:stockMove.after,statusPending:statusSync.pending};
   }catch(e){
+    if(committed){
+      console.error('approveQC post-commit refresh/log error:',e);
+      if(!opts.silent) showToast('⚠ 品檢與入庫已完成，但畫面更新失敗；請按同步鍵確認，勿重複通過','warn',8000);
+      return {
+        ok:true,
+        warning:e.message||String(e),
+        ibNo,
+        matName:mats.find(m=>m.id===matId)?.name||matId,
+        curStock:stockMove?.before,
+        newStock:stockMove?.after
+      };
+    }
+    await archiveNotionPageQuietly(createdInspection?.id);
     if(opts.batch) throw e;
     showToast('❌ 品管通過失敗：'+e.message,'err');
     console.error('approveQC error:',e);
@@ -16234,14 +16761,13 @@ async function submitCorder(){
   const mat=mats.find(m=>m.id===matId);
   if(!mat){showToast('找不到料件','err');return;}
   const orderNo=manualNo||corderExistingNoByShopeeAndBuyer(shopeeNo,buyer)||makeCorderNo();
+  let stockDeduct=null;
+  let stagedOrder=null;
+  let committed=false;
   closeModal(); showToast('建立 C端訂單中...','warn');
   try{
-    const stockDeduct=await deductCorderStockByBom(mat,qty,orderNo,ROLE);
-    const stockRef=corderStockRefs(stockDeduct.refs);
-    const bomNote=stockDeduct.mode==='bom'
-      ? 'BOM扣料：'+stockDeduct.items.map(x=>(x.code||x.name)+'×'+x.needed).join('、')
-      : '';
-    const props={
+    // 先建立可追蹤的暫存單，再執行 Supabase 扣庫；避免「扣了庫存卻沒有訂單」。
+    const stagedProps={
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
       '蝦皮訂單號碼':{rich_text:[{text:{content:shopeeNo||''}}]},
       '買家帳號':   {rich_text:[{text:{content:buyer||''}}]},
@@ -16249,21 +16775,53 @@ async function submitCorder(){
       '品名':       {rich_text:[{text:{content:mat.code||mat.name||''}}]},
       '數量':       {number:qty},
       '出貨方式':   {rich_text:[{text:{content:shipMethod||''}}]},
-      '狀態':       {select:{name:'出貨中'}},
+      '狀態':       {select:{name:'需確認'}},
       '來源':       {select:{name:'手動'}},
-      '料件ID':     {rich_text:[{text:{content:stockRef}}]},
-      '備註':       {rich_text:[{text:{content:[note,bomNote].filter(Boolean).join(' / ')}}]},
+      '料件ID':     {rich_text:[]},
+      '備註':       {rich_text:[{text:{content:[note,'庫存交易處理中'].filter(Boolean).join(' / ')}}]},
     };
-    if(shipDate) props['出日']={date:{start:shipDate}};
-    if(payDate)  props['付款時間']={date:{start:payDate}};
-    await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:{
-      ...props,
-    }});
-    await syncToShopee115({no:orderNo,shopeeNo,buyer,matName:mat.code||mat.name,qty,shipMethod,shipDate,payDate,note,trackingNo});
+    if(shipDate) stagedProps['出日']={date:{start:shipDate}};
+    if(payDate)  stagedProps['付款時間']={date:{start:payDate}};
+    stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:stagedProps});
+    if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error('C端訂單暫存建檔失敗：'+(stagedOrder?.message||'未回傳訂單'));
+
+    const operationKey=`manual:${orderNo}:${shopeeNo||'-'}:${mat.id}`;
+    stockDeduct=await deductCorderStockByBom(mat,qty,orderNo,ROLE,operationKey);
+    committed=true;
+    const stockRef=corderStockRefs(stockDeduct.refs);
+    const finalNote=[note].filter(Boolean).join(' / ');
+    const statusSync=await updateWorkflowPageAfterInventory(
+      stagedOrder.id,
+      {
+        '狀態':{select:{name:'出貨中'}},
+        '料件ID':{rich_text:[{text:{content:stockRef}}]},
+        '備註':{rich_text:finalNote?[{text:{content:finalNote}}]:[]}
+      },
+      `C端訂單 ${orderNo} 出貨中狀態與庫存關聯`
+    );
+    try{
+      await syncToShopee115({no:orderNo,shopeeNo,buyer,matName:mat.code||mat.name,qty,shipMethod,shipDate,payDate,note,trackingNo});
+    }catch(mirrorError){
+      console.error('115年蝦皮鏡像同步失敗',mirrorError);
+      showToast(`⚠ 訂單 ${orderNo} 已建立並扣庫，但 115年蝦皮鏡像待補同步`,'warn');
+    }
     persistCorderNextNo([orderNo]);
     await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab('corders');
-    showToast(`✅ C端訂單 ${orderNo} 已建立並扣庫存`,'ok');
-  }catch(e){showToast('❌ '+e.message,'err');}
+    showToast(
+      statusSync.pending
+        ? `✅ C端訂單 ${orderNo} 已建立並扣庫；訂單狀態待自動補同步`
+        : `✅ C端訂單 ${orderNo} 已建立並扣庫存`,
+      statusSync.pending?'warn':'ok'
+    );
+  }catch(e){
+    if(!committed){
+      await archiveNotionPageQuietly(stagedOrder?.id);
+      showToast('❌ '+e.message,'err');
+    }else{
+      console.error('submitCorder post-commit error:',e);
+      showToast(`⚠ C端訂單 ${orderNo} 已扣庫，但後續同步未完成；請按同步鍵確認，勿重複建立`,'warn',9000);
+    }
+  }
 }
 
 async function importShopeeExcel(input){
@@ -16342,7 +16900,7 @@ async function importShopeeExcel(input){
       const prodName=rowVal(row,['商品名稱','商品選項名稱']).slice(0,60);
       const trackingNo=rowVal(row,['包裹查詢號碼','寄件編號','物流單號']);
       const unitPrice=rowVal(row,['商品活動價格','買家總支付金額','商品總價','單價']);
-      incoming.push({shopeeNo,sku,qty,buyer,shipMethod,shipDate,payDate,prodName,trackingNo,unitPrice,orderStatus});
+      incoming.push({shopeeNo,sku,qty,buyer,shipMethod,shipDate,payDate,prodName,trackingNo,unitPrice,orderStatus,sourceRow:sourceIndex+2});
     }
     if(!incoming.length){ showToast('沒有有效訂單資料','warn'); return; }
     incoming.sort((a,b)=>
@@ -16377,29 +16935,19 @@ async function importShopeeExcel(input){
       );
       if(dup){skip++;continue;}
 
-      let mat=null, stockRef='', note='';
+      let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false;
       if(!item.sku){
-        note='⚠ Excel 商品選項貨號空白，庫存未扣除';
+        note='Excel 商品選項貨號空白，已停止建立出貨中訂單';
         warnList.push((item.shopeeNo||item.no)+'：無料號');
-        warn++;
+        failed++;
+        continue;
       }else{
         mat=findMatBySku(item.sku);
-        if(mat){
-          try{
-            const stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE);
-            stockRef=corderStockRefs(stockDeduct.refs);
-            if(stockDeduct.mode==='bom'){
-              note='BOM扣料：'+stockDeduct.items.map(x=>(x.code||x.name)+'×'+x.needed).join('、');
-            }
-          }catch(eStock){
-            note='⚠ 找到料件但扣庫存失敗：'+eStock.message;
-            warnList.push((item.shopeeNo||item.no)+'：'+item.sku+' 扣庫存失敗');
-            warn++;
-          }
-        }else{
-          note='⚠ 找不到庫存料號，庫存未扣除：'+item.sku;
+        if(!mat){
+          note='找不到庫存料號，已停止建立出貨中訂單：'+item.sku;
           warnList.push((item.shopeeNo||item.no)+'：找不到 '+item.sku);
-          warn++;
+          failed++;
+          continue;
         }
       }
 
@@ -16414,20 +16962,52 @@ async function importShopeeExcel(input){
         '單價':{number:parseMoneyNumber(item.unitPrice)},
         '總價':{number:(Number(item.qty)||0)*parseMoneyNumber(item.unitPrice)},
         '出貨方式':{rich_text:[{text:{content:item.shipMethod||''}}]},
-        '狀態':{select:{name:'出貨中'}},
+        '狀態':{select:{name:'需確認'}},
         '來源':{select:{name:'蝦皮'}},
-        '料件ID':{rich_text:[{text:{content:stockRef}}]},
-        '備註':{rich_text:[{text:{content:note}}]},
+        '料件ID':{rich_text:[]},
+        '備註':{rich_text:[{text:{content:'庫存交易處理中'}}]},
       };
       if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
       if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
       try{
-        await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
-        await syncToShopee115({no:item.no,shopeeNo:item.shopeeNo,buyer:item.buyer,matName:displaySku,qty:item.qty,
-          shipMethod:item.shipMethod,shipDate:item.shipDate,payDate:item.payDate||'',note,trackingNo:item.trackingNo,unitPrice:item.unitPrice});
+        stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+        if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
+
+        const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
+        stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey);
+        committed=true;
+        stockRef=corderStockRefs(stockDeduct.refs);
+        const statusSync=await updateWorkflowPageAfterInventory(
+          stagedOrder.id,
+          {
+            '狀態':{select:{name:'出貨中'}},
+            '料件ID':{rich_text:[{text:{content:stockRef}}]},
+            '備註':{rich_text:note?[{text:{content:note}}]:[]}
+          },
+          `C端 Excel 訂單 ${item.no} 第 ${item.sourceRow} 列出貨狀態與庫存關聯`
+        );
         ok++;
+        if(statusSync.pending){
+          warn++;
+          warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
+        }
+        try{
+          await syncToShopee115({no:item.no,shopeeNo:item.shopeeNo,buyer:item.buyer,matName:displaySku,qty:item.qty,
+            shipMethod:item.shipMethod,shipDate:item.shipDate,payDate:item.payDate||'',note,trackingNo:item.trackingNo,unitPrice:item.unitPrice});
+        }catch(mirrorError){
+          warn++;
+          warnList.push((item.shopeeNo||item.no)+'：主訂單已建立，115年蝦皮鏡像待補同步');
+          console.error('115年蝦皮鏡像同步失敗:',item,mirrorError);
+        }
       }catch(eCreate){
-        failed++;
+        if(!committed){
+          failed++;
+          await archiveNotionPageQuietly(stagedOrder?.id);
+          warnList.push((item.shopeeNo||item.no)+'：未扣庫，訂單暫存已取消 '+eCreate.message);
+        }else{
+          warn++;
+          warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');
+        }
         console.error('C端訂單建立失敗:',item,eCreate);
       }
     }
@@ -17051,6 +17631,10 @@ async function submitAllOrders(){
 }
 
 async function submitShopeeOrdersV2(){
+  if(!_bomDataReady){
+    showToast('❌ BOM 資料尚未成功載入，已停止建立蝦皮生產訂單。請同步後重試。','err',8000);
+    return;
+  }
   const note=document.getElementById('m_shopee_note')?.value?.trim()||'';
   let items=window._shopeeOrderItems||[];
   const selected=document.getElementById('m_shopee_sku')?.value;
@@ -17112,33 +17696,68 @@ async function submitShopeeOrder(){
   return submitShopeeOrdersV2();
 }
 
+const _shopeeCompletionLocks=new Set();
 async function completeShopeeOrder(orderId, orderNo, skuCode, qty){
   if(!canCompleteShopeeProductionRole()){
     showToast('S- 蝦皮生產完成僅限倉管、Vic、廠長操作','warn');
     return;
   }
   if(!confirm(`確認完成訂單 ${orderNo}？\n完成後將增加 ${skuCode} 庫存 ${qty||1} 個（成品入庫）。`)) return;
+  if(_shopeeCompletionLocks.has(orderId)){
+    showToast('此蝦皮訂單正在完成入庫，請勿重複點擊','warn');
+    return;
+  }
+  _shopeeCompletionLocks.add(orderId);
+  let stockMove=null;
+  let committed=false;
   try{
     const ord = orders.find(o=>o.id===orderId);
+    const liveOrder=await notionAPI('GET',`pages/${orderId}`);
+    if(liveOrder?.object==='error') throw new Error('無法確認訂單即時狀態：'+liveOrder.message);
+    const liveStatus=liveOrder?.properties?.['狀態']?.select?.name||'';
+    if(liveStatus==='已完成'){
+      if(ord) ord.status='已完成';
+      showToast(`訂單 ${orderNo} 已完成，已停止重複入庫`,'warn');
+      return;
+    }
     const sku = mats.find(m=>m.code===skuCode);
     if(!sku) throw new Error(`找不到蝦皮成品料號 ${skuCode}，已停止完成入庫`);
     const addQty = qty||1;
-    const stockMove=await applyInventoryDeltaAndMirror(sku.id,{
+    stockMove=await applyInventoryDeltaAndMirror(sku.id,{
       delta:addQty,
       reason:'蝦皮生產完成入庫',
       refNo:orderNo,
       sourceType:'shopee_order_complete',
       sourceId:orderId
     });
-    await logStockChange(sku.id, sku.name||skuCode, sku.code||skuCode, '蝦皮完成入庫', addQty, stockMove.before, stockMove.after, orderNo, ROLE);
-    logUserAction('完成蝦皮訂單',orderNo,`${skuCode} x ${addQty}`,ROLE);
+    const statusSync=await updateWorkflowPageAfterInventory(
+      orderId,
+      {'狀態':{select:{name:'已完成'}}},
+      `蝦皮生產訂單 ${orderNo} 已完成狀態`
+    );
+    committed=true;
+    if(ord) ord.status='已完成';
     sku.qty = stockMove.after;
     sku.stock = stockMove.after;
-    await updatePage(orderId,{'狀態':{select:{name:'已完成'}}});
-    if(ord) ord.status='已完成';
+    await logStockChangeQuietly(sku.id, sku.name||skuCode, sku.code||skuCode, '蝦皮完成入庫', addQty, stockMove.before, stockMove.after, orderNo, ROLE);
+    logUserAction('完成蝦皮訂單',orderNo,`${skuCode} x ${addQty}`,ROLE);
     await refreshAffectedData({core:true,label:'蝦皮成品庫存已更新'}); renderTab(CURRENT_TAB);
-    showToast(`✅ 訂單 ${orderNo} 已完成，${skuCode} 庫存已更新`,'ok');
-  }catch(e){ showToast('❌ '+e.message,'err'); }
+    showToast(
+      statusSync.pending
+        ? `✅ ${skuCode} 已入庫；訂單完成狀態待自動補同步`
+        : `✅ 訂單 ${orderNo} 已完成，${skuCode} 庫存已更新`,
+      statusSync.pending?'warn':'ok'
+    );
+  }catch(e){
+    if(committed){
+      console.error('completeShopeeOrder post-commit refresh/log error:',e);
+      showToast('⚠ 成品入庫已完成，但畫面更新失敗；請按同步鍵確認，勿重複完成','warn',8000);
+    }else{
+      showToast('❌ '+e.message,'err');
+    }
+  }finally{
+    _shopeeCompletionLocks.delete(orderId);
+  }
 }
 
 window.onload=async ()=>{
@@ -17179,6 +17798,8 @@ if ('serviceWorker' in navigator) {
           reg.update().catch(()=>{});
           if(TOKEN&&ROLE) loadNotes().then(()=>schedulePendingNoteNotification()).catch(()=>{});
           if(TOKEN&&ROLE) flushInventoryMirrorQueue({quiet:true}).catch(()=>{});
+          if(TOKEN&&ROLE) flushInventoryNotionMirrorQueue({quiet:true}).catch(()=>{});
+          if(TOKEN&&ROLE) flushWorkflowNotionSyncQueue({quiet:true}).catch(()=>{});
         }
       });
       reg.addEventListener('updatefound', () => {
