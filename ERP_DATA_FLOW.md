@@ -79,10 +79,18 @@ This section overrides older Supabase inventory notes below if they conflict.
 | 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
 | 訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | C端訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
-| 領料 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
+| 領料 | Notion | Notion | Notion | 正式紀錄 | 已完成 Supabase 歷史資料搬移與逐筆驗證，尚未切換正式流程 |
 | 入料 / 品管 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 請假 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 客戶 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
+
+### 領料搬遷狀態（2026-07-29）
+
+- 已將 126 張有效領料主單與 279 筆領料明細匯入 Supabase，主單與明細的 Notion page ID 均無缺漏。
+- 原始 Notion 共 127 張主單；其中 1 張完全空白且沒有任何明細，已列入排除清單，未偽造成有效領料單。
+- 7 筆舊明細沒有可安全確認的正式料號關聯，僅保留為歷史資料，不猜測對應料號。
+- 重複的歷史領料單號會依不同 Notion page ID 分別保留，不會合併或覆蓋。
+- 此階段只完成資料搬移與影子核對。前端的領料查詢、新增、狀態更新仍正式讀寫 Notion；庫存扣料與 BOM 則維持既有 Supabase 主流程。
 
 ## 庫存讀取流程
 

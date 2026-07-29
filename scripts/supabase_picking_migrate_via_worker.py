@@ -257,7 +257,16 @@ def main() -> int:
     }
     if args.apply and migration_result.get("ok"):
         summary = request_json(f"{worker_url}/api/picking/summary")
-        expected_master_ids = {canonical_notion_id(row["notion_page_id"]) for row in masters}
+        excluded_master_ids = {
+            canonical_notion_id(row.get("notion_page_id"))
+            for row in (migration_result.get("master_exclusions") or [])
+            if row.get("notion_page_id")
+        }
+        expected_master_ids = {
+            canonical_notion_id(row["notion_page_id"])
+            for row in masters
+            if canonical_notion_id(row["notion_page_id"]) not in excluded_master_ids
+        }
         expected_item_ids = {canonical_notion_id(row["notion_page_id"]) for row in items}
         actual_master_ids = {
             canonical_notion_id(value) for value in (summary.get("master_notion_ids") or [])
@@ -269,6 +278,7 @@ def main() -> int:
             "ok": expected_master_ids <= actual_master_ids and expected_item_ids <= actual_item_ids,
             "expected_master_count": len(expected_master_ids),
             "expected_item_count": len(expected_item_ids),
+            "excluded_master_ids": sorted(excluded_master_ids),
             "supabase_master_count": summary.get("master_count"),
             "supabase_item_count": summary.get("item_count"),
             "missing_master_ids": sorted(expected_master_ids - actual_master_ids),
