@@ -6406,11 +6406,17 @@ function buildThemePanel(p){
 const ADMIN_ROLE_PIN_KEY='lematec_admin_role_pin_hash';
 const ADMIN_ROLE_PIN_REF_PREFIX='ADMIN_ROLE_PIN:';
 const ADMIN_ROLE_PIN_CIPHER_KEY='lematec-erp-admin-pin-v1';
+const ADMIN_ROLE_PIN_SESSION_PREFIX='lematec_admin_pin_verified_';
 let _pendingAdminRolePinSync=null;
 let _permissionPinSyncing=false;
 const _adminPinVisible={};
 function adminRolePinKey(role){return 'lematec_admin_role_pin_hash_'+role;}
 function adminRolePinPlainKey(role){return 'lematec_admin_role_pin_plain_'+role;}
+function adminRolePinSessionKey(role){return ADMIN_ROLE_PIN_SESSION_PREFIX+role;}
+function markAdminRolePinVerified(role){if(needsAdminRolePin(role)) sessionStorage.setItem(adminRolePinSessionKey(role),'1');}
+function clearAdminRolePinSessions(){
+  Object.keys(sessionStorage).filter(k=>k.startsWith(ADMIN_ROLE_PIN_SESSION_PREFIX)).forEach(k=>sessionStorage.removeItem(k));
+}
 function needsAdminRolePin(role){return role==='vic'||role==='manager';}
 async function hashAdminPin(pin){
   if(!window.crypto?.subtle){
@@ -6534,8 +6540,9 @@ function toggleAdminPinVisible(role){
   _adminPinVisible[role]=!_adminPinVisible[role];
   renderTab('permissions');
 }
-async function verifyAdminRolePin(role){
+async function verifyAdminRolePin(role,{allowSessionReuse=false}={}){
   if(!needsAdminRolePin(role)) return true;
+  if(allowSessionReuse&&sessionStorage.getItem(adminRolePinSessionKey(role))==='1') return true;
   const roleLabel=ROLES[role]?.label||role;
   const roleKey=adminRolePinKey(role);
   const plain=localStorage.getItem(adminRolePinPlainKey(role))||'';
@@ -6561,6 +6568,7 @@ async function verifyAdminRolePin(role){
     if((p2||'').trim()!==pin){showLoginErr(`兩次 ${roleLabel} 登入密碼不一致`);return false;}
     await storeAdminRolePinLocal(role,pin);
     _pendingAdminRolePinSync={role,pin,operator:roleLabel};
+    markAdminRolePinVerified(role);
     return true;
   }
   const p=prompt(`請輸入 ${roleLabel} 登入密碼`);
@@ -6571,6 +6579,7 @@ async function verifyAdminRolePin(role){
   else if(entered){
     localStorage.setItem(adminRolePinPlainKey(role),entered);
     _pendingAdminRolePinSync={role,pin:entered,operator:roleLabel};
+    markAdminRolePinVerified(role);
   }
   return ok;
 }
@@ -6654,7 +6663,7 @@ async function login(){
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-async function logout(){await finalizeLoginActivity();stopAutoSync();if(_onlineTimer){clearInterval(_onlineTimer);_onlineTimer=null;}stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');TOKEN='';ROLE='';_loginLogPageId='';_loginLogSession='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
+async function logout(){await finalizeLoginActivity();stopAutoSync();if(_onlineTimer){clearInterval(_onlineTimer);_onlineTimer=null;}stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');clearAdminRolePinSessions();TOKEN='';ROLE='';_loginLogPageId='';_loginLogSession='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ═══════════════════════════════════════════════
 // APP START
@@ -19030,8 +19039,12 @@ window.onload=async ()=>{
   if(t&&r){
     document.getElementById('tokenInput').value=t;
     document.getElementById('roleSelect').value=r;
-    if(!(await verifyAdminRolePin(r))) return;
-    TOKEN=t;ROLE=r;
+    TOKEN=t;
+    if(needsAdminRolePin(r)&&sessionStorage.getItem(adminRolePinSessionKey(r))!=='1'){
+      await syncPermissionPinsFromNotion([r],{render:false});
+    }
+    if(!(await verifyAdminRolePin(r,{allowSessionReuse:true}))){TOKEN='';return;}
+    ROLE=r;
     await startApp();
   }
 };
@@ -19045,6 +19058,7 @@ window.onload=async ()=>{
 })();
 
 if ('serviceWorker' in navigator) {
+  const hadServiceWorkerController=!!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       const promptReload=()=>{
@@ -19081,7 +19095,7 @@ if ('serviceWorker' in navigator) {
     });
   });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if(!window._swReloading){
+    if(hadServiceWorkerController&&!window._swReloading){
       window._swReloading=true;
       location.reload();
     }

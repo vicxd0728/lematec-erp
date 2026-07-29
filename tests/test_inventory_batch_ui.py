@@ -65,7 +65,7 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("p_idempotency_key || ':' || material_uuid::text", RPC_SQL)
 
     def test_service_worker_version_changes_with_ui(self):
-        self.assertIn("lematec-erp-v23", SW)
+        self.assertIn("lematec-erp-v24", SW)
 
 
 if __name__ == "__main__":
