@@ -1510,6 +1510,7 @@ async function erpPickingMigrate(request, env, cors) {
     const masterRows = [];
     const masterBySourceNotion = new Map();
     const masterHoldbacks = [];
+    const masterExclusions = [];
     const seenMasterNotionIds = new Set();
     for (const source of sourceMasters) {
       const notionId = cleanText(source.notion_page_id || '');
@@ -1518,6 +1519,19 @@ async function erpPickingMigrate(request, env, cors) {
       const productionQuantity = source.production_quantity == null || source.production_quantity === ''
         ? null
         : Number(source.production_quantity);
+      const isEmptyHistoricalPage = notionKey
+        && !pickNumber
+        && !cleanText(source.source_order_notion_page_id || '')
+        && !cleanText(source.product_display || '')
+        && !cleanText(source.status || '')
+        && productionQuantity === null
+        && !cleanText(source.picker_display || '')
+        && !cleanText(source.pick_date || '')
+        && !cleanText(source.notes || '');
+      if (isEmptyHistoricalPage) {
+        masterExclusions.push({notion_page_id: notionId, reason: 'empty_historical_page'});
+        continue;
+      }
       if (!notionKey || !pickNumber) {
         masterHoldbacks.push({notion_page_id: notionId, pick_number: pickNumber, reason: 'missing_identity'});
         continue;
@@ -1565,6 +1579,8 @@ async function erpPickingMigrate(request, env, cors) {
     const seenItemNotionIds = new Set();
     let materialMappedByRelation = 0;
     let materialMappedByExactSku = 0;
+    let materialMappedByLegacyYAlias = 0;
+    let materialUnlinkedHistorical = 0;
     for (const source of sourceItems) {
       const notionId = cleanText(source.notion_page_id || '');
       const notionKey = canonicalNotionId(notionId);
@@ -1581,14 +1597,18 @@ async function erpPickingMigrate(request, env, cors) {
         const exactSku = cleanSku(source.item_display || '');
         material = materialBySku.get(exactSku);
         mapping = 'exact_sku';
+        if (!material && cleanText(source.item_type || '') === '零件' && exactSku && !exactSku.startsWith('Y-')) {
+          material = materialBySku.get(cleanSku(`Y-${exactSku}`));
+          mapping = 'legacy_y_alias';
+        }
       }
+      if (!material) mapping = 'unlinked_historical';
       let reason = '';
       if (!notionKey) reason = 'missing_identity';
       else if (seenItemNotionIds.has(notionKey)) reason = 'duplicate_source_identity';
       else if (!master) reason = 'missing_master_relation';
-      else if (!material) reason = 'missing_material_relation';
       else if (!Number.isFinite(requiredQuantity) || requiredQuantity <= 0) reason = 'invalid_required_quantity';
-      else if (pickedQuantity !== null && (!Number.isFinite(pickedQuantity) || pickedQuantity < 0)) reason = 'invalid_picked_quantity';
+      else if (pickedQuantity !== null && !Number.isFinite(pickedQuantity)) reason = 'invalid_picked_quantity';
       if (reason) {
         itemHoldbacks.push({
           notion_page_id: notionId,
@@ -1601,13 +1621,15 @@ async function erpPickingMigrate(request, env, cors) {
       }
       seenItemNotionIds.add(notionKey);
       if (mapping === 'relation') materialMappedByRelation++;
-      else materialMappedByExactSku++;
+      else if (mapping === 'exact_sku') materialMappedByExactSku++;
+      else if (mapping === 'legacy_y_alias') materialMappedByLegacyYAlias++;
+      else materialUnlinkedHistorical++;
       const existing = existingItemByNotion.get(notionKey);
       itemRows.push({
         id: existing?.id || crypto.randomUUID(),
         organization_id: organizationId,
         pick_list_id: master.id,
-        material_id: material.id,
+        material_id: material?.id || null,
         required_quantity: requiredQuantity,
         picked_quantity: pickedQuantity,
         notes: cleanText(source.notes || ''),
@@ -1631,6 +1653,9 @@ async function erpPickingMigrate(request, env, cors) {
       importable_item_count: itemRows.length,
       material_mapped_by_relation: materialMappedByRelation,
       material_mapped_by_exact_sku: materialMappedByExactSku,
+      material_mapped_by_legacy_y_alias: materialMappedByLegacyYAlias,
+      material_unlinked_historical: materialUnlinkedHistorical,
+      master_exclusions: masterExclusions,
       master_holdbacks: masterHoldbacks,
       item_holdbacks: itemHoldbacks,
       migrated_at: taipeiISOString(),

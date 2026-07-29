@@ -18,6 +18,11 @@ alter table public.pick_items
   add column if not exists notion_last_edited_at timestamptz,
   add column if not exists source_payload jsonb;
 
+-- Historical Notion rows may predate the material relation. New ERP writes must
+-- still validate a material ID before inserting; null is migration-only.
+alter table public.pick_items
+  alter column material_id drop not null;
+
 alter table public.pick_lists
   drop constraint if exists pick_lists_status_check;
 
@@ -53,5 +58,6 @@ create index if not exists pick_items_source_material_notion_idx
 
 grant select, insert, update, delete on table public.pick_lists to service_role;
 grant select, insert, update, delete on table public.pick_items to service_role;
+grant select on table public.orders to service_role;
 
 commit;
