@@ -31,9 +31,10 @@ class InventoryTransactionSafetyTest(unittest.TestCase):
         self.assertNotIn("compensateInventoryChange", INDEX)
         self.assertNotIn("rollbackInventoryMoves", INDEX)
         self.assertIn("sourceType:'order_pick_batch'", INDEX)
-        self.assertIn("if(!existingMaster||stagedFingerprint)", INDEX)
-        self.assertIn("if(shortages.length&&!existingMaster)", INDEX)
-        self.assertIn("pickFingerprint", INDEX)
+        self.assertIn("pickingWorkerRequest('/api/picking/create'", INDEX)
+        self.assertIn("if(stageResult.completed)", INDEX)
+        self.assertIn("if(shortages.length)", INDEX)
+        self.assertIn("updateSupabasePickingStatus(pick,'缺料待補'", INDEX)
         self.assertIn("criticalCommitted=true", INDEX)
 
     def test_manual_pick_and_shopee_bom_are_atomic(self):

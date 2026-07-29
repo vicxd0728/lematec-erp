@@ -41,6 +41,18 @@ This section overrides older Supabase inventory notes below if they conflict.
 - The local `lematec_supabase_anon_key` is only for optional health-check diagnostics such as deeper BOM view comparison. It is not required for normal inventory browsing or editing.
 - Do not claim Notion manual edits are fully two-way until a verified Notion-to-Supabase sync job exists.
 
+## Batch Inventory Adjustment 2026-07-29
+
+- Entry: Inventory page > `批量調整`.
+- Allowed roles: Vic, manager, warehouse, and sales. View-only users cannot submit it.
+- Scope: existing Supabase materials only. Creating new materials stays in the separate material workflow.
+- Input: paste `SKU +10` / `SKU -5`, set final quantities, or import the first Excel/CSV sheet.
+- Required: a reason and 1-100 unique materials.
+- Preflight blocks unknown SKUs, missing Notion mirrors, duplicates, non-integer values, no-op changes, and negative final stock.
+- Commit: Worker calls `apply_inventory_batch`; PostgreSQL locks all balances and commits the complete batch in one transaction.
+- Audit: every material creates an inventory transaction under the same batch idempotency prefix.
+- Mirror: Notion is updated after Supabase commits. Temporary mirror failures remain in the retry queue.
+
 最後更新：2026-07-28
 
 本文件定義 ERP 前端、Notion、Supabase 之間的資料責任。實際程式仍以 `index.html` 為準；若程式改變，需同步更新本文件。

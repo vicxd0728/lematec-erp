@@ -674,6 +674,17 @@ body.modal-open{overflow:hidden;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .form-actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap;}
 .field-label{font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:4px;font-weight:600;}
+.inventory-batch-help{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.inventory-batch-help>div{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);font-size:.75rem;line-height:1.55;color:var(--text2);}
+.inventory-batch-preview{max-height:42vh;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+.inventory-batch-preview table{min-width:680px;}
+.inventory-batch-preview tr.batch-error td{background:rgba(239,68,68,.06);}
+.inventory-batch-preview .batch-delta-plus{color:var(--green2);font-weight:700;}
+.inventory-batch-preview .batch-delta-minus{color:var(--red2);font-weight:700;}
+@media(max-width:599px){
+  .inventory-batch-help{grid-template-columns:1fr;}
+  .inventory-batch-preview{max-height:34vh;}
+}
 
 /* ══════════════════════════════════════
    ANNOUNCEMENT
@@ -1579,6 +1590,221 @@ async function doEditStock(id, name, oldStock){
     await refreshAffectedData({core:true,label:'庫存已更新'});
     showToast(`✅ ${name} 庫存 ${stockMove.before} → ${stockMove.after}（原因已記錄）`,'ok');
   }catch(e){showToast('❌ 失敗：'+e.message,'err');}
+}
+
+function openInventoryBatchAdjust(){
+  if(denyViewOnlyAction()) return;
+  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  if(!canEdit){showToast('此角色無法批量調整庫存','warn');return;}
+  if(getInventoryReadSource()!=='supabase'){
+    showToast('批量調整只允許在 Supabase 主資料模式執行','warn');
+    return;
+  }
+  window._inventoryBatchDraft=null;
+  document.getElementById('modalInner').innerHTML=`<h3>批量調整庫存</h3>
+    <div class="info-box info-tip">整批先由 Supabase 原子提交：全部成功才寫入；任何一筆錯誤都不會改庫存。成功後會自動同步 Notion 鏡像與異動紀錄。</div>
+    <div class="inventory-batch-help">
+      <div><b>增減庫存</b><br>每行輸入：<span style="font-family:var(--f-mono)">料號 +10</span> 或 <span style="font-family:var(--f-mono)">料號 -5</span></div>
+      <div><b>設定新數量</b><br>切換模式後，每行輸入：<span style="font-family:var(--f-mono)">料號 100</span></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div>
+        <label class="field-label">調整模式</label>
+        <select class="inp" id="inv_batch_mode" onchange="window._inventoryBatchDraft=null;document.getElementById('inv_batch_preview').innerHTML=''">
+          <option value="delta">依增減量調整</option>
+          <option value="set">直接設定新數量</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">修改原因 *</label>
+        <input class="inp" id="inv_batch_reason" placeholder="例如：月底盤點修正、退料回庫">
+      </div>
+    </div>
+    <div style="margin-bottom:10px">
+      <label class="field-label">料號與數量（每行一筆，最多 100 筆）</label>
+      <textarea class="inp" id="inv_batch_text" rows="8" placeholder="Y-ABC-01 +10&#10;Y-ABC-02 -5" oninput="window._inventoryBatchDraft=null"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('invBatchExcelInput')?.click()">匯入 Excel / CSV</button>
+      <input id="invBatchExcelInput" type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importInventoryBatchFile(this)">
+      <button class="btn btn-cyan btn-sm" onclick="previewInventoryBatch()">檢查並預覽</button>
+    </div>
+    <div id="inv_batch_preview"></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" id="inv_batch_submit" onclick="executeInventoryBatch()" disabled>確認整批寫入</button>
+    </div>`;
+  openModal();
+}
+
+function parseInventoryBatchText(text){
+  const entries=[];
+  String(text||'').split(/\r?\n/).forEach((raw,index)=>{
+    const line=raw.trim();
+    if(!line)return;
+    const match=line.match(/^(.+?)(?:\t+|[,，;；]\s*|\s+)([+-]?\d+(?:\.\d+)?)$/);
+    if(!match){
+      entries.push({line:index+1,raw,code:'',value:NaN,parseError:'格式應為「料號 數量」'});
+      return;
+    }
+    entries.push({line:index+1,raw,code:match[1].trim(),value:Number(match[2])});
+  });
+  return entries;
+}
+
+function inventoryBatchHeaderValue(row,names){
+  const entries=Object.entries(row||{});
+  for(const wanted of names){
+    const hit=entries.find(([key])=>String(key).trim().toLowerCase()===wanted.toLowerCase());
+    if(hit)return hit[1];
+  }
+  return '';
+}
+
+async function importInventoryBatchFile(input){
+  const file=input?.files?.[0];
+  if(!file)return;
+  try{
+    await ensureXlsxLoaded();
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    if(!ws)throw new Error('檔案沒有工作表');
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+    if(!rows.length)throw new Error('檔案沒有資料');
+    const mode=document.getElementById('inv_batch_mode')?.value||'delta';
+    const qtyNames=mode==='set'
+      ?['修改後數量','新庫存','庫存','數量','stock','qty']
+      :['異動量','調整數量','增減數量','數量','delta','change','qty'];
+    const lines=rows.map(row=>{
+      const code=inventoryBatchHeaderValue(row,['料號','料件編號','品號','sku','code']);
+      const qty=inventoryBatchHeaderValue(row,qtyNames);
+      return `${String(code||'').trim()}\t${String(qty??'').trim()}`;
+    }).filter(line=>line.replace(/\t/g,'').trim());
+    document.getElementById('inv_batch_text').value=lines.join('\n');
+    window._inventoryBatchDraft=null;
+    showToast(`已匯入 ${lines.length} 筆，請執行預覽`,'ok');
+  }catch(e){
+    showToast('匯入失敗：'+e.message,'err');
+  }finally{
+    input.value='';
+  }
+}
+
+function buildInventoryBatchPreview(entries,mode){
+  const sourceRows=getInventoryReadSet().rows||[];
+  const bySku=new Map();
+  sourceRows.forEach(mat=>{
+    const sku=normalizeSku(mat.code||mat.name||'');
+    if(sku&&!bySku.has(sku))bySku.set(sku,mat);
+  });
+  const seen=new Set();
+  return entries.map(entry=>{
+    const sku=normalizeSku(entry.code||'');
+    const mat=bySku.get(sku);
+    const before=Number(mat?.stock)||0;
+    let error=entry.parseError||'';
+    if(!error&&!sku)error='缺少料號';
+    if(!error&&!Number.isInteger(entry.value))error='數量必須是整數';
+    if(!error&&seen.has(sku))error='同批次料號重複';
+    if(sku)seen.add(sku);
+    if(!error&&!mat)error='Supabase 找不到此料號';
+    const notionId=mat?.notionId||(!String(mat?.id||'').startsWith('supabase:')?mat?.id:'');
+    if(!error&&!notionId)error='尚未建立 Notion 鏡像，暫不可批量調整';
+    const delta=mode==='set'?Number(entry.value)-before:Number(entry.value);
+    const after=before+delta;
+    if(!error&&delta===0)error='庫存沒有變化';
+    if(!error&&after<0)error='調整後庫存不可小於 0';
+    return {...entry,sku,mat,notionId,before,delta,after,error};
+  });
+}
+
+function previewInventoryBatch(){
+  const reason=(document.getElementById('inv_batch_reason')?.value||'').trim();
+  const mode=document.getElementById('inv_batch_mode')?.value||'delta';
+  const entries=parseInventoryBatchText(document.getElementById('inv_batch_text')?.value||'');
+  const host=document.getElementById('inv_batch_preview');
+  const submit=document.getElementById('inv_batch_submit');
+  if(!reason||!/[一-龥a-zA-Z0-9]/.test(reason)){
+    showToast('請先填寫修改原因','warn');
+    document.getElementById('inv_batch_reason')?.focus();
+    return;
+  }
+  if(!entries.length){
+    showToast('請輸入至少一筆料號與數量','warn');
+    return;
+  }
+  if(entries.length>100){
+    showToast('單次最多 100 筆，請分批處理','warn');
+    return;
+  }
+  const rows=buildInventoryBatchPreview(entries,mode);
+  const errors=rows.filter(row=>row.error);
+  host.innerHTML=`<div class="info-box ${errors.length?'info-warn':'info-ok'}">
+      共 ${rows.length} 筆；${errors.length?`有 ${errors.length} 筆需修正，尚未寫入任何資料`:'檢查通過，可確認整批寫入'}
+    </div>
+    <div class="inventory-batch-preview"><table>
+      <tr><th>行</th><th>料號</th><th>名稱</th><th>原庫存</th><th>${mode==='set'?'新數量':'增減'}</th><th>調整後</th><th>檢查</th></tr>
+      ${rows.map(row=>`<tr class="${row.error?'batch-error':''}">
+        <td>${row.line}</td>
+        <td style="font-family:var(--f-mono);font-weight:700">${escapeHtml(row.sku||row.code||'—')}</td>
+        <td>${escapeHtml(row.mat?.name||'—')}</td>
+        <td>${row.mat?row.before:'—'}</td>
+        <td class="${row.delta>0?'batch-delta-plus':row.delta<0?'batch-delta-minus':''}">${Number.isFinite(row.delta)?`${row.delta>0?'+':''}${row.delta}`:'—'}</td>
+        <td>${Number.isFinite(row.after)?row.after:'—'}</td>
+        <td style="color:${row.error?'var(--red2)':'var(--green2)'}">${escapeHtml(row.error||'通過')}</td>
+      </tr>`).join('')}
+    </table></div>`;
+  if(errors.length){
+    window._inventoryBatchDraft=null;
+    submit.disabled=true;
+    return;
+  }
+  window._inventoryBatchDraft={
+    reason,
+    mode,
+    rows,
+    batchId:`manual-batch-${Date.now()}-${Math.random().toString(36).slice(2,8)}`
+  };
+  submit.disabled=false;
+}
+
+async function executeInventoryBatch(){
+  const draft=window._inventoryBatchDraft;
+  const submit=document.getElementById('inv_batch_submit');
+  if(!draft?.rows?.length){
+    showToast('請先檢查並預覽','warn');
+    return;
+  }
+  if(getInventoryReadSource()!=='supabase'){
+    showToast('目前不是 Supabase 主資料模式，已停止批量寫入','err');
+    return;
+  }
+  submit.disabled=true;
+  submit.textContent='整批寫入中...';
+  try{
+    const result=await applyInventoryBatchAndMirror(
+      draft.rows.map(row=>({pageId:row.notionId,delta:row.delta})),
+      {
+        reason:draft.reason,
+        refNo:draft.batchId,
+        sourceType:'manual_inventory_batch',
+        sourceId:draft.batchId
+      }
+    );
+    const mirrorPending=result.items.filter(item=>item.mirrorPending).length;
+    closeModal();
+    await loadSupabaseInventoryForPage(true);
+    if(CURRENT_TAB==='inventory')renderTab('inventory');
+    showToast(
+      `批量調整完成：${result.items.length} 筆${mirrorPending?`；${mirrorPending} 筆 Notion 鏡像待自動補同步`:''}`,
+      mirrorPending?'warn':'ok',
+      7000
+    );
+  }catch(e){
+    submit.disabled=false;
+    submit.textContent='確認整批寫入';
+    showToast('批量調整失敗，整批未寫入：'+e.message,'err',8000);
+  }
 }
 
 
@@ -12095,6 +12321,7 @@ function renderInventory(){
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
         ${canImportBomRole()?`<button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
+        ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">批量調整</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
