@@ -79,18 +79,23 @@ This section overrides older Supabase inventory notes below if they conflict.
 | 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
 | 訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | C端訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
-| 領料 | Notion | Notion | Notion | 正式紀錄 | 已完成 Supabase 歷史資料搬移與逐筆驗證，尚未切換正式流程 |
+| 領料 | Supabase | Worker 讀 Supabase；失敗時 Notion 僅作唯讀備援 | Worker 先寫 Supabase；成功後建立或更新 Notion 鏡像 | 人員查閱鏡像與緊急唯讀備援 | 正式主單、明細、狀態與防重依據 |
 | 入料 / 品管 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 請假 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 客戶 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 
-### 領料搬遷狀態（2026-07-29）
+### 領料正式流程（2026-07-29）
 
 - 已將 126 張有效領料主單與 279 筆領料明細匯入 Supabase，主單與明細的 Notion page ID 均無缺漏。
 - 原始 Notion 共 127 張主單；其中 1 張完全空白且沒有任何明細，已列入排除清單，未偽造成有效領料單。
 - 7 筆舊明細沒有可安全確認的正式料號關聯，僅保留為歷史資料，不猜測對應料號。
 - 重複的歷史領料單號會依不同 Notion page ID 分別保留，不會合併或覆蓋。
-- 此階段只完成資料搬移與影子核對。前端的領料查詢、新增、狀態更新仍正式讀寫 Notion；庫存扣料與 BOM 則維持既有 Supabase 主流程。
+- 前端領料查詢改由 Worker `GET /api/picking/list` 讀取 Supabase；若服務暫時失敗，可顯示 Notion 唯讀備援，但不得從備援資料執行扣庫存。
+- 訂單領料以訂單 Notion page ID 作為唯一來源鍵；重複點擊會續接同一張 Supabase 領料單，不會建立第二張或重新扣庫存。
+- 臨時補料以唯一領料單號建立 Supabase 主單與明細，完成時使用該 Supabase 主單 ID 作為庫存交易防重來源。
+- 建立順序為：Supabase 建立/續接領料單 → Notion 建立查閱鏡像 → Supabase 原子批次扣庫存 → Supabase 更新已領料 → Notion 鏡像補狀態。
+- 缺料、BOM 缺件、Supabase 寫入失敗或 Notion 首次鏡像失敗時，不開始扣庫存；已扣庫後發生斷線則以固定 idempotency key 續跑，不得重扣。
+- Notion 鏡像會把主單與明細 page ID 回標至 Supabase。新流程建立但鏡像未完成的單據，領料頁載入後會限量自動補同步。
 
 ## 庫存讀取流程
 

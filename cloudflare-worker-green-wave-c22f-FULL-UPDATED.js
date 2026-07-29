@@ -44,6 +44,18 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/picking/summary') {
       return erpPickingSummary(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/picking/list') {
+      return erpPickingList(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/picking/create') {
+      return erpPickingCreate(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/picking/status') {
+      return erpPickingStatus(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/picking/link-notion') {
+      return erpPickingLinkNotion(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -1403,6 +1415,425 @@ function pickingDateTime(value) {
   if (!text) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00+08:00`;
   return text;
+}
+
+async function deterministicUuid(value) {
+  const bytes = new Uint8Array(await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(String(value || ''))
+  )).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function normalizePickingItems(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    id: cleanText(row.id),
+    material_id: cleanText(row.material_id),
+    material_notion_page_id: cleanText(row.source_material_notion_page_id),
+    notion_page_id: cleanText(row.notion_page_id),
+    sku: cleanSku(row?.source_payload?.sku || ''),
+    name: cleanText(row.item_display || row?.source_payload?.name || row?.source_payload?.sku || ''),
+    type: cleanText(row.item_type || row?.source_payload?.type || ''),
+    required_quantity: Number(row.required_quantity || 0),
+    picked_quantity: Number(row.picked_quantity || 0),
+    status: cleanText(row.status || ''),
+    notes: cleanText(row.notes || ''),
+  }));
+}
+
+async function erpPickingList(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const url = new URL(request.url);
+    const requestedLimit = Number(url.searchParams.get('limit') || 5000);
+    const limit = Math.max(1, Math.min(5000, Number.isFinite(requestedLimit) ? requestedLimit : 5000));
+    const masters = await supabaseFetch(
+      env,
+      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,pick_number,pick_type,status,production_quantity,picked_at,notes,notion_page_id,product_display,picker_display,source_order_notion_page_id,source,source_payload,created_at,updated_at&order=created_at.desc&limit=${limit}`
+    );
+    const masterIds = (Array.isArray(masters) ? masters : []).map((row) => cleanText(row.id)).filter(Boolean);
+    let itemRows = [];
+    if (masterIds.length) {
+      itemRows = await supabaseAll(
+        env,
+        `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notes,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload,created_at,updated_at`
+      );
+    }
+    const grouped = new Map();
+    for (const row of itemRows) {
+      const key = cleanText(row.pick_list_id);
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(row);
+    }
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      rows: (Array.isArray(masters) ? masters : []).map((row) => ({
+        id: cleanText(row.id),
+        pick_number: cleanText(row.pick_number),
+        pick_type: cleanText(row.pick_type),
+        status: cleanText(row.status),
+        production_quantity: Number(row.production_quantity || 0),
+        pick_date: cleanText(row.picked_at || row.created_at).slice(0, 10),
+        picked_at: cleanText(row.picked_at),
+        picker_display: cleanText(row.picker_display),
+        product_display: cleanText(row.product_display),
+        notes: cleanText(row.notes),
+        notion_page_id: cleanText(row.notion_page_id),
+        source_order_notion_page_id: cleanText(row.source_order_notion_page_id),
+        source: cleanText(row.source),
+        fingerprint: cleanText(row?.source_payload?.fingerprint),
+        created_at: cleanText(row.created_at),
+        updated_at: cleanText(row.updated_at),
+        items: normalizePickingItems(grouped.get(cleanText(row.id)) || []),
+      })),
+      checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpPickingCreate(request, env, cors) {
+  try {
+    const body = await request.json();
+    const pickNumber = cleanText(body?.pick_number);
+    const source = cleanText(body?.source || 'ERP');
+    const sourceOrderNotionId = cleanText(body?.source_order_notion_page_id);
+    const sourceItems = Array.isArray(body?.items) ? body.items : [];
+    const dryRun = body?.dry_run === true;
+    if (!pickNumber) return resp400(cors, 'Missing pick_number');
+    if (!sourceItems.length) return resp400(cors, 'Missing picking items');
+    if (sourceItems.length > 500) return resp400(cors, 'Picking item limit exceeded');
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const [existingMasters, orderRows] = await Promise.all([
+      supabaseAll(
+        env,
+        `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,pick_number,status,notion_page_id,source_order_notion_page_id,source_payload`
+      ),
+      sourceOrderNotionId
+        ? supabaseAll(
+            env,
+            `/rest/v1/orders?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id`
+          )
+        : Promise.resolve([]),
+    ]);
+    const existing = existingMasters.find((row) =>
+      sourceOrderNotionId
+        ? canonicalNotionId(row.source_order_notion_page_id) === canonicalNotionId(sourceOrderNotionId)
+        : cleanText(row.pick_number) === pickNumber
+    ) || null;
+
+    if (existing && ['已領料', '已確認扣料'].includes(cleanText(existing.status))) {
+      const currentItems = await supabaseAll(
+        env,
+        `/rest/v1/pick_items?pick_list_id=eq.${encodeURIComponent(existing.id)}&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notes,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload`
+      );
+      return respOK(cors, {
+        ok: true,
+        existing: true,
+        completed: true,
+        row: {
+          id: existing.id,
+          pick_number: existing.pick_number,
+          status: existing.status,
+          notion_page_id: cleanText(existing.notion_page_id),
+          items: normalizePickingItems(currentItems),
+        },
+      });
+    }
+
+    const resolved = [];
+    const seenMaterialIds = new Set();
+    for (const item of sourceItems) {
+      const requiredQuantity = Number(item?.required_quantity ?? item?.quantity ?? 0);
+      const sku = cleanSku(item?.sku || item?.code || '');
+      if (!(requiredQuantity > 0)) throw new Error(`Invalid picking quantity: ${sku || 'unknown material'}`);
+      const material = await resolveSupabaseMaterial(
+        env,
+        organizationId,
+        { notion_page_id: cleanText(item?.material_notion_page_id || item?.notion_page_id) },
+        sku,
+        false
+      );
+      if (!material?.id) throw new Error(`Material not found in Supabase: ${sku || item?.material_notion_page_id || 'unknown'}`);
+      if (seenMaterialIds.has(material.id)) throw new Error(`Duplicate picking material: ${material.sku || sku}`);
+      seenMaterialIds.add(material.id);
+      resolved.push({
+        material,
+        required_quantity: requiredQuantity,
+        picked_quantity: Number(item?.picked_quantity || 0),
+        item_display: cleanText(item?.name || item?.item_display || material.name || material.sku),
+        item_type: cleanText(item?.type || item?.item_type || material.material_type),
+        status: cleanText(item?.status || '足夠'),
+        notes: cleanText(item?.notes || ''),
+      });
+    }
+    const fingerprintSource = resolved
+      .map((item) => `${item.material.id}:${item.required_quantity}`)
+      .sort()
+      .join('|');
+    const fingerprint = await sha256Short(fingerprintSource);
+    const existingFingerprint = cleanText(existing?.source_payload?.fingerprint);
+    if (existingFingerprint && existingFingerprint !== fingerprint) {
+      return new Response(JSON.stringify({
+        error: 'Picking fingerprint mismatch. BOM or quantity changed after picking started.',
+        existing_fingerprint: existingFingerprint,
+        requested_fingerprint: fingerprint,
+      }), { status: 409, headers: jh(cors) });
+    }
+
+    const pickKey = sourceOrderNotionId
+      ? `order:${canonicalNotionId(sourceOrderNotionId)}`
+      : `manual:${pickNumber}`;
+    const pickId = cleanText(existing?.id) || await deterministicUuid(`${organizationId}:pick:${pickKey}`);
+    const order = orderRows.find((row) =>
+      canonicalNotionId(row.notion_page_id) === canonicalNotionId(sourceOrderNotionId)
+    ) || null;
+    const masterRow = {
+      id: pickId,
+      organization_id: organizationId,
+      pick_number: cleanText(existing?.pick_number || pickNumber),
+      pick_type: cleanText(body?.pick_type || (sourceOrderNotionId ? '訂單領料' : '臨時補料')),
+      order_id: order?.id || null,
+      status: '待領料',
+      production_quantity: Number(body?.production_quantity || resolved.reduce((sum, item) => sum + item.required_quantity, 0)),
+      notes: cleanText(body?.notes || ''),
+      product_display: cleanText(body?.product_display || ''),
+      picker_display: cleanText(body?.picker_display || ''),
+      source_order_notion_page_id: sourceOrderNotionId || null,
+      source,
+      source_payload: {
+        fingerprint,
+        fingerprint_source: fingerprintSource,
+        created_from: source,
+      },
+      updated_at: taipeiISOString(),
+    };
+    if (dryRun) {
+      return respOK(cors, {
+        ok: true,
+        dry_run: true,
+        existing: Boolean(existing),
+        row: {
+          ...masterRow,
+          notion_page_id: cleanText(existing?.notion_page_id),
+          items: resolved.map((item) => ({
+            material_id: item.material.id,
+            material_notion_page_id: cleanText(item.material.notion_page_id),
+            sku: cleanSku(item.material.sku),
+            name: item.item_display,
+            type: item.item_type,
+            required_quantity: item.required_quantity,
+          })),
+        },
+      });
+    }
+
+    let savedMaster = null;
+    if (existing?.id) {
+      const data = await supabaseFetch(
+        env,
+        `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,pick_number,status,notion_page_id,source_order_notion_page_id,source_payload`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify(masterRow),
+        }
+      );
+      savedMaster = Array.isArray(data) ? data[0] : data;
+    } else {
+      const data = await supabaseFetch(env, '/rest/v1/pick_lists?on_conflict=id&select=id,pick_number,status,notion_page_id,source_order_notion_page_id,source_payload', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(masterRow),
+      });
+      savedMaster = Array.isArray(data) ? data[0] : data;
+    }
+    if (!savedMaster?.id) throw new Error('Supabase picking master write failed');
+
+    const existingItemRows = await supabaseAll(
+      env,
+      `/rest/v1/pick_items?pick_list_id=eq.${encodeURIComponent(pickId)}&select=id,material_id,required_quantity,notion_page_id`
+    );
+    const existingByMaterial = new Map(existingItemRows.map((row) => [cleanText(row.material_id), row]));
+    const savedItems = [];
+    for (const item of resolved) {
+      const existingItem = existingByMaterial.get(item.material.id) || null;
+      if (existingItem && Number(existingItem.required_quantity) !== item.required_quantity) {
+        throw new Error(`Picking quantity changed for ${item.material.sku}`);
+      }
+      const itemId = cleanText(existingItem?.id) || await deterministicUuid(`${pickId}:material:${item.material.id}`);
+      const itemRow = {
+        id: itemId,
+        organization_id: organizationId,
+        pick_list_id: pickId,
+        material_id: item.material.id,
+        required_quantity: item.required_quantity,
+        picked_quantity: item.picked_quantity,
+        notes: item.notes,
+        item_display: item.item_display,
+        item_type: item.item_type,
+        status: item.status,
+        source_material_notion_page_id: cleanText(item.material.notion_page_id) || null,
+        source_payload: {
+          sku: cleanSku(item.material.sku),
+          name: item.item_display,
+          type: item.item_type,
+        },
+        is_historical_migration: false,
+        updated_at: taipeiISOString(),
+      };
+      let savedItem = null;
+      if (existingItem?.id) {
+        const data = await supabaseFetch(
+          env,
+          `/rest/v1/pick_items?id=eq.${encodeURIComponent(itemId)}&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload`,
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify(itemRow),
+          }
+        );
+        savedItem = Array.isArray(data) ? data[0] : data;
+      } else {
+        const data = await supabaseFetch(
+          env,
+          '/rest/v1/pick_items?on_conflict=id&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload',
+          {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+            body: JSON.stringify(itemRow),
+          }
+        );
+        savedItem = Array.isArray(data) ? data[0] : data;
+      }
+      if (!savedItem?.id) throw new Error(`Supabase picking item write failed: ${item.material.sku}`);
+      savedItems.push(savedItem);
+    }
+
+    return respOK(cors, {
+      ok: true,
+      existing: Boolean(existing),
+      completed: false,
+      row: {
+        id: savedMaster.id,
+        pick_number: savedMaster.pick_number,
+        status: savedMaster.status,
+        notion_page_id: cleanText(savedMaster.notion_page_id),
+        source_order_notion_page_id: cleanText(savedMaster.source_order_notion_page_id),
+        fingerprint,
+        items: normalizePickingItems(savedItems),
+      },
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpPickingStatus(request, env, cors) {
+  try {
+    const body = await request.json();
+    const pickId = cleanText(body?.pick_id);
+    const status = cleanText(body?.status);
+    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消']);
+    if (!pickId) return resp400(cors, 'Missing pick_id');
+    if (!allowedStatuses.has(status)) return resp400(cors, 'Invalid picking status');
+    const existing = await supabaseSingle(
+      env,
+      `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,status,picked_at,notion_page_id&limit=1`
+    );
+    if (['已領料', '已確認扣料'].includes(cleanText(existing.status)) && !['已領料', '已確認扣料'].includes(status)) {
+      return new Response(JSON.stringify({ error: 'Completed picking cannot move back to an incomplete status' }), {
+        status: 409,
+        headers: jh(cors),
+      });
+    }
+    const masterPatch = {
+      status,
+      picker_display: cleanText(body?.picker_display || ''),
+      updated_at: taipeiISOString(),
+    };
+    if (['已領料', '已確認扣料'].includes(status)) {
+      masterPatch.picked_at = cleanText(existing.picked_at) || taipeiISOString();
+    }
+    const data = await supabaseFetch(
+      env,
+      `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,pick_number,status,picked_at,notion_page_id`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(masterPatch),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    const itemPatches = Array.isArray(body?.items) ? body.items : [];
+    for (const item of itemPatches) {
+      const itemId = cleanText(item?.id);
+      if (!itemId) continue;
+      const patch = {
+        status: cleanText(item?.status || (['已領料', '已確認扣料'].includes(status) ? '足夠' : '')),
+        picked_quantity: Number(item?.picked_quantity ?? item?.required_quantity ?? 0),
+        updated_at: taipeiISOString(),
+      };
+      await supabaseFetch(
+        env,
+        `/rest/v1/pick_items?id=eq.${encodeURIComponent(itemId)}&pick_list_id=eq.${encodeURIComponent(pickId)}&select=id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify(patch),
+        }
+      );
+    }
+    return respOK(cors, { ok: true, row: saved });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpPickingLinkNotion(request, env, cors) {
+  try {
+    const body = await request.json();
+    const pickId = cleanText(body?.pick_id);
+    const notionPageId = cleanText(body?.notion_page_id);
+    if (!pickId) return resp400(cors, 'Missing pick_id');
+    if (!notionPageId) return resp400(cors, 'Missing notion_page_id');
+    const data = await supabaseFetch(
+      env,
+      `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,notion_page_id`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ notion_page_id: notionPageId, updated_at: taipeiISOString() }),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('Supabase picking master link failed');
+    for (const item of (Array.isArray(body?.items) ? body.items : [])) {
+      const itemId = cleanText(item?.id);
+      const itemNotionPageId = cleanText(item?.notion_page_id);
+      if (!itemId || !itemNotionPageId) continue;
+      await supabaseFetch(
+        env,
+        `/rest/v1/pick_items?id=eq.${encodeURIComponent(itemId)}&pick_list_id=eq.${encodeURIComponent(pickId)}&select=id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({ notion_page_id: itemNotionPageId, updated_at: taipeiISOString() }),
+        }
+      );
+    }
+    return respOK(cors, { ok: true, row: saved });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
 }
 
 async function erpPickingSummary(request, env, cors) {

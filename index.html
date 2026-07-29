@@ -5204,6 +5204,10 @@ function openModal(type,data){
         </div>
       </div>
       <div class="info-box info-tip">
+        <b>🗂️ 領料資料與防重</b><br>
+        領料主單、明細與完成狀態以 Supabase 為正式資料，Notion 會自動建立查閱鏡像。重複點擊或網路中斷後請從原訂單續跑，系統會接續同一張領料單並避免重複扣庫存。
+      </div>
+      <div class="info-box info-tip">
         <b>🔐 角色權限重點</b><br>
         業務：建立訂單、待出貨完成、可調整庫存數量。倉管：領料、生產完成送檢、蝦皮 S-完成入庫、入料與庫存作業。採購：兼生管，可查看訂單、領料、排程，並處理生產完成送檢與蝦皮 S-完成入庫。品管：入料待品檢與訂單待檢驗。Vic/廠長：可介入全部流程。
       </div>
@@ -7299,10 +7303,191 @@ async function refreshAll(manual=false){
     _refreshing=false;
   }
 }
+async function pickingWorkerRequest(path,{method='GET',body=null}={}){
+  const options={method,headers:{Accept:'application/json'}};
+  if(body!==null){
+    options.headers['Content-Type']='application/json';
+    options.body=JSON.stringify(body);
+  }
+  const res=await fetch(`${PROXY}${path}`,options);
+  const text=await res.text();
+  let data=null;
+  try{data=text?JSON.parse(text):null;}catch{data={error:text};}
+  if(!res.ok||data?.ok===false||data?.error) throw new Error(data?.error||`領料服務 HTTP ${res.status}`);
+  return data;
+}
+function mapSupabasePick(row){
+  return {
+    id:row.id,
+    supabaseId:row.id,
+    notionId:row.notion_page_id||'',
+    no:row.pick_number||'',
+    pickType:row.pick_type||'訂單領料',
+    orderId:row.source_order_notion_page_id||'',
+    product:row.product_display||'',
+    qty:Number(row.production_quantity||0),
+    date:row.pick_date||row.created_at?.slice(0,10)||'',
+    status:row.status||'待領料',
+    person:row.picker_display||'',
+    note:row.notes||'',
+    source:row.source||'',
+    fingerprint:row.fingerprint||'',
+    created:row.created_at?.slice(0,10)||'',
+    items:(row.items||[]).map(item=>({
+      id:item.id,
+      notionId:item.notion_page_id||'',
+      matId:item.material_notion_page_id||'',
+      materialId:item.material_id||'',
+      code:item.sku||'',
+      name:item.name||item.sku||'',
+      type:item.type||'零件',
+      qty:Number(item.required_quantity||0),
+      pickedQty:Number(item.picked_quantity||0),
+      status:item.status||'足夠',
+      note:item.notes||'',
+    })),
+  };
+}
 async function loadPicks(){
-  const r=await dbQueryAll(DB.pickMaster);
-  picks=r.map(p=>({id:p.id,no:getTitle(p.properties,'領料主單號'),orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',qty:p.properties?.['生產數量']?.number??0,date:p.properties?.['領料日期']?.date?.start||'',status:p.properties?.['狀態']?.select?.name||'',person:getRichText(p.properties,'領料人員'),note:getRichText(p.properties,'備註'),created:p.created_time?.slice(0,10)||''}));
-  markLoaded('picks');
+  try{
+    const data=await pickingWorkerRequest('/api/picking/list?limit=5000');
+    picks=(data.rows||[]).map(mapSupabasePick);
+    markLoaded('picks');
+    Promise.resolve().then(()=>repairPendingPickingMirrors()).catch(e=>console.warn('領料 Notion 鏡像補同步失敗：',e));
+    return;
+  }catch(e){
+    console.warn('Supabase 領料讀取失敗，暫以 Notion 唯讀備援：',e);
+    const r=await dbQueryAll(DB.pickMaster);
+    picks=r.map(p=>({
+      id:p.id,
+      supabaseId:'',
+      notionId:p.id,
+      no:getTitle(p.properties,'領料主單號'),
+      orderId:p.properties?.['對應訂單']?.relation?.[0]?.id||'',
+      product:p.properties?.['成品品號']?.rich_text?.[0]?.plain_text||'',
+      qty:p.properties?.['生產數量']?.number??0,
+      date:p.properties?.['領料日期']?.date?.start||'',
+      status:p.properties?.['狀態']?.select?.name||'',
+      person:getRichText(p.properties,'領料人員'),
+      note:getRichText(p.properties,'備註'),
+      created:p.created_time?.slice(0,10)||'',
+      items:[],
+      fallback:true,
+    }));
+    markLoaded('picks');
+  }
+}
+const _pickingMirrorJobs=new Map();
+function canonicalPageId(value){return String(value||'').replace(/-/g,'').toLowerCase();}
+async function ensurePickingNotionMirror(pick){
+  if(!pick?.supabaseId) throw new Error('領料單缺少 Supabase ID');
+  const running=_pickingMirrorJobs.get(pick.supabaseId);
+  if(running) return running;
+  const job=(async()=>{
+    let masterId=pick.notionId||'';
+    if(!masterId){
+      let existing=null;
+      if(pick.orderId){
+        const found=await notionAPI('POST',`databases/${DB.pickMaster}/query`,{
+          page_size:5,
+          filter:{property:'對應訂單',relation:{contains:pick.orderId}}
+        });
+        if(found?.object==='error') throw new Error('無法查驗 Notion 領料鏡像：'+found.message);
+        existing=(found.results||[])[0]||null;
+      }else if(pick.no){
+        const found=await notionAPI('POST',`databases/${DB.pickMaster}/query`,{
+          page_size:5,
+          filter:{property:'領料主單號',title:{equals:pick.no}}
+        });
+        if(found?.object==='error') throw new Error('無法查驗 Notion 補料鏡像：'+found.message);
+        existing=(found.results||[])[0]||null;
+      }
+      if(existing?.id){
+        masterId=existing.id;
+      }else{
+        const props={
+          '領料主單號':{title:[{text:{content:pick.no}}]},
+          '成品品號':{rich_text:[{text:{content:pick.product||'臨時補料'}}]},
+          '生產數量':{number:Number(pick.qty)||pick.items.reduce((sum,item)=>sum+Number(item.qty||0),0)},
+          '領料日期':{date:{start:pick.date||new Date().toISOString().slice(0,10)}},
+          '領料人員':{rich_text:[{text:{content:pick.person||ROLE||''}}]},
+          '狀態':{select:{name:pick.status||'待領料'}},
+          '備註':{rich_text:[{text:{content:[pick.note,`Supabase:${pick.supabaseId}`,pick.fingerprint?`交易指紋:${pick.fingerprint}`:''].filter(Boolean).join(' ')}}]},
+        };
+        if(pick.orderId) props['對應訂單']={relation:[{id:pick.orderId}]};
+        const master=await createPage(DB.pickMaster,props);
+        masterId=master.id;
+      }
+    }
+
+    const details=await notionAPI('POST',`databases/${DB.pickDetail}/query`,{
+      page_size:100,
+      filter:{property:'領料主單',relation:{contains:masterId}}
+    });
+    if(details?.object==='error') throw new Error('無法查驗 Notion 領料明細鏡像：'+details.message);
+    const existingDetails=details.results||[];
+    const linkedItems=[];
+    for(const item of pick.items){
+      if(!item.matId) throw new Error(`領料明細 ${item.code||item.name} 缺少 Notion 料號關聯`);
+      let notionItemId=item.notionId||'';
+      if(!notionItemId){
+        const existing=existingDetails.find(detail=>
+          detail.properties?.['料件']?.relation?.some(rel=>canonicalPageId(rel.id)===canonicalPageId(item.matId))
+        );
+        if(existing?.id){
+          notionItemId=existing.id;
+        }else{
+          const detail=await createPage(DB.pickDetail,{
+            '料件名稱':{title:[{text:{content:item.code||item.name}}]},
+            '領料主單':{relation:[{id:masterId}]},
+            '料件':{relation:[{id:item.matId}]},
+            '類型':{select:{name:item.type||'零件'}},
+            '需求數量':{number:Number(item.qty)},
+            '實領數量':{number:Number(item.pickedQty||0)},
+            '狀態':{select:{name:item.status||'足夠'}},
+            '備註':{rich_text:[{text:{content:item.note||pick.note||''}}]},
+          });
+          notionItemId=detail.id;
+        }
+      }
+      item.notionId=notionItemId;
+      linkedItems.push({id:item.id,notion_page_id:notionItemId});
+    }
+    await pickingWorkerRequest('/api/picking/link-notion',{
+      method:'POST',
+      body:{pick_id:pick.supabaseId,notion_page_id:masterId,items:linkedItems}
+    });
+    pick.notionId=masterId;
+    return pick;
+  })();
+  _pickingMirrorJobs.set(pick.supabaseId,job);
+  try{return await job;}
+  finally{_pickingMirrorJobs.delete(pick.supabaseId);}
+}
+async function repairPendingPickingMirrors(){
+  if(!TOKEN||!picks.length) return;
+  const pending=picks.filter(p=>
+    p.supabaseId&&!p.notionId&&!p.fallback&&['ERP_ORDER','ERP_MANUAL'].includes(p.source)
+  ).slice(0,5);
+  for(const pick of pending){
+    try{await ensurePickingNotionMirror(pick);}
+    catch(e){console.warn(`領料單 ${pick.no} Notion 鏡像仍待補同步：`,e);}
+  }
+}
+async function updateSupabasePickingStatus(pick,status,items=[]){
+  return pickingWorkerRequest('/api/picking/status',{
+    method:'POST',
+    body:{
+      pick_id:pick.supabaseId||pick.id,
+      status,
+      picker_display:ROLE||'',
+      items:items.map(item=>({
+        id:item.id,
+        picked_quantity:Number(item.pickedQty??item.qty??0),
+        status:item.status||'足夠',
+      })),
+    }
+  });
 }
 async function loadInbounds(){
   const r=await dbQueryAll(DB.inbound);
@@ -12116,33 +12301,60 @@ async function submitManualPick(){
   if(!_mpItems.length){showToast('請至少加入一個料號','warn');return;}
   const note=(document.getElementById('mp_note')?.value||'').trim();
   const today=new Date().toISOString().slice(0,10);
-  const no='MP-'+today.slice(2).replace(/-/g,'')+'-'+Math.floor(Math.random()*900+100);
+  const now=new Date();
+  const time=[now.getHours(),now.getMinutes(),now.getSeconds()].map(v=>String(v).padStart(2,'0')).join('');
+  const random=String(crypto.getRandomValues(new Uint16Array(1))[0]%100).padStart(2,'0');
+  const no=`MP-${today.slice(2).replace(/-/g,'')}-${time}-${random}`;
   closeModal(); showToast('建立臨時領料單中...','warn');
   try{
-    const master=await createPage(DB.pickMaster,{
-      '領料主單號':{title:[{text:{content:no}}]},
-      '成品品號':{rich_text:[{text:{content:'臨時補料'}}]},
-      '生產數量':{number:_mpItems.reduce((s,x)=>s+(parseInt(x.qty)||0),0)},
-      '領料日期':{date:{start:today}},
-      '領料人員':{rich_text:[{text:{content:ROLE||''}}]},
-      '狀態':{select:{name:'待領料'}},
-      '備註':{rich_text:[{text:{content:note}}]},
+    const payload={
+      pick_number:no,
+      pick_type:'臨時補料',
+      source:'ERP_MANUAL',
+      product_display:'臨時補料',
+      production_quantity:_mpItems.reduce((s,x)=>s+(parseInt(x.qty)||0),0),
+      picker_display:ROLE||'',
+      notes:note,
+      items:_mpItems.map(it=>({
+        material_notion_page_id:it.matId,
+        sku:it.code,
+        name:it.name||it.code,
+        type:it.type||'零件',
+        required_quantity:parseInt(it.qty)||1,
+        picked_quantity:0,
+        status:'足夠',
+        notes:note,
+      })),
+    };
+    const result=await pickingWorkerRequest('/api/picking/create',{
+      method:'POST',
+      body:payload,
     });
-    for(const it of _mpItems){
-      await createPage(DB.pickDetail,{
-        '料件名稱':{title:[{text:{content:it.code||it.name}}]},
-        '領料主單':{relation:[{id:master.id}]},
-        '料件':{relation:[{id:it.matId}]},
-        '類型':{select:{name:it.type||'零件'}},
-        '需求數量':{number:parseInt(it.qty)||1},
-        '實領數量':{number:0},
-        '狀態':{select:{name:'足夠'}},
-        '備註':{rich_text:[{text:{content:note}}]},
-      });
+    const pick=mapSupabasePick({
+      ...result.row,
+      pick_type:'臨時補料',
+      source:'ERP_MANUAL',
+      product_display:'臨時補料',
+      production_quantity:payload.production_quantity,
+      picker_display:ROLE||'',
+      notes:note,
+      pick_date:today,
+      created_at:new Date().toISOString(),
+    });
+    picks.unshift(pick);
+    try{
+      await ensurePickingNotionMirror(pick);
+    }catch(mirrorError){
+      console.warn('臨時補料已存 Supabase，Notion 鏡像待補同步：',mirrorError);
+      logUserAction('建立臨時補料單',no,note||'臨時補料',ROLE);
+      window._PICK_SUB='manual';
+      renderTab('picking');
+      showToast('⚠ 補料單已安全存入 Supabase；Notion 鏡像將於同步時自動補上','warn',8000);
+      return;
     }
     logUserAction('建立臨時補料單',no,note||'臨時補料',ROLE);
     await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
-    showToast('✅ 臨時補料單已建立，待領料確認扣庫存','ok');
+    showToast('✅ 臨時補料單已建立於 Supabase，Notion 鏡像完成','ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
 }
 const _manualPickLocks=new Set();
@@ -12160,11 +12372,13 @@ async function completeManualPick(masterId){
   let inventoryCommitted=false;
   let workflowCommitted=false;
   try{
-    const details=(await dbQueryAll(DB.pickDetail)).filter(p=>p.properties?.['領料主單']?.relation?.some(r=>r.id===masterId));
-    if(!details.length) throw new Error('找不到領料明細');
+    if(!pick.supabaseId) throw new Error('目前為 Notion 備援讀取，為避免不同步，請恢復 Supabase 連線後再扣料');
+    await ensurePickingNotionMirror(pick);
+    const details=pick.items||[];
+    if(!details.length) throw new Error('Supabase 找不到領料明細');
     const batchItems=details.map(d=>{
-      const matId=d.properties?.['料件']?.relation?.[0]?.id||'';
-      const qty=d.properties?.['需求數量']?.number||d.properties?.['實領數量']?.number||0;
+      const matId=d.matId||'';
+      const qty=Number(d.qty||d.pickedQty||0);
       if(!matId||!qty) throw new Error(`補料明細 ${d.id} 缺少料號或數量`);
       const mat=mats.find(m=>m.id===matId);
       return {detail:d,matId,qty:Number(qty),mat};
@@ -12189,7 +12403,8 @@ async function completeManualPick(masterId){
       const {detail:d,matId,qty,mat}=item;
       const stockMove=batchMoves.items.find(move=>move.pageId===matId);
       if(!stockMove) throw new Error(`補料批次回傳缺少料號：${mat?.code||matId}`);
-      await updatePage(d.id,{'實領數量':{number:qty},'狀態':{select:{name:stockMove.before>=qty?'足夠':'缺料'}}});
+      d.pickedQty=qty;
+      d.status=stockMove.before>=qty?'足夠':'缺料';
       if(mat) mat.stock=stockMove.after;
     }
     if(!batchMoves.duplicate){
@@ -12208,15 +12423,28 @@ async function completeManualPick(masterId){
         );
       }
     }
-    const statusSync=await updateWorkflowPageAfterInventory(
-      masterId,
-      {'狀態':{select:{name:'已領料'}}},
-      `補料單 ${pick.no||masterId} 已領料狀態`
-    );
+    await updateSupabasePickingStatus(pick,'已領料',batchItems.map(item=>item.detail));
+    pick.status='已領料';
     workflowCommitted=true;
+    let notionPending=false;
+    for(const item of batchItems){
+      const detail=item.detail;
+      const result=await updateWorkflowPageAfterInventory(
+        detail.notionId,
+        {'實領數量':{number:item.qty},'狀態':{select:{name:detail.status}}},
+        `補料單 ${pick.no} 明細狀態`
+      );
+      notionPending=notionPending||result.pending;
+    }
+    const statusSync=await updateWorkflowPageAfterInventory(
+      pick.notionId,
+      {'狀態':{select:{name:'已領料'}}},
+      `補料單 ${pick.no||pick.supabaseId} 已領料狀態`
+    );
+    notionPending=notionPending||statusSync.pending;
     logUserAction('完成臨時補料領料',pick.no,pick.note||'',ROLE);
     await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'}); window._PICK_SUB='manual'; renderTab('picking');
-    showToast(statusSync.pending?'✅ 已完成扣庫存；領料狀態待自動補同步':'✅ 已領料並完成扣庫存',statusSync.pending?'warn':'ok');
+    showToast(notionPending?'✅ Supabase 已完成領料與扣庫；Notion 狀態待自動補同步':'✅ 已領料並完成扣庫存',notionPending?'warn':'ok');
   }catch(e){
     if(inventoryCommitted){
       console.error('completeManualPick post-commit refresh/log error:',e);
@@ -15878,8 +16106,9 @@ async function doPick(orderId){
   const prod=mats.find(m=>m.id===o?.productId);
   const ds=new Date().toISOString().slice(0,10);
   let no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
-  const appliedMoves=[];
-  let master=null;
+  let pick=null;
+  let inventoryCommitted=false;
+  let supabaseCompleted=false;
   let criticalCommitted=false;
   closeModal();
   showToast('建立領料單中...','warn');
@@ -15887,16 +16116,6 @@ async function doPick(orderId){
   try{
     if(!o) throw new Error('找不到訂單，請同步後重試');
     if(!_bomDataReady) throw new Error('BOM 資料尚未成功載入，為避免錯扣庫存，已停止領料。請同步後重試。');
-    const existing=await notionAPI('POST',`databases/${DB.pickMaster}/query`,{
-      page_size:5,
-      filter:{property:'對應訂單',relation:{contains:orderId}}
-    });
-    if(existing?.object==='error') throw new Error('無法確認既有領料單：'+existing.message);
-    const existingMaster=(existing?.results||[])[0]||null;
-    const existingStatus=existingMaster?.properties?.['狀態']?.select?.name||'';
-    if(existingMaster&&['已領料','已確認扣料'].includes(existingStatus)){
-      throw new Error('此訂單已完成領料，已停止重複扣料');
-    }
 
     // BOM 只取直接子件；半成品本身會被扣除，不再向下展開。
     const bomItems=explodeBOM(o.productId,o.qty);
@@ -15908,104 +16127,104 @@ async function doPick(orderId){
     if(!items.length) throw new Error('訂單未關聯成品料件，無法扣庫存');
     const missing=items.filter(item=>item.missing||!item.id);
     if(missing.length) throw new Error('BOM 子料號尚未建檔：'+missing.map(x=>x.code||x.name).join('、'));
+    const stageResult=await pickingWorkerRequest('/api/picking/create',{
+      method:'POST',
+      body:{
+        pick_number:no,
+        pick_type:'訂單領料',
+        source:'ERP_ORDER',
+        source_order_notion_page_id:orderId,
+        product_display:prod?.name||prod?.code||'',
+        production_quantity:Number(o.qty),
+        picker_display:ROLE||'',
+        notes:hasBOM?'BOM 直接子件領料':'成品直接領料',
+        items:items.map(item=>({
+          material_notion_page_id:item.id,
+          sku:item.code||'',
+          name:item.name||item.code||'',
+          type:item.type||prod?.type||'成品',
+          required_quantity:Number(item.needed),
+          picked_quantity:0,
+          status:Number(item.stock)>=Number(item.needed)?'足夠':'缺料',
+        })),
+      }
+    });
+    pick=mapSupabasePick({
+      ...stageResult.row,
+      pick_type:'訂單領料',
+      source:'ERP_ORDER',
+      source_order_notion_page_id:orderId,
+      product_display:prod?.name||prod?.code||'',
+      production_quantity:Number(o.qty),
+      picker_display:ROLE||'',
+      notes:hasBOM?'BOM 直接子件領料':'成品直接領料',
+      pick_date:ds,
+      created_at:new Date().toISOString(),
+    });
+    no=pick.no||no;
+
+    if(stageResult.completed){
+      await ensurePickingNotionMirror(pick);
+      const orderSync=await updateWorkflowPageAfterInventory(
+        orderId,
+        {'狀態':{select:{name:'生產中'}}},
+        `訂單 ${o.no||orderId} 生產中狀態`
+      );
+      await loadPicks();
+      showToast(orderSync.pending
+        ? `✅ 領料單 ${no} 先前已完成，訂單狀態待自動補同步`
+        : `✅ 領料單 ${no} 先前已完成，未重複扣料`,orderSync.pending?'warn':'ok');
+      return;
+    }
+
     const shortages=items.filter(item=>Number(item.stock)<Number(item.needed));
-    if(shortages.length&&!existingMaster){
+    if(shortages.length){
+      await updateSupabasePickingStatus(pick,'缺料待補',pick.items);
       throw new Error('庫存不足：'+shortages.map(x=>`${x.code||x.name} 缺 ${Number(x.needed)-Number(x.stock)}`).join('、'));
     }
-    const pickFingerprint=items
-      .map(item=>`${item.id}:${Number(item.needed)}`)
-      .sort()
-      .join('|');
 
-    // 主單先暫存在「待領料」。若中途失敗，重試會續跑同一張單，
-    // Supabase 防重鍵會略過已成功料件，不會少扣或重扣。
-    let stagedFingerprint='';
-    if(existingMaster){
-      master=existingMaster;
-      no=getTitle(existingMaster.properties,'領料主單號')||no;
-      const stagedQty=Number(existingMaster.properties?.['生產數量']?.number)||0;
-      if(stagedQty&&stagedQty!==Number(o.qty)){
-        throw new Error(`領料開始後訂單數量由 ${stagedQty} 變成 ${o.qty}；已停止續扣，請由管理者確認`);
-      }
-      const stagedNote=getRichText(existingMaster.properties,'備註');
-      stagedFingerprint=stagedNote.match(/交易指紋:([^\s]+)/)?.[1]||'';
-      if(stagedFingerprint&&stagedFingerprint!==pickFingerprint){
-        throw new Error('領料開始後 BOM 組成或需求數量已變更；已停止續扣，請由管理者確認');
-      }
-    }else{
-      master=await createPage(DB.pickMaster,{
-        '領料主單號':{title:[{text:{content:no}}]},
-        '對應訂單':{relation:[{id:orderId}]},
-        '成品品號':{rich_text:[{text:{content:prod?.name||''}}]},
-        '生產數量':{number:o.qty},
-        '狀態':{select:{name:'待領料'}},
-        '領料日期':{date:{start:ds}},
-        '備註':{rich_text:[{text:{content:`交易指紋:${pickFingerprint}`}}]}
-      });
-      if(master?.object==='error'||!master?.id) throw new Error('領料主單建立失敗：'+(master?.message||'未回傳單據'));
-    }
+    // Supabase 主單先安全落地，再建立 Notion 鏡像；鏡像失敗時不扣庫存。
+    await ensurePickingNotionMirror(pick);
 
-    // 新式領料單整批扣除：同一張 BOM 全部成功或全部失敗。
-    // 有交易指紋的待領料主單一律以相同批次鍵續跑；部署前的舊主單
-    // 沒有指紋，才沿用逐項防重續跑，避免既有部分成功被重扣。
-    let batchMoves=null;
-    if(!existingMaster||stagedFingerprint){
-      batchMoves=await applyInventoryBatchAndMirror(
-        items.map(item=>({pageId:item.id,delta:-Number(item.needed)})),
-        {
-          reason:hasBOM?'訂單領料扣庫':'訂單成品直接扣庫',
-          refNo:no,
-          sourceType:'order_pick_batch',
-          sourceId:orderId
-        }
-      );
-    }
+    // 同一訂單固定使用相同 idempotency key，整批料件全部成功或全部失敗。
+    const batchMoves=await applyInventoryBatchAndMirror(
+      items.map(item=>({pageId:item.id,delta:-Number(item.needed)})),
+      {
+        reason:hasBOM?'訂單領料扣庫':'訂單成品直接扣庫',
+        refNo:no,
+        sourceType:'order_pick_batch',
+        sourceId:orderId
+      }
+    );
+    inventoryCommitted=true;
 
     for(const item of items){
-      const existingDetail=await notionAPI('POST',`databases/${DB.pickDetail}/query`,{
-        page_size:1,
-        filter:{and:[
-          {property:'領料主單',relation:{contains:master.id}},
-          {property:'料件',relation:{contains:item.id}}
-        ]}
-      });
-      if(existingDetail?.object==='error') throw new Error(`${item.name} 無法確認領料明細：${existingDetail.message}`);
-      const existingDetailRow=(existingDetail?.results||[])[0]||null;
-      if(existingDetailRow){
-        const stagedQty=Number(existingDetailRow.properties?.['需求數量']?.number)||0;
-        if(stagedQty!==Number(item.needed)){
-          throw new Error(`${item.name} 已開始領料後需求數量由 ${stagedQty} 變成 ${item.needed}；為避免錯扣，請先由管理者確認原領料單`);
-        }
-      }
-      const stockMove=batchMoves
-        ? batchMoves.items.find(move=>move.pageId===item.id)
-        : await applyInventoryDeltaAndMirror(item.id,{
-            delta:-item.needed,
-            reason:hasBOM?'訂單領料扣庫':'訂單成品直接扣庫',
-            refNo:no,
-            sourceType:'order_pick',
-            sourceId:orderId
-          });
-      appliedMoves.push({id:item.id,name:item.name,code:item.code||'',qty:item.needed});
+      const stockMove=batchMoves.items.find(move=>move.pageId===item.id);
+      if(!stockMove) throw new Error(`領料批次回傳缺少料號：${item.code||item.name}`);
+      const pickItem=pick.items.find(detail=>canonicalPageId(detail.matId)===canonicalPageId(item.id));
+      if(!pickItem) throw new Error(`Supabase 領料明細缺少料號：${item.code||item.name}`);
+      pickItem.pickedQty=Number(item.needed);
+      pickItem.status=stockMove.before>=Number(item.needed)?'足夠':'缺料';
       if(!stockMove.duplicate){
         await logStockChangeQuietly(item.id,item.name,item.code||'','領料',-item.needed,stockMove.before,stockMove.after,no,ROLE);
       }
-      if(!existingDetailRow){
-        const detail=await createPage(DB.pickDetail,{
-          '料件名稱':{title:[{text:{content:item.name}}]},
-          '領料主單':{relation:[{id:master.id}]},
-          '料件':{relation:[{id:item.id}]},
-          '類型':{select:{name:item.type||prod?.type||'成品'}},
-          '需求數量':{number:item.needed},
-          '實領數量':{number:item.needed},
-          '狀態':{select:{name:'足夠'}}
-        });
-        if(detail?.object==='error'||!detail?.id) throw new Error(`${item.name} 領料明細建立失敗：${detail?.message||'未回傳明細'}`);
-      }
     }
 
+    await updateSupabasePickingStatus(pick,'已領料',pick.items);
+    pick.status='已領料';
+    supabaseCompleted=true;
+
+    let notionPending=false;
+    for(const item of pick.items){
+      const detailSync=await updateWorkflowPageAfterInventory(
+        item.notionId,
+        {'實領數量':{number:item.pickedQty},'狀態':{select:{name:item.status}}},
+        `領料單 ${no} 明細狀態`
+      );
+      notionPending=notionPending||detailSync.pending;
+    }
     const pickStatusSync=await updateWorkflowPageAfterInventory(
-      master.id,
+      pick.notionId,
       {'狀態':{select:{name:'已領料'}}},
       `領料單 ${no} 完成狀態`
     );
@@ -16015,24 +16234,28 @@ async function doPick(orderId){
       `訂單 ${o.no||orderId} 生產中狀態`
     );
     criticalCommitted=true;
+    notionPending=notionPending||pickStatusSync.pending||statusSync.pending;
     logUserAction('確認領料',no,`${o.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
     await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'});
     const modeNote=hasBOM?`（BOM直接子件 ${items.length} 項）`:'（直接扣成品庫存）';
-    const pending=pickStatusSync.pending||statusSync.pending;
-    showToast(pending
-      ? `✅ 領料單 ${no} 已扣庫完成；流程狀態待自動補同步 ${modeNote}`
-      : `✅ 領料單 ${no} 建立完成 ${modeNote}`,pending?'warn':'ok');
+    showToast(notionPending
+      ? `✅ Supabase 領料與扣庫完成；Notion 鏡像狀態待自動補同步 ${modeNote}`
+      : `✅ 領料單 ${no} 建立完成 ${modeNote}`,notionPending?'warn':'ok');
   }catch(e){
     if(criticalCommitted){
       showToast('⚠ 領料與扣庫已完成，但畫面重新整理失敗；請按同步鍵確認，勿重複領料','warn',8000);
       console.error('doPick post-commit refresh error:',e);
       return;
     }
-    const resumeNote=appliedMoves.length
-      ? '；已成功扣除的料件已保留，請修正問題後按原訂單重新領料，系統會接續處理且不會重扣'
-      : '';
+    const resumeNote=inventoryCommitted
+      ? supabaseCompleted
+        ? '；Supabase 已完成領料，請按同步鍵補齊畫面與 Notion 鏡像，勿重新建立'
+        : '；庫存批次已提交，請從原訂單再次執行，系統會以同一防重鍵續跑且不會重扣'
+      : pick?.supabaseId
+        ? '；Supabase 已保留待領料單，修正後從原訂單續跑即可'
+        : '';
     showToast('❌ 領料尚未完成，訂單未推進：'+e.message+resumeNote,'err',10000);
-    console.error('doPick resumable error:',e,{masterId:master?.id,appliedMoves});
+    console.error('doPick resumable error:',e,{pickId:pick?.supabaseId,inventoryCommitted,supabaseCompleted});
   }finally{
     _orderPickLocks.delete(orderId);
   }

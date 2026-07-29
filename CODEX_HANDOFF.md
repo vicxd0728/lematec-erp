@@ -43,7 +43,11 @@
 - Supabase 接受 BOM 後才更新 Notion 查閱鏡像；Notion 鏡像失敗會排入 `lematec_pending_bom_notion_mirror_v1` 重試佇列。
 - 舊的 `lematec_pending_bom_snapshot_v1` 不得再回放到 Supabase，登入時只清除，避免舊 Notion 快照覆蓋正式 BOM。
 - 不得宣稱直接在 Notion 手動改 BOM 會自動回寫 Supabase；目前正式 BOM 維護入口是 ERP 前端。
-- 領料歷史資料已在 2026-07-29 搬入 Supabase 並逐筆驗證：126 張有效主單、279 筆明細，Notion 仍是正式領料讀寫來源，尚未切換前端流程。
+- 領料歷史資料已在 2026-07-29 搬入 Supabase 並逐筆驗證：126 張有效主單、279 筆明細。
+- 領料正式流程已切成 Supabase 主讀寫：訂單領料與臨時補料先建立或續接同一張 Supabase 主單，再建立 Notion 查閱鏡像。
+- 訂單本身仍在 Notion；領料主單用訂單 Notion page ID 存入 `source_order_notion_page_id`，作為跨資料庫穩定關聯與防重鍵。
+- 扣庫存沿用 Supabase 原子批次與 idempotency key。重複點擊、斷線重試或鏡像補同步不得重複扣料；Supabase 領料服務失敗時，Notion 備援只允許查閱，不允許完成扣料。
+- Notion 領料鏡像若暫時失敗，Supabase 主單保留，後續載入領料頁會自動補同步；鏡像完成前不開始新的扣庫存交易。
 - 領料搬遷保留 7 筆無法安全對應正式料號的舊明細作為歷史紀錄；不得拿它們作為新領料扣庫存依據。另有 1 張完全空白且無明細的 Notion 歷史頁已明確排除。
 - 領料搬遷工具為 `scripts/supabase_picking_migrate_via_worker.py`，可重跑且以 Notion page ID 去重；最近通過報表位於 `supabase/picking_migration_exports/20260729-092231/picking_migration_report.json`。
 
