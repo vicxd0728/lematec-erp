@@ -38,6 +38,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inventory/bom/upsert') {
       return erpInventoryBomUpsert(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/picking/migrate') {
+      return erpPickingMigrate(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/picking/summary') {
+      return erpPickingSummary(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -1383,6 +1389,269 @@ async function erpInventoryBatchAdjust(request, env, cors) {
       })),
       adjusted_at: taipeiISOString(),
     });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+function canonicalNotionId(value) {
+  return cleanText(value || '').replace(/-/g, '').toLowerCase();
+}
+
+function pickingDateTime(value) {
+  const text = cleanText(value || '');
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00+08:00`;
+  return text;
+}
+
+async function erpPickingSummary(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const masters = await supabaseAll(
+      env,
+      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,pick_number,status,notion_page_id,source_order_notion_page_id`
+    );
+    const items = await supabaseAll(
+      env,
+      `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,pick_list_id,material_id,status,notion_page_id,source_material_notion_page_id`
+    );
+    const statusCounts = {};
+    for (const row of masters) {
+      const status = cleanText(row.status || '未設定') || '未設定';
+      statusCounts[status] = Number(statusCounts[status] || 0) + 1;
+    }
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      master_count: masters.length,
+      item_count: items.length,
+      status_counts: statusCounts,
+      missing_master_notion_ids: masters.filter((row) => !cleanText(row.notion_page_id)).length,
+      missing_item_notion_ids: items.filter((row) => !cleanText(row.notion_page_id)).length,
+      missing_item_material_links: items.filter((row) => !cleanText(row.material_id)).length,
+      master_notion_ids: masters.map((row) => cleanText(row.notion_page_id)).filter(Boolean),
+      item_notion_ids: items.map((row) => cleanText(row.notion_page_id)).filter(Boolean),
+      checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpPickingMigrate(request, env, cors) {
+  try {
+    if (!migrationAuthorized(request, env)) {
+      return new Response(JSON.stringify({error: 'Unauthorized picking migration request'}), {
+        status: 401,
+        headers: jh(cors),
+      });
+    }
+
+    const body = await request.json();
+    const sourceMasters = Array.isArray(body?.masters) ? body.masters : [];
+    const sourceItems = Array.isArray(body?.items) ? body.items : [];
+    const dryRun = body?.dry_run !== false;
+    if (!sourceMasters.length) return resp400(cors, 'Missing picking master rows');
+    if (!sourceItems.length) return resp400(cors, 'Missing picking item rows');
+    if (sourceMasters.length > 5000 || sourceItems.length > 20000) {
+      return resp400(cors, 'Picking migration exceeds the safety row limit');
+    }
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const [existingMasters, existingItems, materials, orders] = await Promise.all([
+      supabaseAll(
+        env,
+        `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,pick_number,notion_page_id`
+      ),
+      supabaseAll(
+        env,
+        `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id`
+      ),
+      supabaseAll(
+        env,
+        `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,sku,notion_page_id`
+      ),
+      supabaseAll(
+        env,
+        `/rest/v1/orders?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,order_number,notion_page_id`
+      ),
+    ]);
+
+    const existingMasterByNotion = new Map(
+      existingMasters
+        .filter((row) => canonicalNotionId(row.notion_page_id))
+        .map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+    const existingItemByNotion = new Map(
+      existingItems
+        .filter((row) => canonicalNotionId(row.notion_page_id))
+        .map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+    const materialByNotion = new Map(
+      materials
+        .filter((row) => canonicalNotionId(row.notion_page_id))
+        .map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+    const materialBySku = new Map(
+      materials
+        .filter((row) => cleanSku(row.sku))
+        .map((row) => [cleanSku(row.sku), row])
+    );
+    const orderByNotion = new Map(
+      orders
+        .filter((row) => canonicalNotionId(row.notion_page_id))
+        .map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+
+    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消']);
+    const masterRows = [];
+    const masterBySourceNotion = new Map();
+    const masterHoldbacks = [];
+    const seenMasterNotionIds = new Set();
+    for (const source of sourceMasters) {
+      const notionId = cleanText(source.notion_page_id || '');
+      const notionKey = canonicalNotionId(notionId);
+      const pickNumber = cleanText(source.pick_number || source.name || '');
+      const productionQuantity = source.production_quantity == null || source.production_quantity === ''
+        ? null
+        : Number(source.production_quantity);
+      if (!notionKey || !pickNumber) {
+        masterHoldbacks.push({notion_page_id: notionId, pick_number: pickNumber, reason: 'missing_identity'});
+        continue;
+      }
+      if (seenMasterNotionIds.has(notionKey)) {
+        masterHoldbacks.push({notion_page_id: notionId, pick_number: pickNumber, reason: 'duplicate_source_identity'});
+        continue;
+      }
+      if (productionQuantity !== null && (!Number.isFinite(productionQuantity) || productionQuantity <= 0)) {
+        masterHoldbacks.push({notion_page_id: notionId, pick_number: pickNumber, reason: 'invalid_production_quantity'});
+        continue;
+      }
+      seenMasterNotionIds.add(notionKey);
+      const existing = existingMasterByNotion.get(notionKey);
+      const sourceOrderNotionId = cleanText(source.source_order_notion_page_id || '');
+      const order = orderByNotion.get(canonicalNotionId(sourceOrderNotionId));
+      const rawStatus = cleanText(source.status || '');
+      const status = allowedStatuses.has(rawStatus) ? rawStatus : '待領料';
+      const row = {
+        id: existing?.id || crypto.randomUUID(),
+        organization_id: organizationId,
+        pick_number: pickNumber,
+        pick_type: cleanText(source.pick_type || (sourceOrderNotionId ? '訂單領料' : '臨時補料')),
+        order_id: order?.id || null,
+        status,
+        production_quantity: productionQuantity,
+        picked_at: pickingDateTime(source.picked_at || source.pick_date),
+        notes: cleanText(source.notes || ''),
+        notion_page_id: notionId,
+        product_display: cleanText(source.product_display || ''),
+        picker_display: cleanText(source.picker_display || ''),
+        source_order_notion_page_id: sourceOrderNotionId || null,
+        source: cleanText(source.source || 'Notion migration'),
+        notion_created_at: pickingDateTime(source.notion_created_at),
+        notion_last_edited_at: pickingDateTime(source.notion_last_edited_at),
+        source_payload: source.source_payload || null,
+        archived_at: null,
+      };
+      masterRows.push(row);
+      masterBySourceNotion.set(notionKey, row);
+    }
+
+    const itemRows = [];
+    const itemHoldbacks = [];
+    const seenItemNotionIds = new Set();
+    let materialMappedByRelation = 0;
+    let materialMappedByExactSku = 0;
+    for (const source of sourceItems) {
+      const notionId = cleanText(source.notion_page_id || '');
+      const notionKey = canonicalNotionId(notionId);
+      const masterKey = canonicalNotionId(source.master_notion_page_id || '');
+      const materialKey = canonicalNotionId(source.material_notion_page_id || '');
+      const requiredQuantity = Number(source.required_quantity);
+      const pickedQuantity = source.picked_quantity == null || source.picked_quantity === ''
+        ? null
+        : Number(source.picked_quantity);
+      const master = masterBySourceNotion.get(masterKey);
+      let material = materialByNotion.get(materialKey);
+      let mapping = 'relation';
+      if (!material) {
+        const exactSku = cleanSku(source.item_display || '');
+        material = materialBySku.get(exactSku);
+        mapping = 'exact_sku';
+      }
+      let reason = '';
+      if (!notionKey) reason = 'missing_identity';
+      else if (seenItemNotionIds.has(notionKey)) reason = 'duplicate_source_identity';
+      else if (!master) reason = 'missing_master_relation';
+      else if (!material) reason = 'missing_material_relation';
+      else if (!Number.isFinite(requiredQuantity) || requiredQuantity <= 0) reason = 'invalid_required_quantity';
+      else if (pickedQuantity !== null && (!Number.isFinite(pickedQuantity) || pickedQuantity < 0)) reason = 'invalid_picked_quantity';
+      if (reason) {
+        itemHoldbacks.push({
+          notion_page_id: notionId,
+          master_notion_page_id: cleanText(source.master_notion_page_id || ''),
+          material_notion_page_id: cleanText(source.material_notion_page_id || ''),
+          item_display: cleanText(source.item_display || ''),
+          reason,
+        });
+        continue;
+      }
+      seenItemNotionIds.add(notionKey);
+      if (mapping === 'relation') materialMappedByRelation++;
+      else materialMappedByExactSku++;
+      const existing = existingItemByNotion.get(notionKey);
+      itemRows.push({
+        id: existing?.id || crypto.randomUUID(),
+        organization_id: organizationId,
+        pick_list_id: master.id,
+        material_id: material.id,
+        required_quantity: requiredQuantity,
+        picked_quantity: pickedQuantity,
+        notes: cleanText(source.notes || ''),
+        notion_page_id: notionId,
+        item_display: cleanText(source.item_display || material.sku || ''),
+        item_type: cleanText(source.item_type || ''),
+        status: cleanText(source.status || ''),
+        source_material_notion_page_id: cleanText(source.material_notion_page_id || '') || null,
+        notion_created_at: pickingDateTime(source.notion_created_at),
+        notion_last_edited_at: pickingDateTime(source.notion_last_edited_at),
+        source_payload: source.source_payload || null,
+      });
+    }
+
+    const result = {
+      ok: masterHoldbacks.length === 0 && itemHoldbacks.length === 0,
+      dry_run: dryRun,
+      source_master_count: sourceMasters.length,
+      source_item_count: sourceItems.length,
+      importable_master_count: masterRows.length,
+      importable_item_count: itemRows.length,
+      material_mapped_by_relation: materialMappedByRelation,
+      material_mapped_by_exact_sku: materialMappedByExactSku,
+      master_holdbacks: masterHoldbacks,
+      item_holdbacks: itemHoldbacks,
+      migrated_at: taipeiISOString(),
+    };
+    if (dryRun || !result.ok) return respOK(cors, result);
+
+    for (const chunk of chunkRows(masterRows)) {
+      await supabaseFetch(env, '/rest/v1/pick_lists?on_conflict=id&select=id,notion_page_id,pick_number', {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(chunk),
+      });
+    }
+    for (const chunk of chunkRows(itemRows)) {
+      await supabaseFetch(env, '/rest/v1/pick_items?on_conflict=id&select=id,notion_page_id,pick_list_id,material_id', {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(chunk),
+      });
+    }
+    return respOK(cors, {...result, applied: true});
   } catch (e) {
     return resp500(cors, e.message);
   }

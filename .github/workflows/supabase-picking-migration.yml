@@ -1,0 +1,50 @@
+name: Supabase Picking Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Write validated picking data to Supabase"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secret
+        shell: bash
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          if [ -z "$NOTION_TOKEN" ]; then
+            echo "::error::Missing GitHub secret NOTION_TOKEN"
+            exit 1
+          fi
+
+      - name: Export and migrate picking data
+        shell: bash
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          args=()
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            args+=(--apply)
+          fi
+          python scripts/supabase_picking_migrate_via_worker.py "${args[@]}"
+
+      - name: Upload migration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: picking-migration-report-${{ github.run_id }}
+          path: supabase/picking_migration_exports/
+          if-no-files-found: warn
+          retention-days: 30
