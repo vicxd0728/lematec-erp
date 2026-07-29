@@ -1,6 +1,6 @@
 # LEMATEC ERP Codex Handoff
 
-最後更新：2026-07-28
+最後更新：2026-07-29
 
 這份文件是每次接手 LEMATEC ERP 任務時的第一份交接。先讀它，再讀實際程式與資料流文件，避免靠舊聊天記憶猜流程。
 
@@ -21,7 +21,8 @@
 3. 讀 `ERP_DATA_FLOW.md`。
 4. 若任務與 Supabase、庫存、BOM 有關，讀 `SUPABASE_INVENTORY_MIGRATION_PLAN.md`。
 5. 若任務與異動紀錄有關，讀 `supabase\STOCK_LOG_RUNBOOK.md`。
-6. 再讀 `index.html` 的相關函式，依實際程式為準。
+6. 若任務與領料、補料、訂單扣料或領料搬遷有關，讀 `supabase\PICKING_RUNBOOK.md`。
+7. 再讀 `index.html` 的相關函式，依實際程式為準。
 
 不要回復或修改無關的 dirty files。不要印出 token、DB URL、Cloudflare token、Notion token。
 
