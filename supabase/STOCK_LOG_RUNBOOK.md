@@ -46,9 +46,12 @@ Local pending storage:
 lematec_stock_log_pending_v1
 ```
 
-This localStorage queue is only for automatic delivery retry. Supabase remains
-the source of truth. The queue is retried when the device reconnects, when the
-stock-log page loads, and when the user presses the retry button.
+This localStorage queue is the immediate delivery retry layer. Supabase remains
+the source of truth. Mirror-related retry tasks are additionally persisted in
+`public.erp_mirror_jobs`, so unfinished Notion mirror work can recover after a
+browser restart or from another signed-in device. The queue is retried when the
+device reconnects, when the stock-log page loads, and when the user presses the
+retry button.
 
 Scheduled mirror repair:
 

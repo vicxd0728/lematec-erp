@@ -27,6 +27,9 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Supabase must accept the inventory write before the ERP shows success.
 - After Supabase accepts a write, Notion is updated as a staff-readable mirror/backup.
 - If the Notion mirror temporarily fails, the ERP stores a retry task and continues retrying without undoing the accepted Supabase truth.
+- Mirror retry tasks are stored both in the current browser and in Supabase
+  `erp_mirror_jobs`. A signed-in device can recover unfinished mirror work after
+  a restart; `organization_id + dedupe_key` prevents duplicate repair jobs.
 - If Worker/Supabase inventory read fails, the frontend may fall back to Notion so staff are not blocked.
 - BOM reads call Worker route `GET /api/inventory/bom/list` and use Supabase first.
 - BOM imports and automatic Shopee BOM creation call Worker route `POST /api/inventory/bom/upsert`.
@@ -94,7 +97,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 | 訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | C端訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 領料 | Supabase | Worker 讀 Supabase；失敗時 Notion 僅作唯讀備援 | Worker 先寫 Supabase；成功後建立或更新 Notion 鏡像 | 人員查閱鏡像與緊急唯讀備援 | 正式主單、明細、狀態與防重依據 |
-| 入料 / 品管 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
+| 入料 / 品管 | Supabase | Worker 讀 Supabase；失敗時 Notion 僅作唯讀備援 | Worker 先寫 Supabase；成功後鏡像 Notion | 人員查閱鏡像與緊急唯讀備援 | 正式主單、明細、品檢狀態與入庫防重依據 |
 | 請假 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 客戶 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 
@@ -195,6 +198,20 @@ This section overrides older Supabase inventory notes below if they conflict.
 - 人員若直接在 Notion 修改庫存，Supabase 不會自動知道，除非建立 Notion to Supabase 同步流程。
 - Supabase anon key 是公開讀取/受 RLS 控制的 key，不等於 DB 密碼。
 - 若 RLS/view 權限改錯，前端會顯示 permission denied，應修 Supabase policy/view 權限，不要把 DB 密碼放進前端。
+- Notion 暫時失敗不代表庫存交易失敗。健康檢查的「資料可靠性中心」
+  會列出待補同步、重試失敗與缺少 Notion page id 的資料；不可用再次
+  執行扣料或入庫來修復鏡像。
+
+## 可靠性中心與補同步
+
+1. 庫存、BOM、領料或入料主流程必須先由 Supabase 接受。
+2. Notion 鏡像失敗時，前端保留本機工作並上傳至 Supabase
+   `erp_mirror_jobs`。
+3. 新登入或重新開啟 ERP 時會取回未完成工作，再執行 Notion 鏡像。
+4. 同一工作使用固定 `dedupe_key`，不得建立多筆補同步。
+5. 失敗採指數退避；五次失敗會列為健康檢查錯誤，等待人工重新補同步。
+6. 補同步只處理 Notion 鏡像，不得重播 Supabase 庫存交易。
+7. 詳細處理方式見 `supabase/RELIABILITY_RUNBOOK.md`。
 
 ## 建議協作方式
 

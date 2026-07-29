@@ -83,6 +83,21 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/stock-log/mark-notion') {
       return erpStockLogMarkNotion(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/enqueue') {
+      return erpMirrorJobEnqueue(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/reliability/mirror/list') {
+      return erpMirrorJobList(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/complete') {
+      return erpMirrorJobComplete(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/fail') {
+      return erpMirrorJobFail(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/reliability/summary') {
+      return erpReliabilitySummary(request, env, cors);
+    }
 
     const ct = request.headers.get('Content-Type') || '';
 
@@ -2256,6 +2271,226 @@ async function erpStockLogMarkNotion(request, env, cors) {
     const saved = Array.isArray(data) ? data[0] : data;
     if (!saved?.id) throw new Error('Supabase stock log mark did not return a saved row');
     return respOK(cors, { ok: true, id: saved.id, notion_page_id: saved.notion_page_id });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpClientAuthorized(request) {
+  const match = String(request.headers.get('Authorization') || '').match(/^Bearer\s+(\S+)$/i);
+  if (!match) return false;
+  try {
+    const response = await fetch('https://api.notion.com/v1/users/me', {
+      headers: {
+        Authorization: `Bearer ${match[1]}`,
+        'Notion-Version': '2022-06-28',
+      },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function unauthorizedErpClient(cors) {
+  return new Response(JSON.stringify({error: 'Unauthorized ERP client request'}), {
+    status: 401,
+    headers: jh(cors),
+  });
+}
+
+function normalizeMirrorJob(row) {
+  return {
+    id: cleanText(row?.id),
+    dedupe_key: cleanText(row?.dedupe_key),
+    module: cleanText(row?.module),
+    action: cleanText(row?.action),
+    entity_id: cleanText(row?.entity_id),
+    payload: row?.payload && typeof row.payload === 'object' ? row.payload : {},
+    status: cleanText(row?.status || 'pending'),
+    attempt_count: Number(row?.attempt_count) || 0,
+    last_error: cleanText(row?.last_error),
+    next_retry_at: cleanText(row?.next_retry_at),
+    created_at: cleanText(row?.created_at),
+    updated_at: cleanText(row?.updated_at),
+  };
+}
+
+async function erpMirrorJobEnqueue(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const job = body?.job || body || {};
+    const dedupeKey = cleanText(job.dedupe_key);
+    const module = cleanText(job.module);
+    const action = cleanText(job.action);
+    if (!dedupeKey || !module || !action) return resp400(cors, 'Missing mirror job identity');
+    if (dedupeKey.length > 240) return resp400(cors, 'Mirror job dedupe_key is too long');
+    const context = await getSupabaseInventoryContext(env);
+    const now = taipeiISOString();
+    const data = await supabaseFetch(
+      env,
+      '/rest/v1/erp_mirror_jobs?on_conflict=organization_id,dedupe_key&select=id,dedupe_key,module,action,entity_id,payload,status,attempt_count,last_error,next_retry_at,created_at,updated_at',
+      {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify({
+          organization_id: context.organization.id,
+          dedupe_key: dedupeKey,
+          module,
+          action,
+          entity_id: cleanText(job.entity_id) || null,
+          payload: job.payload && typeof job.payload === 'object' ? job.payload : {},
+          status: 'pending',
+          attempt_count: 0,
+          last_error: null,
+          next_retry_at: now,
+          completed_at: null,
+          updated_at: now,
+        }),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('Supabase mirror job enqueue did not return a saved row');
+    return respOK(cors, {ok: true, job: normalizeMirrorJob(saved)});
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpMirrorJobList(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const context = await getSupabaseInventoryContext(env);
+    const url = new URL(request.url);
+    const limit = Math.max(1, Math.min(300, Number(url.searchParams.get('limit') || 200) || 200));
+    const rows = await supabaseFetch(
+      env,
+      `/rest/v1/erp_mirror_jobs?organization_id=eq.${encodeURIComponent(context.organization.id)}&status=in.(pending,retrying,failed)&select=id,dedupe_key,module,action,entity_id,payload,status,attempt_count,last_error,next_retry_at,created_at,updated_at&order=created_at.asc&limit=${limit}`
+    );
+    return respOK(cors, {ok: true, jobs: (Array.isArray(rows) ? rows : []).map(normalizeMirrorJob)});
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpMirrorJobComplete(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const dedupeKey = cleanText(body?.dedupe_key);
+    if (!dedupeKey) return resp400(cors, 'Missing mirror job dedupe_key');
+    const context = await getSupabaseInventoryContext(env);
+    const now = taipeiISOString();
+    const data = await supabaseFetch(
+      env,
+      `/rest/v1/erp_mirror_jobs?organization_id=eq.${encodeURIComponent(context.organization.id)}&dedupe_key=eq.${encodeURIComponent(dedupeKey)}&select=id,dedupe_key,status,completed_at`,
+      {
+        method: 'PATCH',
+        headers: {Prefer: 'return=representation'},
+        body: JSON.stringify({
+          status: 'completed',
+          last_error: null,
+          next_retry_at: null,
+          completed_at: now,
+          updated_at: now,
+        }),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('Mirror job not found');
+    return respOK(cors, {ok: true, job: saved});
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpMirrorJobFail(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const dedupeKey = cleanText(body?.dedupe_key);
+    if (!dedupeKey) return resp400(cors, 'Missing mirror job dedupe_key');
+    const context = await getSupabaseInventoryContext(env);
+    const current = await supabaseSingle(
+      env,
+      `/rest/v1/erp_mirror_jobs?organization_id=eq.${encodeURIComponent(context.organization.id)}&dedupe_key=eq.${encodeURIComponent(dedupeKey)}&select=id,attempt_count&limit=1`,
+      true
+    );
+    if (!current?.id) throw new Error('Mirror job not found');
+    const attempts = (Number(current.attempt_count) || 0) + 1;
+    const retryMinutes = Math.min(360, Math.max(1, 2 ** Math.min(attempts - 1, 8)));
+    const nextRetry = new Date(Date.now() + retryMinutes * 60000).toISOString();
+    const status = attempts >= 5 ? 'failed' : 'retrying';
+    const data = await supabaseFetch(
+      env,
+      `/rest/v1/erp_mirror_jobs?id=eq.${encodeURIComponent(current.id)}&select=id,dedupe_key,status,attempt_count,last_error,next_retry_at`,
+      {
+        method: 'PATCH',
+        headers: {Prefer: 'return=representation'},
+        body: JSON.stringify({
+          status,
+          attempt_count: attempts,
+          last_error: cleanText(body?.error || 'Mirror sync failed').slice(0, 2000),
+          next_retry_at: nextRetry,
+          updated_at: taipeiISOString(),
+        }),
+      }
+    );
+    const saved = Array.isArray(data) ? data[0] : data;
+    return respOK(cors, {ok: true, job: saved});
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpReliabilitySummary(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const [jobs, stockLogs, pickMasters, pickItems, inboundReceipts] = await Promise.all([
+      supabaseAll(
+        env,
+        `/rest/v1/erp_mirror_jobs?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,module,status,attempt_count,last_error,next_retry_at,created_at,updated_at`
+      ),
+      supabaseAll(env, '/rest/v1/erp_stock_logs?select=id,notion_page_id'),
+      supabaseAll(env, `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id`),
+      supabaseAll(env, `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id`),
+      supabaseAll(env, `/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id`),
+    ]);
+    const activeJobs = jobs.filter((row) => row.status !== 'completed');
+    const byStatus = {};
+    const byModule = {};
+    for (const row of activeJobs) {
+      const status = cleanText(row.status || 'pending') || 'pending';
+      const module = cleanText(row.module || 'unknown') || 'unknown';
+      byStatus[status] = Number(byStatus[status] || 0) + 1;
+      byModule[module] = Number(byModule[module] || 0) + 1;
+    }
+    const oldest = activeJobs
+      .map((row) => cleanText(row.created_at))
+      .filter(Boolean)
+      .sort()[0] || '';
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      mirror_jobs: {
+        active: activeJobs.length,
+        pending: Number(byStatus.pending || 0) + Number(byStatus.retrying || 0),
+        failed: Number(byStatus.failed || 0),
+        by_status: byStatus,
+        by_module: byModule,
+        oldest_created_at: oldest,
+      },
+      missing_notion_mirrors: {
+        stock_logs: stockLogs.filter((row) => !cleanText(row.notion_page_id)).length,
+        pick_masters: pickMasters.filter((row) => !cleanText(row.notion_page_id)).length,
+        pick_items: pickItems.filter((row) => !cleanText(row.notion_page_id)).length,
+        inbound_receipts: inboundReceipts.filter((row) => !cleanText(row.notion_page_id)).length,
+      },
+      checked_at: taipeiISOString(),
+    });
   } catch (e) {
     return resp500(cors, e.message);
   }
