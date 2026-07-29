@@ -56,6 +56,24 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/picking/link-notion') {
       return erpPickingLinkNotion(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inbound/migrate') {
+      return erpInboundMigrate(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/inbound/summary') {
+      return erpInboundSummary(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/inbound/list') {
+      return erpInboundList(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/inbound/create') {
+      return erpInboundCreate(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/inbound/action') {
+      return erpInboundAction(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/inbound/link-notion') {
+      return erpInboundLinkNotion(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -2238,6 +2256,671 @@ async function erpStockLogMarkNotion(request, env, cors) {
     const saved = Array.isArray(data) ? data[0] : data;
     if (!saved?.id) throw new Error('Supabase stock log mark did not return a saved row');
     return respOK(cors, { ok: true, id: saved.id, notion_page_id: saved.notion_page_id });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+function normalizeInboundStockStatus(value) {
+  const status = cleanText(value || '待入庫');
+  if (status === '已入庫') return '已入庫';
+  if (status === '退回' || status === '退回倉管' || status === '退回供應商') return '退回';
+  if (status === '未入庫') return '未入庫';
+  return '待入庫';
+}
+
+function normalizeInboundQcStatus(value) {
+  const status = cleanText(value || '待品檢');
+  const allowed = new Set(['待品檢', '品檢通過', '品檢不合格', '退回倉管', '退回供應商']);
+  return allowed.has(status) ? status : '待品檢';
+}
+
+function inboundReturnTarget(value, stockStatus = '') {
+  const target = cleanText(value || '');
+  if (target === '供應商' || cleanText(stockStatus).includes('供應商')) return '供應商';
+  if (target === '倉管' || cleanText(stockStatus).includes('倉管')) return '倉管';
+  return null;
+}
+
+function normalizeInboundRows(receipts, items, materials) {
+  const materialById = new Map((Array.isArray(materials) ? materials : []).map((row) => [cleanText(row.id), row]));
+  const grouped = new Map();
+  for (const item of (Array.isArray(items) ? items : [])) {
+    const key = cleanText(item.inbound_receipt_id);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(item);
+  }
+  return (Array.isArray(receipts) ? receipts : []).map((receipt) => {
+    const receiptItems = grouped.get(cleanText(receipt.id)) || [];
+    const item = receiptItems[0] || {};
+    const material = materialById.get(cleanText(item.material_id)) || {};
+    return {
+      id: cleanText(receipt.id),
+      inbound_number: cleanText(receipt.inbound_number),
+      supplier_display: cleanText(receipt.supplier_display),
+      received_date: cleanText(receipt.received_date),
+      qc_status: cleanText(receipt.qc_status),
+      stock_status: cleanText(receipt.stock_status),
+      return_target: cleanText(receipt.return_target),
+      return_reason_type: cleanText(receipt.return_reason_type),
+      return_reason: cleanText(receipt.return_reason),
+      notes: cleanText(receipt.notes),
+      notion_page_id: cleanText(receipt.notion_page_id),
+      resubmitted_at: cleanText(receipt.resubmitted_at),
+      created_at: cleanText(receipt.created_at),
+      updated_at: cleanText(receipt.updated_at),
+      item: {
+        id: cleanText(item.id),
+        material_id: cleanText(item.material_id),
+        material_notion_page_id: cleanText(material.notion_page_id),
+        sku: cleanSku(material.sku),
+        name: cleanText(material.name || material.sku),
+        type: cleanText(material.material_type),
+        quantity: Number(item.quantity || 0),
+        accepted_quantity: item.accepted_quantity == null ? null : Number(item.accepted_quantity),
+        rejected_quantity: item.rejected_quantity == null ? null : Number(item.rejected_quantity),
+        inventory_transaction_id: cleanText(item.inventory_transaction_id),
+        notion_page_id: cleanText(item.notion_page_id),
+        notes: cleanText(item.notes),
+      },
+    };
+  });
+}
+
+async function erpInboundList(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const url = new URL(request.url);
+    const requestedLimit = Number(url.searchParams.get('limit') || 5000);
+    const limit = Math.max(1, Math.min(10000, Number.isFinite(requestedLimit) ? requestedLimit : 5000));
+    const receiptPath = `/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,inbound_number,supplier_display,received_date,qc_status,stock_status,return_target,return_reason_type,return_reason,resubmitted_at,notes,notion_page_id,created_at,updated_at&order=received_date.desc,created_at.desc`;
+    const receipts = limit <= 1000
+      ? await supabaseFetch(env, `${receiptPath}&limit=${limit}`)
+      : (await supabaseAll(env, receiptPath)).slice(0, limit);
+    const receiptIds = (Array.isArray(receipts) ? receipts : []).map((row) => cleanText(row.id)).filter(Boolean);
+    let items = [];
+    if (receiptIds.length) {
+      items = await supabaseAll(
+        env,
+        `/rest/v1/inbound_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id,created_at,updated_at`
+      );
+      const wanted = new Set(receiptIds);
+      items = items.filter((row) => wanted.has(cleanText(row.inbound_receipt_id)));
+    }
+    const materialIds = [...new Set(items.map((row) => cleanText(row.material_id)).filter(Boolean))];
+    let materials = [];
+    if (materialIds.length) {
+      materials = await supabaseAll(
+        env,
+        `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,name,material_type,notion_page_id`
+      );
+      const wanted = new Set(materialIds);
+      materials = materials.filter((row) => wanted.has(cleanText(row.id)));
+    }
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      rows: normalizeInboundRows(receipts, items, materials),
+      checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInboundCreate(request, env, cors) {
+  try {
+    const body = await request.json();
+    const inboundNumber = cleanText(body?.inbound_number);
+    const quantity = Number(body?.quantity || 0);
+    const sku = cleanSku(body?.sku || body?.code || '');
+    const materialNotionPageId = cleanText(body?.material_notion_page_id);
+    if (!inboundNumber) return resp400(cors, 'Missing inbound_number');
+    if (!(quantity > 0)) return resp400(cors, 'Invalid inbound quantity');
+    if (!sku && !materialNotionPageId) return resp400(cors, 'Missing inbound material');
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const existing = await supabaseSingle(
+      env,
+      `/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&inbound_number=eq.${encodeURIComponent(inboundNumber)}&select=id,inbound_number,qc_status,stock_status,notion_page_id&limit=1`,
+      true
+    );
+    if (existing?.id) {
+      const currentItems = await supabaseAll(
+        env,
+        `/rest/v1/inbound_items?inbound_receipt_id=eq.${encodeURIComponent(existing.id)}&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id`
+      );
+      if (currentItems.length !== 1) {
+        return new Response(JSON.stringify({
+          error: `Inbound number ${inboundNumber} already exists with an invalid item count`,
+        }), { status: 409, headers: jh(cors) });
+      }
+      const currentItem = currentItems[0];
+      const currentMaterial = await supabaseSingle(
+        env,
+        `/rest/v1/materials?id=eq.${encodeURIComponent(currentItem.material_id)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,name,material_type,notion_page_id&limit=1`
+      );
+      const sameMaterial = (
+        (materialNotionPageId && canonicalNotionId(currentMaterial?.notion_page_id) === canonicalNotionId(materialNotionPageId))
+        || (sku && cleanSku(currentMaterial?.sku) === sku)
+      );
+      if (!sameMaterial || Number(currentItem.quantity) !== quantity) {
+        return new Response(JSON.stringify({
+          error: `Inbound number ${inboundNumber} already exists with different material or quantity`,
+        }), { status: 409, headers: jh(cors) });
+      }
+      return respOK(cors, {
+        ok: true,
+        existing: true,
+        row: normalizeInboundRows([existing], currentItems, [currentMaterial])[0],
+      });
+    }
+
+    const material = await resolveSupabaseMaterial(
+      env,
+      organizationId,
+      {
+        notion_page_id: materialNotionPageId,
+        name: cleanText(body?.material_name || sku),
+        type: cleanText(body?.material_type || '零件'),
+      },
+      sku,
+      false
+    );
+    if (!material?.id) throw new Error(`Material not found in Supabase: ${sku || materialNotionPageId}`);
+
+    const receiptId = await deterministicUuid(`${organizationId}:inbound:${inboundNumber}`);
+    const receiptRow = {
+      id: receiptId,
+      organization_id: organizationId,
+      inbound_number: inboundNumber,
+      supplier_display: cleanText(body?.supplier_display || '') || null,
+      received_date: cleanText(body?.received_date || '').slice(0, 10) || taipeiISOString().slice(0, 10),
+      qc_status: '待品檢',
+      stock_status: '待入庫',
+      notes: cleanText(body?.notes || ''),
+      updated_at: taipeiISOString(),
+    };
+    const savedReceiptData = await supabaseFetch(
+      env,
+      '/rest/v1/inbound_receipts?on_conflict=id&select=id,inbound_number,supplier_display,received_date,qc_status,stock_status,return_target,return_reason_type,return_reason,resubmitted_at,notes,notion_page_id,created_at,updated_at',
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(receiptRow),
+      }
+    );
+    const savedReceipt = Array.isArray(savedReceiptData) ? savedReceiptData[0] : savedReceiptData;
+    if (!savedReceipt?.id) throw new Error(`Supabase inbound receipt write failed: ${inboundNumber}`);
+
+    const itemId = await deterministicUuid(`${receiptId}:material:${material.id}`);
+    const itemRow = {
+      id: itemId,
+      organization_id: organizationId,
+      inbound_receipt_id: receiptId,
+      material_id: material.id,
+      quantity,
+      notes: cleanText(body?.item_notes || ''),
+      updated_at: taipeiISOString(),
+    };
+    let savedItemData;
+    try {
+      savedItemData = await supabaseFetch(
+        env,
+        '/rest/v1/inbound_items?on_conflict=id&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id,created_at,updated_at',
+        {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(itemRow),
+        }
+      );
+    } catch (itemError) {
+      await supabaseFetch(
+        env,
+        `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(receiptId)}&notion_page_id=is.null`,
+        { method: 'DELETE' }
+      ).catch(() => null);
+      throw itemError;
+    }
+    const savedItem = Array.isArray(savedItemData) ? savedItemData[0] : savedItemData;
+    if (!savedItem?.id) throw new Error(`Supabase inbound item write failed: ${inboundNumber}`);
+    return respOK(cors, {
+      ok: true,
+      existing: false,
+      row: normalizeInboundRows([savedReceipt], [savedItem], [material])[0],
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInboundAction(request, env, cors) {
+  try {
+    const body = await request.json();
+    const inboundId = cleanText(body?.inbound_id);
+    const action = cleanText(body?.action);
+    if (!inboundId) return resp400(cors, 'Missing inbound_id');
+    if (!['approve', 'reject', 'resubmit'].includes(action)) return resp400(cors, 'Invalid inbound action');
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const receipt = await supabaseSingle(
+      env,
+      `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(inboundId)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_number,qc_status,stock_status,notion_page_id,notes&limit=1`
+    );
+    const items = await supabaseAll(
+      env,
+      `/rest/v1/inbound_items?inbound_receipt_id=eq.${encodeURIComponent(inboundId)}&select=id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notion_page_id,notes`
+    );
+    if (items.length !== 1) throw new Error(`Inbound ${receipt.inbound_number} must have exactly one item`);
+    let item = items[0];
+
+    if (action === 'resubmit') {
+      if (cleanText(item.inventory_transaction_id)) {
+        return new Response(JSON.stringify({ error: 'Stocked inbound cannot be resubmitted' }), {
+          status: 409,
+          headers: jh(cors),
+        });
+      }
+      const quantity = Number(body?.quantity || item.quantity || 0);
+      const sku = cleanSku(body?.sku || body?.code || '');
+      const materialNotionPageId = cleanText(body?.material_notion_page_id);
+      if (!(quantity > 0)) return resp400(cors, 'Invalid inbound quantity');
+      const material = await resolveSupabaseMaterial(
+        env,
+        organizationId,
+        { notion_page_id: materialNotionPageId },
+        sku,
+        false
+      );
+      if (!material?.id) throw new Error(`Material not found in Supabase: ${sku || materialNotionPageId}`);
+      const itemData = await supabaseFetch(
+        env,
+        `/rest/v1/inbound_items?id=eq.${encodeURIComponent(item.id)}&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            material_id: material.id,
+            quantity,
+            accepted_quantity: null,
+            rejected_quantity: null,
+            notes: cleanText(body?.notes || item.notes || ''),
+            updated_at: taipeiISOString(),
+          }),
+        }
+      );
+      item = Array.isArray(itemData) ? itemData[0] : itemData;
+      const receiptData = await supabaseFetch(
+        env,
+        `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(inboundId)}&select=id,inbound_number,supplier_display,received_date,qc_status,stock_status,return_target,return_reason_type,return_reason,resubmitted_at,notes,notion_page_id,created_at,updated_at`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            qc_status: '待品檢',
+            stock_status: '待入庫',
+            return_target: null,
+            return_reason_type: null,
+            return_reason: null,
+            resubmitted_at: taipeiISOString(),
+            notes: cleanText(body?.notes || receipt.notes || ''),
+            updated_at: taipeiISOString(),
+          }),
+        }
+      );
+      const savedReceipt = Array.isArray(receiptData) ? receiptData[0] : receiptData;
+      return respOK(cors, {
+        ok: true,
+        action,
+        row: normalizeInboundRows([savedReceipt], [item], [material])[0],
+      });
+    }
+
+    if (action === 'reject') {
+      if (cleanText(item.inventory_transaction_id)) {
+        return new Response(JSON.stringify({ error: 'Stocked inbound cannot be rejected' }), {
+          status: 409,
+          headers: jh(cors),
+        });
+      }
+      const target = inboundReturnTarget(body?.return_target || '倉管') || '倉管';
+      const reasonType = ['質量異常', '數量異常', '其他'].includes(cleanText(body?.reason_type))
+        ? cleanText(body.reason_type)
+        : '其他';
+      const reason = cleanText(body?.reason || reasonType);
+      const itemData = await supabaseFetch(
+        env,
+        `/rest/v1/inbound_items?id=eq.${encodeURIComponent(item.id)}&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            accepted_quantity: 0,
+            rejected_quantity: Number(item.quantity || 0),
+            updated_at: taipeiISOString(),
+          }),
+        }
+      );
+      item = Array.isArray(itemData) ? itemData[0] : itemData;
+      const receiptData = await supabaseFetch(
+        env,
+        `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(inboundId)}&select=id,inbound_number,supplier_display,received_date,qc_status,stock_status,return_target,return_reason_type,return_reason,resubmitted_at,notes,notion_page_id,created_at,updated_at`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            qc_status: '品檢不合格',
+            stock_status: '退回',
+            return_target: target,
+            return_reason_type: reasonType,
+            return_reason: reason,
+            notes: cleanText(body?.notes || receipt.notes || ''),
+            updated_at: taipeiISOString(),
+          }),
+        }
+      );
+      const savedReceipt = Array.isArray(receiptData) ? receiptData[0] : receiptData;
+      const material = await supabaseSingle(
+        env,
+        `/rest/v1/materials?id=eq.${encodeURIComponent(item.material_id)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,name,material_type,notion_page_id&limit=1`
+      );
+      return respOK(cors, {
+        ok: true,
+        action,
+        row: normalizeInboundRows([savedReceipt], [item], [material])[0],
+      });
+    }
+
+    const material = await supabaseSingle(
+      env,
+      `/rest/v1/materials?id=eq.${encodeURIComponent(item.material_id)}&organization_id=eq.${encodeURIComponent(organizationId)}&select=id,sku,name,material_type,notion_page_id&limit=1`
+    );
+    const quantity = Number(item.quantity || 0);
+    if (!(quantity > 0)) throw new Error(`Invalid inbound quantity: ${receipt.inbound_number}`);
+    const idempotencyKey = `inbound_qc_pass:${inboundId}`;
+    let transaction = null;
+    let duplicate = false;
+    if (cleanText(item.inventory_transaction_id)) {
+      transaction = await supabaseSingle(
+        env,
+        `/rest/v1/inventory_transactions?id=eq.${encodeURIComponent(item.inventory_transaction_id)}&select=id,quantity_before,quantity_after&limit=1`
+      );
+      duplicate = true;
+    } else {
+      const existingTx = await supabaseSingle(
+        env,
+        `/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organizationId)}&idempotency_key=eq.${encodeURIComponent(idempotencyKey)}&select=id,quantity_before,quantity_after&limit=1`,
+        true
+      );
+      const rpcData = await supabaseFetch(env, '/rest/v1/rpc/apply_inventory_transaction', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_organization_id: organizationId,
+          p_warehouse_id: context.warehouse.id,
+          p_material_id: material.id,
+          p_transaction_type: inventoryTransactionType('inbound_qc_pass', quantity),
+          p_quantity_delta: quantity,
+          p_reason: cleanText(body?.reason || '入料品管通過入庫'),
+          p_idempotency_key: idempotencyKey,
+          p_source_type: 'inbound_qc_pass',
+          p_source_id: inboundId,
+          p_source_number: cleanText(receipt.inbound_number),
+        }),
+      });
+      transaction = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (!transaction?.id) throw new Error(`Supabase inbound inventory transaction failed: ${receipt.inbound_number}`);
+      duplicate = Boolean(existingTx?.id);
+    }
+    const itemData = await supabaseFetch(
+      env,
+      `/rest/v1/inbound_items?id=eq.${encodeURIComponent(item.id)}&select=id,inbound_receipt_id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notes,notion_page_id`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          accepted_quantity: quantity,
+          rejected_quantity: 0,
+          inventory_transaction_id: transaction.id,
+          updated_at: taipeiISOString(),
+        }),
+      }
+    );
+    item = Array.isArray(itemData) ? itemData[0] : itemData;
+    const receiptData = await supabaseFetch(
+      env,
+      `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(inboundId)}&select=id,inbound_number,supplier_display,received_date,qc_status,stock_status,return_target,return_reason_type,return_reason,resubmitted_at,notes,notion_page_id,created_at,updated_at`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          qc_status: '品檢通過',
+          stock_status: '已入庫',
+          return_target: null,
+          return_reason_type: null,
+          return_reason: null,
+          updated_at: taipeiISOString(),
+        }),
+      }
+    );
+    const savedReceipt = Array.isArray(receiptData) ? receiptData[0] : receiptData;
+    return respOK(cors, {
+      ok: true,
+      action,
+      duplicate,
+      transaction_id: transaction.id,
+      before_stock: Number(transaction.quantity_before),
+      after_stock: Number(transaction.quantity_after),
+      row: normalizeInboundRows([savedReceipt], [item], [material])[0],
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInboundLinkNotion(request, env, cors) {
+  try {
+    const body = await request.json();
+    const inboundId = cleanText(body?.inbound_id);
+    const notionPageId = cleanText(body?.notion_page_id);
+    if (!inboundId) return resp400(cors, 'Missing inbound_id');
+    if (!notionPageId) return resp400(cors, 'Missing notion_page_id');
+    const receiptData = await supabaseFetch(
+      env,
+      `/rest/v1/inbound_receipts?id=eq.${encodeURIComponent(inboundId)}&select=id,notion_page_id`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ notion_page_id: notionPageId, updated_at: taipeiISOString() }),
+      }
+    );
+    const saved = Array.isArray(receiptData) ? receiptData[0] : receiptData;
+    if (!saved?.id) throw new Error('Supabase inbound link failed');
+    const itemId = cleanText(body?.item_id);
+    if (itemId) {
+      await supabaseFetch(
+        env,
+        `/rest/v1/inbound_items?id=eq.${encodeURIComponent(itemId)}&inbound_receipt_id=eq.${encodeURIComponent(inboundId)}&select=id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({ notion_page_id: notionPageId, updated_at: taipeiISOString() }),
+        }
+      );
+    }
+    return respOK(cors, { ok: true, row: saved });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInboundSummary(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const receipts = await supabaseAll(
+      env,
+      `/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_number,qc_status,stock_status,notion_page_id`
+    );
+    const items = await supabaseAll(
+      env,
+      `/rest/v1/inbound_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_receipt_id,material_id,inventory_transaction_id,notion_page_id`
+    );
+    const statusCounts = {};
+    for (const row of receipts) {
+      const key = `${cleanText(row.qc_status) || '未設定'} / ${cleanText(row.stock_status) || '未設定'}`;
+      statusCounts[key] = Number(statusCounts[key] || 0) + 1;
+    }
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase',
+      receipt_count: receipts.length,
+      item_count: items.length,
+      status_counts: statusCounts,
+      missing_receipt_notion_ids: receipts.filter((row) => !cleanText(row.notion_page_id)).length,
+      missing_item_material_links: items.filter((row) => !cleanText(row.material_id)).length,
+      stocked_item_count: items.filter((row) => cleanText(row.inventory_transaction_id)).length,
+      receipt_notion_ids: receipts.map((row) => cleanText(row.notion_page_id)).filter(Boolean),
+      checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpInboundMigrate(request, env, cors) {
+  try {
+    if (!migrationAuthorized(request, env)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized inbound migration request' }), {
+        status: 401,
+        headers: jh(cors),
+      });
+    }
+    const body = await request.json();
+    const sourceRows = Array.isArray(body?.rows) ? body.rows : [];
+    const dryRun = body?.dry_run !== false;
+    if (!sourceRows.length) return resp400(cors, 'Missing inbound rows');
+    if (sourceRows.length > 20000) return resp400(cors, 'Inbound migration exceeds the safety row limit');
+
+    const context = await getSupabaseInventoryContext(env);
+    const organizationId = context.organization.id;
+    const [existingReceipts, existingItems, materials] = await Promise.all([
+      supabaseAll(
+        env,
+        `/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_number,notion_page_id`
+      ),
+      supabaseAll(
+        env,
+        `/rest/v1/inbound_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,inbound_receipt_id,notion_page_id,inventory_transaction_id`
+      ),
+      supabaseAll(
+        env,
+        `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,sku,name,material_type,notion_page_id`
+      ),
+    ]);
+    const materialByNotion = new Map(
+      materials.filter((row) => canonicalNotionId(row.notion_page_id)).map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+    const materialBySku = new Map(
+      materials.filter((row) => cleanSku(row.sku)).map((row) => [cleanSku(row.sku), row])
+    );
+    const existingReceiptByNotion = new Map(
+      existingReceipts.filter((row) => canonicalNotionId(row.notion_page_id)).map((row) => [canonicalNotionId(row.notion_page_id), row])
+    );
+    const existingItemByReceipt = new Map(existingItems.map((row) => [cleanText(row.inbound_receipt_id), row]));
+    const normalized = [];
+    for (const source of sourceRows) {
+      const notionPageId = cleanText(source?.notion_page_id);
+      const inboundNumber = cleanText(source?.inbound_number);
+      const quantity = Number(source?.quantity || 0);
+      if (!notionPageId || !inboundNumber || !(quantity > 0)) {
+        throw new Error(`Invalid inbound source row: ${inboundNumber || notionPageId || 'unknown'}`);
+      }
+      const material = materialByNotion.get(canonicalNotionId(source?.material_notion_page_id))
+        || materialBySku.get(cleanSku(source?.sku || source?.material_code || ''));
+      const existingReceipt = existingReceiptByNotion.get(canonicalNotionId(notionPageId)) || null;
+      const receiptId = cleanText(existingReceipt?.id) || await deterministicUuid(`${organizationId}:inbound:notion:${canonicalNotionId(notionPageId)}`);
+      const existingItem = existingItemByReceipt.get(receiptId) || null;
+      const materialId = cleanText(material?.id);
+      const stockStatusSource = cleanText(source?.stock_status);
+      const qcStatus = normalizeInboundQcStatus(source?.qc_status);
+      normalized.push({
+        receipt: {
+          id: receiptId,
+          organization_id: organizationId,
+          inbound_number: inboundNumber,
+          supplier_display: cleanText(source?.supplier_display || '') || null,
+          received_date: cleanText(source?.received_date || '').slice(0, 10) || taipeiISOString().slice(0, 10),
+          qc_status: qcStatus,
+          stock_status: normalizeInboundStockStatus(stockStatusSource),
+          return_target: inboundReturnTarget(source?.return_target, stockStatusSource),
+          return_reason_type: ['質量異常', '數量異常', '其他'].includes(cleanText(source?.return_reason_type))
+            ? cleanText(source.return_reason_type)
+            : null,
+          return_reason: cleanText(source?.return_reason || '') || null,
+          notes: cleanText(source?.notes || ''),
+          notion_page_id: notionPageId,
+          updated_at: cleanText(source?.notion_last_edited_at) || taipeiISOString(),
+        },
+        item: {
+          id: cleanText(existingItem?.id) || await deterministicUuid(`${receiptId}:material:${materialId || `unmapped:${canonicalNotionId(notionPageId)}`}`),
+          organization_id: organizationId,
+          inbound_receipt_id: receiptId,
+          material_id: materialId || null,
+          quantity,
+          accepted_quantity: qcStatus === '品檢通過' ? quantity : (qcStatus === '品檢不合格' ? 0 : null),
+          rejected_quantity: qcStatus === '品檢不合格' ? quantity : (qcStatus === '品檢通過' ? 0 : null),
+          inventory_transaction_id: existingItem?.inventory_transaction_id || null,
+          notes: cleanText(source?.item_notes || ''),
+          notion_page_id: notionPageId,
+          updated_at: cleanText(source?.notion_last_edited_at) || taipeiISOString(),
+        },
+      });
+    }
+    if (dryRun) {
+      return respOK(cors, {
+        ok: true,
+        dry_run: true,
+        source_count: sourceRows.length,
+        receipt_count: normalized.length,
+        item_count: normalized.length,
+        unmapped_material_count: normalized.filter((row) => !row.item.material_id).length,
+        existing_receipt_count: normalized.filter((row) => existingReceiptByNotion.has(canonicalNotionId(row.receipt.notion_page_id))).length,
+      });
+    }
+    for (const chunk of chunkRows(normalized.map((row) => row.receipt))) {
+      await supabaseFetch(
+        env,
+        '/rest/v1/inbound_receipts?on_conflict=id&select=id',
+        {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(chunk),
+        }
+      );
+    }
+    for (const chunk of chunkRows(normalized.map((row) => row.item))) {
+      await supabaseFetch(
+        env,
+        '/rest/v1/inbound_items?on_conflict=id&select=id',
+        {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(chunk),
+        }
+      );
+    }
+    return respOK(cors, {
+      ok: true,
+      dry_run: false,
+      source: 'notion_export',
+      target: 'supabase',
+      receipt_count: normalized.length,
+      item_count: normalized.length,
+      migrated_at: taipeiISOString(),
+    });
   } catch (e) {
     return resp500(cors, e.message);
   }

@@ -22,7 +22,8 @@
 4. 若任務與 Supabase、庫存、BOM 有關，讀 `SUPABASE_INVENTORY_MIGRATION_PLAN.md`。
 5. 若任務與異動紀錄有關，讀 `supabase\STOCK_LOG_RUNBOOK.md`。
 6. 若任務與領料、補料、訂單扣料或領料搬遷有關，讀 `supabase\PICKING_RUNBOOK.md`。
-7. 再讀 `index.html` 的相關函式，依實際程式為準。
+7. 若任務與入料、品檢通過、退回、重新提交或入料搬遷有關，讀 `supabase\INBOUND_RUNBOOK.md`。
+8. 再讀 `index.html` 的相關函式，依實際程式為準。
 
 不要回復或修改無關的 dirty files。不要印出 token、DB URL、Cloudflare token、Notion token。
 
@@ -51,6 +52,12 @@
 - Notion 領料鏡像若暫時失敗，Supabase 主單保留，後續載入領料頁會自動補同步；鏡像完成前不開始新的扣庫存交易。
 - 領料搬遷保留 7 筆無法安全對應正式料號的舊明細作為歷史紀錄；不得拿它們作為新領料扣庫存依據。另有 1 張完全空白且無明細的 Notion 歷史頁已明確排除。
 - 領料搬遷工具為 `scripts/supabase_picking_migrate_via_worker.py`，可重跑且以 Notion page ID 去重；最近通過報表位於 `supabase/picking_migration_exports/20260729-092231/picking_migration_report.json`。
+- 入料歷史資料已在 2026-07-29 搬入 Supabase 並逐筆驗證：1,048 張主單與 1,048 筆明細，缺少 Notion 主單 ID 為 0。
+- 入料正式流程已切成 Supabase 主讀寫；建立、退回、重新提交與品檢通過均先寫 Supabase，再更新 Notion 查閱鏡像。
+- 品檢通過以 `inbound_qc_pass:<Supabase 入料主單 ID>` 防重，庫存增加使用 Supabase 原子交易；重複點擊、斷線重試或鏡像補同步不得重複入庫。
+- 入料的 Notion 備援只允許查閱，不允許退回、重新提交或品檢入庫。
+- 44 組歷史重複入料單號依 Notion page ID 分別保留；24 筆無法安全對應料號的舊明細保留為歷史資料，不猜測、不拿來執行新入庫。
+- 入料搬遷工具為 `scripts/supabase_inbound_migrate_via_worker.py`；最近通過報表位於 `supabase/inbound_migration_exports/20260729-103648/inbound_migration_report.json`。
 
 ## Supabase Key 行為
 
@@ -133,5 +140,7 @@ GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.d
 - `ERP_DATA_FLOW.md`
 - `SUPABASE_INVENTORY_MIGRATION_PLAN.md`
 - `supabase\STOCK_LOG_RUNBOOK.md`
+- `supabase\PICKING_RUNBOOK.md`
+- `supabase\INBOUND_RUNBOOK.md`
 - `ERP_OPEN_SOURCE_REFERENCES.md`
 - `ERP_REGRESSION_CHECKLIST.md`

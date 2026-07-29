@@ -7489,28 +7489,144 @@ async function updateSupabasePickingStatus(pick,status,items=[]){
     }
   });
 }
+function inboundNotionStockStatus(row){
+  if(row?.stock_status==='退回'){
+    return row?.return_target==='供應商'?'退回供應商':'退回倉管';
+  }
+  return row?.stock_status||'待入庫';
+}
+function mapSupabaseInbound(row){
+  const item=row?.item||{};
+  return {
+    id:row.id,
+    supabaseId:row.id,
+    notionId:row.notion_page_id||'',
+    itemId:item.id||'',
+    itemNotionId:item.notion_page_id||'',
+    materialId:item.material_id||'',
+    no:row.inbound_number||'',
+    matId:item.material_notion_page_id||'',
+    matName:item.name||item.sku||'',
+    matCode:item.sku||'',
+    matType:item.type||'零件',
+    qty:Number(item.quantity||0),
+    date:row.received_date||row.created_at?.slice(0,10)||'',
+    supplier:row.supplier_display||'',
+    qcStatus:row.qc_status||'待品檢',
+    stStatus:inboundNotionStockStatus(row),
+    note:row.notes||item.notes||'',
+    rejectReason:row.return_reason||'',
+    returnTo:row.return_target||'',
+    inventoryTransactionId:item.inventory_transaction_id||'',
+  };
+}
+function mapNotionInbound(p){
+  const matId=p.properties?.['料件']?.relation?.[0]?.id||'';
+  const mat=mats.find(x=>x.id===matId);
+  return {
+    id:p.id,
+    supabaseId:'',
+    notionId:p.id,
+    no:getTitle(p.properties,'入料單號'),
+    matId,
+    matName:mat?.name||getRichText(p.properties,'料件名稱','品項名稱'),
+    matCode:mat?.code||getRichText(p.properties,'料件編號'),
+    matType:mat?.type||p.properties?.['料件類型']?.select?.name||'零件',
+    qty:p.properties?.['入料數量']?.number??0,
+    date:p.properties?.['入料日期']?.date?.start||'',
+    supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',
+    qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',
+    stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫',
+    note:getRichText(p.properties,'備註'),
+    rejectReason:getRichText(p.properties,'退回原因')||getRichText(p.properties,'不合格原因'),
+    returnTo:getRichText(p.properties,'退回對象'),
+    fallback:true,
+  };
+}
 async function loadInbounds(){
-  const r=await dbQueryAll(DB.inbound);
-  inbounds=r.map(p=>{
-    const matId=p.properties?.['料件']?.relation?.[0]?.id||'';
-    const mat=mats.find(x=>x.id===matId);
-    return {
-      id:p.id,
-      no:getTitle(p.properties,'入料單號'),
-      matId,
-      matName:mat?.name||getRichText(p.properties,'料件名稱','品項名稱'),
-      matCode:mat?.code||getRichText(p.properties,'料件編號'),
-      qty:p.properties?.['入料數量']?.number??0,
-      date:p.properties?.['入料日期']?.date?.start||'',
-      supplier:p.properties?.['供應商']?.rich_text?.[0]?.plain_text||'',
-      qcStatus:p.properties?.['品管狀態']?.select?.name||'待品檢',
-      stStatus:p.properties?.['入庫狀態']?.select?.name||'待入庫',
-      note:getRichText(p.properties,'備註'),
-      rejectReason:getRichText(p.properties,'退回原因')||getRichText(p.properties,'不合格原因'),
-      returnTo:getRichText(p.properties,'退回對象'),
-    };
-  });
-  markLoaded('inbounds');
+  try{
+    const data=await pickingWorkerRequest('/api/inbound/list?limit=10000');
+    inbounds=(data.rows||[]).map(mapSupabaseInbound);
+    markLoaded('inbounds');
+    Promise.resolve().then(()=>repairPendingInboundMirrors()).catch(e=>console.warn('入料 Notion 鏡像補同步失敗：',e));
+    return;
+  }catch(e){
+    console.warn('Supabase 入料讀取失敗，暫以 Notion 唯讀備援：',e);
+    const r=await dbQueryAll(DB.inbound);
+    inbounds=r.map(mapNotionInbound);
+    markLoaded('inbounds');
+  }
+}
+const _inboundMirrorJobs=new Map();
+function inboundMirrorProps(ib){
+  const props={
+    '入料單號':{title:[{text:{content:ib.no||''}}]},
+    '入料數量':{number:Number(ib.qty)||0},
+    '品管狀態':{select:{name:ib.qcStatus||'待品檢'}},
+    '入庫狀態':{select:{name:ib.stStatus||'待入庫'}},
+    '料件類型':{select:{name:ib.matType||'零件'}},
+    '備註':{rich_text:[{text:{content:(ib.note||'').slice(-1800)}}]},
+    '入料日期':{date:{start:ib.date||new Date().toISOString().slice(0,10)}},
+  };
+  if(ib.matId) props['料件']={relation:[{id:ib.matId}]};
+  if(ib.supplier) props['供應商']={rich_text:[{text:{content:ib.supplier.slice(0,1800)}}]};
+  return props;
+}
+async function ensureInboundNotionMirror(ib){
+  if(!ib?.supabaseId) throw new Error('入料單缺少 Supabase ID');
+  const running=_inboundMirrorJobs.get(ib.supabaseId);
+  if(running) return running;
+  const job=(async()=>{
+    let notionId=ib.notionId||'';
+    if(!notionId){
+      const found=await notionAPI('POST',`databases/${DB.inbound}/query`,{
+        page_size:5,
+        filter:{property:'入料單號',title:{equals:ib.no}}
+      });
+      if(found?.object==='error') throw new Error('無法查驗 Notion 入料鏡像：'+found.message);
+      notionId=found.results?.[0]?.id||'';
+    }
+    if(notionId){
+      assertNotionPage(await updatePage(notionId,inboundMirrorProps(ib)),`更新入料單 ${ib.no} Notion 鏡像`);
+    }else{
+      notionId=assertNotionPage(
+        await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:inboundMirrorProps(ib)}),
+        `建立入料單 ${ib.no} Notion 鏡像`
+      ).id;
+    }
+    await pickingWorkerRequest('/api/inbound/link-notion',{
+      method:'POST',
+      body:{
+        inbound_id:ib.supabaseId,
+        notion_page_id:notionId,
+        item_id:ib.itemId||''
+      }
+    });
+    ib.notionId=notionId;
+    ib.itemNotionId=notionId;
+    return ib;
+  })();
+  _inboundMirrorJobs.set(ib.supabaseId,job);
+  try{return await job;}
+  finally{_inboundMirrorJobs.delete(ib.supabaseId);}
+}
+async function repairPendingInboundMirrors(){
+  if(!TOKEN||!inbounds.length) return;
+  const pending=inbounds.filter(ib=>ib.supabaseId&&!ib.notionId&&!ib.fallback).slice(0,5);
+  for(const ib of pending){
+    try{await ensureInboundNotionMirror(ib);}
+    catch(e){console.warn(`入料單 ${ib.no} Notion 鏡像仍待補同步：`,e);}
+  }
+}
+async function updateInboundNotionMirror(ib){
+  if(!TOKEN||!ib?.supabaseId) return {pending:true};
+  try{
+    await ensureInboundNotionMirror(ib);
+    return {pending:false};
+  }catch(e){
+    console.warn(`入料單 ${ib?.no||ib?.id} Supabase 已更新，Notion 鏡像待補同步：`,e);
+    return {pending:true,error:e.message||String(e)};
+  }
 }
 
 function explodeBOM(pid,qty){
@@ -12549,17 +12665,27 @@ async function submitResubmitInbound(id){
   const nextNote=[oldNote,`重新提交 ${stamp}${reason?'：'+reason:''}`].filter(Boolean).join('\n');
   closeModal(); showToast('重新提交入料單中...','warn');
   try{
-    await updatePage(id,{
-      '料件':{relation:[{id:matId}]},
-      '入料數量':{number:qty},
-      '品管狀態':{select:{name:'待品檢'}},
-      '入庫狀態':{select:{name:'待入庫'}},
-      '備註':{rich_text:[{text:{content:nextNote.slice(-1800)}}]},
+    if(!ib.supabaseId) throw new Error('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作');
+    const data=await pickingWorkerRequest('/api/inbound/action',{
+      method:'POST',
+      body:{
+        action:'resubmit',
+        inbound_id:ib.supabaseId,
+        material_notion_page_id:matId,
+        sku:mat?.code||mat?.name||'',
+        quantity:qty,
+        notes:nextNote
+      }
     });
+    const saved=mapSupabaseInbound(data.row);
+    const mirror=await updateInboundNotionMirror(saved);
     logUserAction('重新提交入料單',ib.no||id,`${mat?.code||mat?.name||matId} x ${qty}${reason?' / '+reason:''}`,ROLE);
     await loadInbounds();
     renderTab('inbound');
-    showToast('✅ 已重新提交，品管頁會回到入料待品檢','ok');
+    showToast(
+      mirror.pending?'✅ 已重新提交；Notion 鏡像待自動補同步':'✅ 已重新提交，品管頁會回到入料待品檢',
+      mirror.pending?'warn':'ok'
+    );
   }catch(e){showToast('❌ 重新提交失敗：'+e.message,'err');}
 }
 
@@ -16292,28 +16418,26 @@ async function syncInboundStock(id, matId, qty){
 同步後：${newStock}`)) return;
 
   showToast('同步中...','warn');
-  let stockMove=null;
   let committed=false;
   try{
-    stockMove=await applyInventoryDeltaAndMirror(matId,{
-      delta:parseInt(qty)||0,
-      reason:'手動同步入庫',
-      refNo:id,
-      sourceType:'manual_inbound_stock_in',
-      sourceId:id
+    if(!inbound.supabaseId) throw new Error('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作');
+    const data=await pickingWorkerRequest('/api/inbound/action',{
+      method:'POST',
+      body:{
+        action:'approve',
+        inbound_id:inbound.supabaseId,
+        reason:'手動同步入庫'
+      }
     });
     committed=true;
-    const statusSync=await updateWorkflowPageAfterInventory(
-      id,
-      {'入庫狀態':{select:{name:'已入庫'}}},
-      `入料單 ${inbound.no||id} 已入庫狀態`
-    );
-    await logStockChangeQuietly(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
+    const saved=mapSupabaseInbound(data.row);
+    const statusSync=await updateInboundNotionMirror(saved);
+    await logStockChangeQuietly(matId,mat.name,mat.code||'','手動同步入庫',parseInt(qty),data.before_stock,data.after_stock,inbound.no||id,ROLE);
     await refreshAffectedData({core:true,label:'庫存已更新'});
     showToast(
       statusSync.pending
-        ? `✅ ${mat.name} 庫存已同步：${stockMove.before} → ${stockMove.after}；入料狀態待自動補同步`
-        : `✅ ${mat.name} 庫存已同步：${stockMove.before} → ${stockMove.after}`,
+        ? `✅ ${mat.name} 庫存已同步：${data.before_stock} → ${data.after_stock}；Notion 鏡像待自動補同步`
+        : `✅ ${mat.name} 庫存已同步：${data.before_stock} → ${data.after_stock}`,
       statusSync.pending?'warn':'ok'
     );
   }catch(e){
@@ -16748,7 +16872,43 @@ async function approveQC(id,matId,qty,opts={}){
   let stockMove=null;
   let committed=false;
   try{
-    // 1. 建立品管檢驗單記錄（寫入品管資料庫）
+    if(!ib?.supabaseId) throw new Error('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作');
+    // 1. Supabase 原子完成品檢通過、入庫加料與防重複交易。
+    const inboundResult=await pickingWorkerRequest('/api/inbound/action',{
+      method:'POST',
+      body:{
+        action:'approve',
+        inbound_id:ib.supabaseId,
+        reason:opts.note||'入料品管通過入庫'
+      }
+    });
+    stockMove={
+      before:Number(inboundResult.before_stock)||0,
+      after:Number(inboundResult.after_stock)||0,
+      duplicate:inboundResult.duplicate===true,
+      transactionId:inboundResult.transaction_id||''
+    };
+    committed=true;
+    const savedInbound=mapSupabaseInbound(inboundResult.row);
+    const statusSync=await updateInboundNotionMirror(savedInbound);
+    if(inboundResult.duplicate){
+      if(!opts.skipRefresh){
+        await refreshAffectedData({core:true,tabs:['inbound'],label:'入料狀態已確認'});
+        renderTab(CURRENT_TAB);
+      }
+      if(!opts.silent) showToast('此入料單先前已完成入庫，本次未重複增加庫存','warn',6000);
+      return {
+        ok:true,
+        duplicate:true,
+        ibNo,
+        matName:mats.find(m=>m.id===matId)?.name||matId,
+        curStock:stockMove.before,
+        newStock:stockMove.after,
+        statusPending:statusSync.pending
+      };
+    }
+
+    // 2. 建立 Notion 品管檢驗單鏡像。
     const insProps = {
       '檢驗單號':   {title:[{text:{content:insNo}}]},
       '關聯訂單號': {rich_text:[{text:{content:ibNo}}]},
@@ -16769,27 +16929,11 @@ async function approveQC(id,matId,qty,opts={}){
       await notionAPI('POST','pages',{parent:{database_id:DB.qcInspection}, properties:insProps}),
       `入料檢驗單 ${insNo}`
     );
-
-    // 2. 由 Supabase 主資料先入庫，再回寫 Notion 鏡像
-    stockMove=await applyInventoryDeltaAndMirror(matId,{
-      delta:parseInt(qty)||0,
-      reason:'入料品管通過入庫',
-      refNo:ibNo,
-      sourceType:'inbound_qc_pass',
-      sourceId:id
-    });
-    // 3. 庫存成功即為核心交易完成；Notion 狀態失敗時排入補同步，禁止反向補償造成重送少算。
-    const statusSync=await updateWorkflowPageAfterInventory(
-      id,
-      {'品管狀態':{select:{name:'品檢通過'}},'入庫狀態':{select:{name:'已入庫'}}},
-      `入料單 ${ibNo} 品檢通過與已入庫狀態`
-    );
-    committed=true;
     if(opts.photos?.length){
       try{await uploadQCPhotosToNotion({
         photos:opts.photos,
         inspectionPageId:createdInspection?.id,
-        sourcePageId:id,
+        sourcePageId:savedInbound.notionId||ib.notionId||'',
         sourceTitle:ibNo,
         inspectionNo:insNo
       });}
@@ -16798,7 +16942,7 @@ async function approveQC(id,matId,qty,opts={}){
     logUserAction('品管通過',ibNo,ibMat||ibCode,ROLE);
     // 4. 庫存異動記錄
     const mat2=mats.find(m=>m.id===matId);
-    await logStockChangeQuietly(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),stockMove.before,stockMove.after,id,ROLE);
+    await logStockChangeQuietly(matId,mat2?.name||matId,mat2?.code||'','入料',parseInt(qty),stockMove.before,stockMove.after,ibNo,ROLE);
     // 5. 重整
     if(!opts.skipRefresh){
       await refreshAffectedData({core:true,tabs:['inbound'],label:'品檢與庫存已更新'});renderTab(CURRENT_TAB);
@@ -16832,6 +16976,7 @@ async function approveQC(id,matId,qty,opts={}){
 }
 async function rejectQC(id,opts={}){
   if(!opts.skipConfirm&&!confirm('確認不合格？'))return;
+  let committed=false;
   try{
     const ib = inbounds.find(x=>x.id===id);
     const ibNo = ib?.no||id;
@@ -16849,6 +16994,21 @@ async function rejectQC(id,opts={}){
       `退回對象：${returnTo}`,
       opts.note||''
     ].filter(Boolean).join(' / ');
+    if(!ib?.supabaseId) throw new Error('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作');
+    const rejectResult=await pickingWorkerRequest('/api/inbound/action',{
+      method:'POST',
+      body:{
+        action:'reject',
+        inbound_id:ib.supabaseId,
+        return_target:returnTo,
+        reason_type:reasonBase,
+        reason,
+        notes:[ib.note||'',`品管退回：${noteText}`].filter(Boolean).join('\n').slice(-1800)
+      }
+    });
+    committed=true;
+    const savedInbound=mapSupabaseInbound(rejectResult.row);
+    const mirror=await updateInboundNotionMirror(savedInbound);
 
     // 建立品管檢驗單記錄
     const insProps = {
@@ -16872,7 +17032,7 @@ async function rejectQC(id,opts={}){
       try{await uploadQCPhotosToNotion({
         photos:opts.photos,
         inspectionPageId:createdInspection?.id,
-        sourcePageId:id,
+        sourcePageId:savedInbound.notionId||ib.notionId||'',
         sourceTitle:ibNo,
         inspectionNo:insNo
       });}
@@ -16896,17 +17056,22 @@ async function rejectQC(id,opts={}){
       console.log('[品管不合格] 記錄已建立');
     }catch(e2){ console.warn('品管不合格記錄建立失敗:', e2); }
 
-    const oldNote=ib?.note||'';
-    const stamp=new Date().toLocaleString('zh-TW',{hour12:false});
-    await updatePage(id,{
-      '品管狀態':{select:{name:'品檢不合格'}},
-      '入庫狀態':{select:{name:returnStatus}},
-      '備註':{rich_text:[{text:{content:[oldNote,`品管退回 ${stamp}：${noteText}`].filter(Boolean).join('\n').slice(-1800)}}]},
-    });
     logUserAction('品管退回',ibNo,`${ibMat||ibCode} / ${reason} / 退回${returnTo}`,ROLE);
     await loadInbounds();renderTab(CURRENT_TAB);
-    showToast(`已標記不合格，退回${returnTo}，檢驗單及不合格記錄已建立`,'warn');
-  }catch(e){showToast('錯誤：'+e.message,'err');}
+    showToast(
+      mirror.pending
+        ? `已標記不合格並退回${returnTo}；Notion 鏡像待自動補同步`
+        : `已標記不合格，退回${returnTo}，檢驗單及不合格記錄已建立`,
+      'warn'
+    );
+  }catch(e){
+    if(committed){
+      console.error('rejectQC post-commit mirror/log error:',e);
+      showToast('⚠ 退回狀態已寫入 Supabase，但 Notion 記錄或畫面更新未完成；請按同步鍵確認','warn',8000);
+      return;
+    }
+    showToast('錯誤：'+e.message,'err');
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -17445,10 +17610,10 @@ async function submitBatchInbound(){
   if(!window._ibItems||!window._ibItems.length){showToast('請先加入入料品項','warn');return;}
   const note=(document.getElementById('ib_note')?.value||'').trim();
   const today=new Date().toISOString().slice(0,10);
-  const yr=today.slice(2,4); const mo=today.slice(5,7);
   closeModal(); showToast(`⏳ 建立 ${window._ibItems.length} 筆入料中...`,'warn');
   let ok=0, fail=0, failMsgs=[];
-  for(const item of window._ibItems){
+  for(let itemIndex=0;itemIndex<window._ibItems.length;itemIndex++){
+    const item=window._ibItems[itemIndex];
     try{
       let matId = item.matId;
       const inboundType = ['零件','半成品','成品'].includes(item.newType) ? item.newType : '零件';
@@ -17463,20 +17628,24 @@ async function submitBatchInbound(){
         });
         matId = assertNotionPage(newMat,'建立料件').id;
       }
-      // 建立入料單
-      const inbNo=`IB-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
-      const inboundProps={
-        '入料單號':  {title:[{text:{content:inbNo}}]},
-        '入料數量':  {number:item.qty},
-        '品管狀態':  {select:{name:'待品檢'}},
-        '入庫狀態':  {select:{name:'待入庫'}},
-        '料件類型':  {select:{name:inboundType}},
-        '備註':      {rich_text:[{text:{content:note||''}}]},
-        '入料日期':  {date:{start:today}},
-      };
-      if(matId) inboundProps['料件']={relation:[{id:matId}]};
-      const inbResult = await notionAPI('POST','pages',{parent:{database_id:DB.inbound},properties:inboundProps});
-      assertNotionPage(inbResult,'建立入料單');
+      const mat=mats.find(m=>m.id===matId);
+      const inbNo=`IB-${today.replace(/-/g,'').slice(2)}-${Date.now().toString(36).slice(-5).toUpperCase()}${String(itemIndex+1).padStart(2,'0')}`;
+      const inbResult=await pickingWorkerRequest('/api/inbound/create',{
+        method:'POST',
+        body:{
+          inbound_number:inbNo,
+          material_notion_page_id:matId,
+          sku:item.code||mat?.code||mat?.name||'',
+          material_name:mat?.name||item.code||'',
+          material_type:inboundType,
+          quantity:Number(item.qty),
+          received_date:today,
+          notes:note
+        }
+      });
+      const saved=mapSupabaseInbound(inbResult.row);
+      const mirror=await updateInboundNotionMirror(saved);
+      if(mirror.pending) console.warn(`入料單 ${inbNo} Notion 鏡像待補同步`);
       logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);
       ok++;
     }catch(e){

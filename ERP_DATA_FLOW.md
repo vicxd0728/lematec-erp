@@ -97,6 +97,19 @@ This section overrides older Supabase inventory notes below if they conflict.
 - 缺料、BOM 缺件、Supabase 寫入失敗或 Notion 首次鏡像失敗時，不開始扣庫存；已扣庫後發生斷線則以固定 idempotency key 續跑，不得重扣。
 - Notion 鏡像會把主單與明細 page ID 回標至 Supabase。新流程建立但鏡像未完成的單據，領料頁載入後會限量自動補同步。
 
+### 入料正式流程（2026-07-29）
+
+- 已將 1,048 張入料主單與 1,048 筆入料明細匯入 Supabase，主單缺少 Notion page ID 為 0。
+- 44 組歷史重複入料單號依各自 Notion page ID 分別保留，不合併、不覆蓋。
+- 24 筆無法安全對應正式料號的歷史明細以 null material relation 保存，只供查閱，不得拿來執行新入庫。
+- 歷史搬遷不重播庫存交易，避免把已經入過庫的數量再增加一次。
+- 前端入料頁由 Worker `GET /api/inbound/list` 讀取 Supabase；Worker 暫時失敗時只顯示 Notion 唯讀備援，不開放品檢、退回或重新提交。
+- 建立入料時先寫 Supabase 主單與明細，再建立 Notion 查閱鏡像並把 page ID 回標至 Supabase。
+- 退回與重新提交先更新 Supabase，再鏡像 Notion；已經有庫存交易的入料單不得退回或重新提交。
+- 品檢通過使用 Supabase 原子庫存交易，固定防重鍵為 `inbound_qc_pass:<Supabase 入料主單 ID>`。
+- Supabase 成功後才顯示入庫成功；Notion 鏡像暫時失敗時保留 Supabase 正式結果並排入補同步，不得再次增加庫存。
+- 詳細操作、驗證與回復規則見 `supabase/INBOUND_RUNBOOK.md`。
+
 ## 庫存讀取流程
 
 目前庫存頁邏輯：
@@ -171,14 +184,9 @@ This section overrides older Supabase inventory notes below if they conflict.
 
 ## 建議協作方式
 
-現階段：
+目前：
 
-- 日常庫存操作：ERP 前端或由 Codex 批量操作 Notion。
-- Notion：查閱與人工稽核。
-- Supabase：只讀驗證、速度測試、異動紀錄主資料試行、前端庫存鏡像。
-
-未來切換後：
-
-- ERP 前端：唯一正式庫存操作入口。
-- Supabase：庫存/BOM/異動紀錄主資料。
-- Notion：由同步機制鏡像，供查閱。
+- ERP 前端：庫存、BOM、異動紀錄、領料與入料的正式操作入口。
+- Supabase：上述模組的主資料與交易來源。
+- Notion：由同步機制維持人工查閱鏡像；直接修改不保證回寫 Supabase。
+- 其他尚未遷移的模組仍依本文件上方資料主從表執行。
