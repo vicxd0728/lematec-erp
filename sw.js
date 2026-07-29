@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v22';
+const CACHE_NAME = 'lematec-erp-v23';
 const CORE_ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192-v2.png',

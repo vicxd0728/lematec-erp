@@ -1624,7 +1624,9 @@ function openInventoryBatchAdjust(){
       <label class="field-label">料號與數量（每行一筆，最多 100 筆）</label>
       <textarea class="inp" id="inv_batch_text" rows="8" placeholder="Y-ABC-01 +10&#10;Y-ABC-02 -5" oninput="window._inventoryBatchDraft=null"></textarea>
     </div>
+    <div style="font-size:.72rem;color:var(--text3);margin:-2px 0 10px">先選擇調整模式，再下載對應範本。修改原因請在 ERP 填寫，會套用於整批異動紀錄。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-ghost btn-sm" onclick="downloadInventoryBatchTemplate()">下載 Excel 範本</button>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('invBatchExcelInput')?.click()">匯入 Excel / CSV</button>
       <input id="invBatchExcelInput" type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importInventoryBatchFile(this)">
       <button class="btn btn-cyan btn-sm" onclick="previewInventoryBatch()">檢查並預覽</button>
@@ -1659,6 +1661,55 @@ function inventoryBatchHeaderValue(row,names){
     if(hit)return hit[1];
   }
   return '';
+}
+
+async function downloadInventoryBatchTemplate(){
+  try{
+    await ensureXlsxLoaded();
+    const mode=document.getElementById('inv_batch_mode')?.value||'delta';
+    const isSet=mode==='set';
+    const valueHeader=isSet?'修改後數量':'異動量';
+    const sheetName=isSet?'設定新數量':'增減庫存';
+    const filename=isSet
+      ?'LEMATEC_庫存批量設定範本.xlsx'
+      :'LEMATEC_庫存批量增減範本.xlsx';
+
+    // Keep sample SKUs off the import sheet so they cannot be submitted by mistake.
+    const dataSheet=XLSX.utils.aoa_to_sheet([['料號',valueHeader]]);
+    dataSheet['!cols']=[{wch:28},{wch:18}];
+    dataSheet['!autofilter']={ref:'A1:B1'};
+
+    const exampleRows=isSet
+      ?[
+          ['欄位','範例','說明'],
+          ['料號','Y-ABC-01','必須是 ERP 已存在的完整料號'],
+          ['修改後數量','100','填寫盤點後的總庫存，只能使用整數'],
+        ]
+      :[
+          ['欄位','範例','說明'],
+          ['料號','Y-ABC-01','必須是 ERP 已存在的完整料號'],
+          ['異動量','10','正數增加庫存，例如 10'],
+          ['異動量','-5','負數扣除庫存，例如 -5'],
+        ];
+    const guideSheet=XLSX.utils.aoa_to_sheet([
+      ['LEMATEC 庫存批量調整範本'],
+      ['目前模式',isSet?'直接設定新數量':'依增減量調整'],
+      ['操作步驟','在第一張工作表逐列填寫，儲存後回 ERP 匯入並預覽。'],
+      ['修改原因','請在 ERP 批量調整視窗填寫，不需放入 Excel。'],
+      ['安全限制','單次最多 100 筆；料號不可重複；不可產生負庫存。'],
+      [],
+      ...exampleRows,
+    ]);
+    guideSheet['!cols']=[{wch:18},{wch:34},{wch:46}];
+
+    const workbook=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook,dataSheet,sheetName);
+    XLSX.utils.book_append_sheet(workbook,guideSheet,'填寫說明');
+    XLSX.writeFile(workbook,filename);
+    showToast(`已下載 ${sheetName} Excel 範本`,'ok');
+  }catch(e){
+    showToast('範本下載失敗：'+e.message,'err');
+  }
 }
 
 async function importInventoryBatchFile(input){

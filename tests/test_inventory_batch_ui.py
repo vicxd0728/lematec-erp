@@ -46,6 +46,15 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("/rest/v1/rpc/apply_inventory_batch", WORKER)
         self.assertIn("queueInventoryNotionMirror", INDEX)
 
+    def test_mode_specific_excel_template_is_downloadable(self):
+        self.assertIn("async function downloadInventoryBatchTemplate()", INDEX)
+        self.assertIn('onclick="downloadInventoryBatchTemplate()"', INDEX)
+        self.assertIn("LEMATEC_庫存批量增減範本.xlsx", INDEX)
+        self.assertIn("LEMATEC_庫存批量設定範本.xlsx", INDEX)
+        self.assertIn("XLSX.utils.book_append_sheet(workbook,dataSheet,sheetName)", INDEX)
+        self.assertIn("XLSX.utils.book_append_sheet(workbook,guideSheet,'填寫說明')", INDEX)
+        self.assertIn("const dataSheet=XLSX.utils.aoa_to_sheet([['料號',valueHeader]])", INDEX)
+
     def test_database_contract_is_atomic_and_idempotent(self):
         sql = RPC_SQL.lower()
         self.assertIn("inventory batch exceeds 100 items", sql)
@@ -56,7 +65,7 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("p_idempotency_key || ':' || material_uuid::text", RPC_SQL)
 
     def test_service_worker_version_changes_with_ui(self):
-        self.assertIn("lematec-erp-v22", SW)
+        self.assertIn("lematec-erp-v23", SW)
 
 
 if __name__ == "__main__":

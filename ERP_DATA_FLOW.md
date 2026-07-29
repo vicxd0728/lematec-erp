@@ -47,6 +47,8 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Allowed roles: Vic, manager, warehouse, and sales. View-only users cannot submit it.
 - Scope: existing Supabase materials only. Creating new materials stays in the separate material workflow.
 - Input: paste `SKU +10` / `SKU -5`, set final quantities, or import the first Excel/CSV sheet.
+- Excel template: choose the adjustment mode first, then click `下載 Excel 範本`. The first sheet contains only the fixed import headers; examples and rules are kept on the second sheet so sample SKUs cannot be imported accidentally.
+- Template columns: delta mode uses `料號` + `異動量`; set mode uses `料號` + `修改後數量`. The shared reason remains a required ERP field and is not read from Excel.
 - Required: a reason and 1-100 unique materials.
 - Preflight blocks unknown SKUs, missing Notion mirrors, duplicates, non-integer values, no-op changes, and negative final stock.
 - Commit: Worker calls `apply_inventory_batch`; PostgreSQL locks all balances and commits the complete batch in one transaction.
