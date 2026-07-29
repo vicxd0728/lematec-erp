@@ -1641,6 +1641,7 @@ async function erpPickingMigrate(request, env, cors) {
         notion_created_at: pickingDateTime(source.notion_created_at),
         notion_last_edited_at: pickingDateTime(source.notion_last_edited_at),
         source_payload: source.source_payload || null,
+        is_historical_migration: true,
       });
     }
 
