@@ -10470,12 +10470,13 @@ async function syncNotesShadow(sourceNotes,{audit=true}={}){
   }
 }
 async function backfillAllNotesShadow(dbId){
-  if(_notesShadowBackfillRunning||ROLE!=='owner'||!dbId)return;
+  if(_notesShadowBackfillRunning||ROLE!=='vic'||!dbId)return;
   _notesShadowBackfillRunning=true;
   try{
     const rows=await dbQueryAll(dbId);
     const all=rows.map(mapNotionNotePage);
-    await syncNotesShadow(all,{audit:true});
+    const audit=await syncNotesShadow(all,{audit:true});
+    if(!audit)throw new Error('記事影子備份未完成，保留待下次重試');
     localStorage.setItem(NOTES_SHADOW_BACKFILL_KEY,JSON.stringify({
       dbId,count:all.length,completedAt:new Date().toISOString()
     }));
@@ -10488,7 +10489,7 @@ async function backfillAllNotesShadow(dbId){
 function scheduleNotesShadowSync(sourceNotes,dbId){
   const run=async()=>{
     await syncNotesShadow(sourceNotes,{audit:false});
-    if(ROLE==='owner'&&!localStorage.getItem(NOTES_SHADOW_BACKFILL_KEY)){
+    if(ROLE==='vic'&&!localStorage.getItem(NOTES_SHADOW_BACKFILL_KEY)){
       await backfillAllNotesShadow(dbId);
     }
   };

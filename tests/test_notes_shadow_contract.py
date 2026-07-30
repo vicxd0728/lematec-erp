@@ -27,6 +27,9 @@ class NotesShadowContractTest(unittest.TestCase):
         self.assertIn("console.warn('[notes shadow] sync skipped:'", self.index)
         self.assertIn("NOTES_SHADOW_BACKFILL_KEY", self.index)
         self.assertIn("compareNotesShadow", self.index)
+        self.assertIn("if(ROLE==='vic'&&!localStorage.getItem(NOTES_SHADOW_BACKFILL_KEY))", self.index)
+        self.assertIn("if(_notesShadowBackfillRunning||ROLE!=='vic'||!dbId)return", self.index)
+        self.assertIn("if(!audit)throw new Error('記事影子備份未完成，保留待下次重試')", self.index)
 
     def test_worker_exposes_shadow_routes(self):
         for route in (
