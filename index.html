@@ -545,7 +545,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
 /* ══════════════════════════════════════
    MODAL
 ══════════════════════════════════════ */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);overflow:hidden;touch-action:pan-y;overscroll-behavior:contain;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);overflow:hidden;touch-action:none;overscroll-behavior:contain;}
 .modal-bg.open{display:flex;}
 body.modal-open{overflow:hidden;}
 @media(min-width:600px){.modal-bg{align-items:center;}.modal{border-radius:16px!important;width:560px!important;max-height:88vh!important;}}
@@ -598,7 +598,7 @@ body.modal-open{overflow:hidden;}
 
   /* ── Modal 手機版底部滑出 ── */
   .modal-bg{align-items:flex-end!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
-  .modal{width:100%!important;max-height:calc(100dvh - max(8px, env(safe-area-inset-top)))!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:calc(18px + env(safe-area-inset-bottom))!important;transform:translateZ(0);}
+  .modal{width:100%!important;max-height:calc(100dvh - max(8px, env(safe-area-inset-top)))!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:calc(18px + env(safe-area-inset-bottom))!important;transform:translateZ(0);will-change:scroll-position;}
   .modal h3{font-size:1rem!important;}
 
   /* ── 操作按鈕欄位（縱向排列）── */
@@ -5406,8 +5406,6 @@ function openModal(type,data){
     return;
   }
   const mi=document.getElementById('modalInner');
-  const prods=mats.filter(m=>m.type==='成品');
-  const parts=mats.filter(m=>m.type!=='成品');
 
   if(type==='newNote'||type==='editNote'){
     const d=type==='editNote'?(data||{}):{};

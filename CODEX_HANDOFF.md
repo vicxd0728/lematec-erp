@@ -1,5 +1,21 @@
 # LEMATEC ERP Codex Handoff
 
+## Notes Completion Status 2026-07-30
+
+- Supabase Notes shadow contains 15 Notes and 46 reply lines.
+- Verified date range: 2026-07-01 through 2026-07-29.
+- Verified links: customer 4, order 1, material 0.
+- Formal Notes UI still reads/writes Notion; Supabase remains a non-blocking
+  backup and comparison source.
+- Worker accepts both frontend camelCase and database snake_case payload fields.
+- Mobile Notes modal no longer scans the inventory list when opened.
+- Mobile modal uses native vertical scrolling and keeps the backdrop fixed.
+- Service worker cache version for this release: `lematec-erp-v27`.
+- Validation:
+  `python -m unittest tests.test_notes_shadow_contract tests.test_verify_erp_static`
+  and `python scripts/verify_erp_static.py`.
+- Runbook: `supabase/NOTES_SHADOW_RUNBOOK.md`.
+
 ## Notes Migration Status 2026-07-30
 
 - Formal Notes flow remains Notion-first.

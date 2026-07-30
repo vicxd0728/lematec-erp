@@ -49,6 +49,31 @@ class NotesShadowContractTest(unittest.TestCase):
         self.assertIn("const rows=page.rows||[]", self.index)
         self.assertIn("Authorization:`Bearer ${TOKEN}`", self.index)
 
+    def test_mobile_note_modal_avoids_inventory_work_and_keeps_native_scroll(self):
+        self.assertNotIn("const prods=mats.filter(m=>m.type==='成品')", self.index)
+        self.assertNotIn("const parts=mats.filter(m=>m.type!=='成品')", self.index)
+        self.assertIn(".modal-bg{display:none", self.index)
+        self.assertIn("touch-action:none;overscroll-behavior:contain", self.index)
+        self.assertIn("overflow-x:hidden!important;overflow-y:auto!important", self.index)
+        self.assertIn("-webkit-overflow-scrolling:touch", self.index)
+
+    def test_worker_accepts_the_frontend_notes_payload_contract(self):
+        expected_frontend_fields = [
+            "item?.notionPageId",
+            "item.noteDate",
+            "item.noteTime",
+            "item.noteType",
+            "item.targetRoles",
+            "item.pendingRoles",
+            "item.replyCount",
+            "item.customerCode",
+            "item.linkedOrder",
+            "item.linkedMaterial",
+        ]
+        for field in expected_frontend_fields:
+            with self.subTest(field=field):
+                self.assertIn(field, self.worker)
+
     def test_migration_is_scoped_and_idempotent(self):
         self.assertIn("create table if not exists public.erp_notes_shadow", self.migration)
         self.assertIn("unique (organization_id, notion_page_id)", self.migration)
