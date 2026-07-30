@@ -1,5 +1,15 @@
 # LEMATEC ERP Data Flow
 
+## Notes Shadow Backup 2026-07-30
+
+- Notes and calendar production reads/writes remain Notion-first.
+- Supabase `erp_notes_shadow` is a non-blocking shadow backup and comparison source.
+- After Notion Notes load, the ERP schedules the Supabase copy during browser idle time.
+- Vic's first successful load performs a complete idempotent backfill of existing Notes.
+- Shadow comparison covers total count, calendar date, pending roles, replies, and customer/order/material links.
+- A Supabase shadow error never blocks Note viewing, replies, read acknowledgement, completion, editing, or attachments.
+- Do not switch the Notes UI to Supabase until shadow counts and behavior remain stable across mobile, desktop, and multiple roles.
+
 ## Conditional Core Sync 2026-07-28
 
 - Inventory and BOM remain Supabase-first through the Cloudflare Worker.

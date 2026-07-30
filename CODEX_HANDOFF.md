@@ -1,5 +1,15 @@
 # LEMATEC ERP Codex Handoff
 
+## Notes Migration Status 2026-07-30
+
+- Formal Notes flow remains Notion-first.
+- Supabase table: `erp_notes_shadow`.
+- Worker routes: `/api/notes/shadow/sync`, `/api/notes/shadow/list`, `/api/notes/shadow/summary`.
+- Existing Notes backfill is automatic and idempotent when Vic opens Notes.
+- Shadow sync is scheduled after the UI loads and must never block staff actions.
+- Contract test: `python -m unittest tests.test_notes_shadow_contract`.
+- Runbook: `supabase/NOTES_SHADOW_RUNBOOK.md`.
+
 最後更新：2026-07-29
 
 這份文件是每次接手 LEMATEC ERP 任務時的第一份交接。先讀它，再讀實際程式與資料流文件，避免靠舊聊天記憶猜流程。

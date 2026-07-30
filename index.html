@@ -545,7 +545,7 @@ tr:hover td{background:rgba(59,130,246,.04);}
 /* ══════════════════════════════════════
    MODAL
 ══════════════════════════════════════ */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);overflow:hidden;touch-action:none;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(6px);overflow:hidden;touch-action:pan-y;overscroll-behavior:contain;}
 .modal-bg.open{display:flex;}
 body.modal-open{overflow:hidden;}
 @media(min-width:600px){.modal-bg{align-items:center;}.modal{border-radius:16px!important;width:560px!important;max-height:88vh!important;}}
@@ -5440,6 +5440,11 @@ function openModal(type,data){
         登入時提醒指定角色，並要求按「知道了」確認
       </label>
       <div style="margin-bottom:12px"><label class="field-label">內容 / 備註</label><textarea class="inp" id="note_body" rows="5" placeholder="要交代、要追蹤、預約資訊、臨時提醒都可以寫在這裡">${escapeHtml(d.body||'')}</textarea></div>
+      <div style="margin-bottom:12px">
+        <label class="field-label">附件（最多 5 個；圖片、影片、文件或其他檔案）</label>
+        <input class="inp" id="note_files" type="file" multiple onchange="renderNoteFileSelection(this)">
+        <div id="note_file_selection" class="hint" style="margin-top:6px">${(d.files||[]).length?`目前已有 ${(d.files||[]).length} 個欄位附件；新增檔案會附加到記事頁。`:'尚未選擇附件'}</div>
+      </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-ghost" onclick="closeModal()">取消</button>
         <button class="btn btn-blue" onclick="submitNote('${d.id||''}')">💾 儲存記事</button>
@@ -10001,6 +10006,8 @@ function openEditSchedule(id){
 // ══════════════════════════════════════════════
 const NOTES_DB_KEY='lematec_notes_db_id';
 const NOTE_REPLY_OPTION_KEY='lematec_note_reply_options';
+const NOTES_SHADOW_BACKFILL_KEY='lematec_notes_shadow_backfill_v1';
+const NOTES_SHADOW_AUDIT_KEY='lematec_notes_shadow_audit_v1';
 const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'];
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
@@ -10009,6 +10016,7 @@ const NOTE_PRIORITIES=['一般','重要','緊急'];
 const NOTE_TAG_OPTIONS=['客戶','交期','出貨','採購','品管','現場','維修','客訴','會議','追蹤'];
 const NOTE_DONE_HIDE_DAYS=30;
 let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey='', _notesFieldsChecked=false, _notesDbRecovered=0;
+let _notesShadowSyncing=false, _notesShadowBackfillRunning=false, _notesShadowAudit=null;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -10023,13 +10031,102 @@ function noteTargetsForSubmit(){
 function noteTagsForSubmit(){
   return noteSplitList(document.getElementById('note_tags')?.value||'').slice(0,12);
 }
+function renderNoteFileSelection(input){
+  const el=document.getElementById('note_file_selection');
+  if(!el)return;
+  const files=[...(input?.files||[])];
+  const size=files.reduce((sum,f)=>sum+(f.size||0),0);
+  el.textContent=files.length?`${files.length} 個，合計 ${formatNoteFileSize(size)}：${files.map(f=>f.name).join('、')}`:'尚未選擇附件';
+}
+function formatNoteFileSize(bytes=0){
+  if(bytes<1024)return `${bytes} B`;
+  if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/1024/1024).toFixed(1)} MB`;
+}
+function noteAttachmentKind(file={}){
+  const name=String(file.name||'').toLowerCase();
+  const mime=String(file.type||file.content_type||'').toLowerCase();
+  if(mime.startsWith('image/')||/\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(name))return 'image';
+  if(mime.startsWith('video/')||/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(name))return 'video';
+  if(mime.startsWith('audio/')||/\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(name))return 'audio';
+  if(mime==='application/pdf'||/\.pdf$/i.test(name))return 'pdf';
+  return 'file';
+}
+function noteAttachmentUrl(payload={}){
+  return payload?.file?.url||payload?.external?.url||payload?.file_upload?.url||'';
+}
+function noteAttachmentName(block={},payload={}){
+  return payload?.name||block?.caption?.map(x=>x.plain_text||x.text?.content||'').join('')||block?.type||'附件';
+}
+function noteAttachmentCard(item){
+  const url=escapeHtml(item.url||'');
+  const name=escapeHtml(item.name||'附件');
+  if(!url)return '';
+  if(item.kind==='image')return `<a href="${url}" target="_blank" rel="noopener" style="display:block"><img src="${url}" alt="${name}" loading="lazy" style="display:block;max-width:100%;max-height:340px;object-fit:contain;border-radius:8px;border:1px solid var(--border2)"></a><div class="hint" style="margin-top:5px">${name}</div>`;
+  if(item.kind==='video')return `<video controls playsinline preload="metadata" style="display:block;width:100%;max-height:360px;border-radius:8px;background:#000"><source src="${url}"></video><div class="hint" style="margin-top:5px">${name}</div>`;
+  if(item.kind==='audio')return `<audio controls preload="metadata" style="width:100%"><source src="${url}"></audio><div class="hint" style="margin-top:5px">${name}</div>`;
+  return `<a class="btn btn-ghost btn-sm" href="${url}" target="_blank" rel="noopener">📎 ${name}</a>`;
+}
+async function loadNoteAttachments(pageId,legacyFiles=[]){
+  const box=document.getElementById('note_attachment_list');
+  if(!box)return;
+  try{
+    const items=[];
+    let cursor='';
+    do{
+      const suffix=`?page_size=100${cursor?`&start_cursor=${encodeURIComponent(cursor)}`:''}`;
+      const result=await notionAPI2026('GET',`blocks/${pageId}/children${suffix}`);
+      if(result?.object==='error')throw new Error(result.message||'附件讀取失敗');
+      (result?.results||[]).forEach(block=>{
+        if(!['image','video','audio','pdf','file'].includes(block.type))return;
+        const payload=block[block.type]||{};
+        const url=noteAttachmentUrl(payload);
+        if(url)items.push({kind:block.type,name:noteAttachmentName(block,payload),url});
+      });
+      cursor=result?.has_more?result.next_cursor:'';
+    }while(cursor);
+    (legacyFiles||[]).forEach(file=>{
+      const payload=file[file.type]||file;
+      const url=noteAttachmentUrl(payload);
+      if(url&&!items.some(x=>x.url===url))items.push({kind:noteAttachmentKind(file),name:file.name||'附件',url});
+    });
+    box.innerHTML=items.length
+      ?`<div class="field-label" style="margin-bottom:7px">附件 ${items.length}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">${items.map(noteAttachmentCard).join('')}</div>`
+      :'<span style="color:var(--text3)">沒有附件</span>';
+  }catch(e){
+    box.innerHTML=`<span style="color:var(--red)">附件讀取失敗：${escapeHtml(e.message||String(e))}</span>`;
+  }
+}
+async function uploadNoteAttachments(pageId,files=[]){
+  if(!pageId||!files.length)return [];
+  const blocks=[];
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    showToast(`📎 上傳附件 ${i+1}/${files.length}：${file.name}`,'warn',5000);
+    const uploaded=await uploadNotionFileViaProxy(file);
+    const kind=noteAttachmentKind(file);
+    const blockType=['image','video','audio','pdf'].includes(kind)?kind:'file';
+    blocks.push({
+      type:blockType,
+      [blockType]:{
+        type:'file_upload',
+        file_upload:{id:uploaded.file_upload.id},
+        caption:[{type:'text',text:{content:file.name||'附件'}}]
+      }
+    });
+  }
+  const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
+  if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
+  return blocks;
+}
 function noteStatusOptions(){return NOTE_STATUS.map((name,i)=>({name,color:['yellow','orange','blue','purple','pink','green','red','gray'][i]||'default'}));}
 function notePriorityOptions(){return NOTE_PRIORITIES.map((name,i)=>({name,color:['default','yellow','red'][i]||'default'}));}
 function noteTagOptions(){return NOTE_TAG_OPTIONS.map((name,i)=>({name,color:['blue','yellow','orange','green','purple','default','red','pink','gray','brown'][i]||'default'}));}
 function noteReplyOptions(){
   let extra=[];
   try{extra=JSON.parse(localStorage.getItem(NOTE_REPLY_OPTION_KEY)||'[]')||[];}catch{}
-  return [...new Set([...NOTE_REPLY_DEFAULTS,...extra].filter(Boolean))];
+  const shared=(notes||[]).map(n=>n.replyAction).filter(Boolean);
+  return [...new Set([...NOTE_REPLY_DEFAULTS,...shared,...extra].filter(Boolean))];
 }
 function saveNoteReplyOption(v){
   const val=(v||'').trim();
@@ -10059,6 +10156,7 @@ async function ensureNotesDBFields(dbId,props={}){
   need('客戶記事頁ID',{rich_text:{}});
   need('事件頁ID',{rich_text:{}});
   need('後台連結',{url:{}});
+  need('待讀角色',{rich_text:{}});
   need('回覆動作',{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}});
   need('回覆紀錄',{rich_text:{}});
   need('最後回覆',{rich_text:{}});
@@ -10133,6 +10231,7 @@ function notePropsFromPage(page){
     '指定角色':{multi_select:targetRoles.map(name=>({name}))},
     '需要確認':{checkbox:!!p['需要確認']?.checkbox},
     '已確認角色':{rich_text:[{text:{content:getRichText(p,'已確認角色')}}]},
+    '待讀角色':{rich_text:[{text:{content:getRichText(p,'待讀角色')}}]},
     '回覆紀錄':{rich_text:[{text:{content:getRichText(p,'回覆紀錄')}}]},
     '最後回覆':{rich_text:[{text:{content:getRichText(p,'最後回覆')}}]},
     '最後回覆者':{rich_text:[{text:{content:getRichText(p,'最後回覆者')}}]},
@@ -10238,6 +10337,7 @@ async function ensureNotesDB(force=false){
       '指定角色':{multi_select:{options:NOTE_TARGET_ROLES.map((name,i)=>({name,color:['default','red','blue','green','orange','yellow','purple','gray'][i]||'default'}))}},
       '需要確認':{checkbox:{}},
       '已確認角色':{rich_text:{}},
+      '待讀角色':{rich_text:{}},
       '回覆動作':{select:{options:NOTE_REPLY_DEFAULTS.map((name,i)=>({name,color:['green','blue','red'][i]||'default'}))}},
       '回覆紀錄':{rich_text:{}},
       '最後回覆':{rich_text:{}},
@@ -10252,50 +10352,158 @@ async function ensureNotesDB(force=false){
   localStorage.setItem(NOTES_DB_KEY,created.id);
   return created.id;
 }
+function mapNotionNotePage(p){
+  const props=p.properties||{};
+  return {
+    id:p.id,
+    url:p.url||'',
+    title:getTitle(props,'標題')||'未命名記事',
+    date:props['日期']?.date?.start||'',
+    time:getRichText(props,'時間'),
+    type:props['類型']?.select?.name||'一般',
+    status:props['狀態']?.select?.name||'未處理',
+    body:getRichText(props,'內容'),
+    owner:getRichText(props,'負責人'),
+    priority:props['重要程度']?.select?.name||'',
+    remindDate:props['提醒日']?.date?.start||'',
+    tags:(props['標籤']?.multi_select||[]).map(x=>x.name).filter(Boolean),
+    completedAt:props['完成時間']?.date?.start||'',
+    files:(props['附件']?.files||[]),
+    customerCode:getRichText(props,'客戶編號'),
+    linkedCustomer:getRichText(props,'關聯客戶'),
+    linkedOrder:getRichText(props,'關聯訂單'),
+    linkedMaterial:getRichText(props,'關聯料號'),
+    customerNotesPageId:getRichText(props,'客戶記事頁ID'),
+    eventPageId:getRichText(props,'事件頁ID'),
+    backendUrl:props['後台連結']?.url||'',
+    author:getRichText(props,'建立者')||'',
+    authorRole:props['建立者角色']?.select?.name||'',
+    targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
+    needAck:!!props['需要確認']?.checkbox,
+    ackRoles:getRichText(props,'已確認角色'),
+    pendingRoles:getRichText(props,'待讀角色'),
+    replyAction:props['回覆動作']?.select?.name||'',
+    replies:getRichText(props,'回覆紀錄'),
+    lastReply:getRichText(props,'最後回覆'),
+    lastReplyBy:getRichText(props,'最後回覆者'),
+    lastReplyAt:props['最後回覆時間']?.date?.start||'',
+    createdAt:props['建立時間']?.date?.start||p.created_time||''
+  };
+}
+function noteShadowPayload(n){
+  const replyCount=String(n.replies||'').split('\n').map(x=>x.trim()).filter(Boolean).length;
+  return {
+    notionPageId:n.id, notionUrl:n.url, title:n.title, noteDate:n.date, noteTime:n.time,
+    noteType:n.type, status:n.status, body:n.body, owner:n.owner, priority:n.priority,
+    remindDate:n.remindDate, tags:n.tags, customerCode:n.customerCode,
+    linkedCustomer:n.linkedCustomer, linkedOrder:n.linkedOrder, linkedMaterial:n.linkedMaterial,
+    author:n.author, authorRole:n.authorRole, targetRoles:n.targetRoles,
+    needAck:n.needAck, ackRoles:noteSplitList(n.ackRoles), pendingRoles:noteSplitList(n.pendingRoles),
+    replyAction:n.replyAction, replies:n.replies, replyCount, lastReply:n.lastReply,
+    lastReplyBy:n.lastReplyBy, lastReplyAt:n.lastReplyAt, completedAt:n.completedAt,
+    customerNotesPageId:n.customerNotesPageId, eventPageId:n.eventPageId,
+    backendUrl:n.backendUrl, attachments:(n.files||[]), createdAt:n.createdAt
+  };
+}
+async function notesShadowRequest(path,options={}){
+  const res=await fetch(`${PROXY}${path}`,options);
+  const payload=await res.json().catch(()=>({}));
+  if(!res.ok||payload?.error)throw new Error(payload?.error||`記事影子資料 HTTP ${res.status}`);
+  return payload;
+}
+async function loadAllNotesShadowRows(){
+  const all=[];
+  let offset=0;
+  while(true){
+    const page=await notesShadowRequest(`/api/notes/shadow/list?limit=500&offset=${offset}`);
+    const rows=page.items||[];
+    all.push(...rows);
+    if(rows.length<500)break;
+    offset+=rows.length;
+  }
+  return all;
+}
+function compareNotesShadow(sourceNotes,shadowRows){
+  const source=new Map((sourceNotes||[]).map(n=>[String(n.id||'').replace(/-/g,''),noteShadowPayload(n)]));
+  const shadow=new Map((shadowRows||[]).map(n=>[String(n.notion_page_id||'').replace(/-/g,''),n]));
+  const missing=[...source.keys()].filter(id=>!shadow.has(id));
+  const extra=[...shadow.keys()].filter(id=>!source.has(id));
+  const mismatch=[];
+  source.forEach((n,id)=>{
+    const s=shadow.get(id);
+    if(!s)return;
+    const checks=[
+      ['title',n.title,s.title],['status',n.status,s.status],['date',n.noteDate,s.note_date],
+      ['pending',n.pendingRoles.join('、'),[].concat(s.pending_roles||[]).join('、')],
+      ['replies',n.replyCount,Number(s.reply_count||0)],['customer',n.customerCode,s.customer_code],
+      ['order',n.linkedOrder,s.linked_order],['material',n.linkedMaterial,s.linked_material]
+    ];
+    checks.forEach(([field,a,b])=>{if(String(a||'')!==String(b||''))mismatch.push({id,field,notion:a,supabase:b});});
+  });
+  return {
+    checkedAt:new Date().toISOString(), notionCount:source.size, supabaseCount:shadow.size,
+    missingCount:missing.length, extraCount:extra.length, mismatchCount:mismatch.length,
+    missing:missing.slice(0,20), extra:extra.slice(0,20), mismatches:mismatch.slice(0,30),
+    ok:missing.length===0&&extra.length===0&&mismatch.length===0
+  };
+}
+async function syncNotesShadow(sourceNotes,{audit=true}={}){
+  if(_notesShadowSyncing||!sourceNotes?.length)return null;
+  _notesShadowSyncing=true;
+  try{
+    await notesShadowRequest('/api/notes/shadow/sync',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({items:sourceNotes.map(noteShadowPayload)})
+    });
+    if(audit){
+      const shadowRows=await loadAllNotesShadowRows();
+      _notesShadowAudit=compareNotesShadow(sourceNotes,shadowRows);
+      localStorage.setItem(NOTES_SHADOW_AUDIT_KEY,JSON.stringify(_notesShadowAudit));
+    }
+    return _notesShadowAudit;
+  }catch(e){
+    console.warn('[notes shadow] sync skipped:',e);
+    return null;
+  }finally{
+    _notesShadowSyncing=false;
+  }
+}
+async function backfillAllNotesShadow(dbId){
+  if(_notesShadowBackfillRunning||ROLE!=='owner'||!dbId)return;
+  _notesShadowBackfillRunning=true;
+  try{
+    const rows=await dbQueryAll(dbId);
+    const all=rows.map(mapNotionNotePage);
+    await syncNotesShadow(all,{audit:true});
+    localStorage.setItem(NOTES_SHADOW_BACKFILL_KEY,JSON.stringify({
+      dbId,count:all.length,completedAt:new Date().toISOString()
+    }));
+  }catch(e){
+    console.warn('[notes shadow] backfill skipped:',e);
+  }finally{
+    _notesShadowBackfillRunning=false;
+  }
+}
+function scheduleNotesShadowSync(sourceNotes,dbId){
+  const run=async()=>{
+    await syncNotesShadow(sourceNotes,{audit:false});
+    if(ROLE==='owner'&&!localStorage.getItem(NOTES_SHADOW_BACKFILL_KEY)){
+      await backfillAllNotesShadow(dbId);
+    }
+  };
+  if('requestIdleCallback' in window)requestIdleCallback(run,{timeout:3500});
+  else setTimeout(run,800);
+}
 async function loadNotes(options={}){
   const dbId=await ensureNotesDB(true);
   const mode=options.mode||DATA_LOAD_MODE.notes||'recent';
   const rows=await dbQueryAll(dbId,mode==='all'?{}:{filter:noteRecentFilter()});
-  notes=rows.map(p=>{
-    const props=p.properties||{};
-    return {
-      id:p.id,
-      url:p.url||'',
-      title:getTitle(props,'標題')||'未命名記事',
-      date:props['日期']?.date?.start||'',
-      time:getRichText(props,'時間'),
-      type:props['類型']?.select?.name||'一般',
-      status:props['狀態']?.select?.name||'未處理',
-      body:getRichText(props,'內容'),
-      owner:getRichText(props,'負責人'),
-      priority:props['重要程度']?.select?.name||'',
-      remindDate:props['提醒日']?.date?.start||'',
-      tags:(props['標籤']?.multi_select||[]).map(x=>x.name).filter(Boolean),
-      completedAt:props['完成時間']?.date?.start||'',
-      files:(props['附件']?.files||[]),
-      customerCode:getRichText(props,'客戶編號'),
-      linkedCustomer:getRichText(props,'關聯客戶'),
-      linkedOrder:getRichText(props,'關聯訂單'),
-      linkedMaterial:getRichText(props,'關聯料號'),
-      customerNotesPageId:getRichText(props,'客戶記事頁ID'),
-      eventPageId:getRichText(props,'事件頁ID'),
-      backendUrl:props['後台連結']?.url||'',
-      author:getRichText(props,'建立者')||'',
-      authorRole:props['建立者角色']?.select?.name||'',
-      targetRoles:(props['指定角色']?.multi_select||[]).map(x=>x.name),
-      needAck:!!props['需要確認']?.checkbox,
-      ackRoles:getRichText(props,'已確認角色'),
-      replyAction:props['回覆動作']?.select?.name||'',
-      replies:getRichText(props,'回覆紀錄'),
-      lastReply:getRichText(props,'最後回覆'),
-      lastReplyBy:getRichText(props,'最後回覆者'),
-      lastReplyAt:props['最後回覆時間']?.date?.start||'',
-      createdAt:props['建立時間']?.date?.start||p.created_time||''
-    };
-  }).sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
+  notes=rows.map(mapNotionNotePage)
+    .sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
   _notesLoaded=true;
   markDataLoadMode('notes',mode,notes.length);
   schedulePendingNoteNotification();
+  scheduleNotesShadowSync(notes,dbId);
   return notes;
 }
 
@@ -10496,9 +10704,28 @@ function noteTargetedToCurrentRole(n){
   return !targets.length||targets.includes('全部')||targets.includes(role);
 }
 function noteAckedRoles(n){return noteSplitList(n.ackRoles||'');}
+function notePendingRoles(n){return noteSplitList(n.pendingRoles||'');}
+function noteExpandedTargetRoles(targets=[]){
+  const selected=Array.isArray(targets)?targets.filter(Boolean):[];
+  if(selected.includes('全部')) return NOTE_TARGET_ROLES.filter(r=>r!=='全部');
+  return [...new Set(selected.filter(r=>r!=='全部'))];
+}
+function noteAudienceRoles(n){
+  const targets=n.targetRoles||[];
+  const roles=targets.length?noteExpandedTargetRoles(targets):(n.needAck?NOTE_TARGET_ROLES.filter(r=>r!=='全部'):[]);
+  const author=n.authorRole||n.author||'';
+  if(author&&author!=='全部') roles.push(author);
+  return [...new Set(roles.filter(Boolean))];
+}
+function notePendingLabel(n){
+  return n.lastReplyAt&&n.lastReplyBy&&n.lastReplyBy!==loginRoleLabel()?'有更新':'待確認';
+}
 function noteNeedsRoleAck(n){
-  if(!n.needAck||noteIsDone(n)) return false;
+  if(noteIsDone(n)) return false;
   const role=loginRoleLabel();
+  const pending=notePendingRoles(n);
+  if(pending.length) return pending.includes(role);
+  if(!n.needAck) return false;
   const targeted=noteTargetedToCurrentRole(n);
   const acked=noteAckedRoles(n);
   return targeted&&!acked.includes(role);
@@ -10613,7 +10840,7 @@ function renderNoteList(list,showDate=false){
   if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
   return `<div class="note-list">${list.map(n=>`<div class="note-item" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">
     <div style="min-width:0">
-      <div class="note-item-title">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?'<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">待確認</span>':''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
+      <div class="note-item-title">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?`<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">${notePendingLabel(n)}</span>`:''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
       <div class="note-item-meta">
         ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
         ${n.remindDate?`<span>提醒：${escapeHtml(n.remindDate)}</span>`:''}
@@ -10812,27 +11039,43 @@ async function syncNoteCustomerLinkBack(id,n,syncInfo){
   });
   return true;
 }
+async function loadLiveNoteConversation(id){
+  const page=await notionAPI('GET','pages/'+id);
+  if(!page?.properties||page.object==='error') throw new Error(page?.message||'無法取得最新記事狀態');
+  const props=page.properties;
+  return {
+    ackRoles:getRichText(props,'已確認角色'),
+    pendingRoles:getRichText(props,'待讀角色'),
+    replies:getRichText(props,'回覆紀錄'),
+    lastReplyAt:props['最後回覆時間']?.date?.start||''
+  };
+}
 async function markNoteRead(id){
   const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
   const role=loginRoleLabel();
-  const acked=noteAckedRoles(n);
-  if(acked.includes(role))return false;
-  acked.push(role);
-  const nowIso=new Date().toISOString();
-  const stamp=fmtDateTime(nowIso);
-  const line=`[${stamp} ${role}｜已讀] 已開啟記事`;
-  const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
-  const props={
-    '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
-    '回覆動作':{select:{name:'知道了'}},
-    '回覆紀錄':{rich_text:[{text:{content:replies}}]},
-    '最後回覆':{rich_text:[{text:{content:'已開啟記事'}}]},
-    '最後回覆者':{rich_text:[{text:{content:role}}]},
-    '最後回覆時間':{date:{start:nowIso}}
-  };
   try{
+    const live=await loadLiveNoteConversation(id);
+    const pending=noteSplitList(live.pendingRoles||n.pendingRoles||'');
+    const hadExplicitPending=pending.length>0;
+    if(hadExplicitPending&&!pending.includes(role)) return false;
+    const acked=noteSplitList(live.ackRoles||n.ackRoles||'');
+    if(!acked.includes(role)) acked.push(role);
+    const nextPending=hadExplicitPending?pending.filter(x=>x!==role):[];
+    const nowIso=new Date().toISOString();
+    const stamp=fmtDateTime(nowIso);
+    const line=`[${stamp} ${role}｜已讀] 已開啟記事`;
+    const replies=[live.replies||n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
+    const props={
+      '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
+      '待讀角色':{rich_text:[{text:{content:nextPending.join('、')}}]},
+      '回覆動作':{select:{name:'知道了'}},
+      '回覆紀錄':{rich_text:[{text:{content:replies}}]},
+      '最後回覆':{rich_text:[{text:{content:'已開啟記事'}}]},
+      '最後回覆者':{rich_text:[{text:{content:role}}]},
+      '最後回覆時間':{date:{start:nowIso}}
+    };
     assertNotionPage(await updatePage(id,props),'標記記事已讀');
-    Object.assign(n,{ackRoles:acked.join('、'),replyAction:'知道了',replies,lastReply:'已開啟記事',lastReplyBy:role,lastReplyAt:nowIso});
+    Object.assign(n,{ackRoles:acked.join('、'),pendingRoles:nextPending.join('、'),replyAction:'知道了',replies,lastReply:'已開啟記事',lastReplyBy:role,lastReplyAt:nowIso});
     logUserAction('已讀記事',n.title,'已開啟記事',ROLE);
     return true;
   }catch(e){
@@ -10853,11 +11096,13 @@ async function openNoteDetail(id){
       <br>建立：${escapeHtml(n.authorRole||n.author||'未知')}${n.owner?`　負責：${escapeHtml(n.owner)}`:''}
       ${(n.targetRoles||[]).length?`<br>指定角色：${escapeHtml(n.targetRoles.join('、'))}`:''}
       ${n.ackRoles?`<br>已確認：${escapeHtml(n.ackRoles)}`:''}
+      ${n.pendingRoles?`<br>尚未查看：${escapeHtml(n.pendingRoles)}`:''}
       ${noteRelationSummary(n)?`<br>ERP 關聯：${escapeHtml(noteRelationSummary(n))}`:''}
       ${n.backendUrl?`<br>後台記事：<a href="${escapeHtml(n.backendUrl)}" target="_blank" style="color:var(--cyan2)">開啟 Notion 事件頁</a>`:''}
     </div>
     ${(n.tags||[]).length?`<div class="note-tags" style="margin-bottom:12px">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
     ${n.body?`<div class="note-body" style="font-size:.95rem;margin-bottom:12px">${escapeHtml(n.body)}</div>`:'<div class="note-body" style="margin-bottom:12px;color:var(--text3)">沒有內容</div>'}
+    <div id="note_attachment_list" class="note-body" style="margin-bottom:12px;color:var(--text3)">附件載入中...</div>
     ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
@@ -10867,6 +11112,7 @@ async function openNoteDetail(id){
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
     </div>`;
   openSharedModal();
+  loadNoteAttachments(id,n.files||[]);
   if(wasPending){
     const ok=await markNoteRead(id);
     if(ok&&CURRENT_TAB==='notes') renderTab('notes');
@@ -10918,12 +11164,23 @@ async function submitNote(id=''){
   const linkedMaterial=(document.getElementById('note_linked_material')?.value||'').trim();
   const linkedCustomer=customerCode?(noteFindOverseasCustomerByCode(customerCode)?.name||''):'';
   const targetRoles=noteTargetsForSubmit();
+  const noteFiles=[...(document.getElementById('note_files')?.files||[])];
   const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
+  if(noteFiles.length>5){showToast('附件一次最多 5 個','warn');return;}
+  const oversize=noteFiles.find(f=>f.size>20*1024*1024);
+  if(oversize){showToast(`附件 ${oversize.name} 超過 20MB，請先壓縮或改用雲端連結`,'warn');return;}
   showToast('⏳ 儲存記事中...','warn');
   try{
     const dbId=await ensureNotesDB(true);
     const oldNote=id?notes.find(x=>x.id===id):null;
+    const targetChanged=!!oldNote&&JSON.stringify([...(oldNote.targetRoles||[])].sort())!==JSON.stringify([...targetRoles].sort());
+    let pendingRoles=oldNote?.pendingRoles||'';
+    if(!id||(needAck&&!oldNote?.needAck)||targetChanged){
+      pendingRoles=needAck?noteAudienceRoles({targetRoles,needAck,authorRole:oldNote?.authorRole||loginRoleLabel()}).filter(r=>r!==loginRoleLabel()).join('、'):'';
+    }else if(!needAck||noteIsDone({status})){
+      pendingRoles='';
+    }
     const props={
       '標題':{title:[{text:{content:title}}]},
       '日期':{date:{start:date}},
@@ -10940,7 +11197,8 @@ async function submitNote(id=''){
       '關聯訂單':{rich_text:linkedOrder?[{text:{content:linkedOrder}}]:[]},
       '關聯料號':{rich_text:linkedMaterial?[{text:{content:linkedMaterial}}]:[]},
       '指定角色':{multi_select:targetRoles.map(name=>({name}))},
-      '需要確認':{checkbox:needAck}
+      '需要確認':{checkbox:needAck},
+      '待讀角色':{rich_text:pendingRoles?[{text:{content:pendingRoles}}]:[]}
     };
     if(!priority&&!id) delete props['重要程度'];
     if(!remindDate&&!id) delete props['提醒日'];
@@ -10952,6 +11210,10 @@ async function submitNote(id=''){
       if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
       if(syncInfo.backendUrl) props['後台連結']={url:syncInfo.backendUrl};
       assertNotionPage(await updatePage(id,props),'更新記事');
+      if(noteFiles.length){
+        try{await uploadNoteAttachments(id,noteFiles);}
+        catch(fileErr){showToast('⚠ 記事已更新，但附件上傳失敗：'+fileErr.message,'warn',9000);}
+      }
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
       closeModal();
       showToast('✅ 記事已更新','ok');
@@ -10962,6 +11224,10 @@ async function submitNote(id=''){
       props['已確認角色']={rich_text:[{text:{content:''}}]};
       const created=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
       assertNotionPage(created,'建立記事');
+      if(noteFiles.length){
+        try{await uploadNoteAttachments(created.id,noteFiles);}
+        catch(fileErr){showToast('⚠ 記事已建立，但附件上傳失敗：'+fileErr.message,'warn',9000);}
+      }
       const syncInfo=await syncNoteToCustomerPage(created.id,{title,date,time,type,status,body,owner,priority,remindDate,tags,customerCode,linkedCustomer,linkedOrder,linkedMaterial,targetRoles,authorRole:loginRoleLabel()},'建立');
       if(syncInfo.customerNotesPageId||syncInfo.eventPageId||syncInfo.backendUrl){
         const linkProps={};
@@ -11004,29 +11270,33 @@ async function submitNoteReply(id,quickAction=''){
   const comment=(document.getElementById('note_reply_text')?.value||'').trim();
   if(!action&&!comment){showToast('請輸入回覆內容或選擇動作','warn');return;}
   saveNoteReplyOption(action);
-  const acked=String(n.ackRoles||'').split(/[,\s、]+/).filter(Boolean);
-  if(!acked.includes(role)) acked.push(role);
-  const stamp=fmtDateTime(new Date().toISOString());
-  const line=`[${stamp} ${role}｜${action||'回覆'}]${comment?' '+comment:''}`;
-  const replies=[n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
   let nextStatus=n.status||'未處理';
   if(action==='接受處理') nextStatus='已接受';
   else if(action==='拒絕/退回') nextStatus='待回覆';
   else if(comment||(!NOTE_REPLY_DEFAULTS.includes(action)&&action!=='知道了')) nextStatus='待回覆';
-  const props={
-    '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
-    '回覆動作':{select:{name:action||'知道了'}},
-    '回覆紀錄':{rich_text:[{text:{content:replies}}]},
-    '最後回覆':{rich_text:[{text:{content:comment||action}}]},
-    '最後回覆者':{rich_text:[{text:{content:role}}]},
-    '最後回覆時間':{date:{start:new Date().toISOString()}},
-    '狀態':{select:{name:nextStatus}}
-  };
-  if(action==='接受處理'&&!n.owner) props['負責人']={rich_text:[{text:{content:role}}]};
   try{
+    const live=await loadLiveNoteConversation(id);
+    const acked=noteSplitList(live.ackRoles||n.ackRoles||'');
+    if(!acked.includes(role)) acked.push(role);
+    const pending=noteAudienceRoles(n).filter(r=>r!==role);
+    const nowIso=new Date().toISOString();
+    const stamp=fmtDateTime(nowIso);
+    const line=`[${stamp} ${role}｜${action||'回覆'}]${comment?' '+comment:''}`;
+    const replies=[live.replies||n.replies||'',line].filter(Boolean).join('\n').slice(-1800);
+    const props={
+      '已確認角色':{rich_text:[{text:{content:acked.join('、')}}]},
+      '待讀角色':{rich_text:[{text:{content:pending.join('、')}}]},
+      '回覆動作':{select:{name:action||'知道了'}},
+      '回覆紀錄':{rich_text:[{text:{content:replies}}]},
+      '最後回覆':{rich_text:[{text:{content:comment||action}}]},
+      '最後回覆者':{rich_text:[{text:{content:role}}]},
+      '最後回覆時間':{date:{start:nowIso}},
+      '狀態':{select:{name:nextStatus}}
+    };
+    if(action==='接受處理'&&!n.owner) props['負責人']={rich_text:[{text:{content:role}}]};
     assertNotionPage(await updatePage(id,props),'回覆記事');
     closeModal();
-    Object.assign(n,{ackRoles:acked.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:new Date().toISOString(),status:nextStatus,owner:props['負責人']?role:n.owner});
+    Object.assign(n,{ackRoles:acked.join('、'),pendingRoles:pending.join('、'),replyAction:action,replies,lastReply:comment||action,lastReplyBy:role,lastReplyAt:nowIso,status:nextStatus,owner:props['負責人']?role:n.owner});
     const syncInfo=await syncNoteToCustomerPage(id,n,'回覆');
     if(syncInfo.backendUrl){
       try{ await syncNoteCustomerLinkBack(id,n,syncInfo); }
@@ -11057,10 +11327,11 @@ async function completeNote(id){
       '最後回覆':{rich_text:[{text:{content:'已標記完成'}}]},
       '最後回覆者':{rich_text:[{text:{content:role}}]},
       '最後回覆時間':{date:{start:nowIso}},
-      '完成時間':{date:{start:nowIso}}
+      '完成時間':{date:{start:nowIso}},
+      '待讀角色':{rich_text:[]}
     };
     assertNotionPage(await updatePage(id,props),'完成記事');
-    Object.assign(n,{status:'完成',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:nowIso,completedAt:nowIso});
+    Object.assign(n,{status:'完成',pendingRoles:'',replyAction:'知道了',replies,lastReply:'已標記完成',lastReplyBy:role,lastReplyAt:nowIso,completedAt:nowIso});
     const syncInfo=await syncNoteToCustomerPage(id,n,'完成');
     if(syncInfo.backendUrl){
       try{ await syncNoteCustomerLinkBack(id,n,syncInfo); }
@@ -11096,7 +11367,7 @@ function showPendingNoteNotifications(force=false){
   if(!notes?.length)return;
   const pending=notes.filter(noteNeedsMyAction).filter(n=>!n.date||n.date>=noteIsoDate()).sort((a,b)=>notePriorityRank(a)-notePriorityRank(b)||`${a.remindDate||a.date||'9999'} ${a.time||''}`.localeCompare(`${b.remindDate||b.date||'9999'} ${b.time||''}`)).slice(0,5);
   if(!pending.length)return;
-  const key=pending.map(n=>`${n.id}:${n.status}:${n.ackRoles||''}:${n.lastReplyAt||''}`).join('|');
+  const key=pending.map(n=>`${n.id}:${n.status}:${n.pendingRoles||''}:${n.lastReplyAt||''}`).join('|');
   if(!force&&_notesNotifyShown&&key===_notesNotifyKey)return;
   const modalBg=document.getElementById('modalBg');
   if(modalBg?.classList.contains('open')&&!force)return;
@@ -11107,8 +11378,8 @@ function showPendingNoteNotifications(force=false){
     try{new Notification('LEMATEC ERP 記事提醒',{body:`${loginRoleLabel()} 有 ${pending.length} 筆記事需要確認`});}catch{}
   }
   const mi=document.getElementById('modalInner');
-  mi.innerHTML=`<h3>🔔 你有需要確認的記事</h3>
-    <div class="info-box info-tip">這些事項指定給「${escapeHtml(loginRoleLabel())}」知道。可直接按知道了、接受、拒絕，或打開記事補充留言。</div>
+  mi.innerHTML=`<h3>🔔 你有記事更新或待確認</h3>
+    <div class="info-box info-tip">這些事項與「${escapeHtml(loginRoleLabel())}」有關。打開記事後會標記自己已讀，也可直接回覆或接受處理。</div>
     ${renderNoteList(pending,true)}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">稍後</button><button class="btn btn-blue" onclick="switchTab('notes');closeModal()">打開記事</button></div>`;
   openSharedModal();

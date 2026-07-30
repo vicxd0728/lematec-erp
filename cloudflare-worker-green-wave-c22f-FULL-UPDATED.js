@@ -83,6 +83,15 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/stock-log/mark-notion') {
       return erpStockLogMarkNotion(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/notes/shadow/sync') {
+      return erpNotesShadowSync(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/notes/shadow/list') {
+      return erpNotesShadowList(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/notes/shadow/summary') {
+      return erpNotesShadowSummary(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/enqueue') {
       return erpMirrorJobEnqueue(request, env, cors);
     }
@@ -2271,6 +2280,165 @@ async function erpStockLogMarkNotion(request, env, cors) {
     const saved = Array.isArray(data) ? data[0] : data;
     if (!saved?.id) throw new Error('Supabase stock log mark did not return a saved row');
     return respOK(cors, { ok: true, id: saved.id, notion_page_id: saved.notion_page_id });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+function normalizeNotesShadowRow(item, organizationId) {
+  const notionPageId = cleanText(item?.notion_page_id || item?.id || '');
+  if (!notionPageId) throw new Error('Missing note notion_page_id');
+  const list = (value, max = 20) => {
+    const source = Array.isArray(value) ? value : String(value || '').split(/[,\s、，]+/);
+    return [...new Set(source.map(cleanText).filter(Boolean))].slice(0, max);
+  };
+  const text = (value, max = 2000) => cleanText(value || '').slice(0, max);
+  const nullableDate = (value) => {
+    const result = cleanText(value || '');
+    return /^\d{4}-\d{2}-\d{2}/.test(result) ? result : null;
+  };
+  const sourcePayload = item && typeof item === 'object' ? item : {};
+  return {
+    organization_id: organizationId,
+    notion_page_id: notionPageId,
+    title: text(item.title, 300) || '未命名記事',
+    note_date: nullableDate(item.date),
+    note_time: text(item.time, 30),
+    note_type: text(item.type, 40) || '一般',
+    status: text(item.status, 40) || '未處理',
+    body: text(item.body, 5000),
+    owner_role: text(item.owner, 80),
+    priority: text(item.priority, 40),
+    remind_date: nullableDate(item.remindDate),
+    tags: list(item.tags, 30),
+    customer_code: text(item.customerCode, 120),
+    linked_customer: text(item.linkedCustomer, 500),
+    linked_order: text(item.linkedOrder, 500),
+    linked_material: text(item.linkedMaterial, 1000),
+    target_roles: list(item.targetRoles, 20),
+    author_name: text(item.author, 120),
+    author_role: text(item.authorRole, 80),
+    need_ack: Boolean(item.needAck),
+    ack_roles: list(item.ackRoles, 20),
+    pending_roles: list(item.pendingRoles, 20),
+    reply_action: text(item.replyAction, 120),
+    replies: text(item.replies, 10000),
+    reply_count: Math.max(0, Number(item.replyCount) || 0),
+    last_reply: text(item.lastReply, 2000),
+    last_reply_by: text(item.lastReplyBy, 120),
+    last_reply_at: nullableDate(item.lastReplyAt),
+    completed_at: nullableDate(item.completedAt),
+    customer_notes_page_id: text(item.customerNotesPageId, 120),
+    event_page_id: text(item.eventPageId, 120),
+    backend_url: text(item.backendUrl || item.url, 2000),
+    attachment_count: Math.max(0, Number(item.attachmentCount) || 0),
+    notion_created_at: nullableDate(item.createdAt),
+    notion_last_edited_at: nullableDate(item.lastEditedAt),
+    source_payload: sourcePayload,
+    payload_hash: '',
+    shadow_synced_at: taipeiISOString(),
+    updated_at: taipeiISOString(),
+  };
+}
+
+async function erpNotesShadowSync(request, env, cors) {
+  try {
+    const body = await request.json();
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (!items.length) return resp400(cors, 'Missing notes shadow items');
+    if (items.length > 500) return resp400(cors, 'Notes shadow batch exceeds 500 rows');
+    const {organization} = await getSupabaseInventoryContext(env);
+    const rows = [];
+    for (const item of items) {
+      const row = normalizeNotesShadowRow(item, organization.id);
+      row.payload_hash = await sha256Short(JSON.stringify(row.source_payload));
+      rows.push(row);
+    }
+    let savedCount = 0;
+    for (const chunk of chunkRows(rows, 100)) {
+      const saved = await supabaseFetch(
+        env,
+        '/rest/v1/erp_notes_shadow?on_conflict=organization_id,notion_page_id&select=id,notion_page_id',
+        {
+          method: 'POST',
+          headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+          body: JSON.stringify(chunk),
+        }
+      );
+      savedCount += Array.isArray(saved) ? saved.length : 0;
+    }
+    if (savedCount !== rows.length) {
+      throw new Error(`Notes shadow count mismatch: expected ${rows.length}, saved ${savedCount}`);
+    }
+    return respOK(cors, {
+      ok: true,
+      source: 'notion',
+      target: 'supabase_shadow',
+      received: items.length,
+      saved: savedCount,
+      synced_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpNotesShadowList(request, env, cors) {
+  try {
+    const url = new URL(request.url);
+    const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get('limit') || 500) || 500));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
+    const {organization} = await getSupabaseInventoryContext(env);
+    const fields = [
+      'id','notion_page_id','title','note_date','note_time','note_type','status',
+      'owner_role','priority','remind_date','tags','customer_code','linked_customer',
+      'linked_order','linked_material','target_roles','author_role','need_ack',
+      'ack_roles','pending_roles','reply_count','last_reply','last_reply_by',
+      'last_reply_at','completed_at','attachment_count','notion_created_at',
+      'notion_last_edited_at','shadow_synced_at','updated_at'
+    ].join(',');
+    const rows = await supabaseFetch(
+      env,
+      `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&select=${fields}&order=note_date.desc,last_reply_at.desc&limit=${limit + 1}&offset=${offset}`
+    );
+    const list = Array.isArray(rows) ? rows : [];
+    const hasMore = list.length > limit;
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase_shadow',
+      rows: list.slice(0, limit),
+      has_more: hasMore,
+      next_offset: hasMore ? offset + limit : null,
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpNotesShadowSummary(request, env, cors) {
+  try {
+    const {organization} = await getSupabaseInventoryContext(env);
+    const rows = await supabaseAll(
+      env,
+      `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&select=notion_page_id,note_date,status,pending_roles,reply_count,customer_code,linked_order,linked_material`
+    );
+    const summary = rows.reduce((acc, row) => {
+      acc.total += 1;
+      if (!['完成', '取消', '拒絕'].includes(row.status)) acc.active += 1;
+      if ((row.pending_roles || []).length) acc.pending += 1;
+      if (Number(row.reply_count || 0) > 0) acc.with_replies += 1;
+      if (row.customer_code) acc.with_customer += 1;
+      if (row.linked_order) acc.with_order += 1;
+      if (row.linked_material) acc.with_material += 1;
+      if (row.note_date) acc.dated += 1;
+      return acc;
+    }, {total: 0, active: 0, pending: 0, with_replies: 0, with_customer: 0, with_order: 0, with_material: 0, dated: 0});
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase_shadow',
+      summary,
+      checked_at: taipeiISOString(),
+    });
   } catch (e) {
     return resp500(cors, e.message);
   }
