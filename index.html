@@ -11573,7 +11573,8 @@ function queueNoteNotionMirror(n,action='upsert',error=''){
   return task;
 }
 let _notesNotionMirrorFlushing=false;
-async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles={}}={}){
+const _notesNotionPendingFiles={};
+async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
   if(_notesNotionMirrorFlushing||!TOKEN||!navigator.onLine)return {processed:0,pending:readNotesNotionMirrorQueue().length};
   _notesNotionMirrorFlushing=true;
   const queue=readNotesNotionMirrorQueue();
@@ -11602,7 +11603,7 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles={}}={}){
             n.actualNotionPageId=notionId;
             n.url=created.url||n.url;
           }
-          const files=volatileFiles[task.noteKey]||[];
+          const files=(volatileFiles||_notesNotionPendingFiles)[task.noteKey]||[];
           if(files.length){
             const result=await uploadNoteAttachments(notionId,files);
             n.attachmentCount=Number(n.attachmentCount||0)+result.uploaded.length;
@@ -11622,6 +11623,7 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles={}}={}){
           n.notionSyncStatus='synced';
           n.notionSyncError='';
           await writeNotePrimary(n,{notionSyncStatus:'synced'});
+          delete _notesNotionPendingFiles[task.noteKey];
         }
         await completeReliableMirrorJob('notes_notion',task);
         processed++;
@@ -11820,15 +11822,14 @@ async function submitNotePrimary(id=''){
     Object.assign(n,saved,{id:noteKey,actualNotionPageId:saved.actualNotionPageId||old?.actualNotionPageId||''});
     const pos=notes.findIndex(row=>row.id===noteKey);
     if(pos>=0)notes[pos]=n;else notes.push(n);
+    if(uploadableFiles.length)_notesNotionPendingFiles[noteKey]=uploadableFiles;
     queueNoteNotionMirror(n,'upsert');
     closeModal();
     renderTab('notes');
     logUserAction(old?'編輯記事':'新增記事',title,`${date} ${time}`,ROLE);
     showToast(`✅ 記事已${old?'更新':'建立'}；Notion 將於背景同步`,'ok');
     if(uploadableFiles.length){
-      setTimeout(()=>flushNotesNotionMirrorQueue({
-        quiet:true,volatileFiles:{[noteKey]:uploadableFiles}
-      }).then(result=>{
+      setTimeout(()=>flushNotesNotionMirrorQueue({quiet:true}).then(result=>{
         if(!result.pending)showToast(`✅ ${uploadableFiles.length} 個記事附件已同步`,'ok');
       }).catch(e=>showToast('⚠ 記事已儲存，但附件待重試：'+e.message,'warn',8000)),50);
     }
