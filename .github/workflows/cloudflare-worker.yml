@@ -34,6 +34,9 @@ jobs:
           npx wrangler@latest deploy --config wrangler.green-wave.jsonc
           if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             printf "%s" "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler@latest secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.green-wave.jsonc
+          elif npx wrangler@latest secret list --config wrangler.green-wave.jsonc | grep -q '"name": "SUPABASE_SERVICE_ROLE_KEY"'; then
+            echo "Cloudflare Worker already has SUPABASE_SERVICE_ROLE_KEY."
           else
-            echo "::warning::Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY; stock log Worker write routes will not work."
+            echo "::error::SUPABASE_SERVICE_ROLE_KEY is missing from both GitHub and the Cloudflare Worker."
+            exit 1
           fi
