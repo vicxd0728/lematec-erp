@@ -49,6 +49,13 @@ class NotesShadowContractTest(unittest.TestCase):
         self.assertIn("const rows=page.rows||[]", self.index)
         self.assertIn("Authorization:`Bearer ${TOKEN}`", self.index)
 
+    def test_attachment_count_is_audited_end_to_end(self):
+        self.assertIn("need('附件數',{number:{}})", self.index)
+        self.assertIn("async function countNoteAttachmentBlocks(pageId)", self.index)
+        self.assertIn("'附件數':{number:attachmentCount}", self.index)
+        self.assertIn("attachmentCount:Number(n.attachmentCount||0)", self.index)
+        self.assertIn("Number(s.attachment_count||0)", self.index)
+
     def test_mobile_note_modal_avoids_inventory_work_and_keeps_native_scroll(self):
         self.assertNotIn("const prods=mats.filter(m=>m.type==='成品')", self.index)
         self.assertNotIn("const parts=mats.filter(m=>m.type!=='成品')", self.index)

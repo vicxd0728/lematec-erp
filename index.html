@@ -10109,6 +10109,18 @@ async function loadNoteAttachments(pageId,legacyFiles=[]){
     box.innerHTML=`<span style="color:var(--red)">附件讀取失敗：${escapeHtml(e.message||String(e))}</span>`;
   }
 }
+async function countNoteAttachmentBlocks(pageId){
+  let count=0;
+  let cursor='';
+  do{
+    const suffix=`?page_size=100${cursor?`&start_cursor=${encodeURIComponent(cursor)}`:''}`;
+    const result=await notionAPI2026('GET',`blocks/${pageId}/children${suffix}`);
+    if(result?.object==='error')throw new Error(result.message||'附件數讀取失敗');
+    count+=(result?.results||[]).filter(block=>['image','video','audio','pdf','file'].includes(block.type)).length;
+    cursor=result?.has_more?result.next_cursor:'';
+  }while(cursor);
+  return count;
+}
 async function uploadNoteAttachments(pageId,files=[]){
   const outcome={uploaded:[],failed:[]};
   if(!pageId||!files.length)return outcome;
@@ -10137,6 +10149,9 @@ async function uploadNoteAttachments(pageId,files=[]){
     try{
       const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
       if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
+      const attachmentCount=await countNoteAttachmentBlocks(pageId);
+      const countResult=await updatePage(pageId,{'附件數':{number:attachmentCount}});
+      if(countResult?.object==='error')throw new Error(countResult.message||'附件數更新失敗');
     }catch(error){
       const message=error?.message||String(error);
       outcome.failed.push(...outcome.uploaded.map(file=>({...file,error:message})));
@@ -10198,6 +10213,7 @@ async function ensureNotesDBFields(dbId,props={}){
   need('標籤',{multi_select:{options:noteTagOptions()}});
   need('完成時間',{date:{}});
   need('附件',{files:{}});
+  need('附件數',{number:{}});
   need('客戶編號',{rich_text:{}});
   need('關聯客戶',{rich_text:{}});
   need('關聯訂單',{rich_text:{}});
@@ -10374,6 +10390,7 @@ async function ensureNotesDB(force=false){
       '標籤':{multi_select:{options:noteTagOptions()}},
       '完成時間':{date:{}},
       '附件':{files:{}},
+      '附件數':{number:{}},
       '客戶編號':{rich_text:{}},
       '關聯客戶':{rich_text:{}},
       '關聯訂單':{rich_text:{}},
@@ -10418,6 +10435,7 @@ function mapNotionNotePage(p){
     tags:(props['標籤']?.multi_select||[]).map(x=>x.name).filter(Boolean),
     completedAt:props['完成時間']?.date?.start||'',
     files:(props['附件']?.files||[]),
+    attachmentCount:props['附件數']?.number??(props['附件']?.files||[]).length,
     customerCode:getRichText(props,'客戶編號'),
     linkedCustomer:getRichText(props,'關聯客戶'),
     linkedOrder:getRichText(props,'關聯訂單'),
@@ -10451,7 +10469,7 @@ function noteShadowPayload(n){
     replyAction:n.replyAction, replies:n.replies, replyCount, lastReply:n.lastReply,
     lastReplyBy:n.lastReplyBy, lastReplyAt:n.lastReplyAt, completedAt:n.completedAt,
     customerNotesPageId:n.customerNotesPageId, eventPageId:n.eventPageId,
-    backendUrl:n.backendUrl, attachments:(n.files||[]), createdAt:n.createdAt
+    backendUrl:n.backendUrl, attachments:(n.files||[]), attachmentCount:Number(n.attachmentCount||0), createdAt:n.createdAt
   };
 }
 async function notesShadowRequest(path,options={}){
@@ -10486,7 +10504,8 @@ function compareNotesShadow(sourceNotes,shadowRows){
       ['title',n.title,s.title],['status',n.status,s.status],['date',n.noteDate,s.note_date],
       ['pending',n.pendingRoles.join('、'),[].concat(s.pending_roles||[]).join('、')],
       ['replies',n.replyCount,Number(s.reply_count||0)],['customer',n.customerCode,s.customer_code],
-      ['order',n.linkedOrder,s.linked_order],['material',n.linkedMaterial,s.linked_material]
+      ['order',n.linkedOrder,s.linked_order],['material',n.linkedMaterial,s.linked_material],
+      ['attachments',Number(n.attachmentCount||0),Number(s.attachment_count||0)]
     ];
     checks.forEach(([field,a,b])=>{if(String(a||'')!==String(b||''))mismatch.push({id,field,notion:a,supabase:b});});
   });
