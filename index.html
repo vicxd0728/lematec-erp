@@ -10406,7 +10406,8 @@ function noteShadowPayload(n){
   };
 }
 async function notesShadowRequest(path,options={}){
-  const res=await fetch(`${PROXY}${path}`,options);
+  const headers={Authorization:`Bearer ${TOKEN}`,...(options.headers||{})};
+  const res=await fetch(`${PROXY}${path}`,{...options,headers});
   const payload=await res.json().catch(()=>({}));
   if(!res.ok||payload?.error)throw new Error(payload?.error||`記事影子資料 HTTP ${res.status}`);
   return payload;
@@ -10416,7 +10417,7 @@ async function loadAllNotesShadowRows(){
   let offset=0;
   while(true){
     const page=await notesShadowRequest(`/api/notes/shadow/list?limit=500&offset=${offset}`);
-    const rows=page.items||[];
+    const rows=page.rows||[];
     all.push(...rows);
     if(rows.length<500)break;
     offset+=rows.length;

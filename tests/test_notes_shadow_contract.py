@@ -37,6 +37,14 @@ class NotesShadowContractTest(unittest.TestCase):
             self.assertIn(route, self.worker)
         self.assertIn("on_conflict=organization_id,notion_page_id", self.worker)
         self.assertIn("items.length > 500", self.worker)
+        self.assertIn(
+            "if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);",
+            self.worker,
+        )
+
+    def test_shadow_requests_use_authenticated_rows_contract(self):
+        self.assertIn("const rows=page.rows||[]", self.index)
+        self.assertIn("Authorization:`Bearer ${TOKEN}`", self.index)
 
     def test_migration_is_scoped_and_idempotent(self):
         self.assertIn("create table if not exists public.erp_notes_shadow", self.migration)

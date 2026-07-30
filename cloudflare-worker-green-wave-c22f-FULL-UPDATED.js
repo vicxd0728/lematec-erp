@@ -2343,6 +2343,7 @@ function normalizeNotesShadowRow(item, organizationId) {
 
 async function erpNotesShadowSync(request, env, cors) {
   try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const body = await request.json();
     const items = Array.isArray(body?.items) ? body.items : [];
     if (!items.length) return resp400(cors, 'Missing notes shadow items');
@@ -2385,6 +2386,7 @@ async function erpNotesShadowSync(request, env, cors) {
 
 async function erpNotesShadowList(request, env, cors) {
   try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const url = new URL(request.url);
     const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get('limit') || 500) || 500));
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
@@ -2417,6 +2419,7 @@ async function erpNotesShadowList(request, env, cors) {
 
 async function erpNotesShadowSummary(request, env, cors) {
   try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const {organization} = await getSupabaseInventoryContext(env);
     const rows = await supabaseAll(
       env,
