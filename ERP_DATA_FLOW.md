@@ -73,6 +73,31 @@ This section overrides older Supabase inventory notes below if they conflict.
 - The local `lematec_supabase_anon_key` is only for optional health-check diagnostics such as deeper BOM view comparison. It is not required for normal inventory browsing or editing.
 - Do not claim Notion manual edits are fully two-way until a verified Notion-to-Supabase sync job exists.
 
+## Notes primary flow (2026-07-30)
+
+- Primary store: Supabase `erp_notes_shadow`, `erp_note_replies`, and
+  `erp_note_assignments`.
+- Read path: ERP -> Worker -> Supabase. Notion is only an explicit fallback when
+  the primary read is unavailable.
+- Write path: ERP -> `POST /api/notes/write` -> Supabase transaction contract.
+- Mirror path: accepted Supabase mutation -> background Notion mirror. Mirror
+  retries are recorded in browser storage and Supabase `erp_mirror_jobs`.
+- Notion delays do not block Note creation, reply, read, completion, or archive.
+- Attachments remain a Notion-backed mirror operation and can finish after the
+  structured Note data has already committed.
+- Notion manual edits are not the primary write path and must not overwrite a
+  newer Supabase Note automatically.
+
+## Supabase capacity health
+
+- `GET /api/health/supabase-usage` reads the security-definer
+  `erp_resource_usage()` RPC using the Worker service role.
+- Exact in-app measures: PostgreSQL database bytes, Storage object metadata
+  bytes, and Storage object count.
+- Warning thresholds: 70 percent warning and 90 percent error.
+- Egress is shown only when an external measurement is available; otherwise the
+  UI directs Vic to the Supabase Dashboard instead of inventing a number.
+
 ## Batch Inventory Adjustment 2026-07-29
 
 - Entry: Inventory page > `批量調整`.

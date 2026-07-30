@@ -58,6 +58,21 @@
   and `python scripts/verify_erp_static.py`.
 - Runbook: `supabase/NOTES_SHADOW_RUNBOOK.md`.
 
+## Notes Supabase-primary cutover 2026-07-30
+
+- Migration applied: `supabase/migrations/20260730_013_notes_primary_usage.sql`.
+- Structured Note mutations now commit through Worker
+  `POST /api/notes/write` before any Notion work.
+- Notion is a background mirror with local and Supabase reliability queues.
+- Normalized tables: `erp_note_replies` and `erp_note_assignments`.
+- Mirror state fields on `erp_notes_shadow`: `actual_notion_page_id`,
+  `notion_sync_status`, `notion_sync_error`, and `notion_synced_at`.
+- Health Check includes Supabase database and Storage usage. Egress remains
+  Dashboard-only unless a measured value is supplied to the Worker.
+- PWA cache version for this release: `lematec-erp-v32`.
+- Required regression command:
+  `python -m unittest tests.test_notes_shadow_contract tests.test_notes_attachment_contract tests.test_reliability_center`.
+
 ## Notes Migration Status 2026-07-30
 
 - Stage 6 is implemented: Notes list reads are Supabase-primary.

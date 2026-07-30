@@ -15,6 +15,9 @@ class NotesShadowContractTest(unittest.TestCase):
         cls.migration = (
             ROOT / "supabase/migrations/20260730_012_notes_shadow.sql"
         ).read_text(encoding="utf-8")
+        cls.primary_migration = (
+            ROOT / "supabase/migrations/20260730_013_notes_primary_usage.sql"
+        ).read_text(encoding="utf-8")
 
     def test_frontend_reads_supabase_first_with_notion_fallback(self):
         self.assertIn("const rows=await loadAllNotesShadowRows()", self.index)
@@ -129,6 +132,59 @@ class NotesShadowContractTest(unittest.TestCase):
             "grant select, insert, update, delete on table public.erp_notes_shadow to service_role",
             self.migration,
         )
+
+    def test_notes_mutations_are_supabase_first(self):
+        for marker in (
+            "async function submitNotePrimary",
+            "async function submitNoteReplyPrimary",
+            "async function markNoteReadPrimary",
+            "return submitNotePrimary(id)",
+            "return submitNoteReplyPrimary(id,quickAction)",
+            "return markNoteReadPrimary(id)",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.index)
+        self.assertIn("/api/notes/write", self.index)
+        self.assertIn("/api/notes/write", self.worker)
+        self.assertIn("async function erpNotesPrimaryWrite", self.worker)
+
+    def test_notion_is_a_non_blocking_background_mirror(self):
+        for marker in (
+            "NOTES_NOTION_MIRROR_QUEUE_STORAGE",
+            "function queueNoteNotionMirror",
+            "async function flushNotesNotionMirrorQueue",
+            "setTimeout(()=>flushNotesNotionMirrorQueue",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.index)
+        self.assertIn("actualNotionPageId", self.index)
+        self.assertIn("notionSyncStatus", self.index)
+
+    def test_primary_migration_contains_normalized_note_structures(self):
+        for marker in (
+            "create table if not exists public.erp_note_replies",
+            "create table if not exists public.erp_note_assignments",
+            "actual_notion_page_id",
+            "notion_sync_status",
+            "create or replace function public.erp_resource_usage",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.primary_migration)
+
+    def test_health_check_reports_supabase_usage(self):
+        for marker in (
+            "/api/health/supabase-usage",
+            "async function erpSupabaseUsage",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.worker)
+        for marker in (
+            "function renderSupabaseUsageHealth",
+            "async function loadSupabaseUsage",
+            "function usageLevel",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.index)
 
 
 if __name__ == "__main__":

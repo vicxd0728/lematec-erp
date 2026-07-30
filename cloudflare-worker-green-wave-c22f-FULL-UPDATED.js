@@ -95,6 +95,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/notes/shadow/delete') {
       return erpNotesShadowDelete(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/notes/write') {
+      return erpNotesPrimaryWrite(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/health/supabase-usage') {
+      return erpSupabaseUsage(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/enqueue') {
       return erpMirrorJobEnqueue(request, env, cors);
     }
@@ -2355,6 +2361,7 @@ function normalizeNotesShadowRow(item, organizationId) {
   return {
     organization_id: organizationId,
     notion_page_id: notionPageId,
+    actual_notion_page_id: text(item.actual_notion_page_id || item.actualNotionPageId, 120) || null,
     title: text(item.title, 300) || '未命名記事',
     note_date: nullableDate(item.note_date || item.noteDate || item.date),
     note_time: text(item.note_time || item.noteTime || item.time, 30),
@@ -2395,6 +2402,10 @@ function normalizeNotesShadowRow(item, organizationId) {
     source_payload: sourcePayload,
     payload_hash: '',
     shadow_synced_at: taipeiISOString(),
+    notion_sync_status: text(item.notion_sync_status || item.notionSyncStatus, 30) || 'synced',
+    notion_sync_error: text(item.notion_sync_error || item.notionSyncError, 2000) || null,
+    notion_synced_at: nullableDate(item.notion_synced_at || item.notionSyncedAt),
+    archived_at: nullableDate(item.archived_at || item.archivedAt),
     updated_at: taipeiISOString(),
   };
 }
@@ -2450,17 +2461,17 @@ async function erpNotesShadowList(request, env, cors) {
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
     const {organization} = await getSupabaseInventoryContext(env);
     const fields = [
-      'id','notion_page_id','title','note_date','note_time','note_type','status',
+      'id','notion_page_id','actual_notion_page_id','title','note_date','note_time','note_type','status',
       'body','owner_role','priority','remind_date','tags','customer_code','linked_customer',
       'linked_order','linked_material','target_roles','author_name','author_role','need_ack',
       'ack_roles','pending_roles','reply_action','replies','reply_count','last_reply',
       'last_reply_by','last_reply_at','completed_at','customer_notes_page_id','event_page_id',
       'backend_url','attachment_count','notion_created_at','notion_last_edited_at',
-      'shadow_synced_at','updated_at'
+      'shadow_synced_at','notion_sync_status','notion_sync_error','notion_synced_at','archived_at','updated_at'
     ].join(',');
     const rows = await supabaseFetch(
       env,
-      `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&select=${fields}&order=note_date.desc,last_reply_at.desc&limit=${limit + 1}&offset=${offset}`
+      `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&archived_at=is.null&select=${fields}&order=note_date.desc,last_reply_at.desc&limit=${limit + 1}&offset=${offset}`
     );
     const list = Array.isArray(rows) ? rows : [];
     const hasMore = list.length > limit;
@@ -2518,6 +2529,140 @@ async function erpNotesShadowSummary(request, env, cors) {
       source: 'supabase_shadow',
       summary,
       checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpNotesPrimaryWrite(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const operation = cleanText(body?.operation || 'upsert').toLowerCase();
+    const item = body?.item && typeof body.item === 'object' ? body.item : {};
+    const noteKey = cleanText(
+      body?.note_key || body?.noteKey || item?.notion_page_id || item?.notionPageId || item?.id || ''
+    );
+    if (!noteKey) return resp400(cors, 'Missing note key');
+    const {organization} = await getSupabaseInventoryContext(env);
+    const now = taipeiISOString();
+
+    if (operation === 'archive') {
+      const saved = await supabaseFetch(
+        env,
+        `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&notion_page_id=eq.${encodeURIComponent(noteKey)}&select=id,notion_page_id,archived_at`,
+        {
+          method: 'PATCH',
+          headers: {Prefer: 'return=representation'},
+          body: JSON.stringify({
+            archived_at: now,
+            notion_sync_status: 'pending',
+            notion_sync_error: null,
+            updated_at: now,
+          }),
+        }
+      );
+      return respOK(cors, {ok: true, operation, note_key: noteKey, row: Array.isArray(saved) ? saved[0] : saved});
+    }
+
+    const row = normalizeNotesShadowRow({...item, notionPageId: noteKey}, organization.id);
+    row.notion_sync_status = cleanText(body?.notion_sync_status || item?.notionSyncStatus || 'pending') || 'pending';
+    row.notion_sync_error = null;
+    row.archived_at = null;
+    row.payload_hash = await sha256Short(JSON.stringify(row.source_payload));
+    const savedRows = await supabaseFetch(
+      env,
+      '/rest/v1/erp_notes_shadow?on_conflict=organization_id,notion_page_id&select=*',
+      {
+        method: 'POST',
+        headers: {Prefer: 'resolution=merge-duplicates,return=representation'},
+        body: JSON.stringify(row),
+      }
+    );
+    const saved = Array.isArray(savedRows) ? savedRows[0] : savedRows;
+    if (!saved?.id) throw new Error('Supabase note write did not return a saved row');
+
+    const event = body?.event && typeof body.event === 'object' ? body.event : null;
+    if (event) {
+      await supabaseFetch(env, '/rest/v1/erp_note_replies', {
+        method: 'POST',
+        headers: {Prefer: 'return=minimal'},
+        body: JSON.stringify({
+          organization_id: organization.id,
+          note_key: noteKey,
+          actor_role: cleanText(event.actor_role || event.actorRole || ''),
+          action: cleanText(event.action || operation),
+          comment: cleanText(event.comment || ''),
+          created_at: event.created_at || event.createdAt || now,
+        }),
+      });
+    }
+
+    await supabaseFetch(
+      env,
+      `/rest/v1/erp_note_assignments?organization_id=eq.${encodeURIComponent(organization.id)}&note_key=eq.${encodeURIComponent(noteKey)}`,
+      {method: 'DELETE', headers: {Prefer: 'return=minimal'}}
+    );
+    const targetRoles = Array.isArray(saved.target_roles) ? saved.target_roles : [];
+    if (targetRoles.length) {
+      const ack = new Set(Array.isArray(saved.ack_roles) ? saved.ack_roles : []);
+      const pending = new Set(Array.isArray(saved.pending_roles) ? saved.pending_roles : []);
+      await supabaseFetch(env, '/rest/v1/erp_note_assignments', {
+        method: 'POST',
+        headers: {Prefer: 'return=minimal'},
+        body: JSON.stringify(targetRoles.map(role => ({
+          organization_id: organization.id,
+          note_key: noteKey,
+          role_name: role,
+          status: pending.has(role) ? 'pending' : ack.has(role) ? 'read' : 'assigned',
+          seen_at: ack.has(role) ? now : null,
+          acknowledged_at: ack.has(role) ? now : null,
+          updated_at: now,
+        }))),
+      });
+    }
+
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase_primary',
+      operation,
+      note_key: noteKey,
+      row: saved,
+      saved_at: now,
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpSupabaseUsage(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const rows = await supabaseFetch(env, '/rest/v1/rpc/erp_resource_usage', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    const usage = Array.isArray(rows) ? rows[0] : rows;
+    if (!usage) throw new Error('Supabase usage RPC returned no data');
+    const limits = {
+      database_bytes: 500 * 1024 * 1024,
+      storage_bytes: 1024 * 1024 * 1024,
+      egress_bytes: 5 * 1024 * 1024 * 1024,
+    };
+    const egressValue = Number(env.SUPABASE_EGRESS_USED_BYTES || 0);
+    return respOK(cors, {
+      ok: true,
+      plan: 'free',
+      usage: {
+        database_bytes: Number(usage.database_bytes || 0),
+        storage_bytes: Number(usage.storage_bytes || 0),
+        storage_objects: Number(usage.storage_objects || 0),
+        egress_bytes: egressValue > 0 ? egressValue : null,
+      },
+      limits,
+      egress_source: egressValue > 0 ? 'worker_env' : 'supabase_dashboard_required',
+      measured_at: usage.measured_at || taipeiISOString(),
     });
   } catch (e) {
     return resp500(cors, e.message);

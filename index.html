@@ -6924,6 +6924,7 @@ function uniqueTabs(list){return [...new Set((list||[]).filter(Boolean))];}
 function mapNotionMaterialPage(p){
   return {
     id:p.id,
+    actualNotionPageId:p.id,
     notionId:p.id,
     name:getTitle(p.properties,'料件名稱'),
     code:getRichText(p.properties,'料件編號'),
@@ -8378,10 +8379,12 @@ const INVENTORY_READ_SOURCE_STORAGE='lematec_inventory_read_source';
 const INVENTORY_MIRROR_QUEUE_STORAGE='lematec_inventory_mirror_queue_v1';
 const INVENTORY_NOTION_MIRROR_QUEUE_STORAGE='lematec_inventory_notion_mirror_queue_v1';
 const WORKFLOW_NOTION_SYNC_QUEUE_STORAGE='lematec_workflow_notion_sync_queue_v1';
+const NOTES_NOTION_MIRROR_QUEUE_STORAGE='lematec_notes_notion_mirror_queue_v1';
 const STOCK_LOG_PENDING_STORAGE='lematec_stock_log_pending_v1';
-const RELIABILITY_MIRROR_MODULES=new Set(['inventory_supabase','inventory_notion','workflow_notion','bom_notion']);
+const RELIABILITY_MIRROR_MODULES=new Set(['inventory_supabase','inventory_notion','workflow_notion','bom_notion','notes_notion']);
 let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 庫存一致性檢查。'};
 let _reliabilityReport={checked:false,running:false,error:'',data:null};
+let _supabaseUsageReport={checked:false,running:false,error:'',data:null};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -8490,11 +8493,21 @@ function readWorkflowNotionSyncQueue(){
 function writeWorkflowNotionSyncQueue(rows){
   localStorage.setItem(WORKFLOW_NOTION_SYNC_QUEUE_STORAGE,JSON.stringify((Array.isArray(rows)?rows:[]).slice(-300)));
 }
+function readNotesNotionMirrorQueue(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(NOTES_NOTION_MIRROR_QUEUE_STORAGE)||'[]');
+    return Array.isArray(rows)?rows:[];
+  }catch{return [];}
+}
+function writeNotesNotionMirrorQueue(rows){
+  localStorage.setItem(NOTES_NOTION_MIRROR_QUEUE_STORAGE,JSON.stringify((Array.isArray(rows)?rows:[]).slice(-300)));
+}
 function reliableMirrorKey(module,task={}){
   if(module==='inventory_notion')return `inventory_notion:${task.page_id||task.key||''}`;
   if(module==='workflow_notion')return `workflow_notion:${task.page_id||''}`;
   if(module==='bom_notion')return `bom_notion:${task.id||''}`;
   if(module==='inventory_supabase')return `inventory_supabase:${task.id||task.payload?.sku||''}`;
+  if(module==='notes_notion')return `notes_notion:${task.noteKey||task.note?.id||task.id||''}`;
   return `${module}:${task.id||task.key||task.page_id||''}`;
 }
 function reliableMirrorJob(module,task={}){
@@ -8554,6 +8567,7 @@ async function hydrateReliableMirrorJobs(){
   const inventoryNotion=readInventoryNotionMirrorQueue();
   const workflows=readWorkflowNotionSyncQueue();
   const bom=readPendingBomNotionMirrors();
+  const noteMirrors=readNotesNotionMirrorQueue();
   for(const job of jobs){
     const task=job?.payload?.task;
     if(!task)continue;
@@ -8561,11 +8575,13 @@ async function hydrateReliableMirrorJobs(){
     if(job.module==='inventory_notion'&&!inventoryNotion.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))inventoryNotion.push(task);
     if(job.module==='workflow_notion'&&!workflows.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))workflows.push(task);
     if(job.module==='bom_notion'&&!bom.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))bom.push(task);
+    if(job.module==='notes_notion'&&!noteMirrors.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))noteMirrors.push(task);
   }
   writeInventoryMirrorQueue(inventorySupabase);
   writeInventoryNotionMirrorQueue(inventoryNotion);
   writeWorkflowNotionSyncQueue(workflows);
   writePendingBomNotionMirrors(bom);
+  writeNotesNotionMirrorQueue(noteMirrors);
   return jobs.length;
 }
 async function flushReliableMirrorQueues({quiet=false}={}){
@@ -8574,6 +8590,7 @@ async function flushReliableMirrorQueues({quiet=false}={}){
   await flushInventoryNotionMirrorQueue({quiet});
   await flushWorkflowNotionSyncQueue({quiet});
   await flushPendingBomNotionMirrors();
+  await flushNotesNotionMirrorQueue({quiet});
   await loadReliabilitySummary({quiet:true});
 }
 function queueWorkflowNotionSync(pageId,properties,label,error=''){
@@ -9213,6 +9230,7 @@ function localReliabilityQueueCounts(){
     inventory_notion:readInventoryNotionMirrorQueue().length,
     workflow_notion:readWorkflowNotionSyncQueue().length,
     bom_notion:readPendingBomNotionMirrors().length,
+    notes_notion:readNotesNotionMirrorQueue().length,
   };
   counts.total=Object.values(counts).reduce((sum,value)=>sum+Number(value||0),0);
   return counts;
@@ -9233,6 +9251,84 @@ async function loadReliabilitySummary({quiet=false}={}){
   }finally{
     if(CURRENT_TAB==='health')renderTab('health');
   }
+}
+function formatUsageBytes(value){
+  const bytes=Number(value||0);
+  if(!Number.isFinite(bytes)||bytes<0)return '—';
+  const units=['B','KB','MB','GB','TB'];
+  let n=bytes,unit=0;
+  while(n>=1024&&unit<units.length-1){n/=1024;unit++;}
+  return `${n.toFixed(unit===0?0:n>=100?0:n>=10?1:2)} ${units[unit]}`;
+}
+function usageLevel(percent,available=true){
+  if(!available)return 'warn';
+  if(Number(percent)>=90)return 'err';
+  if(Number(percent)>=70)return 'warn';
+  return 'ok';
+}
+async function loadSupabaseUsage({quiet=false}={}){
+  if(!TOKEN)return null;
+  _supabaseUsageReport={..._supabaseUsageReport,running:true,error:''};
+  if(CURRENT_TAB==='health')renderTab('health');
+  try{
+    const data=await reliabilityWorker('/api/health/supabase-usage');
+    _supabaseUsageReport={checked:true,running:false,error:'',data};
+    if(!quiet)showToast('✅ Supabase 用量已更新','ok');
+    return data;
+  }catch(e){
+    _supabaseUsageReport={checked:true,running:false,error:e.message||String(e),data:null};
+    if(!quiet)showToast('⚠ Supabase 用量讀取失敗：'+_supabaseUsageReport.error,'warn');
+    return null;
+  }finally{
+    if(CURRENT_TAB==='health')renderTab('health');
+  }
+}
+function renderSupabaseUsageHealth(){
+  const report=_supabaseUsageReport||{};
+  const data=report.data||{};
+  const resources=data.resources||{};
+  const database=resources.database||{};
+  const storage=resources.storage||{};
+  const egress=resources.egress||{};
+  const measured=data.measured_at?new Date(data.measured_at).toLocaleString('zh-TW',{hour12:false}):'尚未檢查';
+  const levels=[
+    usageLevel(database.percent,database.used_bytes!=null),
+    usageLevel(storage.percent,storage.used_bytes!=null),
+    usageLevel(egress.percent,egress.used_bytes!=null),
+  ];
+  const level=report.error||levels.includes('err')?'err':levels.includes('warn')?'warn':'ok';
+  const label=report.running?'檢查中':report.error?'ERROR':level==='ok'?'OK':level==='err'?'ERROR':'WARN';
+  const card=(title,item,sub,available=true)=>{
+    const itemLevel=usageLevel(item.percent,available);
+    const klass=itemLevel==='err'?'kpi-red':itemLevel==='warn'?'kpi-amber':'kpi-green';
+    return `<div class="kpi-card ${klass}">
+      <div class="kpi-label">${title}</div>
+      <div class="kpi-num" style="font-size:1.35rem">${available?`${Number(item.percent||0).toFixed(1)}%`:'需查 Dashboard'}</div>
+      <div class="kpi-sub">${available?`${formatUsageBytes(item.used_bytes)} / ${formatUsageBytes(item.limit_bytes)}`:sub}</div>
+    </div>`;
+  };
+  return `<div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <span class="panel-title">Supabase 免費額度健康<span class="badge">${escapeHtml(data.plan||'Free')}</span></span>
+      ${healthBadge(level,label)}
+    </div>
+    <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">
+        資料庫與 Storage 由 Supabase 即時計算；達 70% 顯示警示、90% 顯示錯誤。流量用量若平台未提供可讀 API，系統會明確要求到 Supabase Dashboard 查看。
+      </div>
+      ${report.running?'<div class="loading-row"><div class="spin"></div>讀取 Supabase 用量...</div>':`
+      <div class="dash-kpi-grid">
+        ${card('資料庫',database,'',database.used_bytes!=null)}
+        ${card('Storage',storage,'',storage.used_bytes!=null)}
+        ${card('流量',egress,'未快取 5 GB；另有快取流量額度',egress.used_bytes!=null)}
+        <div class="kpi-card kpi-cyan"><div class="kpi-label">Storage 物件</div><div class="kpi-num">${Number(storage.object_count||0).toLocaleString()}</div><div class="kpi-sub">量測 ${measured}</div></div>
+      </div>`}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" onclick="loadSupabaseUsage()">重新檢查</button>
+      </div>
+      ${report.error?`<div style="margin-top:10px;color:var(--red2);font-size:.78rem">${escapeHtml(report.error)}</div>`:''}
+    </div>
+  </div>`;
 }
 function renderReliabilityCenter(){
   const local=localReliabilityQueueCounts();
@@ -9258,7 +9354,7 @@ function renderReliabilityCenter(){
       <div class="dash-kpi-grid">
         <div class="kpi-card ${pending?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器待補同步</div><div class="kpi-num">${pending}</div><div class="kpi-sub">最早 ${oldest}</div></div>
         <div class="kpi-card ${failed?'kpi-red':'kpi-green'}"><div class="kpi-label">重試失敗</div><div class="kpi-num">${failed}</div><div class="kpi-sub">達 5 次需人工處理</div></div>
-        <div class="kpi-card ${local.total?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total}</div><div class="kpi-sub">跨裝置前先上傳佇列</div></div>
+        <div class="kpi-card ${local.total?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total}</div><div class="kpi-sub">記事 ${local.notes_notion||0} / 其他 ${Math.max(0,local.total-(local.notes_notion||0))}</div></div>
         <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">Notion 鏡像缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -9584,12 +9680,20 @@ function renderHealthCheck(){
   const reliabilityJobs=_reliabilityReport?.data?.mirror_jobs||{};
   const reliabilityMissing=_reliabilityReport?.data?.missing_notion_mirrors||{};
   const reliabilityMissingCount=Object.values(reliabilityMissing).reduce((sum,value)=>sum+Number(value||0),0);
-  const errorCount=h.negStock.length+h.badBom.length+h.badOrders.length+h.orderMisusedQcStatus.length+Number(reliabilityJobs.failed||0)+notesRetryFailed;
-  const warnCount=h.dupCodes.length+h.sWithoutBom.length+h.readyNoShip.length+Number(reliabilityJobs.pending||0)+reliabilityMissingCount+localReliabilityQueueCounts().total+Math.max(0,notesRetry.length-notesRetryFailed);
+  const usageResources=_supabaseUsageReport?.data?.resources||{};
+  const usageLevels=[
+    usageLevel(usageResources.database?.percent,usageResources.database?.used_bytes!=null),
+    usageLevel(usageResources.storage?.percent,usageResources.storage?.used_bytes!=null),
+    usageLevel(usageResources.egress?.percent,usageResources.egress?.used_bytes!=null),
+  ];
+  const usageErrors=usageLevels.filter(level=>level==='err').length+(_supabaseUsageReport?.error?1:0);
+  const usageWarnings=usageLevels.filter(level=>level==='warn').length;
+  const errorCount=h.negStock.length+h.badBom.length+h.badOrders.length+h.orderMisusedQcStatus.length+Number(reliabilityJobs.failed||0)+notesRetryFailed+usageErrors;
+  const warnCount=h.dupCodes.length+h.sWithoutBom.length+h.readyNoShip.length+Number(reliabilityJobs.pending||0)+reliabilityMissingCount+localReliabilityQueueCounts().total+Math.max(0,notesRetry.length-notesRetryFailed)+usageWarnings;
   const schemaRows=_healthReport?.schemaRows||[];
   const schemaErr=schemaRows.filter(r=>r.level==='err').length;
   const schemaWarn=schemaRows.filter(r=>r.level==='warn').length;
-  return `<div class="notion-bar" style="margin-bottom:14px"><span style="color:var(--text3)">一鍵檢查 Notion 權限、欄位、選項、BOM、庫存負數</span><button class="btn btn-blue btn-sm" onclick="runHealthCheck(true)">🩺 完整檢查</button><button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步資料</button></div>
+  return `<div class="notion-bar" style="margin-bottom:14px"><span style="color:var(--text3)">一鍵檢查 Supabase 用量、Notion 權限、欄位、BOM 與庫存異常</span><button class="btn btn-blue btn-sm" onclick="runHealthCheck(true)">🩺 完整檢查</button><button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步資料</button></div>
   <div class="dash-kpi-grid">
     <div class="kpi-card ${errorCount+schemaErr?'kpi-red':'kpi-green'}"><div class="kpi-label">錯誤</div><div class="kpi-num">${errorCount+schemaErr}</div><div class="kpi-sub">需立即修正</div></div>
     <div class="kpi-card ${warnCount+schemaWarn?'kpi-amber':'kpi-green'}"><div class="kpi-label">警示</div><div class="kpi-num">${warnCount+schemaWarn}</div><div class="kpi-sub">建議上線前整理</div></div>
@@ -9598,6 +9702,7 @@ function renderHealthCheck(){
   </div>
   ${renderReliabilityCenter()}
   ${renderNotesShadowHealth()}
+  ${renderSupabaseUsageHealth()}
   ${renderSupabaseReadCheck()}
   ${_healthReport?.running?'<div class="loading-row"><div class="spin"></div>檢查 Notion schema 中...</div>':''}
   ${schemaRows.length?`<div class="panel"><div class="panel-hdr"><span class="panel-title">Notion 欄位與選項檢查<span class="badge">${schemaRows.length}</span></span></div><div style="padding:12px">${schemaRows.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)"><div><b>${r.db}</b><div style="font-size:.76rem;color:var(--text3)">${r.msg}</div></div>${healthBadge(r.level,r.level==='ok'?'OK':r.level==='warn'?'WARN':'ERROR')}</div>`).join('')}</div></div>`:''}
@@ -9638,6 +9743,7 @@ async function runHealthCheck(manual=false){
   _healthReport={running:true,schemaRows:_healthReport?.schemaRows||[]}; if(CURRENT_TAB==='health')renderTab('health');
   const reliabilityPromise=loadReliabilitySummary({quiet:true});
   const notesHealthPromise=loadNotesShadowHealth({quiet:true});
+  const supabaseUsagePromise=loadSupabaseUsage({quiet:true});
   const rows=[];
   for(const key of Object.keys(required)){
     try{
@@ -9654,7 +9760,7 @@ async function runHealthCheck(manual=false){
       });
     }catch(e){rows.push({db:key,level:'err',msg:e.message});}
   }
-  await Promise.all([reliabilityPromise,notesHealthPromise]);
+  await Promise.all([reliabilityPromise,notesHealthPromise,supabaseUsagePromise]);
   _healthReport={running:false,schemaRows:rows};
   if(CURRENT_TAB==='health')renderTab('health');
   if(manual)showToast('✅ 健康檢查完成','ok');
@@ -10498,12 +10604,15 @@ function mapNotionNotePage(p){
     lastReply:getRichText(props,'最後回覆'),
     lastReplyBy:getRichText(props,'最後回覆者'),
     lastReplyAt:props['最後回覆時間']?.date?.start||'',
-    createdAt:props['建立時間']?.date?.start||p.created_time||''
+    createdAt:props['建立時間']?.date?.start||p.created_time||'',
+    notionSyncStatus:'synced',
+    notionSyncError:''
   };
 }
 function mapNotesShadowRow(row){
   return {
     id:row.notion_page_id||'',
+    actualNotionPageId:row.actual_notion_page_id||'',
     url:row.backend_url||'',
     title:row.title||'未命名記事',
     date:row.note_date||'',
@@ -10536,13 +10645,15 @@ function mapNotesShadowRow(row){
     lastReply:row.last_reply||'',
     lastReplyBy:row.last_reply_by||'',
     lastReplyAt:row.last_reply_at||'',
-    createdAt:row.notion_created_at||''
+    createdAt:row.notion_created_at||'',
+    notionSyncStatus:row.notion_sync_status||'synced',
+    notionSyncError:row.notion_sync_error||''
   };
 }
 function noteShadowPayload(n){
   const replyCount=String(n.replies||'').split('\n').map(x=>x.trim()).filter(Boolean).length;
   return {
-    notionPageId:n.id, notionUrl:n.url, title:n.title, noteDate:n.date, noteTime:n.time,
+    notionPageId:n.id, actualNotionPageId:n.actualNotionPageId||'', notionUrl:n.url, title:n.title, noteDate:n.date, noteTime:n.time,
     noteType:n.type, status:n.status, body:n.body, owner:n.owner, priority:n.priority,
     remindDate:n.remindDate, tags:n.tags, customerCode:n.customerCode,
     linkedCustomer:n.linkedCustomer, linkedOrder:n.linkedOrder, linkedMaterial:n.linkedMaterial,
@@ -10551,7 +10662,8 @@ function noteShadowPayload(n){
     replyAction:n.replyAction, replies:n.replies, replyCount, lastReply:n.lastReply,
     lastReplyBy:n.lastReplyBy, lastReplyAt:n.lastReplyAt, completedAt:n.completedAt,
     customerNotesPageId:n.customerNotesPageId, eventPageId:n.eventPageId,
-    backendUrl:n.backendUrl, attachments:(n.files||[]), attachmentCount:Number(n.attachmentCount||0), createdAt:n.createdAt
+    backendUrl:n.backendUrl, attachments:(n.files||[]), attachmentCount:Number(n.attachmentCount||0), createdAt:n.createdAt,
+    notionSyncStatus:n.notionSyncStatus||'pending', notionSyncError:n.notionSyncError||''
   };
 }
 function readNotesShadowHealth(){
@@ -11396,18 +11508,177 @@ async function syncNoteCustomerLinkBack(id,n,syncInfo){
   });
   return true;
 }
+function noteNotionProperties(n,{includeCreated=false}={}){
+  const rich=value=>value?[{text:{content:String(value).slice(0,1800)}}]:[];
+  const props={
+    '標題':{title:[{text:{content:n.title||'未命名記事'}}]},
+    '日期':{date:n.date?{start:n.date}:null},
+    '時間':{rich_text:rich(n.time)},
+    '類型':{select:{name:n.type||'一般'}},
+    '狀態':{select:{name:n.status||'未處理'}},
+    '內容':{rich_text:rich(n.body)},
+    '負責人':{rich_text:rich(n.owner)},
+    '重要程度':{select:n.priority?{name:n.priority}:null},
+    '提醒日':{date:n.remindDate?{start:n.remindDate}:null},
+    '標籤':{multi_select:(n.tags||[]).map(name=>({name}))},
+    '客戶編號':{rich_text:rich(n.customerCode)},
+    '關聯客戶':{rich_text:rich(n.linkedCustomer)},
+    '關聯訂單':{rich_text:rich(n.linkedOrder)},
+    '關聯料號':{rich_text:rich(n.linkedMaterial)},
+    '指定角色':{multi_select:(n.targetRoles||[]).map(name=>({name}))},
+    '需要確認':{checkbox:!!n.needAck},
+    '已確認角色':{rich_text:rich(n.ackRoles)},
+    '待讀角色':{rich_text:rich(n.pendingRoles)},
+    '回覆動作':{select:n.replyAction?{name:n.replyAction}:null},
+    '回覆紀錄':{rich_text:rich(n.replies)},
+    '最後回覆':{rich_text:rich(n.lastReply)},
+    '最後回覆者':{rich_text:rich(n.lastReplyBy)},
+    '最後回覆時間':{date:n.lastReplyAt?{start:n.lastReplyAt}:null},
+    '完成時間':{date:n.completedAt?{start:n.completedAt}:null},
+    '客戶記事頁ID':{rich_text:rich(n.customerNotesPageId)},
+    '事件頁ID':{rich_text:rich(n.eventPageId)},
+    '後台連結':{url:n.backendUrl||null},
+    '附件數':{number:Number(n.attachmentCount||0)}
+  };
+  if(includeCreated){
+    props['建立者']={rich_text:rich(n.author||n.authorRole)};
+    props['建立者角色']={select:{name:n.authorRole||n.author||loginRoleLabel()}};
+    props['建立時間']={date:{start:n.createdAt||new Date().toISOString()}};
+  }
+  return props;
+}
+async function writeNotePrimary(n,{operation='upsert',event=null,notionSyncStatus='pending'}={}){
+  const payload=noteShadowPayload({...n,notionSyncStatus});
+  const data=await notesShadowRequest('/api/notes/write',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({operation,noteKey:n.id,item:payload,event,notion_sync_status:notionSyncStatus})
+  });
+  return data?.row?mapNotesShadowRow(data.row):n;
+}
+function queueNoteNotionMirror(n,action='upsert',error=''){
+  const task={
+    noteKey:n.id,
+    action,
+    note:{...n,files:[]},
+    retry_count:0,
+    created_at:new Date().toISOString(),
+    last_error:error||''
+  };
+  const next=readNotesNotionMirrorQueue().filter(row=>row?.noteKey!==n.id);
+  next.push(task);
+  writeNotesNotionMirrorQueue(next);
+  persistReliableMirrorJob('notes_notion',task).catch(e=>console.warn('記事 Notion 鏡像持久化排程失敗:',e));
+  setTimeout(()=>flushNotesNotionMirrorQueue({quiet:true}),350);
+  return task;
+}
+let _notesNotionMirrorFlushing=false;
+async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles={}}={}){
+  if(_notesNotionMirrorFlushing||!TOKEN||!navigator.onLine)return {processed:0,pending:readNotesNotionMirrorQueue().length};
+  _notesNotionMirrorFlushing=true;
+  const queue=readNotesNotionMirrorQueue();
+  const keep=[];
+  let processed=0;
+  try{
+    for(const task of queue){
+      const n=notes.find(row=>row.id===task.noteKey)||task.note;
+      if(!n){await completeReliableMirrorJob('notes_notion',task);continue;}
+      try{
+        if(task.action==='archive'){
+          const notionId=n.actualNotionPageId||task.note?.actualNotionPageId||'';
+          if(notionId)await notionAPI('PATCH','pages/'+notionId,{archived:true});
+        }else{
+          let notionId=n.actualNotionPageId||task.note?.actualNotionPageId||'';
+          if(notionId){
+            assertNotionPage(await updatePage(notionId,noteNotionProperties(n)),'更新記事鏡像');
+          }else{
+            const dbId=await ensureNotesDB(true);
+            const created=await notionAPI('POST','pages',{
+              parent:{database_id:dbId},
+              properties:noteNotionProperties(n,{includeCreated:true})
+            });
+            assertNotionPage(created,'建立記事鏡像');
+            notionId=created.id;
+            n.actualNotionPageId=notionId;
+            n.url=created.url||n.url;
+          }
+          const files=volatileFiles[task.noteKey]||[];
+          if(files.length){
+            const result=await uploadNoteAttachments(notionId,files);
+            n.attachmentCount=Number(n.attachmentCount||0)+result.uploaded.length;
+            if(result.failed.length)throw new Error(result.failed.map(x=>`${x.name}: ${x.error}`).join('；'));
+          }
+          if(n.customerCode){
+            const syncInfo=await syncNoteToCustomerPage(notionId,n,n.backendUrl?'更新':'建立');
+            Object.assign(n,{
+              customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
+              eventPageId:syncInfo.eventPageId||n.eventPageId,
+              backendUrl:syncInfo.backendUrl||n.backendUrl
+            });
+            if(syncInfo.backendUrl){
+              await updatePage(notionId,noteNotionProperties(n));
+            }
+          }
+          n.notionSyncStatus='synced';
+          n.notionSyncError='';
+          await writeNotePrimary(n,{notionSyncStatus:'synced'});
+        }
+        await completeReliableMirrorJob('notes_notion',task);
+        processed++;
+      }catch(e){
+        const failed={...task,retry_count:Number(task.retry_count||0)+1,last_error:e.message||String(e)};
+        keep.push(failed);
+        await failReliableMirrorJob('notes_notion',failed,e);
+        n.notionSyncStatus='failed';
+        n.notionSyncError=e.message||String(e);
+        console.warn('記事 Notion 背景鏡像失敗:',e);
+      }
+    }
+    writeNotesNotionMirrorQueue(keep);
+    if(!quiet)showToast(keep.length?`⚠ ${keep.length} 筆記事待補同步 Notion`:`✅ Notion 記事鏡像完成 ${processed} 筆`,keep.length?'warn':'ok');
+    return {processed,pending:keep.length};
+  }finally{
+    _notesNotionMirrorFlushing=false;
+  }
+}
 async function loadLiveNoteConversation(id){
-  const page=await notionAPI('GET','pages/'+id);
-  if(!page?.properties||page.object==='error') throw new Error(page?.message||'無法取得最新記事狀態');
-  const props=page.properties;
+  const n=notes.find(row=>row.id===id);
+  if(!n)throw new Error('找不到記事');
   return {
-    ackRoles:getRichText(props,'已確認角色'),
-    pendingRoles:getRichText(props,'待讀角色'),
-    replies:getRichText(props,'回覆紀錄'),
-    lastReplyAt:props['最後回覆時間']?.date?.start||''
+    ackRoles:n.ackRoles||'',
+    pendingRoles:n.pendingRoles||'',
+    replies:n.replies||'',
+    lastReplyAt:n.lastReplyAt||''
   };
 }
+async function markNoteReadPrimary(id){
+  const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
+  const role=loginRoleLabel();
+  const pending=noteSplitList(n.pendingRoles||'');
+  if(pending.length&&!pending.includes(role))return false;
+  const acked=noteSplitList(n.ackRoles||'');
+  if(!acked.includes(role))acked.push(role);
+  const nextPending=pending.filter(x=>x!==role);
+  const nowIso=new Date().toISOString();
+  const line=`[${fmtDateTime(nowIso)} ${role}｜已讀] 已開啟記事`;
+  Object.assign(n,{
+    ackRoles:acked.join('、'),pendingRoles:nextPending.join('、'),replyAction:'知道了',
+    replies:[n.replies||'',line].filter(Boolean).join('\n').slice(-1800),
+    lastReply:'已開啟記事',lastReplyBy:role,lastReplyAt:nowIso,notionSyncStatus:'pending'
+  });
+  try{
+    await writeNotePrimary(n,{event:{actorRole:role,action:'已讀',comment:'已開啟記事',createdAt:nowIso}});
+    queueNoteNotionMirror(n,'upsert');
+    logUserAction('已讀記事',n.title,'已開啟記事',ROLE);
+    return true;
+  }catch(e){
+    console.warn('mark note read primary failed:',e);
+    showToast('⚠ 已讀狀態未寫入，請稍後重試','warn');
+    return false;
+  }
+}
 async function markNoteRead(id){
+  return markNoteReadPrimary(id);
   const n=notes.find(x=>x.id===id);if(!n||!noteNeedsRoleAck(n))return false;
   const role=loginRoleLabel();
   try{
@@ -11470,7 +11741,11 @@ async function openNoteDetail(id){
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
     </div>`;
   openSharedModal();
-  loadNoteAttachments(id,n.files||[]);
+  if(n.actualNotionPageId)loadNoteAttachments(n.actualNotionPageId,n.files||[]);
+  else{
+    const attachmentBox=document.getElementById('note_attachment_list');
+    if(attachmentBox)attachmentBox.textContent='Notion 鏡像建立中；附件會在背景同步完成後顯示。';
+  }
   if(wasPending){
     const ok=await markNoteRead(id);
     if(ok&&CURRENT_TAB==='notes') renderTab('notes');
@@ -11479,27 +11754,16 @@ async function openNoteDetail(id){
 async function resyncNoteCustomer(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
   if(!n.customerCode){showToast('此記事沒有客戶編號','warn');return;}
-  showToast('⏳ 同步客戶記事頁...','warn');
-  const syncInfo=await syncNoteToCustomerPage(id,n,n.backendUrl?'更新':'補同步');
-  if(!syncInfo.backendUrl){return;}
-  const props={};
-  if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
-  if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
-  props['後台連結']={url:syncInfo.backendUrl};
   try{
-    assertNotionPage(await updatePage(id,props),'同步客戶記事連結');
-    Object.assign(n,{
-      customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
-      eventPageId:syncInfo.eventPageId||n.eventPageId,
-      backendUrl:syncInfo.backendUrl
-    });
-    await syncNoteShadowAfterMutation(n);
+    n.notionSyncStatus='pending';
+    n.notionSyncError='';
+    await writeNotePrimary(n,{notionSyncStatus:'pending'});
+    queueNoteNotionMirror(n,'upsert');
     logUserAction('同步客戶記事',n.title,n.customerCode,ROLE);
-    showToast('✅ 已同步到客戶頁','ok');
-    openNoteDetail(id);
+    showToast('✅ 已加入背景同步；不影響 ERP 操作','ok');
     if(CURRENT_TAB==='notes') renderTab('notes');
   }catch(e){
-    showToast('❌ 同步連結寫回失敗：'+e.message,'err',7000);
+    showToast('❌ 無法建立同步工作：'+e.message,'err',7000);
   }
 }
 function openEditNote(id){
@@ -11507,7 +11771,74 @@ function openEditNote(id){
   if(!noteCanEdit(n)){showToast('❌ 只有發布者或 Vic 可以編輯此記事','err');return;}
   openModal('editNote',n);
 }
+async function submitNotePrimary(id=''){
+  const title=document.getElementById('note_title').value.trim();
+  const date=document.getElementById('note_date').value;
+  const time=document.getElementById('note_time').value.trim();
+  const type=document.getElementById('note_type').value;
+  const status=document.getElementById('note_status').value;
+  const body=document.getElementById('note_body').value.trim();
+  const owner=document.getElementById('note_owner')?.value.trim()||'';
+  const priority=document.getElementById('note_priority')?.value||'';
+  const remindDate=document.getElementById('note_remind_date')?.value||'';
+  const tags=noteTagsForSubmit();
+  const customerCode=(document.getElementById('note_customer_code')?.value||'').trim();
+  const linkedOrder=(document.getElementById('note_linked_order')?.value||'').trim();
+  const linkedMaterial=(document.getElementById('note_linked_material')?.value||'').trim();
+  const linkedCustomer=customerCode?(noteFindOverseasCustomerByCode(customerCode)?.name||''):'';
+  const targetRoles=noteTargetsForSubmit();
+  const noteFiles=[...(document.getElementById('note_files')?.files||[])];
+  const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
+  if(!title||!date){showToast('請填標題與日期','warn');return;}
+  if(noteFiles.length>NOTE_MAX_ATTACHMENTS){showToast(`附件一次最多 ${NOTE_MAX_ATTACHMENTS} 個`,'warn');return;}
+  const uploadableFiles=noteFiles.filter(file=>(file.size||0)>0&&(file.size||0)<=NOTE_MAX_ATTACHMENT_BYTES);
+  const oversizedFiles=noteFiles.filter(file=>(file.size||0)>NOTE_MAX_ATTACHMENT_BYTES);
+  const old=id?notes.find(row=>row.id===id):null;
+  const noteKey=id||crypto.randomUUID();
+  const targetChanged=!!old&&JSON.stringify([...(old.targetRoles||[])].sort())!==JSON.stringify([...targetRoles].sort());
+  let pendingRoles=old?.pendingRoles||'';
+  if(!old||(needAck&&!old.needAck)||targetChanged){
+    pendingRoles=needAck?noteAudienceRoles({targetRoles,needAck,authorRole:old?.authorRole||loginRoleLabel()}).filter(role=>role!==loginRoleLabel()).join('、'):'';
+  }else if(!needAck||noteIsDone({status})){
+    pendingRoles='';
+  }
+  const nowIso=new Date().toISOString();
+  const n={
+    ...(old||{}),id:noteKey,title,date,time,type,status,body,owner,priority,remindDate,tags,
+    customerCode,linkedCustomer,linkedOrder,linkedMaterial,targetRoles,needAck,pendingRoles,
+    author:old?.author||loginRoleLabel(),authorRole:old?.authorRole||loginRoleLabel(),
+    ackRoles:old?.ackRoles||'',replies:old?.replies||'',replyAction:old?.replyAction||'',
+    lastReply:old?.lastReply||'',lastReplyBy:old?.lastReplyBy||'',lastReplyAt:old?.lastReplyAt||'',
+    completedAt:status==='完成'?(old?.completedAt||nowIso):'',createdAt:old?.createdAt||nowIso,
+    attachmentCount:Number(old?.attachmentCount||0),notionSyncStatus:'pending',notionSyncError:''
+  };
+  showToast('⏳ 儲存記事到 Supabase...','warn');
+  try{
+    const saved=await writeNotePrimary(n,{operation:'upsert',event:{
+      actorRole:loginRoleLabel(),action:old?'編輯':'建立',comment:title,createdAt:nowIso
+    }});
+    Object.assign(n,saved,{id:noteKey,actualNotionPageId:saved.actualNotionPageId||old?.actualNotionPageId||''});
+    const pos=notes.findIndex(row=>row.id===noteKey);
+    if(pos>=0)notes[pos]=n;else notes.push(n);
+    queueNoteNotionMirror(n,'upsert');
+    closeModal();
+    renderTab('notes');
+    logUserAction(old?'編輯記事':'新增記事',title,`${date} ${time}`,ROLE);
+    showToast(`✅ 記事已${old?'更新':'建立'}；Notion 將於背景同步`,'ok');
+    if(uploadableFiles.length){
+      setTimeout(()=>flushNotesNotionMirrorQueue({
+        quiet:true,volatileFiles:{[noteKey]:uploadableFiles}
+      }).then(result=>{
+        if(!result.pending)showToast(`✅ ${uploadableFiles.length} 個記事附件已同步`,'ok');
+      }).catch(e=>showToast('⚠ 記事已儲存，但附件待重試：'+e.message,'warn',8000)),50);
+    }
+    if(oversizedFiles.length)showToast(`⚠ ${oversizedFiles.length} 個超過 20MB 的檔案請從 Notion 事件頁補上傳`,'warn',9000);
+  }catch(e){
+    showToast('❌ Supabase 未寫入，記事未建立：'+e.message,'err',9000);
+  }
+}
 async function submitNote(id=''){
+  return submitNotePrimary(id);
   const title=document.getElementById('note_title').value.trim();
   const date=document.getElementById('note_date').value;
   const time=document.getElementById('note_time').value.trim();
@@ -11637,7 +11968,40 @@ function openNoteReply(id,preset=''){
     </div>`;
   openSharedModal();
 }
+async function submitNoteReplyPrimary(id,quickAction=''){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const role=loginRoleLabel();
+  const action=(quickAction||document.getElementById('note_reply_custom')?.value.trim()||document.getElementById('note_reply_action')?.value||'知道了').trim();
+  const comment=(document.getElementById('note_reply_text')?.value||'').trim();
+  if(!action&&!comment){showToast('請輸入回覆內容或選擇動作','warn');return;}
+  saveNoteReplyOption(action);
+  let nextStatus=n.status||'未處理';
+  if(action==='接受處理')nextStatus='已接受';
+  else if(action==='拒絕/退回'||comment||(!NOTE_REPLY_DEFAULTS.includes(action)&&action!=='知道了'))nextStatus='待回覆';
+  const acked=noteSplitList(n.ackRoles||'');
+  if(!acked.includes(role))acked.push(role);
+  const pending=noteAudienceRoles(n).filter(r=>r!==role);
+  const nowIso=new Date().toISOString();
+  const line=`[${fmtDateTime(nowIso)} ${role}｜${action||'回覆'}]${comment?' '+comment:''}`;
+  Object.assign(n,{
+    ackRoles:acked.join('、'),pendingRoles:pending.join('、'),replyAction:action,
+    replies:[n.replies||'',line].filter(Boolean).join('\n').slice(-1800),
+    lastReply:comment||action,lastReplyBy:role,lastReplyAt:nowIso,status:nextStatus,
+    owner:action==='接受處理'&&!n.owner?role:n.owner,notionSyncStatus:'pending'
+  });
+  try{
+    await writeNotePrimary(n,{event:{actorRole:role,action,comment,createdAt:nowIso}});
+    queueNoteNotionMirror(n,'upsert');
+    closeModal();
+    logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
+    showToast('✅ 回覆已送出；Notion 將於背景同步','ok');
+    if(CURRENT_TAB==='notes')renderTab('notes');
+  }catch(e){
+    showToast('❌ Supabase 未寫入，回覆未送出：'+e.message,'err',9000);
+  }
+}
 async function submitNoteReply(id,quickAction=''){
+  return submitNoteReplyPrimary(id,quickAction);
   const n=notes.find(x=>x.id===id);if(!n)return;
   const role=loginRoleLabel();
   const action=(quickAction||document.getElementById('note_reply_custom')?.value.trim()||document.getElementById('note_reply_action')?.value||'知道了').trim();
@@ -11686,6 +12050,29 @@ async function submitNoteReply(id,quickAction=''){
   }catch(e){showToast('❌ 回覆失敗：'+e.message,'err');}
 }
 async function completeNote(id){
+  const primaryNote=notes.find(x=>x.id===id);
+  if(!primaryNote)return;
+  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者或 Vic 可以完成此記事','err');return;}
+  if(primaryNote.status==='完成'){showToast('此記事已完成','warn');return;}
+  const primaryRole=loginRoleLabel();
+  const primaryNow=new Date().toISOString();
+  const primaryLine=`[${fmtDateTime(primaryNow)} ${primaryRole}｜完成] 已標記完成`;
+  Object.assign(primaryNote,{
+    status:'完成',pendingRoles:'',replyAction:'知道了',
+    replies:[primaryNote.replies||'',primaryLine].filter(Boolean).join('\n').slice(-1800),
+    lastReply:'已標記完成',lastReplyBy:primaryRole,lastReplyAt:primaryNow,
+    completedAt:primaryNow,notionSyncStatus:'pending'
+  });
+  try{
+    await writeNotePrimary(primaryNote,{event:{actorRole:primaryRole,action:'完成',comment:'已標記完成',createdAt:primaryNow}});
+    queueNoteNotionMirror(primaryNote,'upsert');
+    logUserAction('完成記事',primaryNote.title,'已完成',ROLE);
+    showToast('✅ 記事已完成；Notion 將於背景同步','ok');
+    if(CURRENT_TAB==='notes')renderTab('notes');
+  }catch(e){
+    showToast('❌ Supabase 未寫入，完成狀態未變更：'+e.message,'err',9000);
+  }
+  return;
   const n=notes.find(x=>x.id===id);if(!n)return;
   if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以完成此記事','err');return;}
   if(n.status==='完成'){showToast('此記事已完成','warn');return;}
@@ -11722,6 +12109,23 @@ async function completeNote(id){
   }catch(e){showToast('❌ 完成失敗：'+e.message,'err');}
 }
 async function deleteNote(id){
+  const primaryNote=notes.find(x=>x.id===id);if(!primaryNote)return;
+  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者或 Vic 可以刪除此記事','err');return;}
+  const primaryReason=prompt('刪除原因（會寫入異動記錄）');
+  if(primaryReason===null)return;
+  try{
+    await writeNotePrimary(primaryNote,{operation:'archive',event:{
+      actorRole:loginRoleLabel(),action:'刪除',comment:primaryReason||'未填原因',createdAt:new Date().toISOString()
+    }});
+    queueNoteNotionMirror(primaryNote,'archive');
+    logUserAction('刪除記事',primaryNote.title,primaryReason||'未填原因',ROLE);
+    notes=notes.filter(x=>x.id!==id);
+    renderTab('notes');
+    showToast('✅ 記事已刪除；Notion 將於背景封存','ok');
+  }catch(e){
+    showToast('❌ Supabase 未寫入，記事未刪除：'+e.message,'err',9000);
+  }
+  return;
   const n=notes.find(x=>x.id===id);if(!n)return;
   if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以刪除此記事','err');return;}
   const reason=prompt('刪除原因（會寫入異動記錄）');

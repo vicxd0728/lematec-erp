@@ -64,3 +64,32 @@ or status changes are expected.
   list response fields.
 - Do not delete the Supabase table during an incident. It is a read-only backup
   and rollback source and can remain for diagnosis.
+
+## Supabase-primary mutations (2026-07-30)
+
+- Apply `supabase/migrations/20260730_013_notes_primary_usage.sql`.
+- Note creation, edit, reply, read acknowledgement, completion, and archive now
+  commit to Supabase first through `POST /api/notes/write`.
+- `erp_note_replies` and `erp_note_assignments` keep replies and assignments as
+  normalized records while `erp_notes_shadow` remains the fast complete card.
+- Notion is a background human-readable mirror. A Notion delay or rate limit
+  does not block an accepted Supabase mutation.
+- Pending Notion mirrors are kept in the browser queue and `erp_mirror_jobs`.
+  The actual Notion page id and sync status are written back to Supabase.
+- Attachments are uploaded during the Notion mirror step. Until that finishes,
+  the Note remains usable and clearly reports a pending mirror state.
+- The health page calls `GET /api/health/supabase-usage` and warns at 70 percent,
+  then reports an error at 90 percent for measurable database and Storage usage.
+- Supabase egress usage is not exposed by PostgreSQL. The health page reports it
+  as unavailable unless Worker env `SUPABASE_EGRESS_USED_BYTES` is maintained.
+
+## Primary-flow acceptance
+
+1. Create a Note and reload immediately; it must remain visible from Supabase.
+2. Reply from an assigned role and reload; reply and pending-role counts remain.
+3. Open the Note as an assigned role; read acknowledgement remains after reload.
+4. Complete and archive Notes; archived Notes no longer appear in normal lists.
+5. Temporarily fail Notion mirroring; the Supabase action stays accepted and the
+   reliability center shows a pending Notes mirror job.
+6. Restore Notion access and flush the queue; sync status becomes `synced`.
+7. Run Health Check and confirm database and Storage usage cards are present.
