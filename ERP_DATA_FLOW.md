@@ -2,7 +2,7 @@
 
 ## Notes Attachments 2026-07-30
 
-- Notes remain Notion-primary, so their attachments are stored on the same
+- Notes attachments remain Notion-primary, so files are stored on the same
   Notion page rather than split into a second formal attachment store.
 - The browser sends one file at a time to the Worker action
   `notionFileUpload`; the Worker creates and sends a Notion file upload.
@@ -11,18 +11,23 @@
 - Direct upload is limited to 20MB per file and 5 files per save. Oversized
   files are intentionally completed from the Note's original Notion page.
 - Partial upload failure never rolls back or deletes an already saved Note.
-- Supabase Notes shadow remains metadata/comparison only and does not become
-  the formal attachment source in this release.
+- Supabase is the Notes list/read-model source, but does not become the formal
+  attachment source in this release.
 
-## Notes Shadow Backup 2026-07-30
+## Notes Supabase-Primary Read 2026-07-30
 
-- Notes and calendar production reads/writes remain Notion-first.
-- Supabase `erp_notes_shadow` is a non-blocking shadow backup and comparison source.
-- After Notion Notes load, the ERP schedules the Supabase copy during browser idle time.
+- Notes list, calendar, reminders, filters, and board counts read Supabase
+  `erp_notes_shadow` first.
+- Supabase read failure automatically falls back to Notion and the UI displays
+  the active source.
+- Notes content mutations remain Notion-first, followed immediately by a
+  serialized Supabase write-through.
+- Note detail blocks and attachments still load from the original Notion page.
 - Vic's first successful load performs a complete idempotent backfill of existing Notes.
 - Shadow comparison covers total count, calendar date, pending roles, replies, and customer/order/material links.
-- A Supabase shadow error never blocks Note viewing, replies, read acknowledgement, completion, editing, or attachments.
-- Do not switch the Notes UI to Supabase until shadow counts and behavior remain stable across mobile, desktop, and multiple roles.
+- Note deletion archives Notion first, then deletes the Supabase read copy.
+- A Supabase write-through error never reverses a successful Notion operation;
+  a subsequent Notion refresh repairs the Supabase copy.
 
 ## Conditional Core Sync 2026-07-28
 

@@ -1,22 +1,32 @@
-# ERP Notes Shadow Runbook
+# ERP Notes Supabase-Primary Read Runbook
 
 ## Effective flow
 
-- Notion remains the production source for Notes and calendar views.
-- The ERP reads and writes Notes through the existing Notion flow.
-- After Notes appear, the browser sends a non-blocking copy to the Worker.
-- The Worker upserts the copy into Supabase `erp_notes_shadow`.
+- Notes list, calendar, filters, reminders, and dashboard counts read Supabase
+  `erp_notes_shadow` first.
+- If Supabase cannot be read or contains no rows, the ERP automatically falls
+  back to Notion and clearly labels the page `Notion 備援`.
+- Note creation, edit, reply, read acknowledgement, completion, attachment,
+  customer-page sync, and archive remain Notion-first in this stage.
+- Every successful Notion mutation is immediately written through to Supabase.
+  Sync requests are serialized so a background copy cannot cause a user change
+  to be skipped.
+- Note detail blocks and attachments continue to load live from the original
+  Notion page.
 - Vic's first successful Notes load performs a complete, idempotent backfill.
-- Shadow failure must never block reading, replying, acknowledging, completing,
-  editing, or attaching files to a Note.
+- Deleting a Note archives it in Notion and removes its Supabase read copy.
+- A Supabase write-through failure never rolls back a successful Notion action;
+  the next full Notion refresh can repair the read copy.
 
 ## Verification
 
 1. Apply `supabase/migrations/20260730_012_notes_shadow.sql`.
 2. Deploy `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
-3. Open the ERP as Vic and enter the Notes page once.
-4. Check `GET /api/notes/shadow/summary`.
-5. Compare Notion Notes with `GET /api/notes/shadow/list`.
+3. Open the ERP Notes page and confirm the source badge says `Supabase`.
+4. Open an item and confirm its detail and attachment still load from Notion.
+5. Reply or mark an item read, reload, and confirm the change remains visible.
+6. Check `GET /api/notes/shadow/summary`.
+7. Compare Notion Notes with `GET /api/notes/shadow/list`.
 
 The comparison covers record count, dates, pending roles, reply counts, customer,
 order, and material references.
@@ -45,11 +55,12 @@ or status changes are expected.
 - Dragging or selecting text outside the form must not close the modal.
 - Note actions remain role-scoped: author or Vic can manage; assigned roles can
   reply; Vic retains full access.
-- Service worker cache must be `lematec-erp-v27` or later after this fix.
+- Service worker cache must be `lematec-erp-v30` or later after this fix.
 
 ## Rollback
 
-- Frontend rollback: remove `scheduleNotesShadowSync(notes,dbId)`.
-- Worker rollback: remove the three `/api/notes/shadow/*` routes.
+- Frontend rollback: call `loadNotes({source:'notion'})` for all Notes loads.
+- Worker rollback: remove `/api/notes/shadow/delete` and restore the previous
+  list response fields.
 - Do not delete the Supabase table during an incident. It is a read-only backup
-  from the ERP perspective and can remain for diagnosis.
+  and rollback source and can remain for diagnosis.

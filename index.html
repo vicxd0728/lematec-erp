@@ -10018,6 +10018,8 @@ const NOTE_MAX_ATTACHMENTS=5;
 const NOTE_MAX_ATTACHMENT_BYTES=20*1024*1024;
 let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey='', _notesFieldsChecked=false, _notesDbRecovered=0;
 let _notesShadowSyncing=false, _notesShadowBackfillRunning=false, _notesShadowAudit=null;
+let _notesShadowSyncQueue=Promise.resolve();
+let _notesReadSource='尚未載入', _notesReadError='';
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -10457,6 +10459,44 @@ function mapNotionNotePage(p){
     createdAt:props['建立時間']?.date?.start||p.created_time||''
   };
 }
+function mapNotesShadowRow(row){
+  return {
+    id:row.notion_page_id||'',
+    url:row.backend_url||'',
+    title:row.title||'未命名記事',
+    date:row.note_date||'',
+    time:row.note_time||'',
+    type:row.note_type||'一般',
+    status:row.status||'未處理',
+    body:row.body||'',
+    owner:row.owner_role||'',
+    priority:row.priority||'',
+    remindDate:row.remind_date||'',
+    tags:[].concat(row.tags||[]).filter(Boolean),
+    completedAt:row.completed_at||'',
+    files:[],
+    attachmentCount:Number(row.attachment_count||0),
+    customerCode:row.customer_code||'',
+    linkedCustomer:row.linked_customer||'',
+    linkedOrder:row.linked_order||'',
+    linkedMaterial:row.linked_material||'',
+    customerNotesPageId:row.customer_notes_page_id||'',
+    eventPageId:row.event_page_id||'',
+    backendUrl:row.backend_url||'',
+    author:row.author_name||'',
+    authorRole:row.author_role||'',
+    targetRoles:[].concat(row.target_roles||[]).filter(Boolean),
+    needAck:!!row.need_ack,
+    ackRoles:[].concat(row.ack_roles||[]).filter(Boolean).join('、'),
+    pendingRoles:[].concat(row.pending_roles||[]).filter(Boolean).join('、'),
+    replyAction:row.reply_action||'',
+    replies:row.replies||'',
+    lastReply:row.last_reply||'',
+    lastReplyBy:row.last_reply_by||'',
+    lastReplyAt:row.last_reply_at||'',
+    createdAt:row.notion_created_at||''
+  };
+}
 function noteShadowPayload(n){
   const replyCount=String(n.replies||'').split('\n').map(x=>x.trim()).filter(Boolean).length;
   return {
@@ -10517,24 +10557,47 @@ function compareNotesShadow(sourceNotes,shadowRows){
   };
 }
 async function syncNotesShadow(sourceNotes,{audit=true}={}){
-  if(_notesShadowSyncing||!sourceNotes?.length)return null;
-  _notesShadowSyncing=true;
-  try{
-    await notesShadowRequest('/api/notes/shadow/sync',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({items:sourceNotes.map(noteShadowPayload)})
-    });
-    if(audit){
-      const shadowRows=await loadAllNotesShadowRows();
-      _notesShadowAudit=compareNotesShadow(sourceNotes,shadowRows);
-      localStorage.setItem(NOTES_SHADOW_AUDIT_KEY,JSON.stringify(_notesShadowAudit));
+  if(!sourceNotes?.length)return null;
+  const snapshot=sourceNotes.map(note=>noteShadowPayload(note));
+  const run=async()=>{
+    _notesShadowSyncing=true;
+    try{
+      const syncResult=await notesShadowRequest('/api/notes/shadow/sync',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({items:snapshot})
+      });
+      if(audit){
+        const shadowRows=await loadAllNotesShadowRows();
+        _notesShadowAudit=compareNotesShadow(sourceNotes,shadowRows);
+        localStorage.setItem(NOTES_SHADOW_AUDIT_KEY,JSON.stringify(_notesShadowAudit));
+      }
+      return audit?_notesShadowAudit:syncResult;
+    }catch(e){
+      console.warn('[notes shadow] sync skipped:',e);
+      return null;
+    }finally{
+      _notesShadowSyncing=false;
     }
-    return _notesShadowAudit;
+  };
+  const queued=_notesShadowSyncQueue.catch(()=>null).then(run);
+  _notesShadowSyncQueue=queued.catch(()=>null);
+  return queued;
+}
+async function syncNoteShadowAfterMutation(note){
+  const result=await syncNotesShadow([note],{audit:false});
+  if(!result)console.warn('[notes shadow] latest change will retry on next Notion refresh');
+  return !!result;
+}
+async function deleteNoteShadow(id){
+  try{
+    await notesShadowRequest('/api/notes/shadow/delete',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({notionPageId:id})
+    });
+    return true;
   }catch(e){
-    console.warn('[notes shadow] sync skipped:',e);
-    return null;
-  }finally{
-    _notesShadowSyncing=false;
+    console.warn('[notes shadow] delete skipped:',e);
+    return false;
   }
 }
 async function backfillAllNotesShadow(dbId){
@@ -10564,17 +10627,40 @@ function scheduleNotesShadowSync(sourceNotes,dbId){
   if('requestIdleCallback' in window)requestIdleCallback(run,{timeout:3500});
   else setTimeout(run,800);
 }
-async function loadNotes(options={}){
+async function loadNotesFromNotion(options={}){
   const dbId=await ensureNotesDB(true);
   const mode=options.mode||DATA_LOAD_MODE.notes||'recent';
   const rows=await dbQueryAll(dbId,mode==='all'?{}:{filter:noteRecentFilter()});
   notes=rows.map(mapNotionNotePage)
     .sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
   _notesLoaded=true;
+  _notesReadSource='Notion 備援';
+  _notesReadError=options.fallbackError||'';
   markDataLoadMode('notes',mode,notes.length);
   schedulePendingNoteNotification();
-  scheduleNotesShadowSync(notes,dbId);
+  if(options.immediateShadow)await syncNotesShadow(notes,{audit:false});
+  else scheduleNotesShadowSync(notes,dbId);
   return notes;
+}
+async function loadNotes(options={}){
+  if(options.source==='notion')return loadNotesFromNotion(options);
+  const mode=options.mode||DATA_LOAD_MODE.notes||'recent';
+  try{
+    const rows=await loadAllNotesShadowRows();
+    if(!rows.length)throw new Error('Supabase 尚無記事資料');
+    notes=rows.map(mapNotesShadowRow)
+      .sort((a,b)=>`${a.date||'9999'} ${a.time||''}`.localeCompare(`${b.date||'9999'} ${b.time||''}`));
+    _notesDbId=localStorage.getItem(NOTES_DB_KEY)||DB.notes||_notesDbId;
+    _notesLoaded=true;
+    _notesReadSource='Supabase';
+    _notesReadError='';
+    markDataLoadMode('notes','all',notes.length);
+    schedulePendingNoteNotification();
+    return notes;
+  }catch(e){
+    console.warn('[notes] Supabase read fallback to Notion:',e);
+    return loadNotesFromNotion({...options,mode,fallbackError:e.message});
+  }
 }
 
 function materialReferenceFilter(filters){
@@ -10856,7 +10942,7 @@ function renderNotes(){
   const doneList=data.filter(n=>n.status==='完成').slice(0,10);
   const dbShort=_notesDbId?String(_notesDbId).replace(/-/g,'').slice(-8):'未連線';
   return `<div class="note-board">
-    <div class="notion-bar">📌 Notion：${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">ERP 記事行事曆</a>`:'ERP 記事行事曆'} <span style="color:var(--text3)">正式庫 ${dbShort}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}｜所有紀錄都會顯示建立者，指定角色可登入確認。</span></div>
+    <div class="notion-bar">📌 記事來源：<b style="color:${_notesReadSource==='Supabase'?'var(--green2)':'var(--amber)'}">${escapeHtml(_notesReadSource)}</b>　${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">開啟 Notion 鏡像</a>`:'Notion 鏡像'} <span style="color:var(--text3)">${_notesReadError?`｜Supabase 暫時無法讀取，已自動切換 Notion：${escapeHtml(_notesReadError)}`:''}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}｜點開記事時會向 Notion 取得最新對話與附件。</span></div>
     <section class="note-hero">
       <div><div class="note-eyebrow">LEMATEC SHARED NOTES</div><h2>記事行事曆</h2><p>客戶來訪、預約、交代事項、臨時提醒集中管理。</p></div>
       <div class="note-metrics">
@@ -11146,6 +11232,7 @@ async function markNoteRead(id){
     };
     assertNotionPage(await updatePage(id,props),'標記記事已讀');
     Object.assign(n,{ackRoles:acked.join('、'),pendingRoles:nextPending.join('、'),replyAction:'知道了',replies,lastReply:'已開啟記事',lastReplyBy:role,lastReplyAt:nowIso});
+    await syncNoteShadowAfterMutation(n);
     logUserAction('已讀記事',n.title,'已開啟記事',ROLE);
     return true;
   }catch(e){
@@ -11205,6 +11292,7 @@ async function resyncNoteCustomer(id){
       eventPageId:syncInfo.eventPageId||n.eventPageId,
       backendUrl:syncInfo.backendUrl
     });
+    await syncNoteShadowAfterMutation(n);
     logUserAction('同步客戶記事',n.title,n.customerCode,ROLE);
     showToast('✅ 已同步到客戶頁','ok');
     openNoteDetail(id);
@@ -11319,7 +11407,7 @@ async function submitNote(id=''){
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
       closeModal();
     }
-    await loadNotes();renderTab('notes');
+    await loadNotes({source:'notion',immediateShadow:true});renderTab('notes');
     if(!attachmentOutcome.failed.length&&!oversizedFiles.length){
       showToast(attachmentOutcome.uploaded.length
         ?`✅ 記事已${savedAction}，${attachmentOutcome.uploaded.length} 個附件已上傳`
@@ -11390,6 +11478,7 @@ async function submitNoteReply(id,quickAction=''){
         showToast('⚠ 客戶頁已同步，但記事連結寫回失敗：'+syncLinkErr.message,'warn',7000);
       }
     }
+    await syncNoteShadowAfterMutation(n);
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
     showToast('✅ 回覆已送出','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
@@ -11425,6 +11514,7 @@ async function completeNote(id){
         showToast('⚠ 客戶頁已同步，但記事連結寫回失敗：'+syncLinkErr.message,'warn',7000);
       }
     }
+    await syncNoteShadowAfterMutation(n);
     logUserAction('完成記事',n.title,'已完成',ROLE);
     showToast('✅ 記事已完成','ok');
     if(CURRENT_TAB==='notes')renderTab('notes');
@@ -11437,10 +11527,11 @@ async function deleteNote(id){
   if(reason===null)return;
   try{
     await notionAPI('PATCH','pages/'+id,{archived:true});
+    const shadowDeleted=await deleteNoteShadow(id);
     logUserAction('刪除記事',n.title,reason||'未填原因',ROLE);
     notes=notes.filter(x=>x.id!==id);
     renderTab('notes');
-    showToast('✅ 記事已刪除','ok');
+    showToast(shadowDeleted?'✅ 記事已刪除':'⚠ 記事已從 Notion 刪除，Supabase 清理將於稍後重試',shadowDeleted?'ok':'warn');
   }catch(e){showToast('❌ 刪除失敗：'+e.message,'err');}
 }
 function schedulePendingNoteNotification(force=false){

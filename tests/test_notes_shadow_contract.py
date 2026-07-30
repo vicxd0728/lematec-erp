@@ -16,11 +16,12 @@ class NotesShadowContractTest(unittest.TestCase):
             ROOT / "supabase/migrations/20260730_012_notes_shadow.sql"
         ).read_text(encoding="utf-8")
 
-    def test_frontend_keeps_notion_as_primary_source(self):
-        self.assertIn("const rows=await dbQueryAll(dbId", self.index)
-        self.assertIn("notes=rows.map(mapNotionNotePage)", self.index)
-        self.assertIn("scheduleNotesShadowSync(notes,dbId)", self.index)
-        self.assertNotIn("notes=await loadAllNotesShadowRows()", self.index)
+    def test_frontend_reads_supabase_first_with_notion_fallback(self):
+        self.assertIn("const rows=await loadAllNotesShadowRows()", self.index)
+        self.assertIn("notes=rows.map(mapNotesShadowRow)", self.index)
+        self.assertIn("return loadNotesFromNotion", self.index)
+        self.assertIn("_notesReadSource='Supabase'", self.index)
+        self.assertIn("_notesReadSource='Notion 備援'", self.index)
 
     def test_shadow_sync_is_idle_and_non_blocking(self):
         self.assertIn("requestIdleCallback(run,{timeout:3500})", self.index)
@@ -36,6 +37,7 @@ class NotesShadowContractTest(unittest.TestCase):
             "/api/notes/shadow/sync",
             "/api/notes/shadow/list",
             "/api/notes/shadow/summary",
+            "/api/notes/shadow/delete",
         ):
             self.assertIn(route, self.worker)
         self.assertIn("on_conflict=organization_id,notion_page_id", self.worker)
@@ -55,6 +57,26 @@ class NotesShadowContractTest(unittest.TestCase):
         self.assertIn("'附件數':{number:attachmentCount}", self.index)
         self.assertIn("attachmentCount:Number(n.attachmentCount||0)", self.index)
         self.assertIn("Number(s.attachment_count||0)", self.index)
+
+    def test_shadow_list_contains_full_note_card_contract(self):
+        for field in (
+            "'body'",
+            "'author_name'",
+            "'reply_action'",
+            "'replies'",
+            "'customer_notes_page_id'",
+            "'event_page_id'",
+            "'backend_url'",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, self.worker)
+        self.assertIn("function mapNotesShadowRow(row)", self.index)
+
+    def test_notion_mutations_refresh_supabase_shadow(self):
+        self.assertIn("async function syncNoteShadowAfterMutation(note)", self.index)
+        self.assertIn("await syncNoteShadowAfterMutation(n)", self.index)
+        self.assertIn("await deleteNoteShadow(id)", self.index)
+        self.assertIn("await loadNotes({source:'notion',immediateShadow:true})", self.index)
 
     def test_mobile_note_modal_avoids_inventory_work_and_keeps_native_scroll(self):
         self.assertNotIn("const prods=mats.filter(m=>m.type==='成品')", self.index)

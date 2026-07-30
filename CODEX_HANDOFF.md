@@ -2,8 +2,8 @@
 
 ## Notes Attachments 2026-07-30
 
-- Formal Notes attachments remain Notion-first, matching the current Notes
-  read/write source.
+- Formal Notes attachments remain Notion-first even though Notes list and
+  calendar reads are now Supabase-primary.
 - The Notes form accepts up to 5 arbitrary files per save. Images, video,
   audio, PDF, Office/Excel, archives, and other formats share the same picker.
 - Files up to 20MB are uploaded through the Worker to Notion and appended to
@@ -14,7 +14,7 @@
 - Files over 20MB do not block Note creation. After the Note is saved, the ERP
   offers the original Notion page for manual upload.
 - Worker retries Notion 429 and temporary 5xx responses with bounded backoff.
-- Service worker cache version for this release: `lematec-erp-v28`.
+- Service worker cache version for this release: `lematec-erp-v30`.
 - Validation:
   `python -m unittest tests.test_notes_attachment_contract
   tests.test_notes_shadow_contract tests.test_verify_erp_static`.
@@ -24,12 +24,14 @@
 - Supabase Notes shadow contains 15 Notes and 46 reply lines.
 - Verified date range: 2026-07-01 through 2026-07-29.
 - Verified links: customer 4, order 1, material 0.
-- Formal Notes UI still reads/writes Notion; Supabase remains a non-blocking
-  backup and comparison source.
+- Notes list, calendar, reminders, filters, and dashboard counts read Supabase
+  first, with an automatic and visible Notion fallback.
+- Notes mutations, detail blocks, and attachments remain Notion-first; every
+  successful mutation immediately writes through to Supabase.
 - Worker accepts both frontend camelCase and database snake_case payload fields.
 - Mobile Notes modal no longer scans the inventory list when opened.
 - Mobile modal uses native vertical scrolling and keeps the backdrop fixed.
-- Service worker cache version for this release: `lematec-erp-v27`.
+- Service worker cache version for this release: `lematec-erp-v30`.
 - Validation:
   `python -m unittest tests.test_notes_shadow_contract tests.test_verify_erp_static`
   and `python scripts/verify_erp_static.py`.
@@ -37,11 +39,15 @@
 
 ## Notes Migration Status 2026-07-30
 
-- Formal Notes flow remains Notion-first.
+- Stage 6 is implemented: Notes list reads are Supabase-primary.
+- Notion is the automatic fallback and remains the formal mutation/detail/file
+  source in this stage.
 - Supabase table: `erp_notes_shadow`.
-- Worker routes: `/api/notes/shadow/sync`, `/api/notes/shadow/list`, `/api/notes/shadow/summary`.
+- Worker routes: `/api/notes/shadow/sync`, `/api/notes/shadow/list`,
+  `/api/notes/shadow/summary`, `/api/notes/shadow/delete`.
 - Existing Notes backfill is automatic and idempotent when Vic opens Notes.
-- Shadow sync is scheduled after the UI loads and must never block staff actions.
+- Background and user-triggered syncs are serialized so mutations are not
+  skipped during a concurrent backup.
 - Contract test: `python -m unittest tests.test_notes_shadow_contract`.
 - Runbook: `supabase/NOTES_SHADOW_RUNBOOK.md`.
 

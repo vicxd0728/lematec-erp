@@ -92,6 +92,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/notes/shadow/summary') {
       return erpNotesShadowSummary(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/notes/shadow/delete') {
+      return erpNotesShadowDelete(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/reliability/mirror/enqueue') {
       return erpMirrorJobEnqueue(request, env, cors);
     }
@@ -2448,11 +2451,12 @@ async function erpNotesShadowList(request, env, cors) {
     const {organization} = await getSupabaseInventoryContext(env);
     const fields = [
       'id','notion_page_id','title','note_date','note_time','note_type','status',
-      'owner_role','priority','remind_date','tags','customer_code','linked_customer',
-      'linked_order','linked_material','target_roles','author_role','need_ack',
-      'ack_roles','pending_roles','reply_count','last_reply','last_reply_by',
-      'last_reply_at','completed_at','attachment_count','notion_created_at',
-      'notion_last_edited_at','shadow_synced_at','updated_at'
+      'body','owner_role','priority','remind_date','tags','customer_code','linked_customer',
+      'linked_order','linked_material','target_roles','author_name','author_role','need_ack',
+      'ack_roles','pending_roles','reply_action','replies','reply_count','last_reply',
+      'last_reply_by','last_reply_at','completed_at','customer_notes_page_id','event_page_id',
+      'backend_url','attachment_count','notion_created_at','notion_last_edited_at',
+      'shadow_synced_at','updated_at'
     ].join(',');
     const rows = await supabaseFetch(
       env,
@@ -2467,6 +2471,24 @@ async function erpNotesShadowList(request, env, cors) {
       has_more: hasMore,
       next_offset: hasMore ? offset + limit : null,
     });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
+async function erpNotesShadowDelete(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const notionPageId = cleanText(body?.notion_page_id || body?.notionPageId || '');
+    if (!notionPageId) return resp400(cors, 'Missing note notion_page_id');
+    const {organization} = await getSupabaseInventoryContext(env);
+    await supabaseFetch(
+      env,
+      `/rest/v1/erp_notes_shadow?organization_id=eq.${encodeURIComponent(organization.id)}&notion_page_id=eq.${encodeURIComponent(notionPageId)}`,
+      {method: 'DELETE', headers: {Prefer: 'return=minimal'}}
+    );
+    return respOK(cors, {ok: true, deleted: notionPageId});
   } catch (e) {
     return resp500(cors, e.message);
   }
