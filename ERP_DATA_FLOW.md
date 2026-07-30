@@ -242,6 +242,18 @@ This section overrides older Supabase inventory notes below if they conflict.
 6. 補同步只處理 Notion 鏡像，不得重播 Supabase 庫存交易。
 7. 詳細處理方式見 `supabase/RELIABILITY_RUNBOOK.md`。
 
+## 記事同步可靠性
+
+1. 記事清單、行事曆與待辦優先讀取 Supabase；讀取失敗才切換 Notion。
+2. 記事內容、回覆與附件仍先寫 Notion，成功後立即寫入 Supabase 影子表。
+3. Supabase 寫入或刪除暫時失敗時，前端依記事 ID 保存去重佇列，不回放
+   Notion 寫入，也不重複建立記事。
+4. 佇列於網路恢復、App 回到前景及退避時間到期後自動補送；刪除動作會
+   取代同一記事尚未送出的更新動作。
+5. 後續完整同步成功時會清除相同記事的舊佇列，避免舊內容覆蓋新內容。
+6. 健康檢查顯示目前讀取來源、Supabase 筆數、最後同步、Notion 備援次數、
+   待補同步數與重試失敗數；達五次失敗列為錯誤。
+
 ## 建議協作方式
 
 目前：

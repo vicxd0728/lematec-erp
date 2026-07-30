@@ -78,6 +78,24 @@ class NotesShadowContractTest(unittest.TestCase):
         self.assertIn("await deleteNoteShadow(id)", self.index)
         self.assertIn("await loadNotes({source:'notion',immediateShadow:true})", self.index)
 
+    def test_failed_write_through_is_queued_and_retried(self):
+        self.assertIn("NOTES_SHADOW_RETRY_KEY", self.index)
+        self.assertIn("function enqueueNotesShadowRetry(action,payload,error='')", self.index)
+        self.assertIn("async function retryNotesShadowQueue({force=false,quiet=true}={})", self.index)
+        self.assertIn("enqueueNotesShadowRetry('upsert',noteShadowPayload(note),error)", self.index)
+        self.assertIn("enqueueNotesShadowRetry('delete',{notionPageId:id}", self.index)
+        self.assertIn("window.addEventListener('online'", self.index)
+        self.assertIn("clearNotesShadowRetries(snapshot.map(item=>item.notionPageId),'upsert')", self.index)
+
+    def test_health_page_reports_notes_source_counts_and_retries(self):
+        self.assertIn("NOTES_SHADOW_HEALTH_KEY", self.index)
+        self.assertIn("function renderNotesShadowHealth()", self.index)
+        self.assertIn("記事同步健康", self.index)
+        self.assertIn("Notion 備援次數", self.index)
+        self.assertIn("Supabase 記事", self.index)
+        self.assertIn("立即補同步", self.index)
+        self.assertIn("const notesHealthPromise=loadNotesShadowHealth({quiet:true})", self.index)
+
     def test_mobile_note_modal_avoids_inventory_work_and_keeps_native_scroll(self):
         self.assertNotIn("const prods=mats.filter(m=>m.type==='成品')", self.index)
         self.assertNotIn("const parts=mats.filter(m=>m.type!=='成品')", self.index)

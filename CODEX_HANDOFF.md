@@ -1,5 +1,26 @@
 # LEMATEC ERP Codex Handoff
 
+## Notes Reliability And C-order Status 2026-07-30
+
+- C-end recent-order queries now use the actual Notion status values
+  `出貨中`, `已完成`, and `已取消`; the invalid legacy query value `取消`
+  was removed without changing the regular B2B order status contract.
+- Notes write-through failures are persisted in a deduplicated browser retry
+  queue. Upserts and deletes retry when connectivity returns, when the app
+  returns to the foreground, and after a bounded exponential delay.
+- A later successful Notes sync clears matching stale retry work so an older
+  payload cannot overwrite a newer Note.
+- Health Check now includes Notes read source, Supabase row count, last read
+  and sync times, Notion fallback count, pending retries, and retries that
+  have failed five or more times.
+- Notes itself displays either `同步正常` or the current pending retry count.
+- Service worker cache version for this release: `lematec-erp-v31`.
+- Validation:
+  `python -m unittest tests.test_corder_status_contract
+  tests.test_notes_shadow_contract tests.test_verify_erp_static`,
+  `python scripts/verify_erp_static.py`, and
+  `node --check cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
+
 ## Notes Attachments 2026-07-30
 
 - Formal Notes attachments remain Notion-first even though Notes list and

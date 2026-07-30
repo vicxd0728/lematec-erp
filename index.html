@@ -5960,7 +5960,6 @@ function corderRecentFilter(){
     {and:[
       activeStatusFilter('狀態','已完成'),
       activeStatusFilter('狀態','已取消'),
-      activeStatusFilter('狀態','取消'),
     ]}
   ]};
 }
@@ -9271,6 +9270,42 @@ function renderReliabilityCenter(){
     </div>
   </div>`;
 }
+function notesHealthTime(value){
+  if(!value)return '尚無紀錄';
+  const time=new Date(value);
+  return Number.isNaN(time.getTime())?'尚無紀錄':time.toLocaleString('zh-TW',{hour12:false});
+}
+function renderNotesShadowHealth(){
+  const health=readNotesShadowHealth();
+  const queue=readNotesShadowRetryQueue();
+  const failed=queue.filter(item=>Number(item.attempts||0)>=5).length;
+  const summary=_notesShadowSummary?.summary||{};
+  const count=Number(summary.total??health.supabaseCount??0);
+  const level=health.lastHealthError||failed?'err':queue.length||health.lastReadSource==='Notion 備援'?'warn':'ok';
+  const label=level==='err'?'ERROR':level==='warn'?'WARN':'OK';
+  return `<div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <span class="panel-title">記事同步健康<span class="badge">${queue.length}</span></span>
+      ${healthBadge(level,label)}
+    </div>
+    <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">
+        記事清單以 Supabase 優先，Notion 保留完整對話、附件與人工鏡像。Notion 更新成功但 Supabase 暫時失敗時，系統會保存待補項目並自動重試。
+      </div>
+      <div class="dash-kpi-grid">
+        <div class="kpi-card ${health.lastReadSource==='Notion 備援'?'kpi-amber':'kpi-green'}"><div class="kpi-label">目前來源</div><div class="kpi-num" style="font-size:1.15rem">${escapeHtml(health.lastReadSource||_notesReadSource||'尚未載入')}</div><div class="kpi-sub">${notesHealthTime(health.lastReadAt)}</div></div>
+        <div class="kpi-card kpi-cyan"><div class="kpi-label">Supabase 記事</div><div class="kpi-num">${count}</div><div class="kpi-sub">目前載入 ${Number(health.lastReadCount||notes.length||0)} 筆</div></div>
+        <div class="kpi-card ${queue.length?'kpi-amber':'kpi-green'}"><div class="kpi-label">待補同步</div><div class="kpi-num">${queue.length}</div><div class="kpi-sub">重試達 5 次 ${failed} 筆</div></div>
+        <div class="kpi-card ${Number(health.fallbackCount||0)?'kpi-amber':'kpi-green'}"><div class="kpi-label">Notion 備援次數</div><div class="kpi-num">${Number(health.fallbackCount||0)}</div><div class="kpi-sub">最後同步 ${notesHealthTime(health.lastSyncAt)}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-blue btn-sm" onclick="retryNotesShadowQueue({force:true,quiet:false})">立即補同步</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadNotesShadowHealth({quiet:false})">重新檢查</button>
+      </div>
+      ${(health.lastError||health.lastHealthError)?`<div style="margin-top:10px;color:var(--red2);font-size:.78rem">最近錯誤：${escapeHtml(health.lastError||health.lastHealthError)}</div>`:''}
+    </div>
+  </div>`;
+}
 async function retryReliabilityMirrors(){
   showToast('補同步處理中...','warn');
   try{
@@ -9544,11 +9579,13 @@ async function repairOrderMisusedQcStatus(){
 
 function renderHealthCheck(){
   const h=localHealthChecks();
+  const notesRetry=readNotesShadowRetryQueue();
+  const notesRetryFailed=notesRetry.filter(item=>Number(item.attempts||0)>=5).length;
   const reliabilityJobs=_reliabilityReport?.data?.mirror_jobs||{};
   const reliabilityMissing=_reliabilityReport?.data?.missing_notion_mirrors||{};
   const reliabilityMissingCount=Object.values(reliabilityMissing).reduce((sum,value)=>sum+Number(value||0),0);
-  const errorCount=h.negStock.length+h.badBom.length+h.badOrders.length+h.orderMisusedQcStatus.length+Number(reliabilityJobs.failed||0);
-  const warnCount=h.dupCodes.length+h.sWithoutBom.length+h.readyNoShip.length+Number(reliabilityJobs.pending||0)+reliabilityMissingCount+localReliabilityQueueCounts().total;
+  const errorCount=h.negStock.length+h.badBom.length+h.badOrders.length+h.orderMisusedQcStatus.length+Number(reliabilityJobs.failed||0)+notesRetryFailed;
+  const warnCount=h.dupCodes.length+h.sWithoutBom.length+h.readyNoShip.length+Number(reliabilityJobs.pending||0)+reliabilityMissingCount+localReliabilityQueueCounts().total+Math.max(0,notesRetry.length-notesRetryFailed);
   const schemaRows=_healthReport?.schemaRows||[];
   const schemaErr=schemaRows.filter(r=>r.level==='err').length;
   const schemaWarn=schemaRows.filter(r=>r.level==='warn').length;
@@ -9560,6 +9597,7 @@ function renderHealthCheck(){
     <div class="kpi-card kpi-cyan"><div class="kpi-label">庫存料號</div><div class="kpi-num">${mats.length}</div><div class="kpi-sub">目前主檔筆數</div></div>
   </div>
   ${renderReliabilityCenter()}
+  ${renderNotesShadowHealth()}
   ${renderSupabaseReadCheck()}
   ${_healthReport?.running?'<div class="loading-row"><div class="spin"></div>檢查 Notion schema 中...</div>':''}
   ${schemaRows.length?`<div class="panel"><div class="panel-hdr"><span class="panel-title">Notion 欄位與選項檢查<span class="badge">${schemaRows.length}</span></span></div><div style="padding:12px">${schemaRows.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)"><div><b>${r.db}</b><div style="font-size:.76rem;color:var(--text3)">${r.msg}</div></div>${healthBadge(r.level,r.level==='ok'?'OK':r.level==='warn'?'WARN':'ERROR')}</div>`).join('')}</div></div>`:''}
@@ -9599,6 +9637,7 @@ async function runHealthCheck(manual=false){
   };
   _healthReport={running:true,schemaRows:_healthReport?.schemaRows||[]}; if(CURRENT_TAB==='health')renderTab('health');
   const reliabilityPromise=loadReliabilitySummary({quiet:true});
+  const notesHealthPromise=loadNotesShadowHealth({quiet:true});
   const rows=[];
   for(const key of Object.keys(required)){
     try{
@@ -9615,7 +9654,7 @@ async function runHealthCheck(manual=false){
       });
     }catch(e){rows.push({db:key,level:'err',msg:e.message});}
   }
-  await reliabilityPromise;
+  await Promise.all([reliabilityPromise,notesHealthPromise]);
   _healthReport={running:false,schemaRows:rows};
   if(CURRENT_TAB==='health')renderTab('health');
   if(manual)showToast('✅ 健康檢查完成','ok');
@@ -10007,6 +10046,8 @@ const NOTES_DB_KEY='lematec_notes_db_id';
 const NOTE_REPLY_OPTION_KEY='lematec_note_reply_options';
 const NOTES_SHADOW_BACKFILL_KEY='lematec_notes_shadow_backfill_v1';
 const NOTES_SHADOW_AUDIT_KEY='lematec_notes_shadow_audit_v1';
+const NOTES_SHADOW_RETRY_KEY='lematec_notes_shadow_retry_v1';
+const NOTES_SHADOW_HEALTH_KEY='lematec_notes_shadow_health_v1';
 const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'];
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
 const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
@@ -10020,6 +10061,7 @@ let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey=
 let _notesShadowSyncing=false, _notesShadowBackfillRunning=false, _notesShadowAudit=null;
 let _notesShadowSyncQueue=Promise.resolve();
 let _notesReadSource='尚未載入', _notesReadError='';
+let _notesShadowRetryBusy=false, _notesShadowRetryTimer=null, _notesShadowSummary=null;
 
 function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
@@ -10512,6 +10554,137 @@ function noteShadowPayload(n){
     backendUrl:n.backendUrl, attachments:(n.files||[]), attachmentCount:Number(n.attachmentCount||0), createdAt:n.createdAt
   };
 }
+function readNotesShadowHealth(){
+  try{return JSON.parse(localStorage.getItem(NOTES_SHADOW_HEALTH_KEY)||'{}')||{};}
+  catch(_){return {};}
+}
+function updateNotesShadowHealth(patch={}){
+  const next={...readNotesShadowHealth(),...patch,updatedAt:new Date().toISOString()};
+  localStorage.setItem(NOTES_SHADOW_HEALTH_KEY,JSON.stringify(next));
+  return next;
+}
+function readNotesShadowRetryQueue(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(NOTES_SHADOW_RETRY_KEY)||'[]');
+    return Array.isArray(rows)?rows:[];
+  }catch(_){return [];}
+}
+function writeNotesShadowRetryQueue(rows){
+  const safe=Array.isArray(rows)?rows.slice(-100):[];
+  localStorage.setItem(NOTES_SHADOW_RETRY_KEY,JSON.stringify(safe));
+  return safe;
+}
+function clearNotesShadowRetries(notionPageIds,action=''){
+  const ids=new Set([].concat(notionPageIds||[]).map(id=>String(id||'').trim()).filter(Boolean));
+  if(!ids.size)return readNotesShadowRetryQueue();
+  const next=readNotesShadowRetryQueue().filter(item=>{
+    if(!ids.has(String(item.notionPageId||'').trim()))return true;
+    return action&&item.action!==action;
+  });
+  writeNotesShadowRetryQueue(next);
+  updateNotesShadowHealth({pendingRetryCount:next.length});
+  return next;
+}
+function enqueueNotesShadowRetry(action,payload,error=''){
+  const notionPageId=String(payload?.notionPageId||payload?.notion_page_id||'').trim();
+  if(!notionPageId)return false;
+  const now=new Date().toISOString();
+  const next=readNotesShadowRetryQueue().filter(item=>String(item.notionPageId)!==notionPageId);
+  next.push({
+    id:`${action}:${notionPageId}`,action,notionPageId,
+    payload:action==='delete'?{notionPageId}:payload,
+    attempts:0,createdAt:now,lastAttemptAt:'',nextAttemptAt:now,lastError:String(error||'')
+  });
+  writeNotesShadowRetryQueue(next);
+  updateNotesShadowHealth({lastError:String(error||''),pendingRetryCount:next.length});
+  scheduleNotesShadowRetry(2500);
+  if(CURRENT_TAB==='health'||CURRENT_TAB==='notes')renderTab(CURRENT_TAB);
+  return true;
+}
+function notesShadowRetryDelay(attempts){
+  return Math.min(5*60*1000,Math.max(5000,5000*Math.pow(2,Math.min(6,Math.max(0,attempts-1)))));
+}
+async function retryNotesShadowQueue({force=false,quiet=true}={}){
+  if(_notesShadowRetryBusy||!TOKEN||!navigator.onLine)return {processed:0,pending:readNotesShadowRetryQueue().length};
+  _notesShadowRetryBusy=true;
+  let queue=readNotesShadowRetryQueue(), processed=0;
+  const startingEntries=new Map(queue.map(item=>[item.id,item.createdAt]));
+  const keep=[];
+  try{
+    for(const item of queue){
+      if(!force&&item.nextAttemptAt&&Date.parse(item.nextAttemptAt)>Date.now()){keep.push(item);continue;}
+      try{
+        if(item.action==='delete'){
+          await notesShadowRequest('/api/notes/shadow/delete',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({notionPageId:item.notionPageId})
+          });
+        }else{
+          await notesShadowRequest('/api/notes/shadow/sync',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({items:[item.payload]})
+          });
+        }
+        processed+=1;
+        updateNotesShadowHealth({
+          lastSyncAt:new Date().toISOString(),lastSyncSaved:1,lastError:'',
+          consecutiveFailures:0
+        });
+      }catch(e){
+        const attempts=Number(item.attempts||0)+1;
+        const now=new Date();
+        keep.push({
+          ...item,attempts,lastAttemptAt:now.toISOString(),
+          nextAttemptAt:new Date(now.getTime()+notesShadowRetryDelay(attempts)).toISOString(),
+          lastError:e.message||String(e)
+        });
+        updateNotesShadowHealth({
+          lastError:e.message||String(e),
+          consecutiveFailures:Number(readNotesShadowHealth().consecutiveFailures||0)+1
+        });
+      }
+      if(keep.length||processed)await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    const concurrent=readNotesShadowRetryQueue().filter(item=>startingEntries.get(item.id)!==item.createdAt);
+    const concurrentNoteIds=new Set(concurrent.map(item=>String(item.notionPageId||'')));
+    queue=writeNotesShadowRetryQueue([
+      ...keep.filter(item=>!concurrentNoteIds.has(String(item.notionPageId||''))),
+      ...concurrent
+    ]);
+    updateNotesShadowHealth({pendingRetryCount:queue.length});
+    if(!quiet){
+      showToast(queue.length?`⚠ 記事仍有 ${queue.length} 筆待補同步`:`✅ 記事補同步完成 ${processed} 筆`,queue.length?'warn':'ok');
+    }
+    return {processed,pending:queue.length};
+  }finally{
+    _notesShadowRetryBusy=false;
+    if(readNotesShadowRetryQueue().length)scheduleNotesShadowRetry(60000);
+    if(CURRENT_TAB==='health'||CURRENT_TAB==='notes')renderTab(CURRENT_TAB);
+  }
+}
+function scheduleNotesShadowRetry(delay=5000){
+  clearTimeout(_notesShadowRetryTimer);
+  _notesShadowRetryTimer=setTimeout(()=>retryNotesShadowQueue({quiet:true}).catch(e=>console.warn('[notes shadow] retry failed:',e)),delay);
+}
+async function loadNotesShadowHealth({quiet=true}={}){
+  if(!TOKEN)return null;
+  try{
+    const data=await notesShadowRequest('/api/notes/shadow/summary');
+    _notesShadowSummary=data;
+    updateNotesShadowHealth({
+      lastHealthCheckAt:data.checked_at||new Date().toISOString(),
+      supabaseCount:Number(data.summary?.total||0),lastHealthError:''
+    });
+    if(!quiet)showToast('✅ 記事同步狀態已更新','ok');
+    return data;
+  }catch(e){
+    updateNotesShadowHealth({lastHealthCheckAt:new Date().toISOString(),lastHealthError:e.message||String(e)});
+    if(!quiet)showToast('⚠ 記事同步狀態讀取失敗：'+(e.message||e),'warn');
+    return null;
+  }finally{
+    if(CURRENT_TAB==='health')renderTab('health');
+  }
+}
 async function notesShadowRequest(path,options={}){
   const headers={Authorization:`Bearer ${TOKEN}`,...(options.headers||{})};
   const res=await fetch(`${PROXY}${path}`,{...options,headers});
@@ -10571,9 +10744,19 @@ async function syncNotesShadow(sourceNotes,{audit=true}={}){
         _notesShadowAudit=compareNotesShadow(sourceNotes,shadowRows);
         localStorage.setItem(NOTES_SHADOW_AUDIT_KEY,JSON.stringify(_notesShadowAudit));
       }
+      updateNotesShadowHealth({
+        lastSyncAt:syncResult.synced_at||new Date().toISOString(),
+        lastSyncSaved:Number(syncResult.saved||snapshot.length),
+        lastError:'',consecutiveFailures:0
+      });
+      clearNotesShadowRetries(snapshot.map(item=>item.notionPageId),'upsert');
       return audit?_notesShadowAudit:syncResult;
     }catch(e){
       console.warn('[notes shadow] sync skipped:',e);
+      updateNotesShadowHealth({
+        lastError:e.message||String(e),
+        consecutiveFailures:Number(readNotesShadowHealth().consecutiveFailures||0)+1
+      });
       return null;
     }finally{
       _notesShadowSyncing=false;
@@ -10585,7 +10768,11 @@ async function syncNotesShadow(sourceNotes,{audit=true}={}){
 }
 async function syncNoteShadowAfterMutation(note){
   const result=await syncNotesShadow([note],{audit:false});
-  if(!result)console.warn('[notes shadow] latest change will retry on next Notion refresh');
+  if(!result){
+    const error=readNotesShadowHealth().lastError||'Supabase 記事同步失敗';
+    enqueueNotesShadowRetry('upsert',noteShadowPayload(note),error);
+    console.warn('[notes shadow] latest change queued for retry');
+  }
   return !!result;
 }
 async function deleteNoteShadow(id){
@@ -10594,9 +10781,11 @@ async function deleteNoteShadow(id){
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({notionPageId:id})
     });
+    clearNotesShadowRetries([id]);
     return true;
   }catch(e){
     console.warn('[notes shadow] delete skipped:',e);
+    enqueueNotesShadowRetry('delete',{notionPageId:id},e.message||String(e));
     return false;
   }
 }
@@ -10636,6 +10825,13 @@ async function loadNotesFromNotion(options={}){
   _notesLoaded=true;
   _notesReadSource='Notion 備援';
   _notesReadError=options.fallbackError||'';
+  const health=readNotesShadowHealth();
+  updateNotesShadowHealth({
+    lastReadAt:new Date().toISOString(),lastReadSource:_notesReadSource,lastReadCount:notes.length,
+    fallbackCount:Number(health.fallbackCount||0)+(options.fallbackError?1:0),
+    lastFallbackAt:options.fallbackError?new Date().toISOString():(health.lastFallbackAt||''),
+    lastError:_notesReadError||health.lastError||''
+  });
   markDataLoadMode('notes',mode,notes.length);
   schedulePendingNoteNotification();
   if(options.immediateShadow)await syncNotesShadow(notes,{audit:false});
@@ -10654,8 +10850,13 @@ async function loadNotes(options={}){
     _notesLoaded=true;
     _notesReadSource='Supabase';
     _notesReadError='';
+    updateNotesShadowHealth({
+      lastReadAt:new Date().toISOString(),lastReadSource:_notesReadSource,lastReadCount:notes.length,
+      supabaseCount:notes.length,lastError:''
+    });
     markDataLoadMode('notes','all',notes.length);
     schedulePendingNoteNotification();
+    scheduleNotesShadowRetry(800);
     return notes;
   }catch(e){
     console.warn('[notes] Supabase read fallback to Notion:',e);
@@ -10942,7 +11143,7 @@ function renderNotes(){
   const doneList=data.filter(n=>n.status==='完成').slice(0,10);
   const dbShort=_notesDbId?String(_notesDbId).replace(/-/g,'').slice(-8):'未連線';
   return `<div class="note-board">
-    <div class="notion-bar">📌 記事來源：<b style="color:${_notesReadSource==='Supabase'?'var(--green2)':'var(--amber)'}">${escapeHtml(_notesReadSource)}</b>　${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">開啟 Notion 鏡像</a>`:'Notion 鏡像'} <span style="color:var(--text3)">${_notesReadError?`｜Supabase 暫時無法讀取，已自動切換 Notion：${escapeHtml(_notesReadError)}`:''}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}｜點開記事時會向 Notion 取得最新對話與附件。</span></div>
+    <div class="notion-bar">📌 記事來源：<b style="color:${_notesReadSource==='Supabase'?'var(--green2)':'var(--amber)'}">${escapeHtml(_notesReadSource)}</b>　${_notesDbId?`<a href="${notionPageUrl(_notesDbId)}" target="_blank">開啟 Notion 鏡像</a>`:'Notion 鏡像'} <span style="color:var(--text3)">${_notesReadError?`｜Supabase 暫時無法讀取，已自動切換 Notion：${escapeHtml(_notesReadError)}`:''}${_notesDbRecovered?`｜已救回 ${_notesDbRecovered} 筆手機/舊庫記事`:''}${readNotesShadowRetryQueue().length?`｜待補同步 ${readNotesShadowRetryQueue().length} 筆`:'｜同步正常'}｜點開記事時會向 Notion 取得最新對話與附件。</span></div>
     <section class="note-hero">
       <div><div class="note-eyebrow">LEMATEC SHARED NOTES</div><h2>記事行事曆</h2><p>客戶來訪、預約、交代事項、臨時提醒集中管理。</p></div>
       <div class="note-metrics">
@@ -17596,7 +17797,10 @@ async function persistStockLog(item){
   return {ok:true,id:item.supabase_log_id,notion_page_id:item.notion_page_id};
 }
 
-window.addEventListener('online',()=>{ void flushPendingStockLogs(); });
+window.addEventListener('online',()=>{
+  void flushPendingStockLogs();
+  void retryNotesShadowQueue({force:true,quiet:true});
+});
 
 function openInboundPhotoQC(id,matId,qty){
   resetQCPhotos();
@@ -19704,6 +19908,7 @@ if ('serviceWorker' in navigator) {
           if(TOKEN&&ROLE) flushInventoryMirrorQueue({quiet:true}).catch(()=>{});
           if(TOKEN&&ROLE) flushInventoryNotionMirrorQueue({quiet:true}).catch(()=>{});
           if(TOKEN&&ROLE) flushWorkflowNotionSyncQueue({quiet:true}).catch(()=>{});
+          if(TOKEN&&ROLE) retryNotesShadowQueue({quiet:true}).catch(()=>{});
         }
       });
       reg.addEventListener('updatefound', () => {
