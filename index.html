@@ -5442,6 +5442,7 @@ function openModal(type,data){
         <label class="field-label">附件（最多 5 個；圖片、影片、文件或其他檔案）</label>
         <input class="inp" id="note_files" type="file" multiple onchange="renderNoteFileSelection(this)">
         <div id="note_file_selection" class="hint" style="margin-top:6px">${(d.files||[]).length?`目前已有 ${(d.files||[]).length} 個欄位附件；新增檔案會附加到記事頁。`:'尚未選擇附件'}</div>
+        <div class="hint" style="margin-top:5px">單檔 20MB 內會直接上傳；較大的影片或檔案會先儲存記事，再提供 Notion 原始頁補傳。</div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-ghost" onclick="closeModal()">取消</button>
@@ -10013,6 +10014,8 @@ const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
 const NOTE_PRIORITIES=['一般','重要','緊急'];
 const NOTE_TAG_OPTIONS=['客戶','交期','出貨','採購','品管','現場','維修','客訴','會議','追蹤'];
 const NOTE_DONE_HIDE_DAYS=30;
+const NOTE_MAX_ATTACHMENTS=5;
+const NOTE_MAX_ATTACHMENT_BYTES=20*1024*1024;
 let _notesDbId='', _notesLoaded=false, _notesNotifyShown=false, _notesNotifyKey='', _notesFieldsChecked=false, _notesDbRecovered=0;
 let _notesShadowSyncing=false, _notesShadowBackfillRunning=false, _notesShadowAudit=null;
 
@@ -10033,8 +10036,19 @@ function renderNoteFileSelection(input){
   const el=document.getElementById('note_file_selection');
   if(!el)return;
   const files=[...(input?.files||[])];
+  if(!files.length){el.textContent='尚未選擇附件';return;}
   const size=files.reduce((sum,f)=>sum+(f.size||0),0);
-  el.textContent=files.length?`${files.length} 個，合計 ${formatNoteFileSize(size)}：${files.map(f=>f.name).join('、')}`:'尚未選擇附件';
+  const rows=files.map(file=>{
+    const tooLarge=(file.size||0)>NOTE_MAX_ATTACHMENT_BYTES;
+    const empty=(file.size||0)<=0;
+    const state=tooLarge?'超過 20MB，記事儲存後請至 Notion 補傳':empty?'空檔案，無法上傳':'可直接上傳';
+    const color=tooLarge||empty?'var(--amber)':'var(--green)';
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border)">
+      <span style="min-width:0;overflow-wrap:anywhere">${escapeHtml(file.name||'未命名附件')} · ${formatNoteFileSize(file.size||0)}</span>
+      <span style="color:${color};white-space:nowrap">${state}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div style="margin-bottom:4px">${files.length} 個，合計 ${formatNoteFileSize(size)}</div>${rows}`;
 }
 function formatNoteFileSize(bytes=0){
   if(bytes<1024)return `${bytes} B`;
@@ -10096,26 +10110,63 @@ async function loadNoteAttachments(pageId,legacyFiles=[]){
   }
 }
 async function uploadNoteAttachments(pageId,files=[]){
-  if(!pageId||!files.length)return [];
+  const outcome={uploaded:[],failed:[]};
+  if(!pageId||!files.length)return outcome;
   const blocks=[];
   for(let i=0;i<files.length;i++){
     const file=files[i];
     showToast(`📎 上傳附件 ${i+1}/${files.length}：${file.name}`,'warn',5000);
-    const uploaded=await uploadNotionFileViaProxy(file);
-    const kind=noteAttachmentKind(file);
-    const blockType=['image','video','audio','pdf'].includes(kind)?kind:'file';
-    blocks.push({
-      type:blockType,
-      [blockType]:{
-        type:'file_upload',
-        file_upload:{id:uploaded.file_upload.id},
-        caption:[{type:'text',text:{content:file.name||'附件'}}]
-      }
-    });
+    try{
+      const uploaded=await uploadNotionFileViaProxy(file);
+      const kind=noteAttachmentKind(file);
+      const blockType=['image','video','audio','pdf'].includes(kind)?kind:'file';
+      blocks.push({
+        type:blockType,
+        [blockType]:{
+          type:'file_upload',
+          file_upload:{id:uploaded.file_upload.id},
+          caption:[{type:'text',text:{content:file.name||'附件'}}]
+        }
+      });
+      outcome.uploaded.push({name:file.name||'附件',size:file.size||0});
+    }catch(error){
+      outcome.failed.push({name:file.name||'附件',error:error?.message||String(error)});
+    }
   }
-  const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
-  if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
-  return blocks;
+  if(blocks.length){
+    try{
+      const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
+      if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
+    }catch(error){
+      const message=error?.message||String(error);
+      outcome.failed.push(...outcome.uploaded.map(file=>({...file,error:message})));
+      outcome.uploaded=[];
+    }
+  }
+  return outcome;
+}
+function noteNotionPageUrl(pageId=''){
+  const clean=String(pageId||'').replace(/-/g,'');
+  return clean?`https://www.notion.so/${clean}`:'#';
+}
+function showNoteAttachmentOutcome(pageId,outcome={},oversized=[]){
+  const uploaded=outcome.uploaded||[];
+  const failed=outcome.failed||[];
+  if(!failed.length&&!oversized.length)return;
+  const mi=document.getElementById('modalInner');
+  if(!mi)return;
+  const failedRows=failed.map(x=>`<li><b>${escapeHtml(x.name)}</b>：${escapeHtml(x.error||'上傳失敗')}</li>`).join('');
+  const oversizedRows=oversized.map(x=>`<li><b>${escapeHtml(x.name)}</b>（${formatNoteFileSize(x.size||0)}）：超過 20MB</li>`).join('');
+  mi.innerHTML=`<h3>📎 記事已儲存，部分附件需補傳</h3>
+    <div class="info-box info-tip">已直接上傳 ${uploaded.length} 個；尚未完成 ${failed.length+oversized.length} 個。記事內容不會因附件失敗而遺失。</div>
+    ${failedRows?`<div class="field-label">上傳失敗</div><ul style="margin:6px 0 12px;padding-left:22px">${failedRows}</ul>`:''}
+    ${oversizedRows?`<div class="field-label">大於 20MB</div><ul style="margin:6px 0 12px;padding-left:22px">${oversizedRows}</ul>`:''}
+    <div class="hint" style="margin-bottom:14px">可重新編輯記事補傳；大於 20MB 的檔案請開啟 Notion 原始頁後直接拖入頁面。</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="closeModal()">稍後處理</button>
+      <a class="btn btn-blue" href="${noteNotionPageUrl(pageId)}" target="_blank" rel="noopener">開啟 Notion 原始頁</a>
+    </div>`;
+  openSharedModal();
 }
 function noteStatusOptions(){return NOTE_STATUS.map((name,i)=>({name,color:['yellow','orange','blue','purple','pink','green','red','gray'][i]||'default'}));}
 function notePriorityOptions(){return NOTE_PRIORITIES.map((name,i)=>({name,color:['default','yellow','red'][i]||'default'}));}
@@ -11167,9 +11218,16 @@ async function submitNote(id=''){
   const noteFiles=[...(document.getElementById('note_files')?.files||[])];
   const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
-  if(noteFiles.length>5){showToast('附件一次最多 5 個','warn');return;}
-  const oversize=noteFiles.find(f=>f.size>20*1024*1024);
-  if(oversize){showToast(`附件 ${oversize.name} 超過 20MB，請先壓縮或改用雲端連結`,'warn');return;}
+  if(noteFiles.length>NOTE_MAX_ATTACHMENTS){showToast(`附件一次最多 ${NOTE_MAX_ATTACHMENTS} 個`,'warn');return;}
+  const oversizedFiles=noteFiles.filter(f=>(f.size||0)>NOTE_MAX_ATTACHMENT_BYTES);
+  const emptyFiles=noteFiles.filter(f=>(f.size||0)<=0);
+  const uploadableFiles=noteFiles.filter(f=>(f.size||0)>0&&(f.size||0)<=NOTE_MAX_ATTACHMENT_BYTES);
+  let attachmentOutcome={
+    uploaded:[],
+    failed:emptyFiles.map(file=>({name:file.name||'附件',error:'空檔案無法上傳'}))
+  };
+  let savedNotePageId='';
+  let savedAction=id?'更新':'建立';
   showToast('⏳ 儲存記事中...','warn');
   try{
     const dbId=await ensureNotesDB(true);
@@ -11210,13 +11268,14 @@ async function submitNote(id=''){
       if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
       if(syncInfo.backendUrl) props['後台連結']={url:syncInfo.backendUrl};
       assertNotionPage(await updatePage(id,props),'更新記事');
-      if(noteFiles.length){
-        try{await uploadNoteAttachments(id,noteFiles);}
-        catch(fileErr){showToast('⚠ 記事已更新，但附件上傳失敗：'+fileErr.message,'warn',9000);}
+      savedNotePageId=id;
+      if(uploadableFiles.length){
+        const result=await uploadNoteAttachments(id,uploadableFiles);
+        attachmentOutcome.uploaded.push(...result.uploaded);
+        attachmentOutcome.failed.push(...result.failed);
       }
       logUserAction('編輯記事',title,`${date} ${time}`,ROLE);
       closeModal();
-      showToast('✅ 記事已更新','ok');
     }else{
       props['建立者']={rich_text:[{text:{content:loginRoleLabel()}}]};
       props['建立者角色']={select:{name:loginRoleLabel()}};
@@ -11224,9 +11283,11 @@ async function submitNote(id=''){
       props['已確認角色']={rich_text:[{text:{content:''}}]};
       const created=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
       assertNotionPage(created,'建立記事');
-      if(noteFiles.length){
-        try{await uploadNoteAttachments(created.id,noteFiles);}
-        catch(fileErr){showToast('⚠ 記事已建立，但附件上傳失敗：'+fileErr.message,'warn',9000);}
+      savedNotePageId=created.id;
+      if(uploadableFiles.length){
+        const result=await uploadNoteAttachments(created.id,uploadableFiles);
+        attachmentOutcome.uploaded.push(...result.uploaded);
+        attachmentOutcome.failed.push(...result.failed);
       }
       const syncInfo=await syncNoteToCustomerPage(created.id,{title,date,time,type,status,body,owner,priority,remindDate,tags,customerCode,linkedCustomer,linkedOrder,linkedMaterial,targetRoles,authorRole:loginRoleLabel()},'建立');
       if(syncInfo.customerNotesPageId||syncInfo.eventPageId||syncInfo.backendUrl){
@@ -11238,9 +11299,14 @@ async function submitNote(id=''){
       }
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
       closeModal();
-      showToast('✅ 記事已建立','ok');
     }
     await loadNotes();renderTab('notes');
+    if(!attachmentOutcome.failed.length&&!oversizedFiles.length){
+      showToast(attachmentOutcome.uploaded.length
+        ?`✅ 記事已${savedAction}，${attachmentOutcome.uploaded.length} 個附件已上傳`
+        :`✅ 記事已${savedAction}`,'ok');
+    }
+    showNoteAttachmentOutcome(savedNotePageId,attachmentOutcome,oversizedFiles);
   }catch(e){showToast('❌ 記事儲存失敗：'+e.message,'err');}
 }
 async function ackNote(id){

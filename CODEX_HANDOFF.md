@@ -1,5 +1,24 @@
 # LEMATEC ERP Codex Handoff
 
+## Notes Attachments 2026-07-30
+
+- Formal Notes attachments remain Notion-first, matching the current Notes
+  read/write source.
+- The Notes form accepts up to 5 arbitrary files per save. Images, video,
+  audio, PDF, Office/Excel, archives, and other formats share the same picker.
+- Files up to 20MB are uploaded through the Worker to Notion and appended to
+  the Note page. Image/video/audio render inline; other files remain download
+  links.
+- A failed file no longer aborts the other selected files or the Note itself.
+  The UI reports uploaded and failed files separately.
+- Files over 20MB do not block Note creation. After the Note is saved, the ERP
+  offers the original Notion page for manual upload.
+- Worker retries Notion 429 and temporary 5xx responses with bounded backoff.
+- Service worker cache version for this release: `lematec-erp-v28`.
+- Validation:
+  `python -m unittest tests.test_notes_attachment_contract
+  tests.test_notes_shadow_contract tests.test_verify_erp_static`.
+
 ## Notes Completion Status 2026-07-30
 
 - Supabase Notes shadow contains 15 Notes and 46 reply lines.

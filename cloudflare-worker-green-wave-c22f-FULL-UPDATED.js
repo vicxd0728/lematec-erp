@@ -123,22 +123,34 @@ export default {
 
           if (!token) return resp400(cors, 'Missing token');
           if (!file) return resp400(cors, 'No file provided');
+          if (typeof file.size !== 'number' || file.size <= 0) {
+            return resp400(cors, 'Empty file is not allowed');
+          }
+          if (file.size > NOTION_DIRECT_UPLOAD_MAX_BYTES) {
+            return new Response(JSON.stringify({
+              error: 'File exceeds the 20MB direct-upload limit',
+              code: 'FILE_TOO_LARGE',
+              max_bytes: NOTION_DIRECT_UPLOAD_MAX_BYTES,
+            }), { status: 413, headers: jh(cors) });
+          }
 
           const notionHeaders = {
             'Authorization': `Bearer ${token}`,
             'Notion-Version': '2026-03-11',
           };
 
-          const createRes = await fetch('https://api.notion.com/v1/file_uploads', {
-            method: 'POST',
-            headers: {
-              ...notionHeaders,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({}),
-          });
+          const createRes = await fetchWithRetry(() =>
+            fetch('https://api.notion.com/v1/file_uploads', {
+              method: 'POST',
+              headers: {
+                ...notionHeaders,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({}),
+            })
+          );
 
-          const upload = await createRes.json();
+          const upload = await responseJson(createRes);
           if (!createRes.ok || upload.object === 'error') {
             return new Response(JSON.stringify({
               error: upload.message || 'Create file upload failed',
@@ -149,19 +161,19 @@ export default {
             });
           }
 
-          const sendData = new FormData();
-          sendData.append('file', file, file.name || 'qc-photo.jpg');
-
-          const sendRes = await fetch(
-            upload.upload_url || `https://api.notion.com/v1/file_uploads/${upload.id}/send`,
-            {
+          const sendUrl = upload.upload_url || `https://api.notion.com/v1/file_uploads/${upload.id}/send`;
+          const sendRes = await fetchWithRetry(() => {
+            const sendData = new FormData();
+            sendData.append('file', file, file.name || 'attachment');
+            return fetch(sendUrl, {
               method: 'POST',
               headers: notionHeaders,
               body: sendData,
-            }
+            });
+          }
           );
 
-          const sent = await sendRes.json();
+          const sent = await responseJson(sendRes);
           if (!sendRes.ok || sent.object === 'error') {
             return new Response(JSON.stringify({
               error: sent.message || 'Send file upload failed',
@@ -275,6 +287,45 @@ export default {
 const respOK  = (c,d) => new Response(JSON.stringify(d), { headers: jh(c) });
 const resp400 = (c,e) => new Response(JSON.stringify({error:e}), { status:400, headers:jh(c) });
 const resp500 = (c,e) => new Response(JSON.stringify({error:e}), { status:500, headers:jh(c) });
+const NOTION_DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const RETRYABLE_UPSTREAM_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+const erpDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function responseJson(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text.slice(0, 500) };
+  }
+}
+
+async function fetchWithRetry(makeRequest, maxAttempts = 4) {
+  let lastError = null;
+  let lastResponse = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await makeRequest(attempt);
+      lastResponse = response;
+      if (!RETRYABLE_UPSTREAM_STATUSES.has(response.status) || attempt === maxAttempts - 1) {
+        return response;
+      }
+      const retryAfter = Number(response.headers.get('Retry-After') || 0);
+      const waitMs = retryAfter > 0
+        ? Math.min(retryAfter * 1000, 8000)
+        : Math.min(400 * (2 ** attempt), 4000);
+      await erpDelay(waitMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts - 1) throw error;
+      await erpDelay(Math.min(400 * (2 ** attempt), 4000));
+    }
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('Upstream request failed');
+}
 
 async function notionReadCacheKey(workerUrl, token, method, endpoint, body, notionVersion, cacheEpoch) {
   const tokenBytes = new TextEncoder().encode(String(token || ''));

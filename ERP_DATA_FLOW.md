@@ -1,5 +1,19 @@
 # LEMATEC ERP Data Flow
 
+## Notes Attachments 2026-07-30
+
+- Notes remain Notion-primary, so their attachments are stored on the same
+  Notion page rather than split into a second formal attachment store.
+- The browser sends one file at a time to the Worker action
+  `notionFileUpload`; the Worker creates and sends a Notion file upload.
+- The frontend appends successful uploads to the Note as image, video, audio,
+  PDF, or generic file blocks.
+- Direct upload is limited to 20MB per file and 5 files per save. Oversized
+  files are intentionally completed from the Note's original Notion page.
+- Partial upload failure never rolls back or deletes an already saved Note.
+- Supabase Notes shadow remains metadata/comparison only and does not become
+  the formal attachment source in this release.
+
 ## Notes Shadow Backup 2026-07-30
 
 - Notes and calendar production reads/writes remain Notion-first.
