@@ -19394,7 +19394,7 @@ async function importShopeeExcel(input){
     }
 
     const incoming=[];
-    for(const row of rows){
+    for(const [sourceIndex,row] of rows.entries()){
       const shopeeNo=rowVal(row,['蝦皮訂單號碼','訂單編號','訂單號碼']);
       if(!shopeeNo) continue;
       const orderStatus=rowVal(row,['訂單狀態','狀態']);
