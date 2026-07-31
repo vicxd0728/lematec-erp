@@ -15247,29 +15247,6 @@ async function returnCorderStock(refs, refNo){
     if(mat) mat.stock=stockMove.after;
   }
 }
-async function syncToShopee115({no,shopeeNo,buyer,matName,qty,shipMethod,shipDate,payDate,note,trackingNo,unitPrice}){
-  if(!DB.shopee115) return;
-  const orderDate=(payDate||shipDate||new Date().toISOString().slice(0,10)).slice(0,10);
-  const props={
-    '訂單號碼':{title:[{text:{content:no||''}}]},
-    '蝦皮訂單號碼':{rich_text:[{text:{content:shopeeNo||''}}]},
-    '買家帳號':{rich_text:[{text:{content:buyer||''}}]},
-    '數量':{number:Number(qty)||0},
-    '備註':{rich_text:[{text:{content:note||''}}]},
-    '來源':{multi_select:[{name:'蝦皮'}]},
-  };
-  if(matName) props['品名']={select:{name:matName}};
-  if(trackingNo) props['寄件編號']={rich_text:[{text:{content:trackingNo}}]};
-  if(unitPrice!==''&&unitPrice!==undefined&&unitPrice!==null) props['單價']={number:parseMoneyNumber(unitPrice)};
-  if(orderDate.length>=10) props['訂單日期']={date:{start:orderDate}};
-  if((shipDate||'').length>=10) props['出日']={date:{start:shipDate.slice(0,10)}};
-  if((payDate||'').length>=10) props['付款時間']={date:{start:payDate.slice(0,10)}};
-  if(shipMethod) props['出貨方式']={select:{name:shipMethod}};
-  const r=await notionAPI('POST','pages',{parent:{database_id:DB.shopee115},properties:props});
-  if(!r||r.object==='error') throw new Error('115年蝦皮同步失敗：'+(r?.message||r?.code||'未知錯誤'));
-  logUserAction('同步115年蝦皮',no,`${shopeeNo||''} ${matName||''} x ${qty}`,ROLE);
-}
-
 async function syncToDomesticTrade115({orderNo,custName,custCode,productName,qty,deadline,note}){
   if(!DB.domesticTrade) return;
   const d=new Date();
@@ -16643,22 +16620,7 @@ function dedupeShippingLabelRows(rows){
   return [...map.values()];
 }
 
-let _shopee115Cache=null,_shopee115LoadedAt=0,_dbSchemaCache={};
-async function loadShopee115RowsForMatch(force=false){
-  if(!force&&_shopee115Cache&&Date.now()-_shopee115LoadedAt<120000) return _shopee115Cache;
-  if(!DB.shopee115) return [];
-  const pages=await dbQueryAll(DB.shopee115);
-  _shopee115Cache=pages.map(p=>({
-    id:p.id,
-    no:getTitle(p.properties,'訂單號碼')||getRichText(p.properties,'訂單號碼'),
-    shopeeNo:getRichText(p.properties,'蝦皮訂單號碼')||getTitle(p.properties,'蝦皮訂單號碼'),
-    buyer:getRichText(p.properties,'買家帳號'),
-    customerName:getRichText(p.properties,'客戶名稱','客戶姓名','收件人')||p.properties?.['客戶名稱']?.select?.name||p.properties?.['客戶姓名']?.select?.name||p.properties?.['收件人']?.select?.name||'',
-    trackingNo:getRichText(p.properties,'寄件編號','包裹查詢號碼'),
-  }));
-  _shopee115LoadedAt=Date.now();
-  return _shopee115Cache;
-}
+let _dbSchemaCache={};
 
 async function getDatabaseSchema(dbId){
   if(_dbSchemaCache[dbId]) return _dbSchemaCache[dbId];
@@ -16695,14 +16657,12 @@ async function buildShippingUpdateProps(dbId,row){
 }
 
 async function previewCorderShippingMatches(rows,warnings=[]){
-  const shopeeRows=await loadShopee115RowsForMatch(true);
   const enriched=rows.map(r=>{
     const cMatches=(window.corders||[]).filter(o=>normalizeShopeeOrderNo(o.shopeeNo)===r.shopeeNo);
-    const sMatches=shopeeRows.filter(o=>normalizeShopeeOrderNo(o.shopeeNo)===r.shopeeNo);
     const hasName=!!r.customerName&&!isBadShippingReceiverCandidate(r.customerName);
-    const foundOrder=!!(cMatches.length||sMatches.length);
+    const foundOrder=!!cMatches.length;
     const safeToWrite=!!r.writableByParse;
-    return {...r,cMatches,sMatches,hasName,foundOrder,writable:hasName&&foundOrder&&safeToWrite};
+    return {...r,cMatches,hasName,foundOrder,writable:hasName&&foundOrder&&safeToWrite};
   });
   window._shippingLabelMatches=enriched;
   const hit=enriched.filter(r=>r.writable).length;
@@ -16719,7 +16679,6 @@ async function previewCorderShippingMatches(rows,warnings=[]){
       <td>${escapeHtml(r.parseBy||'')}</td>
       <td>${Number(r.confidence||0)}</td>
       <td>${r.cMatches.length}</td>
-      <td>${r.sMatches.length}</td>
       <td>${status}${reason?`<div style="font-size:.72rem;color:var(--text3);margin-top:4px">${escapeHtml(reason)}</div>`:''}</td>
     </tr>`;
   }).join('');
@@ -16729,7 +16688,7 @@ async function previewCorderShippingMatches(rows,warnings=[]){
     </div>
     ${warnings.length?`<div class="info-box info-warn" style="margin-bottom:12px">${warnings.map(escapeHtml).join('<br>')}</div>`:''}
     <div class="table-wrap" style="max-height:52vh;overflow:auto"><table>
-      <tr><th>蝦皮訂單號</th><th>收件人</th><th>寄件編號</th><th>來源</th><th>解析</th><th>信心</th><th>ERP</th><th>115</th><th>狀態</th></tr>
+      <tr><th>蝦皮訂單號</th><th>收件人</th><th>寄件編號</th><th>來源</th><th>解析</th><th>信心</th><th>C端訂單</th><th>狀態</th></tr>
       ${table}
     </table></div>
     <div class="form-actions">
@@ -16745,7 +16704,7 @@ async function applyCorderShippingNames(){
   if(!rows.length){showToast('沒有可寫入的資料','warn');return;}
   closeModal();
   showToast('寫入客戶名稱中...','warn');
-  let cOk=0,sOk=0,fail=0;
+  let cOk=0,fail=0;
   try{
     for(const [sourceIndex,row] of rows.entries()){
       for(const o of row.cMatches){
@@ -16758,23 +16717,11 @@ async function applyCorderShippingNames(){
           }
         }catch(e){fail++;console.warn('C端回填失敗:',row,o,e);}
       }
-      for(const s of row.sMatches){
-        try{
-          const props=await buildShippingUpdateProps(DB.shopee115,row);
-          if(Object.keys(props).length){
-            await updatePage(s.id,props);
-            s.customerName=row.customerName;
-            s.trackingNo=row.trackingNo||s.trackingNo;
-            sOk++;
-          }
-        }catch(e){fail++;console.warn('115回填失敗:',row,s,e);}
-      }
     }
-    _shopee115Cache=null;
     await loadCorders();
     renderTab('corders');
-    logUserAction('回填C端客戶名稱','運送單解析',`ERP ${cOk} / 115 ${sOk} / 失敗 ${fail}`,ROLE);
-    showToast(`✅ 回填完成：ERP ${cOk} 筆 / 115 ${sOk} 筆${fail?' / 失敗 '+fail:''}`,fail?'warn':'ok');
+    logUserAction('回填C端客戶名稱','運送單解析',`C端訂單 ${cOk} / 失敗 ${fail}`,ROLE);
+    showToast(`✅ 回填完成：C端訂單 ${cOk} 筆${fail?' / 失敗 '+fail:''}`,fail?'warn':'ok');
   }catch(e){
     showToast('❌ 回填失敗：'+e.message,'err');
   }
@@ -16808,7 +16755,6 @@ function renderCorders(){
   const notionBar=`<div class="notion-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
     <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
     <a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a>
-    <a href="https://www.notion.so/276ff6f424bb80248a2ad39aff6800db" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛍 115年蝦皮訂單</a>
   </div>`;
   const data=window.corders||[];
   const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
@@ -19307,12 +19253,6 @@ async function submitCorder(){
       },
       `C端訂單 ${orderNo} 出貨中狀態與庫存關聯`
     );
-    try{
-      await syncToShopee115({no:orderNo,shopeeNo,buyer,matName:mat.code||mat.name,qty,shipMethod,shipDate,payDate,note,trackingNo});
-    }catch(mirrorError){
-      console.error('115年蝦皮鏡像同步失敗',mirrorError);
-      showToast(`⚠ 訂單 ${orderNo} 已建立並扣庫，但 115年蝦皮鏡像待補同步`,'warn');
-    }
     persistCorderNextNo([orderNo]);
     await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab('corders');
     showToast(
@@ -19498,14 +19438,6 @@ async function importShopeeExcel(input){
         if(statusSync.pending){
           warn++;
           warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
-        }
-        try{
-          await syncToShopee115({no:item.no,shopeeNo:item.shopeeNo,buyer:item.buyer,matName:displaySku,qty:item.qty,
-            shipMethod:item.shipMethod,shipDate:item.shipDate,payDate:item.payDate||'',note,trackingNo:item.trackingNo,unitPrice:item.unitPrice});
-        }catch(mirrorError){
-          warn++;
-          warnList.push((item.shopeeNo||item.no)+'：主訂單已建立，115年蝦皮鏡像待補同步');
-          console.error('115年蝦皮鏡像同步失敗:',item,mirrorError);
         }
       }catch(eCreate){
         if(!committed){

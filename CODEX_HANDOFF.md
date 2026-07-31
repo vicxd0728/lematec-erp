@@ -1,5 +1,18 @@
 # LEMATEC ERP Codex Handoff
 
+## C-order Primary Database 2026-07-31
+
+- The Notion `C端訂單` database is the only operational destination for new
+  C-end/Shopee order imports and manual C-order creation.
+- `115年蝦皮訂單` is a legacy archive. The ERP no longer creates rows there,
+  updates shipping-label data there, or shows its shortcut in the C-order UI.
+- Eight rows that were written only to the legacy database on 2026-07-31 were
+  restored to `C端訂單` with status `需確認`. Inventory was not deducted again.
+- Cross-device SHPTW number reservation is intentionally deferred until its
+  Supabase sequence table and RPCs are applied and verified. The current local
+  starting-number behavior remains active so imports are not blocked.
+- Service worker cache version for this release: `lematec-erp-v33`.
+
 ## Notes Reliability And C-order Status 2026-07-30
 
 - C-end recent-order queries now use the actual Notion status values

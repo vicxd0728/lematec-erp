@@ -1,5 +1,15 @@
 # LEMATEC ERP Data Flow
 
+## C-order Primary Write 2026-07-31
+
+- New C-end/Shopee orders write only to the Notion `C端訂單` database.
+- `115年蝦皮訂單` is a historical archive and is not a mirror target.
+- Shipping-label customer names and tracking numbers update only matching
+  `C端訂單` rows.
+- A successful inventory transaction must not be repeated while repairing an
+  order row. Recovered rows use `需確認` until staff confirms the prior stock
+  result.
+
 ## Notes Attachments 2026-07-30
 
 - Notes attachments remain Notion-primary, so files are stored on the same
