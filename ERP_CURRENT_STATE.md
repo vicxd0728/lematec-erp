@@ -9,7 +9,9 @@ This is the single current-state entry point. Use it before reading older timeli
 - Frontend: `https://lematec-erp.pages.dev/`
 - Worker: `https://green-wave-c22f.vic-e93.workers.dev`
 - GitHub repo: `vicxd0728/lematec-erp`
-- Current deployed commit: `11c195b Add ERP Health v2 current state`
+- Current repo head: `fec95e4 Mark ERP Health v2 verified`
+- Latest Worker code deploy: `11c195b Add ERP Health v2 current state`
+- Latest Pages deploy: `fec95e4 Mark ERP Health v2 verified`
 - Worker deploy workflow: `Deploy ERP Worker`
 - Pages deploy workflow: `Deploy ERP to Cloudflare Pages`
 
