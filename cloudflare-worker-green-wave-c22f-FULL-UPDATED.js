@@ -98,6 +98,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/notes/write') {
       return erpNotesPrimaryWrite(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/health/public') {
+      return erpPublicHealth(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/health/supabase-usage') {
       return erpSupabaseUsage(request, env, cors);
     }
@@ -2676,6 +2679,64 @@ async function erpSupabaseUsage(request, env, cors) {
   } catch (e) {
     return resp500(cors, e.message);
   }
+}
+
+async function erpPublicHealth(request, env, cors) {
+  const checkedAt = taipeiISOString();
+  const modules = [];
+  const addModule = (name, scope, status, detail, extra = {}) => {
+    modules.push({name, scope, status, detail: cleanText(detail), ...extra});
+  };
+  const runPublic = async (name, detail, work) => {
+    try {
+      const result = await work();
+      addModule(name, 'public', 'ok', detail, result && typeof result === 'object' ? result : {});
+    } catch (error) {
+      addModule(name, 'public', 'error', error?.message || String(error));
+    }
+  };
+
+  await runPublic('inventory_versions', 'Inventory and BOM version probe uses Supabase through Worker.', async () => {
+    const versions = await buildInventoryVersions(env);
+    return {
+      source: versions.source,
+      counts: versions.counts,
+      latest_updated_at: versions.latest_updated_at,
+    };
+  });
+
+  await runPublic('corder_sequence', 'C-order SHPTW state is read-only; reserve/set are excluded.', async () => {
+    const context = await getSupabaseInventoryContext(env);
+    const data = await supabaseFetch(env, '/rest/v1/rpc/get_corder_number_state', {
+      method: 'POST',
+      body: JSON.stringify({p_organization_id: context.organization.id}),
+    });
+    const state = Array.isArray(data) ? data[0] : data;
+    if (!state) throw new Error('C-order sequence state missing');
+    return {
+      prefix: cleanText(state.prefix),
+      next_number: Number(state.next_number || 0),
+      updated_at: cleanText(state.updated_at),
+    };
+  });
+
+  const failed = modules.filter((item) => item.status === 'error').length;
+  return respOK(cors, {
+    ok: failed === 0,
+    version: 'erp-health-v2',
+    checked_at: checkedAt,
+    public_checks: modules,
+    authorized_checks: [
+      {route: '/api/notes/shadow/summary', reason: 'Notes counts and fallback state require ERP bearer token.'},
+      {route: '/api/health/supabase-usage', reason: 'Supabase usage details require ERP bearer token.'},
+      {route: '/api/reliability/summary', reason: 'Mirror jobs and missing mirror counts require ERP bearer token.'},
+    ],
+    manual_checks: [
+      {item: 'Supabase egress usage', reason: 'Egress is Dashboard-only unless Worker env provides a measured value.'},
+      {item: 'Failed mirror jobs >= 5 attempts', reason: 'Needs staff review before marking complete or retrying indefinitely.'},
+      {item: 'Sequence-mutating C-order checks', reason: 'Use reserve/set only for real orders or intentional admin correction.'},
+    ],
+  });
 }
 
 async function erpClientAuthorized(request) {

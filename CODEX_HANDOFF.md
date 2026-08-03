@@ -4,17 +4,18 @@
 
 - Recommendation: start a new Codex chat before the next ERP code/data change.
 - Reason: this thread has accumulated production-critical changes across Supabase, Notion mirrors, inventory, BOM, picking, inbound, C-end orders, Notes, Worker routes, Pages deployment, and local skills. Continuing major changes here increases the risk of acting from stale chat assumptions.
-- Next chat first action: read this file, then `ERP_SYSTEM_CONTRACT.md`, `WORKER_API_CONTRACT.md`, `ERP_DATA_FLOW.md`, then the module runbook for the touched workflow before editing.
+- Next chat first action: read `ERP_CURRENT_STATE.md`, then this file, `ERP_SYSTEM_CONTRACT.md`, `WORKER_API_CONTRACT.md`, `ERP_DATA_FLOW.md`, then the module runbook for the touched workflow before editing.
 - Current source folder: `C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp`.
 - Production URL: `https://lematec-erp.pages.dev/`.
 - Worker source file: `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
 - Current risk posture: do not deploy or mutate production data until `git status --short` is reviewed and the exact changed workflow is verified against tests and no-side-effect production checks.
 - Important live rule: inventory, BOM, picking, inbound, stock logs, and Notes structured data are intended to be Supabase-primary through the Worker, with Notion as staff-readable mirror/fallback according to `ERP_DATA_FLOW.md`. Direct Notion edits are not automatically trusted as two-way truth unless a verified Notion-to-Supabase sync path exists for that module.
-- C-order numbering reminder: if the SHPTW sequence migration or Worker routes are not verified live, test `/api/corder/number-state` and allocation routes before importing orders.
+- C-order numbering reminder: SHPTW sequence migration and Worker route are verified live as of 2026-08-04. Use `GET /api/corder/number-state` for no-side-effect checks; do not casually call allocation routes because they advance sequence state.
 - Handoff hygiene: there are many local temp/report files and backups in the worktree. Do not delete or revert anything without first separating generated artifacts from active source changes.
 
 ## Current Contract Docs 2026-08-03
 
+- `ERP_CURRENT_STATE.md` is the single current-state entry point. Prefer it over older timeline notes when a status conflicts.
 - `ERP_SYSTEM_CONTRACT.md` is the current operating contract: source of truth, module ownership, fallback rules, transaction rules, known blockers, validation gates, and optimization queue.
 - `WORKER_API_CONTRACT.md` classifies Worker routes by side effect and production safety. Check it before calling production endpoints.
 - These contract files do not replace `CODEX_HANDOFF.md`; they keep the current state compact while this file remains the timeline.
@@ -46,7 +47,19 @@
 - Regression coverage was refreshed in `tests/test_corder_number_sequence.py`.
 - Supabase migration was applied from this machine on 2026-08-04 using the existing Supabase pooler connection. Verification returned `SHPTW` with `next_number=16352`.
 - GitHub repo secret `SUPABASE_DB_URL` was added on 2026-08-04 so the migration workflow can be reused later.
-- Next live gate: push this commit, let Worker/Pages Actions deploy, then verify production `/api/corder/number-state` returns HTTP 200 before enabling real C-order creation/import.
+- Live gate completed: commit `4d9e9c9` deployed through Worker/Pages Actions; production `/api/corder/number-state` returns HTTP 200 with `SHPTW` and `next_number=16352`.
+
+## ERP Health v2 / Optimization Queue 2026-08-04
+
+- Current-state entry point: `ERP_CURRENT_STATE.md`.
+- ERP Health v2 separates public read-only checks, authorized ERP checks, and manual follow-up items.
+- Public health endpoint planned/implemented through Worker route `GET /api/health/public`.
+- Optimization order:
+  1. Health v2 and current-state cleanup.
+  2. Preflight Center for high-risk imports, deductions, approvals, and BOM writes.
+  3. C-order import preview and row-level diagnostics.
+  4. BOM simplified Excel maintenance and direct-component guard.
+  5. Mobile audit for orders, Notes, C-order, and inventory adjustment.
 
 ## Live Verification Snapshot 2026-08-03
 

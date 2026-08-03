@@ -8385,6 +8385,7 @@ const RELIABILITY_MIRROR_MODULES=new Set(['inventory_supabase','inventory_notion
 let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚未執行 Supabase 庫存一致性檢查。'};
 let _reliabilityReport={checked:false,running:false,error:'',data:null};
 let _supabaseUsageReport={checked:false,running:false,error:'',data:null};
+let _publicHealthReport={checked:false,running:false,error:'',data:null};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -9224,6 +9225,69 @@ function renderSupabaseReadCheck(){
     </div>
   </div>`;
 }
+async function loadPublicHealth({quiet=false}={}){
+  _publicHealthReport={..._publicHealthReport,running:true,error:''};
+  if(CURRENT_TAB==='health')renderTab('health');
+  try{
+    const res=await fetch(`${PROXY}/api/health/public`,{cache:'no-store',headers:{Accept:'application/json'}});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
+    _publicHealthReport={checked:true,running:false,error:'',data};
+    if(!quiet)showToast('✅ ERP Health v2 已更新','ok');
+    return data;
+  }catch(e){
+    _publicHealthReport={checked:true,running:false,error:e.message||String(e),data:null};
+    if(!quiet)showToast('⚠ ERP Health v2 讀取失敗：'+_publicHealthReport.error,'warn');
+    return null;
+  }finally{
+    if(CURRENT_TAB==='health')renderTab('health');
+  }
+}
+function renderHealthAccessMatrix(){
+  const report=_publicHealthReport||{};
+  const data=report.data||{};
+  const publicChecks=Array.isArray(data.public_checks)?data.public_checks:[];
+  const authorized=Array.isArray(data.authorized_checks)?data.authorized_checks:[];
+  const manual=Array.isArray(data.manual_checks)?data.manual_checks:[];
+  const failed=publicChecks.filter(item=>item.status==='error').length;
+  const level=report.error?'err':failed?'err':publicChecks.length?'ok':'info';
+  const label=report.running?'檢查中':report.error?'ERROR':failed?'ERROR':publicChecks.length?'OK':'READY';
+  const checkRows=publicChecks.length?publicChecks.map(item=>`
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div><b>${escapeHtml(item.name||'public_check')}</b><div style="font-size:.74rem;color:var(--text3);line-height:1.55">${escapeHtml(item.detail||'公開唯讀檢查')}</div></div>
+      ${healthBadge(item.status==='error'?'err':'ok',item.status==='error'?'ERROR':'OK')}
+    </div>`).join(''):`<div style="padding:10px 0;color:var(--text3)">尚未執行公開健康檢查。</div>`;
+  const authRows=authorized.map(item=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <b style="font-family:var(--f-mono);font-size:.78rem">${escapeHtml(item.route||'authorized')}</b>
+      <div style="font-size:.74rem;color:var(--text3);line-height:1.55">${escapeHtml(item.reason||'需要登入授權')}</div>
+    </div>`).join('');
+  const manualRows=manual.map(item=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <b>${escapeHtml(item.item||'人工確認')}</b>
+      <div style="font-size:.74rem;color:var(--text3);line-height:1.55">${escapeHtml(item.reason||'需人工判斷')}</div>
+    </div>`).join('');
+  return `<div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <span class="panel-title">ERP Health v2<span class="badge">${escapeHtml(data.version||'public')}</span></span>
+      ${healthBadge(level,label)}
+    </div>
+    <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">
+        健康檢查分三層：公開唯讀檢查可直接驗證正式環境；登入後檢查會讀取記事、用量與補同步；人工確認保留給 Dashboard 或高風險交易。
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+        <div><div style="font-weight:800;margin-bottom:6px;color:var(--green)">公開唯讀</div>${checkRows}</div>
+        <div><div style="font-weight:800;margin-bottom:6px;color:var(--cyan2)">登入後檢查</div>${authRows||'<div style="color:var(--text3)">尚無授權檢查項目</div>'}</div>
+        <div><div style="font-weight:800;margin-bottom:6px;color:var(--amber)">人工確認</div>${manualRows||'<div style="color:var(--text3)">尚無人工確認項目</div>'}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" onclick="loadPublicHealth()">重新檢查</button>
+      </div>
+      ${report.error?`<div style="margin-top:10px;color:var(--red2);font-size:.78rem">${escapeHtml(report.error)}</div>`:''}
+    </div>
+  </div>`;
+}
 function localReliabilityQueueCounts(){
   const counts={
     inventory_supabase:readInventoryMirrorQueue().length,
@@ -9789,13 +9853,14 @@ function renderHealthCheck(){
   const schemaRows=_healthReport?.schemaRows||[];
   const schemaErr=schemaRows.filter(r=>r.level==='err').length;
   const schemaWarn=schemaRows.filter(r=>r.level==='warn').length;
-  return `<div class="notion-bar" style="margin-bottom:14px"><span style="color:var(--text3)">一鍵檢查 Supabase 用量、Notion 權限、欄位、BOM 與庫存異常</span><button class="btn btn-blue btn-sm" onclick="runHealthCheck(true)">🩺 完整檢查</button><button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步資料</button></div>
+  return `<div class="notion-bar" style="margin-bottom:14px"><span style="color:var(--text3)">一鍵檢查公開狀態、Supabase 用量、Notion 權限、欄位、BOM 與庫存異常</span><button class="btn btn-blue btn-sm" onclick="runHealthCheck(true)">🩺 完整檢查</button><button class="btn btn-ghost btn-sm" onclick="loadPublicHealth()">公開檢查</button><button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步資料</button></div>
   <div class="dash-kpi-grid">
     <div class="kpi-card ${errorCount+schemaErr?'kpi-red':'kpi-green'}"><div class="kpi-label">錯誤</div><div class="kpi-num">${errorCount+schemaErr}</div><div class="kpi-sub">需立即修正</div></div>
     <div class="kpi-card ${warnCount+schemaWarn?'kpi-amber':'kpi-green'}"><div class="kpi-label">警示</div><div class="kpi-num">${warnCount+schemaWarn}</div><div class="kpi-sub">建議上線前整理</div></div>
     <div class="kpi-card ${['supabase','supabase-cache'].includes(_bomDataSource)?'kpi-green':'kpi-amber'}"><div class="kpi-label">BOM</div><div class="kpi-num">${boms.length}</div><div class="kpi-sub">${_bomDataSource==='supabase'?'Supabase 主資料':_bomDataSource==='supabase-cache'?'Supabase 快取（版本未變）':_bomDataSource==='notion-fallback'?'Notion 備援資料':_bomDataSource==='sync-pending'?'待補同步，流程已阻擋':'尚未載入'}</div></div>
     <div class="kpi-card kpi-cyan"><div class="kpi-label">庫存料號</div><div class="kpi-num">${mats.length}</div><div class="kpi-sub">目前主檔筆數</div></div>
   </div>
+  ${renderHealthAccessMatrix()}
   ${renderReliabilityCenter()}
   ${renderNotesShadowHealth()}
   ${renderSupabaseUsageHealth()}
@@ -9837,6 +9902,7 @@ async function runHealthCheck(manual=false){
     inbound:{'品管狀態':['待品檢','品檢通過','品檢不合格'],'入庫狀態':['待入庫','已入庫','退回供應商','退回倉管']}
   };
   _healthReport={running:true,schemaRows:_healthReport?.schemaRows||[]}; if(CURRENT_TAB==='health')renderTab('health');
+  const publicHealthPromise=loadPublicHealth({quiet:true});
   const reliabilityPromise=loadReliabilitySummary({quiet:true});
   const notesHealthPromise=loadNotesShadowHealth({quiet:true});
   const supabaseUsagePromise=loadSupabaseUsage({quiet:true});
@@ -9856,7 +9922,7 @@ async function runHealthCheck(manual=false){
       });
     }catch(e){rows.push({db:key,level:'err',msg:e.message});}
   }
-  await Promise.all([reliabilityPromise,notesHealthPromise,supabaseUsagePromise]);
+  await Promise.all([publicHealthPromise,reliabilityPromise,notesHealthPromise,supabaseUsagePromise]);
   _healthReport={running:false,schemaRows:rows};
   if(CURRENT_TAB==='health')renderTab('health');
   if(manual)showToast('✅ 健康檢查完成','ok');

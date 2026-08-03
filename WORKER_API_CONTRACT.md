@@ -1,6 +1,6 @@
 # LEMATEC ERP Worker API Contract
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 Worker source: `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
 
@@ -51,13 +51,14 @@ This file classifies Worker routes by side effect and production safety. Before 
 | GET | `/api/notes/shadow/summary` | Read-only | Reads Notes summary/counts | Safe read. |
 | POST | `/api/notes/shadow/delete` | Mutating | Deletes/archives shadow copy path | Intentional Notes operation only. |
 | POST | `/api/notes/write` | Mutating | Writes structured Notes to Supabase, then Notion mirror | Structured Note source is Supabase; attachments remain Notion-backed. |
+| GET | `/api/health/public` | Read-only | Reads public ERP health status and access matrix | Safe public no-side-effect check. |
 | GET | `/api/health/supabase-usage` | Read-only | Reads Supabase resource usage RPC | Safe read; egress only when externally measured. |
 | POST | `/api/reliability/mirror/enqueue` | Mutating | Enqueues mirror retry job | Repair queue write. Requires dedupe key. |
 | GET | `/api/reliability/mirror/list` | Read-only | Lists mirror jobs | Safe read. |
 | POST | `/api/reliability/mirror/complete` | Mutating | Marks mirror job complete | Repair workflow only. |
 | POST | `/api/reliability/mirror/fail` | Mutating | Marks mirror job failed/retryable | Repair workflow only. |
 | GET | `/api/reliability/summary` | Read-only | Reads reliability summary | Safe read. |
-| GET | `/api/corder/number-state` | Read-only after deploy | Reads shared C-order sequence state and calibrates if RPC does so internally | Production currently not verified as live on 2026-08-03. |
+| GET | `/api/corder/number-state` | Read-only | Reads shared C-order sequence state and calibrates if RPC does so internally | Production verified on 2026-08-04: `SHPTW`, `next_number=16352`. |
 | POST | `/api/corder/number-reserve` | Sequence-mutating | Reserves SHPTW number range | Advances sequence. Never use as a casual test. |
 | POST | `/api/corder/number-set` | Sequence-mutating | Moves shared next SHPTW number forward | Restricted to Vic/manager/sales role in payload; never move backwards. |
 
@@ -73,15 +74,13 @@ GET /api/picking/summary
 GET /api/inbound/summary
 GET /api/stock-log/list?limit=1
 GET /api/notes/shadow/summary
+GET /api/health/public
 GET /api/health/supabase-usage
 GET /api/reliability/summary
-```
-
-Only after the C-order sequence migration and Worker route are deployed:
-
-```text
 GET /api/corder/number-state
 ```
+
+`/api/notes/shadow/summary`, `/api/health/supabase-usage`, and `/api/reliability/summary` require an ERP/Notion bearer token. Without authorization they should return 401, not be treated as broken.
 
 Do not use these as casual checks:
 

@@ -1,8 +1,8 @@
 # LEMATEC ERP System Contract
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
-This file is the current operating contract for the ERP. Use it to decide what is safe now. Use `CODEX_HANDOFF.md` as the timeline and `ERP_DATA_FLOW.md` as the deeper data-flow history.
+Use `ERP_CURRENT_STATE.md` first for live status. This file is the operating contract for ERP ownership and safety rules. Use `CODEX_HANDOFF.md` as the timeline and `ERP_DATA_FLOW.md` as the deeper data-flow history.
 
 ## Source Of Truth
 
@@ -24,7 +24,7 @@ This file is the current operating contract for the ERP. Use it to decide what i
 | Notes structured data | Supabase | ERP -> Worker -> Supabase | ERP -> `POST /api/notes/write` -> Supabase, then Notion mirror | Notion detail blocks and attachments remain formal attachment source | Notion manual edits must not overwrite newer Supabase Notes automatically. |
 | Notes attachments | Notion | Note detail page / Notion | Worker Notion file upload and append blocks | Supabase stores structured read model only | Attachments over 20 MB are completed manually from the Notion page. |
 | C-end / Shopee orders | Notion C-order database | ERP -> Notion | ERP -> Notion C-order page plus inventory transaction where applicable | Legacy C-order database is archive only | Do not write new C-orders to the legacy archive. |
-| C-order SHPTW sequence | Planned Supabase sequence | Worker route after migration and deploy | Worker reserve/set RPC after migration and deploy | Current production is not verified as live | Do not deploy sequence-dependent frontend until migration and Worker route are verified. |
+| C-order SHPTW sequence | Supabase sequence | ERP -> Worker -> Supabase RPC | Worker reserve/set RPC | No Notion fallback | `GET /api/corder/number-state` is safe; reserve/set routes mutate sequence state. |
 | B2B orders, customers, leave, schedule | Notion | ERP -> Notion | ERP -> Notion | Notion is primary | Keep Notion page IDs as stable cross-module references. |
 | Video library | Supabase preferred | ERP -> Supabase or bundled backup | Sync tooling / configured source | Bundled/external backup list | Do not block ERP if Supabase video library is temporarily unavailable. |
 
@@ -56,26 +56,18 @@ This file is the current operating contract for the ERP. Use it to decide what i
 
 ## Current Known Blocker
 
-C-order SHPTW shared sequence is not verified in production as of 2026-08-03.
+No active C-order SHPTW deployment blocker remains as of 2026-08-04.
 
-- Local files exist for the sequence change:
-  - `index.html`
-  - `sw.js`
-  - `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`
-  - `supabase/migrations/20260731_015_corder_number_sequence.sql`
-  - `tests/test_corder_number_sequence.py`
-- Local tests passed on 2026-08-03.
-- Production Pages did not contain `/api/corder/number-state`.
-- Production Worker `/api/corder/number-state` returned HTTP 500 with `{"error":"Unexpected end of JSON input"}`.
+- Supabase migration `20260731_015_corder_number_sequence.sql` is applied.
+- Worker route `GET /api/corder/number-state` is deployed and verified.
+- Production state: `SHPTW`, `next_number=16352`.
 - Do not run production `/api/corder/number-reserve` casually; it advances the shared sequence.
 
-Safe order:
+Current improvement blockers:
 
-1. Apply `supabase/migrations/20260731_015_corder_number_sequence.sql`.
-2. Deploy Worker route.
-3. Verify `GET /api/corder/number-state` returns expected state.
-4. Deploy Pages and service worker `lematec-erp-v34`.
-5. Verify cache-busted Pages and Worker endpoints.
+1. Health checks need to clearly separate public read-only, authorized ERP, and manual Dashboard checks.
+2. High-risk writes need shared preflight summaries before mutation.
+3. C-order and BOM import flows need row-level preview/error positioning before commit.
 
 ## Local Validation Baseline
 
@@ -127,9 +119,10 @@ Do not call a change complete until all applicable gates pass:
 
 ## Architecture Optimization Queue
 
-1. Keep this file as the current contract and keep handoff as history.
+1. Keep `ERP_CURRENT_STATE.md` as the current-state entry point; keep handoff as history.
 2. Keep `WORKER_API_CONTRACT.md` current whenever Worker routes change.
-3. Add a unified UI source/status strip for Supabase, Notion fallback, mirror retry, and write availability.
+3. Add ERP Health v2: public read-only checks, authorized ERP checks, and manual follow-up checks.
 4. Add preflight summaries before C-order import, picking completion, inbound approval, batch inventory adjustment, and BOM import.
-5. Move all mirror retry queues toward one user-visible Reliability Center.
-6. Split high-risk production checks into no-side-effect endpoints or explicit `dry_run` contracts.
+5. Upgrade C-order import preview: duplicate groups, sequence range, stock impact, and row-level errors.
+6. Upgrade BOM maintenance: simplified Excel format, missing-material pre-create review, and direct-component rule guard.
+7. Audit mobile screens for orders, Notes, C-order, and inventory adjustment.
