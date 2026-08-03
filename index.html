@@ -17323,6 +17323,23 @@ function renderCorders(){
 function openPickModal(orderId){
   const o = orders.find(x=>x.id===orderId);
   if(!o){ showToast('找不到訂單','err'); return; }
+  const prod=mats.find(m=>m.id===o.productId);
+  const bomItems=_bomDataReady?explodeBOM(o.productId,o.qty):[];
+  const mustHaveBom=requiresBOMMaterial(prod,o?.orderType);
+  const hasBOM=bomItems.length>0;
+  const items=hasBOM?bomItems:(prod?[{...prod,needed:o.qty}]:[]);
+  const rows=items.map(item=>{
+    const before=Number(item.stock)||0;
+    const need=Number(item.needed||0);
+    return {
+      lineLabel:item.code||item.name||'料件',
+      title:item.name||item.code||'料件',
+      detail:item.missing||!item.id?'BOM 子料號尚未建檔':`庫存 ${before} -> ${before-need}`,
+      error:item.missing||!item.id?'BOM 子料號尚未建檔':before-need<0?'庫存不足':'',
+      impact:-need,
+    };
+  });
+  const errors=rows.filter(r=>r.error).length+(!_bomDataReady?1:0)+(!hasBOM&&mustHaveBom?1:0);
   const mi = document.getElementById('modalInner');
   mi.innerHTML=`<h3>🗂️ 開立領料單</h3>
     <div style="padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:14px;font-size:0.8125rem">
@@ -17330,9 +17347,28 @@ function openPickModal(orderId){
       <div>客戶：${o.cust||o.customer||'—'}</div>
       <div>品項：${o.product||o.matCode||'—'} × ${o.qty||0}</div>
     </div>
+    ${renderPreflightCenter({
+      title:'Preflight Center - 領料扣庫',
+      subtitle:'扣庫前先顯示 BOM 直接子件與庫存影響；半成品子件只扣半成品本身。',
+      errors,
+      warnings:hasBOM?0:1,
+      kpis:[
+        {label:'扣庫項目',value:rows.length},
+        {label:'BOM 模式',value:hasBOM?'直接子件':'成品本身'},
+        {label:'阻擋',value:errors},
+        {label:'來源',value:_bomDataSource||'not-loaded'},
+      ],
+      sections:[
+        {title:'防呆',lines:[
+          _bomDataReady?'BOM 資料已載入':'BOM 資料尚未成功載入',
+          !hasBOM&&mustHaveBom?'此品項必須設定 BOM，不能直接扣成品庫存':'扣庫規則可判定',
+        ]},
+      ],
+      rows,
+    })}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="doPick('${orderId}')">🗂️ 確認領料</button>
+      <button class="btn btn-blue" ${errors?'disabled':''} onclick="doPick('${orderId}')">🗂️ 確認領料</button>
     </div>`;
   openModal();
 }
@@ -18758,8 +18794,50 @@ async function batchApproveInboundQC(){
   }
 }
 
+function openInboundApprovePreflight(id,matId,qty,opts={}){
+  const ib=inbounds.find(x=>x.id===id);
+  const mat=mats.find(m=>m.id===matId);
+  const need=Number(qty||ib?.qty||0);
+  const before=Number(mat?.stock)||0;
+  const errors=[];
+  if(!ib) errors.push('找不到入料單');
+  if(!matId||!mat) errors.push('入料單未關聯可入庫料件');
+  if(!ib?.supabaseId) errors.push('此筆為 Notion 唯讀備援資料，需恢復 Supabase 連線');
+  if(ib?.stStatus==='已入庫') errors.push('此入料單已入庫，確認會由後端防重複處理');
+  document.getElementById('modalInner').innerHTML=`<h3>入庫品檢通過預覽</h3>
+    ${renderPreflightCenter({
+      title:'Preflight Center - 入庫前確認',
+      subtitle:'入庫前先顯示會增加哪一筆庫存；確認後由 Supabase inbound action 原子加庫並防重複。',
+      errors:errors.length,
+      warnings:ib?.stStatus==='已入庫'?1:0,
+      kpis:[
+        {label:'入料單',value:ib?.no||id},
+        {label:'入庫數量',value:need},
+        {label:'原庫存',value:mat?before:'-'},
+        {label:'入庫後',value:mat?before+need:'-'},
+      ],
+      sections:[
+        {title:'防重複',lines:['idempotency key: inbound_qc_pass:<receipt-id>','重複點擊應回傳既有交易，不會再次增加庫存。']},
+      ],
+      rows:[{
+        lineLabel:ib?.no||id,
+        title:mat?.code||ib?.matCode||'未關聯料件',
+        detail:errors.join('；')||`${mat?.name||ib?.matName||''} 庫存 ${before} -> ${before+need}`,
+        error:errors.join('；'),
+        impact:need,
+      }],
+    })}
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-green" ${errors.length?'disabled':''} onclick="closeModal();approveQC('${id}','${matId}',${need},{skipConfirm:true})">確認通過並入庫</button>
+    </div>`;
+  openSharedModal();
+}
 async function approveQC(id,matId,qty,opts={}){
-  if(!opts.skipConfirm&&!confirm('確認品檢通過？將增加 '+qty+' 個庫存'))return;
+  if(!opts.skipConfirm){
+    openInboundApprovePreflight(id,matId,qty,opts);
+    return;
+  }
 
   // 找入料單資料（用來建立檢驗單）
   const ib = inbounds.find(x=>x.id===id);
