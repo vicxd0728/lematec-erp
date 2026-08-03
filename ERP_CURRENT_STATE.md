@@ -9,7 +9,7 @@ This is the single current-state entry point. Use it before reading older timeli
 - Frontend: `https://lematec-erp.pages.dev/`
 - Worker: `https://green-wave-c22f.vic-e93.workers.dev`
 - GitHub repo: `vicxd0728/lematec-erp`
-- Current deployed commit: `4d9e9c9 Prepare C-order sequence rollout`
+- Current deployed commit: `11c195b Add ERP Health v2 current state`
 - Worker deploy workflow: `Deploy ERP Worker`
 - Pages deploy workflow: `Deploy ERP to Cloudflare Pages`
 
@@ -26,6 +26,7 @@ Last verified on 2026-08-04.
 | `GET /api/inbound/summary` | Public read-only | HTTP 200, Supabase source |
 | `GET /api/stock-log/list?limit=1` | Public read-only | HTTP 200 |
 | `GET /api/corder/number-state` | Public read-only | HTTP 200, `SHPTW`, `next_number=16352` |
+| `GET /api/health/public` | Public read-only | HTTP 200, `erp-health-v2`, public/authorized/manual split |
 | `GET /api/notes/shadow/summary` | Authorized only | HTTP 401 without ERP token |
 | `GET /api/health/supabase-usage` | Authorized only | HTTP 401 without ERP token |
 | `GET /api/reliability/summary` | Authorized only | HTTP 401 without ERP token |
@@ -46,11 +47,12 @@ Last verified on 2026-08-04.
 
 ## Immediate Optimization Queue
 
-1. ERP Health v2: separate public read-only checks, authorized checks, and manual follow-up items.
-2. Preflight Center: add consistent preflight summaries before C-order import, picking completion, inbound approval, BOM import, and batch inventory adjustment.
-3. C-order import UX: preview rows, duplicate groups, reserved number range, stock impact, and row-level errors before commit.
-4. BOM maintenance: simplified Excel format, missing-material pre-create review, direct-component rule guard, and self/duplicate checks.
-5. Mobile audit: orders, Notes, C-order, and inventory adjustment high-frequency screens.
+Done: ERP Health v2 separates public read-only checks, authorized checks, and manual follow-up items in production.
+
+1. Preflight Center: add consistent preflight summaries before C-order import, picking completion, inbound approval, BOM import, and batch inventory adjustment.
+2. C-order import UX: preview rows, duplicate groups, reserved number range, stock impact, and row-level errors before commit.
+3. BOM maintenance: simplified Excel format, missing-material pre-create review, direct-component rule guard, and self/duplicate checks.
+4. Mobile audit: orders, Notes, C-order, and inventory adjustment high-frequency screens.
 
 ## Known Cleanup
 

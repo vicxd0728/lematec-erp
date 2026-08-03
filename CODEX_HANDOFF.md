@@ -53,7 +53,7 @@
 
 - Current-state entry point: `ERP_CURRENT_STATE.md`.
 - ERP Health v2 separates public read-only checks, authorized ERP checks, and manual follow-up items.
-- Public health endpoint planned/implemented through Worker route `GET /api/health/public`.
+- Public health endpoint deployed through Worker route `GET /api/health/public`; production returned HTTP 200, `erp-health-v2`, and C-order `SHPTW next_number=16352` on 2026-08-04.
 - Optimization order:
   1. Health v2 and current-state cleanup.
   2. Preflight Center for high-risk imports, deductions, approvals, and BOM writes.
@@ -62,6 +62,8 @@
   5. Mobile audit for orders, Notes, C-order, and inventory adjustment.
 
 ## Live Verification Snapshot 2026-08-03
+
+Status note 2026-08-04: the bullets in this section are historical and superseded by `ERP_CURRENT_STATE.md`. The C-order sequence migration, Worker route, Pages frontend, and Health v2 endpoint are now deployed and verified.
 
 - Local C-order sequence work is present but not verified as deployed.
 - Current dirty C-order files to preserve together: `index.html`, `sw.js`, `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`, `supabase/migrations/20260731_015_corder_number_sequence.sql`, and `tests/test_corder_number_sequence.py`.
