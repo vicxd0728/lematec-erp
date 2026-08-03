@@ -681,9 +681,40 @@ body.modal-open{overflow:hidden;}
 .inventory-batch-preview tr.batch-error td{background:rgba(239,68,68,.06);}
 .inventory-batch-preview .batch-delta-plus{color:var(--green2);font-weight:700;}
 .inventory-batch-preview .batch-delta-minus{color:var(--red2);font-weight:700;}
+.preflight-center{border:1px solid var(--border2);border-radius:8px;background:var(--bg3);overflow:hidden;margin:12px 0;}
+.preflight-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06);}
+.preflight-title{font-weight:800;color:var(--text);font-size:.92rem;}
+.preflight-sub{font-size:.75rem;color:var(--text3);line-height:1.55;margin-top:3px;}
+.preflight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);}
+.preflight-kpi{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;}
+.preflight-kpi b{display:block;font-size:1.2rem;color:var(--cyan2);font-family:var(--f-mono);line-height:1.1;}
+.preflight-kpi span{display:block;font-size:.72rem;color:var(--text3);margin-top:4px;}
+.preflight-section{padding:10px 12px;border-bottom:1px solid var(--border);}
+.preflight-section:last-child{border-bottom:0;}
+.preflight-section h4{font-size:.78rem;margin:0 0 8px;color:var(--text2);}
+.preflight-list{display:grid;gap:6px;max-height:210px;overflow:auto;}
+.preflight-row{display:grid;grid-template-columns:74px 1fr auto;gap:8px;align-items:flex-start;border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:8px;font-size:.76rem;}
+.preflight-row.is-error{border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.07);}
+.preflight-row.is-warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.07);}
+.preflight-row code{font-family:var(--f-mono);color:var(--cyan2);font-size:.72rem;white-space:nowrap;}
+.preflight-impact{font-family:var(--f-mono);font-weight:800;}
+.preflight-impact.minus{color:var(--red2);}
+.preflight-impact.plus{color:var(--green2);}
+.mobile-audit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;}
+.mobile-audit-item{border:1px solid var(--border);border-radius:8px;background:var(--bg3);padding:10px;font-size:.76rem;line-height:1.5;}
+.mobile-audit-item b{display:block;color:var(--text);margin-bottom:3px;}
 @media(max-width:599px){
   .inventory-batch-help{grid-template-columns:1fr;}
   .inventory-batch-preview{max-height:34vh;}
+  .preflight-head{flex-direction:column;}
+  .preflight-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .preflight-row{grid-template-columns:1fr;gap:5px;}
+  .preflight-list{max-height:38vh;}
+  .form-actions{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(15,23,42,0),var(--bg2) 24%);padding-top:12px;}
+  .panel-hdr{gap:8px;align-items:flex-start;}
+  .panel-hdr>div{max-width:100%;}
+  .btn-sm{min-height:34px;}
+  .mobile-audit-grid{grid-template-columns:1fr;}
 }
 
 /* ══════════════════════════════════════
@@ -1790,9 +1821,30 @@ function previewInventoryBatch(){
   }
   const rows=buildInventoryBatchPreview(entries,mode);
   const errors=rows.filter(row=>row.error);
-  host.innerHTML=`<div class="info-box ${errors.length?'info-warn':'info-ok'}">
-      共 ${rows.length} 筆；${errors.length?`有 ${errors.length} 筆需修正，尚未寫入任何資料`:'檢查通過，可確認整批寫入'}
-    </div>
+  const totalOut=rows.filter(row=>row.delta<0).reduce((sum,row)=>sum+Math.abs(row.delta),0);
+  const totalIn=rows.filter(row=>row.delta>0).reduce((sum,row)=>sum+row.delta,0);
+  host.innerHTML=`${renderPreflightCenter({
+      title:'Preflight Center - 批量庫存調整',
+      subtitle:'匯入/扣庫/入庫前先顯示將影響哪些資料；此步驟不會寫入 Supabase 或 Notion。',
+      errors:errors.length,
+      warnings:0,
+      kpis:[
+        {label:'資料列',value:rows.length},
+        {label:'阻擋',value:errors.length},
+        {label:'預計扣庫',value:totalOut},
+        {label:'預計入庫',value:totalIn},
+      ],
+      sections:[
+        {title:'寫入規則',lines:['Supabase 原子提交，任何一列錯誤整批不寫入。','成功後才同步 Notion 鏡像與異動紀錄。']},
+      ],
+      rows:rows.map(row=>({
+        lineLabel:`第 ${row.line} 行`,
+        title:row.sku||row.code||'缺少料號',
+        detail:row.error||`${row.mat?.name||''} 庫存 ${row.before} -> ${row.after}`,
+        error:row.error,
+        impact:row.delta,
+      })),
+    })}
     <div class="inventory-batch-preview"><table>
       <tr><th>行</th><th>料號</th><th>名稱</th><th>原庫存</th><th>${mode==='set'?'新數量':'增減'}</th><th>調整後</th><th>檢查</th></tr>
       ${rows.map(row=>`<tr class="${row.error?'batch-error':''}">
@@ -5340,6 +5392,42 @@ function openSharedModal(){
 function closeModal(){
   document.getElementById('modalBg')?.classList.remove('open');
   document.body.classList.remove('modal-open');
+}
+
+function preflightBadge(level,label){
+  const color=level==='error'?'var(--red2)':level==='warn'?'var(--amber)':level==='ok'?'var(--green2)':'var(--cyan2)';
+  return `<span style="border:1px solid ${color};color:${color};border-radius:999px;padding:3px 8px;font-size:.68rem;font-weight:800">${escapeHtml(label)}</span>`;
+}
+function renderPreflightCenter(report={}){
+  const level=report.errors?'error':report.warnings?'warn':'ok';
+  const rows=Array.isArray(report.rows)?report.rows:[];
+  const sections=Array.isArray(report.sections)?report.sections:[];
+  const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  const rowHtml=rows.length?rows.map(row=>{
+    const rowLevel=row.error?'is-error':row.warn?'is-warn':'';
+    const impact=Number(row.impact||0);
+    return `<div class="preflight-row ${rowLevel}">
+      <code>${escapeHtml(row.lineLabel||row.line||'')}</code>
+      <div>
+        <b>${escapeHtml(row.title||row.sku||row.name||'資料列')}</b>
+        <div style="color:var(--text3);line-height:1.45;margin-top:2px">${escapeHtml(row.detail||row.error||row.warn||'通過')}</div>
+      </div>
+      ${Number.isFinite(impact)&&impact!==0?`<span class="preflight-impact ${impact<0?'minus':'plus'}">${impact>0?'+':''}${impact}</span>`:preflightBadge(row.error?'error':row.warn?'warn':'ok',row.error?'阻擋':row.warn?'提醒':'通過')}
+    </div>`;
+  }).join(''):'<div style="font-size:.76rem;color:var(--text3)">沒有列級資料。</div>';
+  const sectionHtml=sections.map(sec=>`<div class="preflight-section">
+    <h4>${escapeHtml(sec.title||'檢查')}</h4>
+    <div style="font-size:.76rem;color:var(--text2);line-height:1.55">${Array.isArray(sec.lines)?sec.lines.map(escapeHtml).join('<br>'):escapeHtml(sec.body||'')}</div>
+  </div>`).join('');
+  return `<div class="preflight-center" data-contract="PRE_FLIGHT_CENTER_V1">
+    <div class="preflight-head">
+      <div><div class="preflight-title">${escapeHtml(report.title||'Preflight Center')}</div><div class="preflight-sub">${escapeHtml(report.subtitle||'寫入前檢查即將影響的資料')}</div></div>
+      ${preflightBadge(level,level==='error'?'需修正':level==='warn'?'需確認':'可執行')}
+    </div>
+    <div class="preflight-grid">${kpis.map(k=>`<div class="preflight-kpi"><b>${escapeHtml(k.value)}</b><span>${escapeHtml(k.label)}</span></div>`).join('')}</div>
+    ${sectionHtml}
+    <div class="preflight-section"><h4>列級影響</h4><div class="preflight-list">${rowHtml}</div></div>
+  </div>`;
 }
 
 async function saveAnnounce(id){
@@ -9288,6 +9376,26 @@ function renderHealthAccessMatrix(){
     </div>
   </div>`;
 }
+function renderMobileHighFrequencyAudit(){
+  const pages=[
+    {tab:'orders',title:'訂單',checks:['表格可橫滑','領料/出貨 modal actions sticky','長品名不擠壓按鈕']},
+    {tab:'notes',title:'記事',checks:['modal 原生直向捲動','附件欄不撐寬','待辦 chip 單行省略']},
+    {tab:'corders',title:'C-order',checks:['手機卡片版清單','匯入 preflight 可捲動','狀態/操作分行']},
+    {tab:'inventory',title:'庫存調整',checks:['批量預覽可橫滑','提交按鈕 sticky','Preflight Center 單欄顯示']},
+  ];
+  return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1">
+    <div class="panel-hdr"><span class="panel-title">手機版總檢 <span class="badge">4 頁</span></span>${healthBadge('ok','V1')}</div>
+    <div style="padding:12px">
+      <div class="mobile-audit-grid">
+        ${pages.map(page=>`<div class="mobile-audit-item">
+          <b>${escapeHtml(page.title)}</b>
+          ${page.checks.map(x=>`<div style="color:var(--text3)">✓ ${escapeHtml(x)}</div>`).join('')}
+          <button class="btn btn-ghost btn-xs" style="margin-top:8px" onclick="switchTab('${page.tab}')">開啟</button>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
 function localReliabilityQueueCounts(){
   const counts={
     inventory_supabase:readInventoryMirrorQueue().length,
@@ -9861,6 +9969,7 @@ function renderHealthCheck(){
     <div class="kpi-card kpi-cyan"><div class="kpi-label">庫存料號</div><div class="kpi-num">${mats.length}</div><div class="kpi-sub">目前主檔筆數</div></div>
   </div>
   ${renderHealthAccessMatrix()}
+  ${renderMobileHighFrequencyAudit()}
   ${renderReliabilityCenter()}
   ${renderNotesShadowHealth()}
   ${renderSupabaseUsageHealth()}
@@ -13772,7 +13881,7 @@ function renderInventory(){
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
-        ${canImportBomRole()?`<button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
+        ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">批量調整</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
@@ -15051,40 +15160,120 @@ function parseGeneralBomWorkbook(buf,fileName='BOM.xlsx'){
   if(!parsed.length&&!errors.length) throw new Error('沒有可匯入的 BOM 資料，請確認欄位名稱是否符合範本');
   return {fileName,rows:parsed,errors};
 }
-async function ensureBomImportMaterial(code,type,note='',forceType=false){
-  let mat=findMatBySku(code);
-  if(mat){
-    const props={};
-    if(forceType&&type&&mat.type!==type) props['類型']={select:{name:type}};
-    if(note&&(!mat.note||!mat.note.includes(note))) props['備註']={rich_text:[{text:{content:note}}]};
-    if(Object.keys(props).length){
-      const r=await updatePage(mat.id,props);
-      assertNotionPage(r,'更新料件');
-      if(forceType&&type) mat.type=type;
-      if(note) mat.note=note;
-    }
-    return {mat,created:false,updated:false};
-  }
-  mat=await createMaterialFromSku(code,type||bomImportChildType(code),0,0,note);
-  return {mat,created:true,updated:false};
+function buildBomImportPreflight(parsed){
+  const pairs=new Set();
+  const missingMaterials=new Map();
+  const rows=[];
+  let duplicatePairs=0,selfRefs=0,directComponentGuard=0;
+  (parsed.rows||[]).forEach(row=>{
+    const parentSku=normalizeSku(row.parent);
+    const parentMat=findMatBySku(parentSku);
+    if(!parentMat) missingMaterials.set(parentSku,{sku:parentSku,type:row.type||'成品',role:'母件'});
+    row.parts.forEach(part=>{
+      const childSku=normalizeBomChildSku(part.code);
+      const pair=`${parentSku}|${childSku}`;
+      const childMat=findMatBySku(childSku);
+      if(!childMat) missingMaterials.set(childSku,{sku:childSku,type:bomImportChildType(childSku),role:'子件'});
+      let error='',warn='';
+      if(!parentSku||!childSku) error='母件或子件料號空白';
+      else if(parentSku===childSku){error='BOM 不可自我關聯';selfRefs++;}
+      else if(pairs.has(pair)){error='同一批 BOM 母件/子件重複';duplicatePairs++;}
+      else if(!Number.isFinite(Number(part.qty))||Number(part.qty)<=0) error='用量必須大於 0';
+      else if(/[,，、;；\n]/.test(part.raw||'')||String(part.code||'').includes('+')){
+        warn='已視為直接子件，不會展開多層 BOM';
+        directComponentGuard++;
+      }
+      pairs.add(pair);
+      rows.push({
+        line:row.line,
+        parent:parentSku,
+        child:childSku,
+        qty:Number(part.qty)||1,
+        error,
+        warn,
+        parentExists:!!parentMat,
+        childExists:!!childMat,
+      });
+    });
+  });
+  return {
+    title:'Preflight Center - BOM maintenance',
+    subtitle:'Excel 簡化格式、缺料號預建檔、直接子件規則防呆；確認前不寫 Supabase 或 Notion。',
+    parsed,
+    rows,
+    missingMaterials:[...missingMaterials.values()],
+    duplicatePairs,
+    selfRefs,
+    directComponentGuard,
+    parseErrors:parsed.errors||[],
+    errors:rows.filter(r=>r.error).length,
+    warnings:rows.filter(r=>r.warn).length+(parsed.errors||[]).length,
+  };
 }
-async function importGeneralBomExcel(input){
-  const file=input?.files?.[0];
-  if(input) input.value='';
-  if(!file) return;
-  if(!canImportBomRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
-  showToast('⏳ 讀取 BOM Excel...','warn',6000);
-  let supPlan=null,supCommitted=false;
+function openBomImportPreflightModal(report){
+  window._bomImportPreflight=report;
+  document.getElementById('modalInner').innerHTML=`<h3>BOM 匯入預覽</h3>
+    ${renderPreflightCenter({
+      title:report.title,
+      subtitle:report.subtitle,
+      errors:report.errors,
+      warnings:report.warnings,
+      kpis:[
+        {label:'母件',value:report.parsed.rows.length},
+        {label:'BOM 關聯',value:report.rows.length},
+        {label:'缺料號預建檔',value:report.missingMaterials.length},
+        {label:'阻擋/提醒',value:`${report.errors}/${report.warnings}`},
+      ],
+      sections:[
+        {title:'缺料號預建檔',lines:report.missingMaterials.length?report.missingMaterials.slice(0,18).map(m=>`${m.sku} (${m.type}, ${m.role})`):['沒有缺料號']},
+        {title:'直接子件規則防呆',lines:[`自我關聯 ${report.selfRefs} 筆`,`重複母子件 ${report.duplicatePairs} 筆`,`直接子件提醒 ${report.directComponentGuard} 筆`,`半成品作為子件時只扣半成品本身，不展開下層。`]},
+        ...(report.parseErrors.length?[{title:'解析提醒',lines:report.parseErrors.slice(0,20)}]:[]),
+      ],
+      rows:report.rows.map(row=>({
+        lineLabel:`第 ${row.line} 行`,
+        title:`${row.parent} -> ${row.child}`,
+        detail:row.error||row.warn||`用量 ${row.qty}；母件${row.parentExists?'已存在':'將建立'}，子件${row.childExists?'已存在':'將建立'}`,
+        error:row.error,
+        warn:row.warn,
+      })),
+    })}
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" ${report.errors?'disabled':''} onclick="applyBomImportPreflight()">確認寫入 BOM</button>
+    </div>`;
+  openSharedModal();
+}
+async function downloadGeneralBomTemplate(){
   try{
     await ensureXlsxLoaded();
-    const buf=await file.arrayBuffer();
-    const parsed=parseGeneralBomWorkbook(buf,file.name);
-    const relCount=parsed.rows.reduce((sum,r)=>sum+r.parts.length,0);
-    const preview=parsed.rows.slice(0,8).map(r=>`・${r.parent}：${r.parts.map(p=>p.code+'×'+p.qty).join('、')}`).join('\n');
-    const warn=parsed.errors.length?`\n\n解析提醒：\n${parsed.errors.slice(0,10).join('\n')}${parsed.errors.length>10?'\n...':''}`:'';
-    if(!confirm(`準備匯入 BOM Excel：${file.name}\n\n母件 ${parsed.rows.length} 個，BOM 關聯 ${relCount} 筆。\n\n${preview}${parsed.rows.length>8?'\n・...':''}${warn}\n\nSupabase 主資料會先寫入成功，再同步 Notion 查閱鏡像；不會刪除既有資料。要開始嗎？`)) return;
+    const dataSheet=XLSX.utils.aoa_to_sheet([['母件料號','類型','BOM組成','名稱/備註','是否啟用']]);
+    dataSheet['!cols']=[{wch:22},{wch:12},{wch:48},{wch:28},{wch:12}];
+    const guideSheet=XLSX.utils.aoa_to_sheet([
+      ['LEMATEC BOM 簡化匯入格式'],
+      ['母件料號','必填，例如 S-ABC-01 或 HCT-123'],
+      ['類型','可填 成品 / 半成品 / 蝦皮用；空白時依 S- 前綴推定'],
+      ['BOM組成','用逗號或換行分隔，例如 Y-A-01*2、Y-B-02*1'],
+      ['直接子件規則','子件是半成品時，只建立母件 -> 半成品；扣料不展開半成品下層'],
+      ['缺料號','確認匯入時會先預建檔，預設庫存 0'],
+    ]);
+    guideSheet['!cols']=[{wch:18},{wch:68}];
+    const workbook=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook,dataSheet,'BOM匯入');
+    XLSX.utils.book_append_sheet(workbook,guideSheet,'填寫說明');
+    XLSX.writeFile(workbook,'LEMATEC_BOM_簡化匯入範本.xlsx');
+    showToast('已下載 BOM 簡化範本','ok');
+  }catch(e){showToast('BOM 範本下載失敗：'+e.message,'err');}
+}
+async function applyBomImportPreflight(){
+  const report=window._bomImportPreflight;
+  if(!report?.parsed?.rows?.length){showToast('沒有可寫入的 BOM 預覽資料','warn');return;}
+  if(report.errors){showToast('仍有阻擋列，請先修正 Excel 後重新匯入','err');return;}
+  const parsed=report.parsed;
+  let supPlan=null,supCommitted=false;
+  closeModal();
+  try{
     supPlan=normalizeBomWritePlan(
-      `BOM Excel 匯入：${file.name}`,
+      `BOM Excel 匯入：${parsed.fileName}`,
       parsed.rows.flatMap(row=>row.parts.map(part=>({
         parent_sku:row.parent,
         child_sku:normalizeBomChildSku(part.code),
@@ -15103,7 +15292,6 @@ async function importGeneralBomExcel(input){
     await commitBomPlanSupabaseFirst(supPlan);
     supCommitted=true;
     showToast('✅ Supabase BOM 已完成，正在同步 Notion 鏡像...','ok',7000);
-    showToast('⏳ 同步最新 Notion 鏡像資料...','warn',6000);
     await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     const existing=new Map(boms.map(b=>[b.parentId+'|'+b.childId,b]));
     let parentCreated=0, childCreated=0, bomCreated=0, bomUpdated=0, skipped=0;
@@ -15141,7 +15329,7 @@ async function importGeneralBomExcel(input){
             }
             continue;
           }
-          const title=`${row.parent} → ${childCode}`;
+          const title=`${row.parent} -> ${childCode}`;
           const cr=await createPage(DB.bom,{
             'BOM項目':{title:[{text:{content:title}}]},
             '母件':{relation:[{id:parent.id}]},
@@ -15156,26 +15344,57 @@ async function importGeneralBomExcel(input){
           bomCreated++;
           if(bomCreated&&bomCreated%20===0) showToast(`⏳ BOM 匯入中：已新增 ${bomCreated} 筆`,'warn',5000);
         }catch(e){
-          failed.push(`${row.parent} → ${childCode||part.code}：${e.message}`);
+          failed.push(`${row.parent} -> ${childCode||part.code}：${e.message}`);
         }
       }
     }
     if(!failed.length&&supPlan)completeBomNotionMirror(supPlan.id);
     await refreshAffectedData({core:true,background:false,label:'BOM 已更新'});
     renderTab(CURRENT_TAB);
+    window._bomImportPreflight=null;
     const msg=`✅ BOM 匯入完成：新增母件 ${parentCreated}、新增子件 ${childCreated}、新增關聯 ${bomCreated}、更新用量 ${bomUpdated}、略過 ${skipped}`;
     showToast(msg+(failed.length?`，失敗 ${failed.length}`:''),failed.length?'warn':'ok',12000);
-    logUserAction('匯入BOM Excel',file.name,msg,ROLE);
-    if(failed.length){
-      alert(msg+'\n\n以下資料未完成：\n'+failed.slice(0,80).join('\n'));
+    logUserAction('匯入BOM Excel',parsed.fileName,msg,ROLE);
+    if(failed.length) alert(msg+'\n\n以下資料未完成：\n'+failed.slice(0,80).join('\n'));
+  }catch(e){
+    console.error('applyBomImportPreflight error:',e);
+    if(supCommitted) showToast('⚠️ Supabase BOM 已完成；Notion 鏡像將於背景重試：'+e.message,'warn',12000);
+    else showToast('❌ BOM 匯入失敗：'+e.message,'err',10000);
+  }
+}
+async function ensureBomImportMaterial(code,type,note='',forceType=false){
+  let mat=findMatBySku(code);
+  if(mat){
+    const props={};
+    if(forceType&&type&&mat.type!==type) props['類型']={select:{name:type}};
+    if(note&&(!mat.note||!mat.note.includes(note))) props['備註']={rich_text:[{text:{content:note}}]};
+    if(Object.keys(props).length){
+      const r=await updatePage(mat.id,props);
+      assertNotionPage(r,'更新料件');
+      if(forceType&&type) mat.type=type;
+      if(note) mat.note=note;
     }
+    return {mat,created:false,updated:false};
+  }
+  mat=await createMaterialFromSku(code,type||bomImportChildType(code),0,0,note);
+  return {mat,created:true,updated:false};
+}
+async function importGeneralBomExcel(input){
+  const file=input?.files?.[0];
+  if(input) input.value='';
+  if(!file) return;
+  if(!canImportBomRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
+  showToast('⏳ 讀取 BOM Excel...','warn',6000);
+  try{
+    await ensureXlsxLoaded();
+    const buf=await file.arrayBuffer();
+    const parsed=parseGeneralBomWorkbook(buf,file.name);
+    const preflight=buildBomImportPreflight(parsed);
+    openBomImportPreflightModal(preflight);
+    showToast(`已解析 BOM：母件 ${parsed.rows.length}，關聯 ${preflight.rows.length}，請先確認預覽`,'ok',7000);
   }catch(e){
     console.error('importGeneralBomExcel error:',e);
-    if(supCommitted){
-      showToast('⚠️ Supabase BOM 已完成；Notion 鏡像將於背景重試：'+e.message,'warn',12000);
-    }else{
-      showToast('❌ BOM 匯入失敗：'+e.message,'err',10000);
-    }
+    showToast('❌ BOM 解析失敗：'+e.message,'err',10000);
   }
 }
 async function ensureShopeeParentMaterial(sku){
@@ -19509,6 +19728,218 @@ async function submitCorder(){
   }
 }
 
+function buildCorderImportPreflight(incoming){
+  const existingKeys=new Set((window.corders||[]).map(c=>[
+    corderSameOrderKey(c.shopeeNo,c.buyer)||String(c.no||''),
+    normalizeSku(c.matCode||c.matName||'')
+  ].join('|')));
+  const existingOrderNos=new Map();
+  (window.corders||[]).forEach(c=>{
+    const key=corderSameOrderKey(c.shopeeNo,c.buyer);
+    if(key&&!existingOrderNos.has(key)) existingOrderNos.set(key,c.no||'');
+  });
+  const incomingPairs=new Map();
+  const stockUse=new Map();
+  const newOrderKeys=[];
+  const seenNewOrderKeys=new Set();
+  const rows=(incoming||[]).map(item=>{
+    const orderKey=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
+    const sku=normalizeSku(item.sku||'');
+    const pairKey=[orderKey,sku].join('|');
+    incomingPairs.set(pairKey,(incomingPairs.get(pairKey)||0)+1);
+    const existingNo=existingOrderNos.get(orderKey)||'';
+    if(!existingNo&&!seenNewOrderKeys.has(orderKey)){
+      seenNewOrderKeys.add(orderKey);
+      newOrderKeys.push(orderKey);
+    }
+    const mat=sku?findMatBySku(sku):null;
+    const qty=parseInt(item.qty)||1;
+    const usedBefore=stockUse.get(mat?.id||sku)||0;
+    const before=Number(mat?.stock)||0;
+    const after=mat?before-usedBefore-qty:null;
+    if(mat) stockUse.set(mat.id,usedBefore+qty);
+    let error='',warn='';
+    if(!sku) error='商品選項貨號空白';
+    else if(!mat) error='庫存主檔找不到料號';
+    else if(after<0) error='庫存不足，確認後會扣成負數';
+    if(!error&&existingKeys.has(pairKey)) warn='ERP 已有相同蝦皮訂單/買家/料號，確認時會略過';
+    if(!error&&!warn&&incomingPairs.get(pairKey)>1) warn='同一 Excel 內重複，請確認是否同品項分列';
+    return {...item,orderKey,existingNo,previewNo:existingNo||'',sku,mat,before,after,impact:mat?-qty:0,error,warn};
+  });
+  const start=Number(CORDER_SEQUENCE_STATE?.next_number||0);
+  rows.forEach(row=>{
+    if(row.existingNo){row.previewNo=row.existingNo;return;}
+    const idx=newOrderKeys.indexOf(row.orderKey);
+    row.previewNo=idx>=0&&start?formatCorderNo(start+idx):'待確認';
+  });
+  const errors=rows.filter(r=>r.error).length;
+  const warnings=rows.filter(r=>r.warn).length;
+  const sequenceRange=newOrderKeys.length&&start
+    ? `${formatCorderNo(start)} - ${formatCorderNo(start+newOrderKeys.length-1)}`
+    : '不需新序號';
+  const duplicateGroups=[...incomingPairs.entries()].filter(([,count])=>count>1).length;
+  const stockImpact=[...stockUse.entries()].map(([id,qty])=>{
+    const mat=mats.find(m=>m.id===id);
+    return mat?`${mat.code||mat.name} -${qty}`:'';
+  }).filter(Boolean);
+  return {
+    title:'Preflight Center - C-order import UX',
+    subtitle:'匯入前預覽、重複判斷、序號區間、庫存影響、錯誤行定位。確認前不會保留 SHPTW 序號。',
+    incoming,rows,newOrderKeys,sequenceRange,duplicateGroups,stockImpact,errors,warnings,
+  };
+}
+function openCorderImportPreflightModal(report){
+  window._corderImportPreflight=report;
+  const rows=report.rows||[];
+  document.getElementById('modalInner').innerHTML=`<h3>C-order 匯入預覽</h3>
+    ${renderPreflightCenter({
+      title:report.title,
+      subtitle:report.subtitle,
+      errors:report.errors,
+      warnings:report.warnings,
+      kpis:[
+        {label:'Excel 品項',value:rows.length},
+        {label:'新內部單號',value:report.newOrderKeys.length},
+        {label:'序號區間',value:report.sequenceRange},
+        {label:'阻擋/提醒',value:`${report.errors}/${report.warnings}`},
+      ],
+      sections:[
+        {title:'重複判斷',lines:[`同檔重複群組 ${report.duplicateGroups} 組`,`既有訂單會沿用原內部單號，既有同品項確認時略過。`]},
+        {title:'庫存影響',lines:report.stockImpact.length?report.stockImpact.slice(0,16):['沒有可扣庫存品項']},
+      ],
+      rows:rows.map(row=>({
+        lineLabel:`第 ${row.sourceRow} 行`,
+        title:`${row.previewNo} ${row.sku||'(無料號)'}`,
+        detail:row.error||row.warn||`${row.buyer||'未填買家'} / ${row.shipMethod||'未填物流'} / 庫存 ${row.before} -> ${row.after}`,
+        error:row.error,
+        warn:row.warn,
+        impact:row.impact,
+      })),
+    })}
+    <div class="table-wrap" style="max-height:42vh;overflow:auto"><table>
+      <tr><th>行</th><th>預計單號</th><th>蝦皮單號</th><th>買家</th><th>料號</th><th>數量</th><th>庫存</th><th>狀態</th></tr>
+      ${rows.map(row=>`<tr class="${row.error?'batch-error':''}">
+        <td>${row.sourceRow}</td>
+        <td style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2)">${escapeHtml(row.previewNo)}</td>
+        <td>${escapeHtml(row.shopeeNo||'')}</td>
+        <td>${escapeHtml(row.buyer||'')}</td>
+        <td style="font-family:var(--f-mono)">${escapeHtml(row.sku||'')}</td>
+        <td>${row.qty||1}</td>
+        <td>${row.mat?`${row.before} -> ${row.after}`:'-'}</td>
+        <td style="color:${row.error?'var(--red2)':row.warn?'var(--amber)':'var(--green2)'}">${escapeHtml(row.error||row.warn||'可匯入')}</td>
+      </tr>`).join('')}
+    </table></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" ${report.errors?'disabled':''} onclick="applyCorderImportPreflight()">確認匯入並扣庫</button>
+    </div>`;
+  openSharedModal();
+}
+async function applyCorderImportPreflight(){
+  const report=window._corderImportPreflight;
+  if(!report?.incoming?.length){showToast('沒有可匯入的 C-order 預覽資料','warn');return;}
+  if(report.errors){showToast('仍有錯誤列，請先修正 Excel 後重新匯入','err');return;}
+  const incoming=report.incoming;
+  closeModal();
+  showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
+  let ok=0, skip=0, warn=0, failed=0;
+  const warnList=[];
+  const assignedNos=new Map();
+  const newOrderKeys=report.newOrderKeys||[];
+  if(newOrderKeys.length) await ensureCorderSequenceReady();
+  const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
+  newOrderKeys.forEach((key,index)=>assignedNos.set(key,formatCorderNo(Number(reservedRange.start_number)+index)));
+  function assignInternalNo(item){
+    const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
+    const existing=corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer);
+    let no=existing||(key?assignedNos.get(key):'')||'';
+    if(!no) throw new Error(`無法取得第 ${item.sourceRow} 列的共用訂單號碼`);
+    return no;
+  }
+
+  for(const item of incoming){
+    item.no=assignInternalNo(item);
+    const dup=(window.corders||[]).find(c=>
+      ((item.shopeeNo&&c.shopeeNo===item.shopeeNo)||c.no===item.no) &&
+      (c.matCode===item.sku||c.matName===item.sku)
+    );
+    if(dup){skip++;continue;}
+
+    let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false;
+    if(!item.sku){
+      warnList.push((item.shopeeNo||item.no)+'：無料號');
+      failed++;
+      continue;
+    }
+    mat=findMatBySku(item.sku);
+    if(!mat){
+      warnList.push((item.shopeeNo||item.no)+'：找不到 '+item.sku);
+      failed++;
+      continue;
+    }
+
+    const displaySku=item.sku||item.prodName||'(無貨號)';
+    const cProps={
+      '訂單號碼':{title:[{text:{content:item.no}}]},
+      '蝦皮訂單號碼':{rich_text:[{text:{content:item.shopeeNo||''}}]},
+      '買家帳號':{rich_text:[{text:{content:item.buyer||''}}]},
+      '寄件編號':{rich_text:[{text:{content:item.trackingNo||''}}]},
+      '品名':{rich_text:[{text:{content:displaySku}}]},
+      '數量':{number:item.qty},
+      '單價':{number:parseMoneyNumber(item.unitPrice)},
+      '總價':{number:(Number(item.qty)||0)*parseMoneyNumber(item.unitPrice)},
+      '出貨方式':{rich_text:[{text:{content:item.shipMethod||''}}]},
+      '狀態':{select:{name:'需確認'}},
+      '來源':{select:{name:'蝦皮'}},
+      '料件ID':{rich_text:[]},
+      '備註':{rich_text:[{text:{content:'庫存交易處理中'}}]},
+    };
+    if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
+    if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
+    try{
+      stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
+      if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
+
+      const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
+      stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey);
+      committed=true;
+      stockRef=corderStockRefs(stockDeduct.refs);
+      const statusSync=await updateWorkflowPageAfterInventory(
+        stagedOrder.id,
+        {
+          '狀態':{select:{name:'出貨中'}},
+          '料件ID':{rich_text:[{text:{content:stockRef}}]},
+          '備註':{rich_text:note?[{text:{content:note}}]:[]}
+        },
+        `C端 Excel 訂單 ${item.no} 第 ${item.sourceRow} 列出貨狀態與庫存關聯`
+      );
+      ok++;
+      if(statusSync.pending){
+        warn++;
+        warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
+      }
+    }catch(eCreate){
+      if(!committed){
+        failed++;
+        await archiveNotionPageQuietly(stagedOrder?.id);
+        warnList.push((item.shopeeNo||item.no)+'：未扣庫，訂單暫存已取消 '+eCreate.message);
+      }else{
+        warn++;
+        warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');
+      }
+      console.error('C端訂單建立失敗:',item,eCreate);
+    }
+  }
+
+  window._corderImportPreflight=null;
+  await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'});
+  renderTab(CURRENT_TAB);
+  showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn||failed?'warn':'ok');
+  if(warnList.length){
+    alert('以下品項需確認：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
+  }
+}
+
 async function importShopeeExcel(input){
   const file = input.files[0];
   if(!file) return;
@@ -19595,111 +20026,9 @@ async function importShopeeExcel(input){
       (a.sku||'').localeCompare(b.sku||'')
     );
 
-    showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
-    let ok=0, skip=0, warn=0, failed=0;
-    const warnList=[];
-    const assignedNos=new Map();
-    const newOrderKeys=[];
-    const seenNewKeys=new Set();
-    for(const item of incoming){
-      const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
-      if(corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer)||seenNewKeys.has(key)) continue;
-      seenNewKeys.add(key);
-      newOrderKeys.push(key);
-    }
-    if(newOrderKeys.length) await ensureCorderSequenceReady();
-    const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
-    newOrderKeys.forEach((key,index)=>assignedNos.set(key,formatCorderNo(Number(reservedRange.start_number)+index)));
-    function assignInternalNo(item){
-      const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
-      const existing=corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer);
-      let no=existing||(key?assignedNos.get(key):'')||'';
-      if(!no) throw new Error(`無法取得第 ${item.sourceRow} 列的共用訂單號碼`);
-      return no;
-    }
-
-    for(const item of incoming){
-      item.no=assignInternalNo(item);
-      const dup=(window.corders||[]).find(c=>
-        ((item.shopeeNo&&c.shopeeNo===item.shopeeNo)||c.no===item.no) &&
-        (c.matCode===item.sku||c.matName===item.sku)
-      );
-      if(dup){skip++;continue;}
-
-      let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false;
-      if(!item.sku){
-        note='Excel 商品選項貨號空白，已停止建立出貨中訂單';
-        warnList.push((item.shopeeNo||item.no)+'：無料號');
-        failed++;
-        continue;
-      }else{
-        mat=findMatBySku(item.sku);
-        if(!mat){
-          note='找不到庫存料號，已停止建立出貨中訂單：'+item.sku;
-          warnList.push((item.shopeeNo||item.no)+'：找不到 '+item.sku);
-          failed++;
-          continue;
-        }
-      }
-
-      const displaySku=item.sku||item.prodName||'(無貨號)';
-      const cProps={
-        '訂單號碼':{title:[{text:{content:item.no}}]},
-        '蝦皮訂單號碼':{rich_text:[{text:{content:item.shopeeNo||''}}]},
-        '買家帳號':{rich_text:[{text:{content:item.buyer||''}}]},
-        '寄件編號':{rich_text:[{text:{content:item.trackingNo||''}}]},
-        '品名':{rich_text:[{text:{content:displaySku}}]},
-        '數量':{number:item.qty},
-        '單價':{number:parseMoneyNumber(item.unitPrice)},
-        '總價':{number:(Number(item.qty)||0)*parseMoneyNumber(item.unitPrice)},
-        '出貨方式':{rich_text:[{text:{content:item.shipMethod||''}}]},
-        '狀態':{select:{name:'需確認'}},
-        '來源':{select:{name:'蝦皮'}},
-        '料件ID':{rich_text:[]},
-        '備註':{rich_text:[{text:{content:'庫存交易處理中'}}]},
-      };
-      if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
-      if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
-      try{
-        stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
-        if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
-
-        const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
-        stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey);
-        committed=true;
-        stockRef=corderStockRefs(stockDeduct.refs);
-        const statusSync=await updateWorkflowPageAfterInventory(
-          stagedOrder.id,
-          {
-            '狀態':{select:{name:'出貨中'}},
-            '料件ID':{rich_text:[{text:{content:stockRef}}]},
-            '備註':{rich_text:note?[{text:{content:note}}]:[]}
-          },
-          `C端 Excel 訂單 ${item.no} 第 ${item.sourceRow} 列出貨狀態與庫存關聯`
-        );
-        ok++;
-        if(statusSync.pending){
-          warn++;
-          warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
-        }
-      }catch(eCreate){
-        if(!committed){
-          failed++;
-          await archiveNotionPageQuietly(stagedOrder?.id);
-          warnList.push((item.shopeeNo||item.no)+'：未扣庫，訂單暫存已取消 '+eCreate.message);
-        }else{
-          warn++;
-          warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');
-        }
-        console.error('C端訂單建立失敗:',item,eCreate);
-      }
-    }
-
-    await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab(CURRENT_TAB);
-    showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn?'warn':'ok');
-    if(warnList.length){
-      alert('⚠ 以下品項庫存未完整扣除，請確認料件主檔：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
-    }
+    const preflight=buildCorderImportPreflight(incoming);
+    openCorderImportPreflightModal(preflight);
+    showToast(`已解析 ${incoming.length} 筆，請先確認匯入預覽`,'ok');
 
   }catch(e){
     showToast('❌ 匯入失敗：'+e.message,'err');

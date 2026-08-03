@@ -9,9 +9,9 @@ This is the single current-state entry point. Use it before reading older timeli
 - Frontend: `https://lematec-erp.pages.dev/`
 - Worker: `https://green-wave-c22f.vic-e93.workers.dev`
 - GitHub repo: `vicxd0728/lematec-erp`
-- Current repo head: `fec95e4 Mark ERP Health v2 verified`
-- Latest Worker code deploy: `11c195b Add ERP Health v2 current state`
-- Latest Pages deploy: `fec95e4 Mark ERP Health v2 verified`
+- Current repo head: use `git log -1 --oneline` for the exact latest commit.
+- Latest Worker code deploy: Health v2 Worker route from `11c195b Add ERP Health v2 current state`; no Worker code is required for the local Preflight/C-order/BOM/mobile v1 frontend batch.
+- Latest Pages deploy: verify the current GitHub Actions Pages run after each frontend commit.
 - Worker deploy workflow: `Deploy ERP Worker`
 - Pages deploy workflow: `Deploy ERP to Cloudflare Pages`
 
@@ -50,6 +50,7 @@ Last verified on 2026-08-04.
 ## Immediate Optimization Queue
 
 Done: ERP Health v2 separates public read-only checks, authorized checks, and manual follow-up items in production.
+In progress locally: Preflight Center v1, C-order import preview, BOM import preview/template, and mobile high-frequency audit panel.
 
 1. Preflight Center: add consistent preflight summaries before C-order import, picking completion, inbound approval, BOM import, and batch inventory adjustment.
 2. C-order import UX: preview rows, duplicate groups, reserved number range, stock impact, and row-level errors before commit.

@@ -35,12 +35,15 @@ class BomSupabasePrimaryTest(unittest.TestCase):
 
     def test_all_bom_entry_points_commit_supabase_first(self):
         shopee = function_section(INDEX, "importShopeeBomToNotion")
-        general = function_section(INDEX, "importGeneralBomExcel")
+        general = function_section(INDEX, "applyBomImportPreflight")
+        general_import = function_section(INDEX, "importGeneralBomExcel")
         automatic = function_section(INDEX, "ensureShopeeBomRows")
 
         for section in (shopee, general, automatic):
             self.assertIn("commitBomPlanSupabaseFirst", section)
 
+        self.assertIn("openBomImportPreflightModal(preflight)", general_import)
+        self.assertNotIn("commitBomPlanSupabaseFirst", general_import)
         self.assertLess(
             shopee.index("commitBomPlanSupabaseFirst"),
             shopee.index("createMaterialFromSku"),

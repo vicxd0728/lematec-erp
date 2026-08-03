@@ -55,10 +55,13 @@ class CorderNumberSequenceTests(unittest.TestCase):
         )
 
     def test_excel_import_checks_sequence_before_batch_reservation(self):
-        body = function_body("importShopeeExcel")
+        import_body = function_body("importShopeeExcel")
+        apply_body = function_body("applyCorderImportPreflight")
+        self.assertIn("buildCorderImportPreflight(incoming)", import_body)
+        self.assertNotIn("reserveCorderNumbers(newOrderKeys.length)", import_body)
         self.assertLess(
-            body.index("ensureCorderSequenceReady"),
-            body.index("reserveCorderNumbers(newOrderKeys.length)"),
+            apply_body.index("ensureCorderSequenceReady"),
+            apply_body.index("reserveCorderNumbers(newOrderKeys.length)"),
         )
 
     def test_sequence_unavailable_ui_disables_order_creation(self):

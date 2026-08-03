@@ -65,9 +65,9 @@ No active C-order SHPTW deployment blocker remains as of 2026-08-04.
 
 Current improvement blockers:
 
-1. Health checks need to clearly separate public read-only, authorized ERP, and manual Dashboard checks.
-2. High-risk writes need shared preflight summaries before mutation.
-3. C-order and BOM import flows need row-level preview/error positioning before commit.
+1. High-risk writes need shared preflight summaries before mutation across all remaining write paths.
+2. C-order and BOM import flows have local v1 preflight coverage; picking completion and inbound approval still need the same center.
+3. Mobile high-frequency pages have a Health audit panel and first CSS guards; visual QA should follow with real screenshots.
 
 ## Local Validation Baseline
 
@@ -121,8 +121,8 @@ Do not call a change complete until all applicable gates pass:
 
 1. Keep `ERP_CURRENT_STATE.md` as the current-state entry point; keep handoff as history.
 2. Keep `WORKER_API_CONTRACT.md` current whenever Worker routes change.
-3. Add ERP Health v2: public read-only checks, authorized ERP checks, and manual follow-up checks.
-4. Add preflight summaries before C-order import, picking completion, inbound approval, batch inventory adjustment, and BOM import.
-5. Upgrade C-order import preview: duplicate groups, sequence range, stock impact, and row-level errors.
-6. Upgrade BOM maintenance: simplified Excel format, missing-material pre-create review, and direct-component rule guard.
-7. Audit mobile screens for orders, Notes, C-order, and inventory adjustment.
+3. Keep ERP Health v2 current as public read-only, authorized ERP, and manual follow-up checks evolve.
+4. Extend `PRE_FLIGHT_CENTER_V1` from C-order/BOM/batch inventory toward picking completion and inbound approval.
+5. Keep C-order import preview before `/api/corder/number-reserve`; confirmation is the first sequence-mutating step.
+6. Keep BOM maintenance preview before `/api/inventory/bom/upsert`; confirmation is the first Supabase write step.
+7. Continue mobile visual QA for orders, Notes, C-order, and inventory adjustment after each major UI change.
