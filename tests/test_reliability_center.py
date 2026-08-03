@@ -44,6 +44,7 @@ def test_frontend_persists_and_recovers_all_mirror_queues():
         "inventory_notion",
         "workflow_notion",
         "bom_notion",
+        "notes_notion",
     ):
         assert module in INDEX
     assert "persistReliableMirrorJob" in INDEX
@@ -54,10 +55,37 @@ def test_frontend_persists_and_recovers_all_mirror_queues():
 
 
 def test_health_page_exposes_reliability_summary_and_retry():
-    assert "資料可靠性中心" in INDEX
+    assert "補同步中心 v1" in INDEX
     assert "Notion 鏡像缺漏" in INDEX
     assert "retryReliabilityMirrors" in INDEX
+    assert "retryAllReliabilityWork" in INDEX
     assert "/api/reliability/summary" in INDEX
+
+
+def test_reliability_center_v1_collects_local_retry_sources():
+    assert "function collectReliabilityCenterRows" in INDEX
+    assert "function renderReliabilityQueueTable" in INDEX
+    assert "readInventoryMirrorQueue()" in INDEX
+    assert "readInventoryNotionMirrorQueue()" in INDEX
+    assert "readWorkflowNotionSyncQueue()" in INDEX
+    assert "readPendingBomNotionMirrors()" in INDEX
+    assert "readNotesNotionMirrorQueue()" in INDEX
+    assert "readNotesShadowRetryQueue()" in INDEX
+    assert "readPendingStockLogs()" in INDEX
+
+
+def test_reliability_center_all_retry_is_non_transactional():
+    block = function_block(
+        INDEX,
+        "async function retryAllReliabilityWork",
+        "function getInventoryReadSource",
+    )
+    assert "flushReliableMirrorQueues" in block
+    assert "retryNotesShadowQueue" in block
+    assert "flushPendingStockLogs" in block
+    assert "/api/corder/number-reserve" not in block
+    assert "/api/inventory/adjust" not in block
+    assert "/api/inbound/action" not in block
 
 
 def test_inventory_adjustment_remains_supabase_first():

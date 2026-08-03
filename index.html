@@ -5789,7 +5789,7 @@ function openModal(type,data){
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
     <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇的 S- 成品庫存。BOM 直接子件扣料請使用「訂單 > 蝦皮」生產領料流程。</div>
     <div class="form-row" style="margin-bottom:10px">
-      <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空自動產生 ${nextCorderInternalNo()}"></div>
+      <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空由系統保留下一張 ${nextCorderInternalNo()}"></div>
       <div><label class="field-label">買家帳號</label><input class="inp" id="co_buyer" placeholder="蝦皮買家帳號"></div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
@@ -9235,6 +9235,80 @@ function localReliabilityQueueCounts(){
   counts.total=Object.values(counts).reduce((sum,value)=>sum+Number(value||0),0);
   return counts;
 }
+function collectReliabilityCenterRows(){
+  const rows=[];
+  const addLocal=(source,module,label,items=[],hint='')=>{
+    (Array.isArray(items)?items:[]).forEach((item,index)=>{
+      const attempts=Number(item.retry_count??item.attempts??item.attempt_count??0);
+      rows.push({
+        source,module,label,
+        id:item.page_id||item.id||item.noteKey||item.notionPageId||item.client_trace_id||item.payload?.sku||`local-${index+1}`,
+        status:attempts>=5?'failed':'pending',
+        attempts,
+        lastError:item.last_error||item.lastError||item.error||'',
+        createdAt:item.created_at||item.createdAt||item.failed_at||'',
+        hint,
+      });
+    });
+  };
+  addLocal('本機','inventory_supabase','庫存主檔回寫 Supabase',readInventoryMirrorQueue(),'重新補同步會先重試 Supabase 回寫');
+  addLocal('本機','inventory_notion','庫存 Notion 鏡像',readInventoryNotionMirrorQueue(),'Supabase 已接受後補 Notion 鏡像');
+  addLocal('本機','workflow_notion','流程 Notion 鏡像',readWorkflowNotionSyncQueue(),'領料/入料/訂單狀態補鏡像');
+  addLocal('本機','bom_notion','BOM Notion 鏡像',readPendingBomNotionMirrors(),'Supabase BOM 已接受後補 Notion 鏡像');
+  addLocal('本機','notes_notion','記事 Notion 鏡像',readNotesNotionMirrorQueue(),'記事結構已寫入後補 Notion 鏡像');
+  addLocal('本機','notes_shadow','記事 Supabase 影子',readNotesShadowRetryQueue(),'Notion 操作完成後補 Supabase read model');
+  addLocal('本機','stock_log','庫存異動記錄',readPendingStockLogs(),'Supabase/Notion 異動記錄補同步');
+  const jobs=Array.isArray(_reliabilityReport?.data?.jobs)?_reliabilityReport.data.jobs:[];
+  jobs.slice(0,80).forEach(job=>{
+    rows.push({
+      source:'伺服器',module:job.module||'mirror',label:reliabilityModuleLabel(job.module),
+      id:job.entity_id||job.dedupe_key||job.id||'',
+      status:job.status||'pending',
+      attempts:Number(job.attempt_count||0),
+      lastError:job.last_error||'',
+      createdAt:job.created_at||job.updated_at||'',
+      hint:'erp_mirror_jobs',
+    });
+  });
+  return rows.sort((a,b)=>{
+    const score=x=>x.status==='failed'?0:x.source==='本機'?1:2;
+    return score(a)-score(b)||String(a.createdAt||'').localeCompare(String(b.createdAt||''));
+  });
+}
+function reliabilityModuleLabel(module=''){
+  return ({
+    inventory_supabase:'庫存主檔回寫 Supabase',
+    inventory_notion:'庫存 Notion 鏡像',
+    workflow_notion:'流程 Notion 鏡像',
+    bom_notion:'BOM Notion 鏡像',
+    notes_notion:'記事 Notion 鏡像',
+    notes_shadow:'記事 Supabase 影子',
+    stock_log:'庫存異動記錄',
+  })[module]||module||'補同步工作';
+}
+function renderReliabilityQueueTable(rows=[]){
+  const list=(Array.isArray(rows)?rows:[]).slice(0,12);
+  if(!list.length){
+    return `<div style="padding:14px;border:1px solid var(--border);border-radius:8px;color:var(--text3);background:var(--bg3)">目前沒有待補同步項目。</div>`;
+  }
+  return `<div class="table-wrap" style="margin-top:12px"><table style="min-width:760px">
+    <thead><tr><th>來源</th><th>類型</th><th>識別</th><th>狀態</th><th>錯誤 / 提示</th></tr></thead>
+    <tbody>
+      ${list.map(row=>{
+        const level=row.status==='failed'||row.attempts>=5?'err':'warn';
+        const id=String(row.id||'—');
+        const created=row.createdAt?`<div style="font-size:.68rem;color:var(--text3)">${escapeHtml(row.createdAt)}</div>`:'';
+        return `<tr>
+          <td><b>${escapeHtml(row.source||'—')}</b>${created}</td>
+          <td>${escapeHtml(row.label||reliabilityModuleLabel(row.module))}<div style="font-size:.68rem;color:var(--text3)">${escapeHtml(row.module||'')}</div></td>
+          <td style="font-family:var(--f-mono);font-size:.72rem;overflow-wrap:anywhere">${escapeHtml(id.length>72?id.slice(0,72)+'…':id)}</td>
+          <td>${healthBadge(level,level==='err'?'ERROR':'PENDING')}<div style="font-size:.68rem;color:var(--text3)">retry ${Number(row.attempts||0)}</div></td>
+          <td style="font-size:.75rem;color:${row.lastError?'var(--amber)':'var(--text3)'}">${escapeHtml(row.lastError||row.hint||'等待補同步')}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>${rows.length>list.length?`<div style="margin-top:8px;font-size:.72rem;color:var(--text3)">另有 ${rows.length-list.length} 筆未顯示，請先執行補同步或查看伺服器佇列。</div>`:''}`;
+}
 async function loadReliabilitySummary({quiet=false}={}){
   if(!TOKEN)return null;
   _reliabilityReport={..._reliabilityReport,running:true,error:''};
@@ -9332,35 +9406,43 @@ function renderSupabaseUsageHealth(){
 }
 function renderReliabilityCenter(){
   const local=localReliabilityQueueCounts();
+  const rows=collectReliabilityCenterRows();
   const report=_reliabilityReport||{};
   const data=report.data||{};
   const jobs=data.mirror_jobs||{};
   const missing=data.missing_notion_mirrors||{};
+  const notesShadowPending=readNotesShadowRetryQueue().length;
+  const stockLogPending=readPendingStockLogs().length;
   const missingTotal=Object.values(missing).reduce((sum,value)=>sum+Number(value||0),0);
   const pending=Number(jobs.pending||0);
   const failed=Number(jobs.failed||0);
-  const level=report.error?'err':failed?'err':(pending||local.total||missingTotal)?'warn':'ok';
+  const allPending=local.total+notesShadowPending+stockLogPending+pending+failed+missingTotal;
+  const level=report.error?'err':failed||rows.some(row=>row.status==='failed'||row.attempts>=5)?'err':allPending?'warn':'ok';
   const label=report.running?'檢查中':report.error?'ERROR':level==='ok'?'OK':level==='err'?'ERROR':'WARN';
   const oldest=jobs.oldest_created_at?new Date(jobs.oldest_created_at).toLocaleString('zh-TW',{hour12:false}):'—';
   return `<div class="panel" style="margin-bottom:14px">
     <div class="panel-hdr">
-      <span class="panel-title">資料可靠性中心<span class="badge">${pending+failed+local.total}</span></span>
+      <span class="panel-title">補同步中心 v1<span class="badge">${allPending}</span></span>
       ${healthBadge(level,label)}
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        Supabase 是庫存、BOM、領料、入料與異動記錄的主資料；Notion 是人工查閱鏡像。主流程成功後若 Notion 暫時失敗，系統會保留補同步工作，不會回滾已完成的庫存交易。
+        Supabase 是庫存、BOM、領料、入料、記事結構與異動記錄的主資料；Notion 是人工查閱鏡像與附件來源。主流程成功後若鏡像暫時失敗，系統會保留補同步工作，不會回滾或重複已完成的庫存交易。
       </div>
       <div class="dash-kpi-grid">
         <div class="kpi-card ${pending?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器待補同步</div><div class="kpi-num">${pending}</div><div class="kpi-sub">最早 ${oldest}</div></div>
         <div class="kpi-card ${failed?'kpi-red':'kpi-green'}"><div class="kpi-label">重試失敗</div><div class="kpi-num">${failed}</div><div class="kpi-sub">達 5 次需人工處理</div></div>
-        <div class="kpi-card ${local.total?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total}</div><div class="kpi-sub">記事 ${local.notes_notion||0} / 其他 ${Math.max(0,local.total-(local.notes_notion||0))}</div></div>
+        <div class="kpi-card ${local.total+notesShadowPending+stockLogPending?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total+notesShadowPending+stockLogPending}</div><div class="kpi-sub">鏡像 ${local.total} / 記事 ${notesShadowPending} / 異動 ${stockLogPending}</div></div>
         <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">Notion 鏡像缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button class="btn btn-blue btn-sm" onclick="retryReliabilityMirrors()">重新補同步</button>
+        <button class="btn btn-blue btn-sm" onclick="retryAllReliabilityWork()">全部補同步</button>
+        <button class="btn btn-ghost btn-sm" onclick="retryReliabilityMirrors()">鏡像補同步</button>
+        <button class="btn btn-ghost btn-sm" onclick="retryNotesShadowQueue({force:true,quiet:false})">記事補同步</button>
+        <button class="btn btn-ghost btn-sm" onclick="retryStockLogSync()">異動記錄補同步</button>
         <button class="btn btn-ghost btn-sm" onclick="loadReliabilitySummary()">重新檢查</button>
       </div>
+      ${renderReliabilityQueueTable(rows)}
       ${report.running?'<div class="loading-row"><div class="spin"></div>讀取可靠性狀態...</div>':''}
       ${report.error?`<div style="margin-top:10px;color:var(--red2);font-size:.78rem">${escapeHtml(report.error)}</div>`:''}
     </div>
@@ -9411,6 +9493,20 @@ async function retryReliabilityMirrors(){
   }catch(e){
     showToast('⚠ 補同步未完成：'+(e.message||e),'warn');
   }
+}
+async function retryAllReliabilityWork(){
+  showToast('補同步中心處理中...','warn');
+  const errors=[];
+  try{await flushReliableMirrorQueues({quiet:true});}catch(e){errors.push('鏡像：'+(e.message||e));}
+  try{await retryNotesShadowQueue({force:true,quiet:true});}catch(e){errors.push('記事：'+(e.message||e));}
+  try{await flushPendingStockLogs({quiet:true,max:50});}catch(e){errors.push('異動記錄：'+(e.message||e));}
+  await Promise.all([
+    loadReliabilitySummary({quiet:true}).catch(()=>null),
+    loadNotesShadowHealth({quiet:true}).catch(()=>null),
+  ]);
+  if(CURRENT_TAB==='health')renderTab('health');
+  if(errors.length)showToast('⚠ 部分補同步未完成：'+errors.slice(0,2).join('；'),'warn');
+  else showToast('✅ 補同步中心已執行','ok');
 }
 function getInventoryReadSource(){
   const saved=localStorage.getItem(INVENTORY_READ_SOURCE_STORAGE);
@@ -15095,6 +15191,7 @@ const CORDER_PREFIX='SHPTW';
 const CORDER_START_NO=16279;
 const CORDER_START_KEY='lematec_corder_shptw_start';
 const CORDER_LAST_KEY='lematec_corder_shptw_last_used';
+let CORDER_SEQUENCE_STATE=null;
 function corderSerial(no){
   const m=String(no||'').trim().match(/^SHPTW(\d+)$/i);
   return m?parseInt(m[1],10):0;
@@ -15114,16 +15211,65 @@ function getCorderStartSerial(){
   const n=parseInt(raw,10);
   return n?Math.max(CORDER_START_NO,n):CORDER_START_NO;
 }
-function saveCorderStartSerial(){
-  const inp=document.getElementById('corderStartSerial');
-  const raw=normalizeCorderSerialInput(inp?.value||'');
-  if(inp) inp.value=raw;
-  const n=parseInt(raw,10);
-  if(!n){showToast('請輸入起始數字','warn');return;}
-  localStorage.setItem(CORDER_START_KEY,String(n));
-  localStorage.setItem(CORDER_LAST_KEY,String(n));
-  showToast(`✅ C端起始單號已儲存：${formatCorderNo(n)}`,'ok');
-  renderTab('corders');
+function rememberCorderSequenceState(state){
+  const next=parseInt(state?.next_number,10);
+  if(!next) return;
+  CORDER_SEQUENCE_STATE={...state,next_number:next};
+  localStorage.setItem(CORDER_START_KEY,String(next));
+  localStorage.setItem(CORDER_LAST_KEY,String(next));
+}
+async function fetchCorderSequenceState({silent=false}={}){
+  try{
+    const res=await fetch(`${PROXY}/api/corder/number-state`,{cache:'no-store',headers:{Accept:'application/json'}});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
+    rememberCorderSequenceState(data);
+    const inp=document.getElementById('corderStartSerial');
+    if(inp) inp.value=String(data.next_number);
+    previewCorderStartSerial(data.next_number);
+    return data;
+  }catch(error){
+    if(!silent) showToast('❌ 無法取得共用 C端起始單號：'+error.message,'err');
+    throw error;
+  }
+}
+function corderSequenceReady(){
+  return !!(CORDER_SEQUENCE_STATE&&Number(CORDER_SEQUENCE_STATE.next_number));
+}
+async function ensureCorderSequenceReady({silent=false}={}){
+  if(corderSequenceReady()) return CORDER_SEQUENCE_STATE;
+  try{
+    return await fetchCorderSequenceState({silent:true});
+  }catch(error){
+    const msg='C端共用單號尚未連線；請先完成 Supabase migration 與 Worker 部署驗證，再建立或匯入新 C端訂單。';
+    if(!silent) showToast(msg,'err',10000);
+    throw new Error(`${msg} ${error.message||error}`);
+  }
+}
+async function reserveCorderNumbers(count){
+  if(!count) return null;
+  if(!corderSequenceReady()) await ensureCorderSequenceReady({silent:true});
+  const res=await fetch(`${PROXY}/api/corder/number-reserve`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify({count})
+  });
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||`保留 C端訂單號失敗 HTTP ${res.status}`);
+  rememberCorderSequenceState(data);
+  return data;
+}
+async function setCorderNextSerial(nextNumber,{notify=true}={}){
+  const res=await fetch(`${PROXY}/api/corder/number-set`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify({next_number:Number(nextNumber),role:ROLE})
+  });
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||`更新 C端起始單號失敗 HTTP ${res.status}`);
+  rememberCorderSequenceState(data);
+  if(notify) showToast(`✅ 共用下一張單號已更新：${formatCorderNo(data.next_number)}`,'ok');
+  return data;
 }
 function previewCorderStartSerial(v){
   const inp=document.getElementById('corderStartSerial');
@@ -15137,14 +15283,6 @@ function nextCorderInternalNo(usedNos=[]){
   const max=all.reduce((m,no)=>Math.max(m,corderSerial(no)),0);
   const seed=getCorderStartSerial();
   return formatCorderNo(Math.max(seed,max?max+1:seed));
-}
-function persistCorderNextNo(usedNos=[]){
-  const max=(usedNos||[]).reduce((m,no)=>Math.max(m,corderSerial(no)),0);
-  if(max){
-    const next=max+1;
-    localStorage.setItem(CORDER_START_KEY,String(next));
-    localStorage.setItem(CORDER_LAST_KEY,String(next));
-  }
 }
 function parseMoneyNumber(v){
   const s=String(v??'').replace(/[^\d.-]/g,'');
@@ -16744,6 +16882,13 @@ function updateCorderSearch(value){
 function renderCorders(){
   const canAdd=!isViewOnly()&&(isAdminRole()||ROLE==='sales');
   const canOperate=!isViewOnly();
+  if(!CORDER_SEQUENCE_STATE&&!window._corderSequenceLoading){
+    window._corderSequenceLoading=true;
+    fetchCorderSequenceState({silent:true})
+      .then(()=>{if(CURRENT_TAB==='corders') renderTab('corders');})
+      .catch(()=>{})
+      .finally(()=>{window._corderSequenceLoading=false;});
+  }
   if(!window._CO_STATUS) window._CO_STATUS='';
   if(!window._CO_DAYS)   window._CO_DAYS='0';
   if(!window._CO_SORT)   window._CO_SORT='created';
@@ -16790,8 +16935,21 @@ function renderCorders(){
   const countDone=data.filter(o=>o.status==='已完成').length;
   const countCancel=data.filter(o=>o.status==='已取消').length;
   const countWarn=data.filter(o=>!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
-  const startSerial=getCorderStartSerial();
   const nextNo=nextCorderInternalNo();
+  const sequenceReady=corderSequenceReady();
+  const sequenceBlocked=canOperate&&!sequenceReady;
+  const sequenceBlockedMessage='C端共用單號尚未連線；新建與 Excel 匯入已暫停，請先完成 Supabase migration、Worker 部署，並按重新檢查。';
+  const sequenceBlockedToast=`showToast('${sequenceBlockedMessage}','err',10000)`;
+  const addButton=canAdd
+    ? (sequenceReady
+      ? `<button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`
+      : `<button class="btn btn-blue btn-sm" disabled title="${sequenceBlockedMessage}" onclick="${sequenceBlockedToast}">＋ 新增</button>`)
+    : '';
+  const importButton=canOperate
+    ? (sequenceReady
+      ? `<label class="btn btn-cyan btn-sm" style="cursor:pointer">📤 匯入 Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadCorderFile(this)"></label>`
+      : `<button class="btn btn-cyan btn-sm" disabled title="${sequenceBlockedMessage}" onclick="${sequenceBlockedToast}">📤 匯入 Excel</button>`)
+    : '';
   const trendVals=[6,10,8,14,12,18,23,16].map((v,i)=>`<i style="height:${18+v}px"></i>`).join('');
   let html=`<div class="premium-corder-shell">${notionBar}
   <div class="corder-stats">
@@ -16805,19 +16963,18 @@ function renderCorders(){
     <div class="panel-hdr">
       <span class="panel-title">🛒 C端訂單 <span class="badge">${filtered.length}/${data.length}</span></span>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCorder')">＋ 新增</button>`:''}
-        ${canOperate?`<label class="btn btn-cyan btn-sm" style="cursor:pointer">📤 匯入 Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadCorderFile(this)"></label>`:''}
+        ${addButton}
+        ${importButton}
         ${canOperate?`<label class="btn btn-green btn-sm" style="cursor:pointer">🚚 上傳運送單<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple style="display:none" onchange="uploadCorderShippingLabels(this)"></label>`:''}
         <button class="btn btn-ghost btn-sm" onclick="syncCordersFromShopee115()">🔄 重新讀取</button>
       </div>
     </div>
+    ${sequenceBlocked?`<div class="info-box info-warn" style="margin:12px 16px 0">${sequenceBlockedMessage} <button class="btn btn-ghost btn-xs" style="margin-left:8px" onclick="fetchCorderSequenceState().then(()=>renderTab('corders')).catch(()=>{})">重新檢查</button></div>`:''}
     ${canOperate?`
     <div class="corder-start-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(6,182,212,.05)">
-      <span style="font-size:.8125rem;color:var(--text2);font-weight:700">起始單號</span>
-      <span style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2);font-size:1rem">${CORDER_PREFIX}</span>
-      <input class="inp" id="corderStartSerial" inputmode="numeric" maxlength="12" value="${startSerial}" oninput="previewCorderStartSerial(this.value)" style="width:130px;font-family:var(--f-mono);font-weight:800">
-      <button class="btn btn-green btn-sm" onclick="saveCorderStartSerial()">儲存起始值</button>
-      <span style="font-size:.8125rem;color:var(--text3)">下一張：<b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono)">${nextNo}</b>。蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
+      <span style="font-size:.8125rem;color:var(--text2);font-weight:700">下一張訂單號</span>
+      <b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono);font-size:1rem">${nextNo}</b>
+      <span style="font-size:.8125rem;color:var(--text3)">系統依 Supabase 現有訂單自動接續並保留號碼；蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
     </div>`:''}
     <div class="corder-toolbar">
       <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}"
@@ -19214,12 +19371,24 @@ async function submitCorder(){
   if(!matId){showToast('請選擇蝦皮料號','warn');return;}
   const mat=mats.find(m=>m.id===matId);
   if(!mat){showToast('找不到料件','err');return;}
-  const orderNo=manualNo||corderExistingNoByShopeeAndBuyer(shopeeNo,buyer)||makeCorderNo();
+  const existingOrderNo=corderExistingNoByShopeeAndBuyer(shopeeNo,buyer);
+  if(!manualNo&&!existingOrderNo){
+    try{
+      await ensureCorderSequenceReady();
+    }catch(_){
+      return;
+    }
+  }
+  let orderNo=manualNo||existingOrderNo||'';
   let stockDeduct=null;
   let stagedOrder=null;
   let committed=false;
   closeModal(); showToast('建立 C端訂單中...','warn');
   try{
+    if(!orderNo){
+      const reserved=await reserveCorderNumbers(1);
+      orderNo=formatCorderNo(reserved.start_number);
+    }
     // 先建立可追蹤的暫存單，再執行 Supabase 扣庫；避免「扣了庫存卻沒有訂單」。
     const stagedProps={
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
@@ -19253,7 +19422,9 @@ async function submitCorder(){
       },
       `C端訂單 ${orderNo} 出貨中狀態與庫存關聯`
     );
-    persistCorderNextNo([orderNo]);
+    if(manualNo){
+      await setCorderNextSerial(corderSerial(orderNo)+1,{notify:false}).catch(()=>{});
+    }
     await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab('corders');
     showToast(
       statusSync.pending
@@ -19362,16 +19533,22 @@ async function importShopeeExcel(input){
     let ok=0, skip=0, warn=0, failed=0;
     const warnList=[];
     const assignedNos=new Map();
-    const usedNos=[];
+    const newOrderKeys=[];
+    const seenNewKeys=new Set();
+    for(const item of incoming){
+      const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
+      if(corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer)||seenNewKeys.has(key)) continue;
+      seenNewKeys.add(key);
+      newOrderKeys.push(key);
+    }
+    if(newOrderKeys.length) await ensureCorderSequenceReady();
+    const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
+    newOrderKeys.forEach((key,index)=>assignedNos.set(key,formatCorderNo(Number(reservedRange.start_number)+index)));
     function assignInternalNo(item){
-      const key=corderSameOrderKey(item.shopeeNo,item.buyer);
+      const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
       const existing=corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer);
       let no=existing||(key?assignedNos.get(key):'')||'';
-      if(!no){
-        no=nextCorderInternalNo(usedNos);
-        usedNos.push(no);
-      }
-      if(key) assignedNos.set(key,no);
+      if(!no) throw new Error(`無法取得第 ${item.sourceRow} 列的共用訂單號碼`);
       return no;
     }
 
@@ -19452,7 +19629,6 @@ async function importShopeeExcel(input){
       }
     }
 
-    persistCorderNextNo(usedNos);
     await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab(CURRENT_TAB);
     showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn?'warn':'ok');
     if(warnList.length){

@@ -1,0 +1,61 @@
+name: Supabase C-order Sequence Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply the C-order SHPTW sequence migration"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Validate required secret
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Missing GitHub secret SUPABASE_DB_URL"
+            exit 1
+          fi
+
+      - name: Dry-run or apply migration
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          sql_path="supabase/migrations/20260731_015_corder_number_sequence.sql"
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$sql_path"
+          else
+            psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c "begin;" -f "$sql_path" -c "rollback;"
+          fi
+
+      - name: Verify sequence state after apply
+        if: ${{ inputs.apply == true }}
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -Atc "
+            select prefix || ',' || next_number
+            from public.get_corder_number_state((
+              select id from public.organizations where slug = 'lematec' limit 1
+            ));
+          "

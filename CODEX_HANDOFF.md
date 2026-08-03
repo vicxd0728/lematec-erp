@@ -1,5 +1,66 @@
 # LEMATEC ERP Codex Handoff
 
+## Context Guard 2026-08-03
+
+- Recommendation: start a new Codex chat before the next ERP code/data change.
+- Reason: this thread has accumulated production-critical changes across Supabase, Notion mirrors, inventory, BOM, picking, inbound, C-end orders, Notes, Worker routes, Pages deployment, and local skills. Continuing major changes here increases the risk of acting from stale chat assumptions.
+- Next chat first action: read this file, then `ERP_SYSTEM_CONTRACT.md`, `WORKER_API_CONTRACT.md`, `ERP_DATA_FLOW.md`, then the module runbook for the touched workflow before editing.
+- Current source folder: `C:\Users\vicxd\Documents\Codex\2026-05-21\new-chat\lematec-erp`.
+- Production URL: `https://lematec-erp.pages.dev/`.
+- Worker source file: `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
+- Current risk posture: do not deploy or mutate production data until `git status --short` is reviewed and the exact changed workflow is verified against tests and no-side-effect production checks.
+- Important live rule: inventory, BOM, picking, inbound, stock logs, and Notes structured data are intended to be Supabase-primary through the Worker, with Notion as staff-readable mirror/fallback according to `ERP_DATA_FLOW.md`. Direct Notion edits are not automatically trusted as two-way truth unless a verified Notion-to-Supabase sync path exists for that module.
+- C-order numbering reminder: if the SHPTW sequence migration or Worker routes are not verified live, test `/api/corder/number-state` and allocation routes before importing orders.
+- Handoff hygiene: there are many local temp/report files and backups in the worktree. Do not delete or revert anything without first separating generated artifacts from active source changes.
+
+## Current Contract Docs 2026-08-03
+
+- `ERP_SYSTEM_CONTRACT.md` is the current operating contract: source of truth, module ownership, fallback rules, transaction rules, known blockers, validation gates, and optimization queue.
+- `WORKER_API_CONTRACT.md` classifies Worker routes by side effect and production safety. Check it before calling production endpoints.
+- These contract files do not replace `CODEX_HANDOFF.md`; they keep the current state compact while this file remains the timeline.
+
+## Reliability Center v1 2026-08-03
+
+- Health Check now shows `補同步中心 v1`.
+- The panel combines local mirror queues, Notes Supabase shadow retries, stock-log pending retries, and server-side `erp_mirror_jobs` when the summary includes job rows.
+- Actions are split into `全部補同步`, `鏡像補同步`, `記事補同步`, and `異動記錄補同步`.
+- The all-retry action only calls existing retry/flush helpers. It does not call high-risk transaction routes such as C-order number reservation, inventory adjustment, or inbound action routes.
+- Regression coverage was refreshed in `tests/test_reliability_center.py`.
+- Validation passed:
+  `python -m pytest tests/test_reliability_center.py`,
+  `python -m unittest tests.test_verify_erp_static tests.test_notes_shadow_contract tests.test_notes_attachment_contract`,
+  `python .\scripts\verify_erp_static.py`,
+  `node --check cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`, and
+  `git diff --check -- index.html tests/test_reliability_center.py`.
+- No deployment was performed.
+
+## C-order Sequence Deploy Gate 2026-08-03
+
+- `index.html` now blocks new C-end order creation and Shopee Excel import when the shared SHPTW sequence state is unavailable.
+- The C-order screen shows `C端共用單號尚未連線` with a `重新檢查` action until `/api/corder/number-state` succeeds.
+- `submitCorder()` checks `ensureCorderSequenceReady()` before closing the modal or reserving a number for a new order.
+- `importShopeeExcel()` checks `ensureCorderSequenceReady()` before batch reservation.
+- `reserveCorderNumbers()` also guards itself before calling the sequence-mutating `/api/corder/number-reserve` route.
+- Deployment checklist: `CORDER_SEQUENCE_DEPLOY_CHECKLIST.md`.
+- Manual GitHub Actions migration entry: `.github/workflows/supabase-corder-sequence.yml` with default dry-run and explicit `apply=true` for the real Supabase write.
+- Regression coverage was refreshed in `tests/test_corder_number_sequence.py`.
+- Supabase migration was applied from this machine on 2026-08-04 using the existing Supabase pooler connection. Verification returned `SHPTW` with `next_number=16352`.
+- GitHub repo secret `SUPABASE_DB_URL` was added on 2026-08-04 so the migration workflow can be reused later.
+- Next live gate: push this commit, let Worker/Pages Actions deploy, then verify production `/api/corder/number-state` returns HTTP 200 before enabling real C-order creation/import.
+
+## Live Verification Snapshot 2026-08-03
+
+- Local C-order sequence work is present but not verified as deployed.
+- Current dirty C-order files to preserve together: `index.html`, `sw.js`, `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`, `supabase/migrations/20260731_015_corder_number_sequence.sql`, and `tests/test_corder_number_sequence.py`.
+- Local validation passed on 2026-08-03:
+  `python -m unittest tests.test_corder_number_sequence tests.test_corder_primary_contract tests.test_corder_excel_import_contract`,
+  `python .\scripts\verify_erp_static.py`, and
+  `node --check cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
+- Production Pages check on 2026-08-03 showed `https://lematec-erp.pages.dev/?codex_check=20260803` returned HTTP 200 but did not contain `/api/corder/number-state`; the new frontend is not live there yet.
+- Production Worker check on 2026-08-03 showed `https://green-wave-c22f.vic-e93.workers.dev/api/corder/number-state?codex_check=20260803` returned HTTP 500 with `{"error":"Unexpected end of JSON input"}`; this looks like the deployed Worker does not yet contain the new C-order route and is falling through to an older JSON body path.
+- This Codex environment has no visible `SUPABASE_DB_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `CLOUDFLARE_API_TOKEN`, or local `supabase`/`wrangler` command. Do not claim the migration or deployment is complete from this environment alone.
+- Safe next action: apply `supabase/migrations/20260731_015_corder_number_sequence.sql` in Supabase first, deploy the Worker route, verify `/api/corder/number-state` returns the expected state, then deploy Pages/service worker `lematec-erp-v34`. Do not run `/api/corder/number-reserve` against production casually because it advances the shared sequence.
+
 ## C-order Primary Database 2026-07-31
 
 - The Notion `C端訂單` database is the only operational destination for new
@@ -8,10 +69,13 @@
   updates shipping-label data there, or shows its shortcut in the C-order UI.
 - Eight rows that were written only to the legacy database on 2026-07-31 were
   restored to `C端訂單` with status `需確認`. Inventory was not deducted again.
-- Cross-device SHPTW number reservation is intentionally deferred until its
-  Supabase sequence table and RPCs are applied and verified. The current local
-  starting-number behavior remains active so imports are not blocked.
-- Service worker cache version for this release: `lematec-erp-v33`.
+- Cross-device SHPTW number reservation is implemented through the Worker and
+  Supabase migration `20260731_015_corder_number_sequence.sql`. The UI no longer
+  stores a manually managed starting number. It displays the centrally reserved
+  next number; manual and Excel creation reserve numbers atomically, and the
+  database allocator calibrates forward against existing Supabase `c_orders`.
+  Apply and verify the migration before deploying the new Pages frontend.
+- Service worker cache version for this release: `lematec-erp-v34`.
 
 ## Notes Reliability And C-order Status 2026-07-30
 

@@ -116,6 +116,15 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/reliability/summary') {
       return erpReliabilitySummary(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/corder/number-state') {
+      return erpCorderNumberState(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/corder/number-reserve') {
+      return erpCorderNumberReserve(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/corder/number-set') {
+      return erpCorderNumberSet(request, env, cors);
+    }
 
     const ct = request.headers.get('Content-Type') || '';
 
@@ -3580,6 +3589,71 @@ async function supabaseSingle(env, path, allowMissing = false) {
   const row = Array.isArray(data) ? data[0] : data;
   if (!row && !allowMissing) throw new Error(`Supabase row not found: ${path}`);
   return row || null;
+}
+
+async function erpCorderNumberState(request, env, cors) {
+  try {
+    const context = await getSupabaseInventoryContext(env);
+    const data = await supabaseFetch(env, '/rest/v1/rpc/get_corder_number_state', {
+      method: 'POST',
+      body: JSON.stringify({ p_organization_id: context.organization.id }),
+    });
+    const state = Array.isArray(data) ? data[0] : data;
+    if (!state) throw new Error('C端起始單號尚未設定');
+    return respOK(cors, state);
+  } catch (error) {
+    return resp500(cors, error?.message || String(error));
+  }
+}
+
+async function erpCorderNumberReserve(request, env, cors) {
+  try {
+    const payload = await request.json();
+    const count = Number(payload?.count);
+    if (!Number.isInteger(count) || count < 1 || count > 5000) {
+      return resp400(cors, '保留筆數必須是 1 到 5000 的整數');
+    }
+    const context = await getSupabaseInventoryContext(env);
+    const data = await supabaseFetch(env, '/rest/v1/rpc/reserve_corder_numbers', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_organization_id: context.organization.id,
+        p_count: count,
+      }),
+    });
+    const range = Array.isArray(data) ? data[0] : data;
+    if (!range) throw new Error('無法保留 C端訂單號碼');
+    return respOK(cors, range);
+  } catch (error) {
+    return resp500(cors, error?.message || String(error));
+  }
+}
+
+async function erpCorderNumberSet(request, env, cors) {
+  try {
+    const payload = await request.json();
+    const nextNumber = Number(payload?.next_number);
+    const role = cleanText(payload?.role || '');
+    if (!['vic', 'manager', 'sales'].includes(role)) {
+      return resp400(cors, '只有 Vic、廠長或業務可調整下一張單號');
+    }
+    if (!Number.isInteger(nextNumber) || nextNumber < 16279 || nextNumber > 999999) {
+      return resp400(cors, '下一張單號必須是 16279 到 999999 的整數');
+    }
+    const context = await getSupabaseInventoryContext(env);
+    const data = await supabaseFetch(env, '/rest/v1/rpc/set_corder_next_number', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_organization_id: context.organization.id,
+        p_next_number: nextNumber,
+      }),
+    });
+    const state = Array.isArray(data) ? data[0] : data;
+    if (!state) throw new Error('無法更新 C端起始單號');
+    return respOK(cors, state);
+  } catch (error) {
+    return resp500(cors, error?.message || String(error));
+  }
 }
 
 async function getSupabaseInventoryContext(env) {
