@@ -123,7 +123,8 @@ Do not call a change complete until all applicable gates pass:
 1. Keep `ERP_CURRENT_STATE.md` as the current-state entry point; keep handoff as history.
 2. Keep `WORKER_API_CONTRACT.md` current whenever Worker routes change.
 3. Keep ERP Health v2 current as public read-only, authorized ERP, and manual follow-up checks evolve.
-4. Extend `PRE_FLIGHT_CENTER_V1` from frontend previews toward Worker dry-run endpoints where no-side-effect server validation is needed.
+4. `PRE_FLIGHT_CENTER_V1` now supports action strips that explain confirmation boundaries; extend it toward Worker dry-run endpoints where no-side-effect server validation is needed.
 5. Keep C-order import preview before `/api/corder/number-reserve`; confirmation is the first sequence-mutating step.
-6. Keep BOM maintenance preview before `/api/inventory/bom/upsert`; confirmation is the first Supabase write step.
-7. Continue mobile visual QA for orders, Notes, C-order, and inventory adjustment after each major UI change.
+6. Keep BOM maintenance v2 preview before `/api/inventory/bom/upsert`; confirmation is the first Supabase write step and Notion remains a mirror.
+7. Continue mobile visual QA for orders, Notes, C-order, and inventory adjustment after each major UI change; quick-entry cards are a UI shortcut, not a data source change.
+8. Keep ERP Health repair center split into safe auto-repair, one-click repair candidates, and manual follow-up items.

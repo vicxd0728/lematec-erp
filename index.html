@@ -700,6 +700,9 @@ body.modal-open{overflow:hidden;}
 .preflight-row.is-error{border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.07);}
 .preflight-row.is-warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.07);}
 .preflight-row code{font-family:var(--f-mono);color:var(--cyan2);font-size:.72rem;white-space:nowrap;}
+.preflight-action-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;padding:10px 12px;border-top:1px solid var(--border);background:rgba(15,23,42,.18);}
+.preflight-action{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:9px 10px;font-size:.74rem;color:var(--text2);line-height:1.45;}
+.preflight-action b{display:block;color:var(--text);font-size:.78rem;margin-bottom:2px;}
 .preflight-impact{font-family:var(--f-mono);font-weight:800;}
 .preflight-impact.minus{color:var(--red2);}
 .preflight-impact.plus{color:var(--green2);}
@@ -712,6 +715,7 @@ body.modal-open{overflow:hidden;}
   .preflight-head{flex-direction:column;}
   .preflight-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .preflight-row{grid-template-columns:1fr;gap:5px;}
+  .preflight-action-strip{grid-template-columns:1fr;}
   .preflight-list{max-height:38vh;}
   .form-actions{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(15,23,42,0),var(--bg2) 24%);padding-top:12px;}
   .panel-hdr{gap:8px;align-items:flex-start;}
@@ -5406,6 +5410,7 @@ function renderPreflightCenter(report={}){
   const rows=Array.isArray(report.rows)?report.rows:[];
   const sections=Array.isArray(report.sections)?report.sections:[];
   const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  const actions=Array.isArray(report.actions)?report.actions:[];
   const rowHtml=rows.length?rows.map(row=>{
     const rowLevel=row.error?'is-error':row.warn?'is-warn':'';
     const impact=Number(row.impact||0);
@@ -5422,6 +5427,7 @@ function renderPreflightCenter(report={}){
     <h4>${escapeHtml(sec.title||'檢查')}</h4>
     <div style="font-size:.76rem;color:var(--text2);line-height:1.55">${Array.isArray(sec.lines)?sec.lines.map(escapeHtml).join('<br>'):escapeHtml(sec.body||'')}</div>
   </div>`).join('');
+  const actionHtml=actions.length?`<div class="preflight-action-strip">${actions.map(action=>`<div class="preflight-action"><b>${escapeHtml(action.title||'下一步')}</b><div>${escapeHtml(action.detail||'')}</div></div>`).join('')}</div>`:'';
   return `<div class="preflight-center" data-contract="PRE_FLIGHT_CENTER_V1">
     <div class="preflight-head">
       <div><div class="preflight-title">${escapeHtml(report.title||'Preflight Center')}</div><div class="preflight-sub">${escapeHtml(report.subtitle||'寫入前檢查即將影響的資料')}</div></div>
@@ -5430,6 +5436,7 @@ function renderPreflightCenter(report={}){
     <div class="preflight-grid">${kpis.map(k=>`<div class="preflight-kpi"><b>${escapeHtml(k.value)}</b><span>${escapeHtml(k.label)}</span></div>`).join('')}</div>
     ${sectionHtml}
     <div class="preflight-section"><h4>列級影響</h4><div class="preflight-list">${rowHtml}</div></div>
+    ${actionHtml}
   </div>`;
 }
 
@@ -9381,19 +9388,23 @@ function renderHealthAccessMatrix(){
 }
 function renderMobileHighFrequencyAudit(){
   const pages=[
-    {tab:'orders',title:'訂單',checks:['表格可橫滑','領料/出貨 modal actions sticky','長品名不擠壓按鈕']},
-    {tab:'notes',title:'記事',checks:['modal 原生直向捲動','附件欄不撐寬','待辦 chip 單行省略']},
-    {tab:'corders',title:'C-order',checks:['手機卡片版清單','匯入 preflight 可捲動','狀態/操作分行']},
-    {tab:'inventory',title:'庫存調整',checks:['批量預覽可橫滑','提交按鈕 sticky','Preflight Center 單欄顯示']},
+    {tab:'orders',title:'訂單',primary:'查交期 / 領料 / 出貨',checks:['表格可橫滑','領料/出貨 modal actions sticky','長品名不擠壓按鈕']},
+    {tab:'notes',title:'記事',primary:'看待辦 / 回覆 / 附件',checks:['modal 原生直向捲動','附件欄不撐寬','待辦 chip 單行省略']},
+    {tab:'corders',title:'C-order',primary:'查 SHPTW / 匯入 / 出貨',checks:['手機卡片版清單','匯入 preflight 可捲動','狀態/操作分行']},
+    {tab:'inventory',title:'庫存調整',primary:'查料號 / 批量調整 / 預覽',checks:['批量預覽可橫滑','提交按鈕 sticky','Preflight Center 單欄顯示']},
   ];
-  return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1">
-    <div class="panel-hdr"><span class="panel-title">手機版總檢 <span class="badge">4 頁</span></span>${healthBadge('ok','V1')}</div>
+  return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1" data-version="MOBILE_HIGH_FREQUENCY_AUDIT_V2">
+    <div class="panel-hdr"><span class="panel-title">手機高頻操作 <span class="badge">4 頁</span></span>${healthBadge('ok','V2')}</div>
     <div style="padding:12px">
       <div class="mobile-audit-grid">
         ${pages.map(page=>`<div class="mobile-audit-item">
           <b>${escapeHtml(page.title)}</b>
+          <div style="color:var(--cyan2);font-weight:800;margin-bottom:5px">${escapeHtml(page.primary)}</div>
           ${page.checks.map(x=>`<div style="color:var(--text3)">✓ ${escapeHtml(x)}</div>`).join('')}
-          <button class="btn btn-ghost btn-xs" style="margin-top:8px" onclick="switchTab('${page.tab}')">開啟</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-blue btn-xs" onclick="switchTab('${page.tab}')">開啟</button>
+            <button class="btn btn-ghost btn-xs" onclick="refreshAll(true)">同步</button>
+          </div>
         </div>`).join('')}
       </div>
     </div>
@@ -9620,6 +9631,35 @@ function renderReliabilityCenter(){
       ${renderReliabilityQueueTable(rows)}
       ${report.running?'<div class="loading-row"><div class="spin"></div>讀取可靠性狀態...</div>':''}
       ${report.error?`<div style="margin-top:10px;color:var(--red2);font-size:.78rem">${escapeHtml(report.error)}</div>`:''}
+    </div>
+  </div>`;
+}
+function renderHealthRepairCenter(h){
+  const local=localReliabilityQueueCounts();
+  const notesPending=readNotesShadowRetryQueue().length;
+  const stockPending=readPendingStockLogs().length;
+  const mirrorPending=local.total+notesPending+stockPending;
+  const duplicateGroups=(h?.dupCodes||[]).length;
+  const orderStatusFix=(h?.orderMisusedQcStatus||[]).length;
+  const manualNeeded=(h?.negStock||[]).length+(h?.badBom||[]).length+(h?.badOrders||[]).length+(h?.sWithoutBom||[]).length;
+  const level=manualNeeded?'warn':mirrorPending||duplicateGroups||orderStatusFix?'warn':'ok';
+  return `<div class="panel" style="margin-bottom:14px" data-contract="ERP_HEALTH_REPAIR_CENTER_V1">
+    <div class="panel-hdr">
+      <span class="panel-title">維修入口 <span class="badge">${mirrorPending+duplicateGroups+orderStatusFix+manualNeeded}</span></span>
+      ${healthBadge(level,level==='ok'?'OK':'ACTION')}
+    </div>
+    <div style="padding:12px">
+      <div class="preflight-action-strip" style="border:1px solid var(--border);border-radius:8px">
+        <div class="preflight-action"><b>可自動補同步</b><div>鏡像、記事影子、庫存異動記錄待補：${mirrorPending} 筆。這類不會重複庫存交易。</div></div>
+        <div class="preflight-action"><b>可一鍵修正</b><div>訂單狀態誤用：${orderStatusFix} 筆；重複料號群組：${duplicateGroups} 組，仍需依清單確認。</div></div>
+        <div class="preflight-action"><b>需人工判斷</b><div>負數庫存、BOM 異常、訂單關聯、S- 無 BOM：${manualNeeded} 項。</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-blue btn-sm" onclick="retryAllReliabilityWork()">補同步全部安全佇列</button>
+        <button class="btn btn-ghost btn-sm" onclick="runHealthCheck(true)">重新總檢</button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步主資料</button>
+        ${orderStatusFix?`<button class="btn btn-green btn-sm" onclick="repairOrderMisusedQcStatus()">修正訂單狀態</button>`:''}
+      </div>
     </div>
   </div>`;
 }
@@ -9973,6 +10013,7 @@ function renderHealthCheck(){
   </div>
   ${renderHealthAccessMatrix()}
   ${renderMobileHighFrequencyAudit()}
+  ${renderHealthRepairCenter(h)}
   ${renderReliabilityCenter()}
   ${renderNotesShadowHealth()}
   ${renderSupabaseUsageHealth()}
@@ -15167,7 +15208,12 @@ function buildBomImportPreflight(parsed){
   const pairs=new Set();
   const missingMaterials=new Map();
   const rows=[];
-  let duplicatePairs=0,selfRefs=0,directComponentGuard=0;
+  const currentPairs=new Set((boms||[]).map(b=>{
+    const parent=mats.find(m=>m.id===b.parentId);
+    const child=mats.find(m=>m.id===b.childId);
+    return `${normalizeSku(parent?.code||parent?.name||'')}|${normalizeSku(child?.code||child?.name||'')}`;
+  }));
+  let duplicatePairs=0,selfRefs=0,directComponentGuard=0,existingPairUpdates=0,newPairCreates=0;
   (parsed.rows||[]).forEach(row=>{
     const parentSku=normalizeSku(row.parent);
     const parentMat=findMatBySku(parentSku);
@@ -15186,6 +15232,9 @@ function buildBomImportPreflight(parsed){
         warn='已視為直接子件，不會展開多層 BOM';
         directComponentGuard++;
       }
+      const existsNow=currentPairs.has(pair);
+      if(existsNow) existingPairUpdates++;
+      else newPairCreates++;
       pairs.add(pair);
       rows.push({
         line:row.line,
@@ -15196,18 +15245,25 @@ function buildBomImportPreflight(parsed){
         warn,
         parentExists:!!parentMat,
         childExists:!!childMat,
+        existsNow,
       });
     });
   });
+  const missingParents=[...missingMaterials.values()].filter(m=>m.role==='母件').length;
+  const missingChildren=[...missingMaterials.values()].filter(m=>m.role==='子件').length;
   return {
-    title:'Preflight Center - BOM maintenance',
+    title:'Preflight Center - BOM maintenance v2',
     subtitle:'Excel 簡化格式、缺料號預建檔、直接子件規則防呆；確認前不寫 Supabase 或 Notion。',
     parsed,
     rows,
     missingMaterials:[...missingMaterials.values()],
+    missingParents,
+    missingChildren,
     duplicatePairs,
     selfRefs,
     directComponentGuard,
+    existingPairUpdates,
+    newPairCreates,
     parseErrors:parsed.errors||[],
     errors:rows.filter(r=>r.error).length,
     warnings:rows.filter(r=>r.warn).length+(parsed.errors||[]).length,
@@ -15225,17 +15281,24 @@ function openBomImportPreflightModal(report){
         {label:'母件',value:report.parsed.rows.length},
         {label:'BOM 關聯',value:report.rows.length},
         {label:'缺料號預建檔',value:report.missingMaterials.length},
+        {label:'新增/更新關聯',value:`${report.newPairCreates}/${report.existingPairUpdates}`},
         {label:'阻擋/提醒',value:`${report.errors}/${report.warnings}`},
       ],
       sections:[
-        {title:'缺料號預建檔',lines:report.missingMaterials.length?report.missingMaterials.slice(0,18).map(m=>`${m.sku} (${m.type}, ${m.role})`):['沒有缺料號']},
+        {title:'缺料號預建檔',lines:report.missingMaterials.length?[`缺母件 ${report.missingParents||0} 個，缺子件 ${report.missingChildren||0} 個`,...report.missingMaterials.slice(0,18).map(m=>`${m.sku} (${m.type}, ${m.role})`)]:['沒有缺料號']},
+        {title:'BOM 差異摘要',lines:[`將新增關聯 ${report.newPairCreates||0} 筆`,`將更新既有關聯 ${report.existingPairUpdates||0} 筆`,`目前 BOM 主資料 ${boms.length} 筆，確認前不改資料。`]},
         {title:'直接子件規則防呆',lines:[`自我關聯 ${report.selfRefs} 筆`,`重複母子件 ${report.duplicatePairs} 筆`,`直接子件提醒 ${report.directComponentGuard} 筆`,`半成品作為子件時只扣半成品本身，不展開下層。`]},
         ...(report.parseErrors.length?[{title:'解析提醒',lines:report.parseErrors.slice(0,20)}]:[]),
+      ],
+      actions:[
+        {title:'確認前',detail:'只做前端預覽，不寫 Supabase、不建立 Notion 頁面。'},
+        {title:'確認後',detail:'先寫 Supabase BOM 主資料，成功後才補 Notion 鏡像。'},
+        {title:'缺料號',detail:'確認後才依預覽清單預建檔，預設庫存 0。'},
       ],
       rows:report.rows.map(row=>({
         lineLabel:`第 ${row.line} 行`,
         title:`${row.parent} -> ${row.child}`,
-        detail:row.error||row.warn||`用量 ${row.qty}；母件${row.parentExists?'已存在':'將建立'}，子件${row.childExists?'已存在':'將建立'}`,
+        detail:row.error||row.warn||`用量 ${row.qty}；${row.existsNow?'更新既有關聯':'新增關聯'}；母件${row.parentExists?'已存在':'將建立'}，子件${row.childExists?'已存在':'將建立'}`,
         error:row.error,
         warn:row.warn,
       })),
@@ -19979,6 +20042,11 @@ function openCorderImportPreflightModal(report){
           ...duplicateLines.slice(0,8)
         ]},
         {title:'庫存影響',lines:stockLines.length?stockLines.slice(0,16):['沒有可扣庫存品項']},
+      ],
+      actions:[
+        {title:'確認前',detail:'只做預覽，不保留 SHPTW 序號、不寫 Notion、不扣庫存。'},
+        {title:'確認後',detail:'先保留新內部單號，再逐列建立 C-order 並扣 S- 成品庫存。'},
+        {title:'重複資料',detail:'既有同品項會略過；相同蝦皮單號與買家沿用原內部單號。'},
       ],
       rows:rows.map(row=>({
         lineLabel:`第 ${row.sourceRow} 行`,

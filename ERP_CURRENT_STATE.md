@@ -50,12 +50,13 @@ Last verified on 2026-08-04.
 ## Immediate Optimization Queue
 
 Done: ERP Health v2 separates public read-only checks, authorized checks, and manual follow-up items in production.
-In progress locally: Preflight Center v1 covers batch inventory adjustment, C-order import preview, BOM import preview/template, picking deduction preview, inbound approval preview, and the mobile high-frequency audit panel. C-order import UX v2 adds clearer duplicate diagnostics, sequence-range preview, stock-impact summaries, invalid-quantity blocking, missing-buyer blocking, and first-error row targeting before any SHPTW reservation.
+Done locally in the current optimization batch: Preflight Center v1 / Preflight Center formalization, C-order import preview / C-order import UX v2, BOM maintenance v2, Mobile audit / Mobile high-frequency v2, and ERP Health repair center. These are frontend-safe workflow/UI improvements; Worker dry-run endpoints for deeper server-side preflight remain a later architecture step.
 
 1. Preflight Center: add consistent preflight summaries before C-order import, picking completion, inbound approval, BOM import, and batch inventory adjustment.
 2. C-order import UX: preview rows, duplicate groups, reserved number range, stock impact, and row-level errors before commit.
-3. BOM maintenance: simplified Excel format, missing-material pre-create review, direct-component rule guard, and self/duplicate checks.
-4. Mobile audit: orders, Notes, C-order, and inventory adjustment high-frequency screens.
+3. BOM maintenance v2: simplified Excel format, missing-material pre-create review, direct-component rule guard, BOM diff summary, and self/duplicate checks.
+4. Mobile high-frequency v2: orders, Notes, C-order, and inventory adjustment quick-entry cards.
+5. ERP Health repair center: separate safe auto-repair queues, one-click repair candidates, and manual follow-up items.
 
 ## Known Cleanup
 
