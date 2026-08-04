@@ -37,7 +37,7 @@ Last verified on 2026-08-04.
 
 - Supabase-primary: inventory master, balances, BOM, stock logs, picking, inbound/QC, Notes structured read model.
 - Notion-primary: B2B orders, customers, schedule, leave, C-end/Shopee order pages, Notes attachments/detail blocks.
-- C-order SHPTW sequence: Supabase RPC through Worker. Migration is applied and production route is verified.
+- C-order SHPTW sequence: Supabase RPC through Worker. Migration is applied and production route is verified. Manual correction is allowed only through the shared Worker `/api/corder/number-set` route, moves the shared next number forward, and must not be implemented as per-device localStorage state.
 - Notion mirrors are staff-readable mirrors for Supabase-primary modules. Mirror failure creates retry work; it must not roll back accepted Supabase transactions.
 
 ## Deployment Capability

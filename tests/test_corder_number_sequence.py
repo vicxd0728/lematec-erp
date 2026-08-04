@@ -65,14 +65,27 @@ class CorderNumberSequenceTests(unittest.TestCase):
         )
 
     def test_sequence_unavailable_ui_disables_order_creation(self):
-        self.assertIn("C端共用單號尚未連線", INDEX)
-        self.assertIn("new建與 Excel 匯入".replace("new", "新"), INDEX)
-        self.assertIn("重新檢查", INDEX)
+        self.assertIn("sequenceBlockedMessage", INDEX)
         self.assertIn("title=\"${sequenceBlockedMessage}\"", INDEX)
+        self.assertIn("fetchCorderSequenceState().then(()=>renderTab('corders'))", INDEX)
 
-    def test_start_number_is_not_manually_saved_in_ui(self):
+    def test_manual_sequence_setting_uses_shared_worker_state(self):
         self.assertNotIn("saveCorderStartSerial()", INDEX)
-        self.assertIn("系統依 Supabase 現有訂單自動接續並保留號碼", INDEX)
+        self.assertIn("openCorderSequenceAdmin", INDEX)
+        self.assertIn("saveCorderSequenceAdmin", INDEX)
+        self.assertIn("設定共享下一號", INDEX)
+        self.assertIn("/api/corder/number-set", INDEX)
+        save_body = function_body("saveCorderSequenceAdmin")
+        self.assertIn("setCorderNextSerial(n)", save_body)
+        self.assertNotIn("localStorage", save_body)
+        self.assertIn("校正只能往前推進", save_body)
+
+    def test_next_number_prefers_shared_state_over_local_cache(self):
+        body = function_body("nextCorderInternalNo")
+        self.assertLess(
+            body.index("CORDER_SEQUENCE_STATE?.next_number"),
+            body.index("getCorderStartSerial"),
+        )
 
     def test_worker_keeps_supabase_credentials_server_side(self):
         self.assertIn("reserve_corder_numbers", WORKER)

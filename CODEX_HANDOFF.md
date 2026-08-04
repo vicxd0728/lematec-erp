@@ -10,7 +10,7 @@
 - Worker source file: `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
 - Current risk posture: do not deploy or mutate production data until `git status --short` is reviewed and the exact changed workflow is verified against tests and no-side-effect production checks.
 - Important live rule: inventory, BOM, picking, inbound, stock logs, and Notes structured data are intended to be Supabase-primary through the Worker, with Notion as staff-readable mirror/fallback according to `ERP_DATA_FLOW.md`. Direct Notion edits are not automatically trusted as two-way truth unless a verified Notion-to-Supabase sync path exists for that module.
-- C-order numbering reminder: SHPTW sequence migration and Worker route are verified live as of 2026-08-04. Use `GET /api/corder/number-state` for no-side-effect checks; do not casually call allocation routes because they advance sequence state.
+- C-order numbering reminder: SHPTW sequence migration and Worker route are verified live as of 2026-08-04. Use `GET /api/corder/number-state` for no-side-effect checks; do not casually call allocation routes because they advance sequence state. Manual next-number correction must use the shared Worker/Supabase path and move forward only, not per-device localStorage.
 - Handoff hygiene: there are many local temp/report files and backups in the worktree. Do not delete or revert anything without first separating generated artifacts from active source changes.
 
 ## Current Contract Docs 2026-08-03
@@ -48,6 +48,7 @@
 - Supabase migration was applied from this machine on 2026-08-04 using the existing Supabase pooler connection. Verification returned `SHPTW` with `next_number=16352`.
 - GitHub repo secret `SUPABASE_DB_URL` was added on 2026-08-04 so the migration workflow can be reused later.
 - Live gate completed: commit `4d9e9c9` deployed through Worker/Pages Actions; production `/api/corder/number-state` returns HTTP 200 with `SHPTW` and `next_number=16352`.
+- Follow-up 2026-08-04: the C-order UI now preserves a special-case "set shared next number" action for Vic/manager/sales. It calls `/api/corder/number-set`, only moves the shared next number forward, and localStorage remains a cache of Worker state rather than the source of truth.
 
 ## ERP Health v2 / Optimization Queue 2026-08-04
 

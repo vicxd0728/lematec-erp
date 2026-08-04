@@ -15556,6 +15556,65 @@ async function setCorderNextSerial(nextNumber,{notify=true}={}){
   if(notify) showToast(`✅ 共用下一張單號已更新：${formatCorderNo(data.next_number)}`,'ok');
   return data;
 }
+async function openCorderSequenceAdmin(){
+  if(isViewOnly()||!(isAdminRole()||ROLE==='sales')){
+    showToast('此功能限 Vic、管理者或業務設定','warn');
+    return;
+  }
+  try{await ensureCorderSequenceReady({silent:false});}
+  catch(e){return;}
+  const current=Number(CORDER_SEQUENCE_STATE?.next_number||getCorderStartSerial());
+  document.getElementById('modalInner').innerHTML=`<h3>設定 C端共享下一張單號</h3>
+    <div class="info-box info-warn" style="margin-bottom:12px">
+      此設定會寫入 Worker / Supabase 共用序列，所有電腦重新檢查後都會同步。只能把下一張 SHPTW 單號往前推進，不能倒退，也不會預先保留號碼。
+    </div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr">
+      <div>
+        <label class="field-label">目前共享下一號</label>
+        <div class="inp" style="display:flex;align-items:center;font-family:var(--f-mono);color:var(--amber);font-weight:800">${formatCorderNo(current)}</div>
+      </div>
+      <div>
+        <label class="field-label">新的下一號</label>
+        <input class="inp" id="corderSequenceNextInput" inputmode="numeric" value="${current}" oninput="previewCorderSequenceAdmin(this.value)" placeholder="例如 ${current+1}">
+        <div class="hint" id="corderSequenceAdminPreview" style="margin-top:6px">將設定為 ${formatCorderNo(current)}</div>
+      </div>
+    </div>
+    <div class="hint">特殊狀況例如人工補單、外部系統已用號、或需要跳過一段號碼時才使用。一般新增與 Excel 匯入仍由系統自動保留連續號碼。</div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" onclick="saveCorderSequenceAdmin()">更新共享下一號</button>
+    </div>`;
+  openSharedModal();
+}
+function previewCorderSequenceAdmin(v){
+  const raw=normalizeCorderSerialInput(v);
+  const inp=document.getElementById('corderSequenceNextInput');
+  const out=document.getElementById('corderSequenceAdminPreview');
+  if(inp&&inp.value!==raw) inp.value=raw;
+  if(out) out.textContent=raw?`將設定為 ${formatCorderNo(raw)}`:'請輸入數字或 SHPTW 單號';
+}
+async function saveCorderSequenceAdmin(){
+  const raw=normalizeCorderSerialInput(document.getElementById('corderSequenceNextInput')?.value||'');
+  const n=parseInt(raw,10);
+  const current=Number(CORDER_SEQUENCE_STATE?.next_number||0);
+  if(!n||n<CORDER_START_NO){
+    showToast(`請輸入不小於 ${formatCorderNo(CORDER_START_NO)} 的單號`,'warn');
+    return;
+  }
+  if(current&&n<=current){
+    showToast(`共享下一號目前是 ${formatCorderNo(current)}；校正只能往前推進`,'warn',8000);
+    return;
+  }
+  if(!confirm(`確認將所有電腦的 C端共享下一張單號更新為 ${formatCorderNo(n)}？`)) return;
+  try{
+    await setCorderNextSerial(n);
+    await fetchCorderSequenceState({silent:true}).catch(()=>{});
+    closeModal();
+    if(CURRENT_TAB==='corders') renderTab('corders');
+  }catch(error){
+    showToast('❌ 更新 C端共享下一號失敗：'+error.message,'err',9000);
+  }
+}
 function previewCorderStartSerial(v){
   const inp=document.getElementById('corderStartSerial');
   const out=document.getElementById('corderStartPreview');
@@ -15566,7 +15625,7 @@ function previewCorderStartSerial(v){
 function nextCorderInternalNo(usedNos=[]){
   const all=[...(usedNos||[])];
   const max=all.reduce((m,no)=>Math.max(m,corderSerial(no)),0);
-  const seed=getCorderStartSerial();
+  const seed=Number(CORDER_SEQUENCE_STATE?.next_number||0)||getCorderStartSerial();
   return formatCorderNo(Math.max(seed,max?max+1:seed));
 }
 function parseMoneyNumber(v){
@@ -17260,6 +17319,8 @@ function renderCorders(){
       <span style="font-size:.8125rem;color:var(--text2);font-weight:700">下一張訂單號</span>
       <b id="corderStartPreview" style="color:var(--amber);font-family:var(--f-mono);font-size:1rem">${nextNo}</b>
       <span style="font-size:.8125rem;color:var(--text3)">系統依 Supabase 現有訂單自動接續並保留號碼；蝦皮單號與買家帳號皆相同，才沿用同一內部單號。</span>
+      <button class="btn btn-ghost btn-xs" onclick="fetchCorderSequenceState().then(()=>renderTab('corders')).catch(()=>{})">重新檢查</button>
+      ${(isAdminRole()||ROLE==='sales')?`<button class="btn btn-yellow btn-xs" onclick="openCorderSequenceAdmin()">設定共享下一號</button>`:''}
     </div>`:''}
     <div class="corder-toolbar">
       <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}"

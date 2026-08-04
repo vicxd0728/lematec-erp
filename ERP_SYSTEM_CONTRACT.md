@@ -24,7 +24,7 @@ Use `ERP_CURRENT_STATE.md` first for live status. This file is the operating con
 | Notes structured data | Supabase | ERP -> Worker -> Supabase | ERP -> `POST /api/notes/write` -> Supabase, then Notion mirror | Notion detail blocks and attachments remain formal attachment source | Notion manual edits must not overwrite newer Supabase Notes automatically. |
 | Notes attachments | Notion | Note detail page / Notion | Worker Notion file upload and append blocks | Supabase stores structured read model only | Attachments over 20 MB are completed manually from the Notion page. |
 | C-end / Shopee orders | Notion C-order database | ERP -> Notion | ERP -> Notion C-order page plus inventory transaction where applicable | Legacy C-order database is archive only | Do not write new C-orders to the legacy archive. |
-| C-order SHPTW sequence | Supabase sequence | ERP -> Worker -> Supabase RPC | Worker reserve/set RPC | No Notion fallback | `GET /api/corder/number-state` is safe; reserve/set routes mutate sequence state. |
+| C-order SHPTW sequence | Supabase sequence | ERP -> Worker -> Supabase RPC | Worker reserve/set RPC | No Notion fallback | `GET /api/corder/number-state` is safe; reserve/set routes mutate sequence state. Manual correction must use `/api/corder/number-set`, move forward only, and sync across devices. |
 | B2B orders, customers, leave, schedule | Notion | ERP -> Notion | ERP -> Notion | Notion is primary | Keep Notion page IDs as stable cross-module references. |
 | Video library | Supabase preferred | ERP -> Supabase or bundled backup | Sync tooling / configured source | Bundled/external backup list | Do not block ERP if Supabase video library is temporarily unavailable. |
 
@@ -62,6 +62,7 @@ No active C-order SHPTW deployment blocker remains as of 2026-08-04.
 - Worker route `GET /api/corder/number-state` is deployed and verified.
 - Production state: `SHPTW`, `next_number=16352`.
 - Do not run production `/api/corder/number-reserve` casually; it advances the shared sequence.
+- If a special case requires changing the next SHPTW number, use the ERP shared sequence setting or Worker `/api/corder/number-set`; never use a browser-local start value as the source of truth.
 
 Current improvement blockers:
 
