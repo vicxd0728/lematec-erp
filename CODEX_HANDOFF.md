@@ -56,6 +56,7 @@
 - ERP Health v2 separates public read-only checks, authorized ERP checks, and manual follow-up items.
 - Public health endpoint deployed through Worker route `GET /api/health/public`; production returned HTTP 200, `erp-health-v2`, and C-order `SHPTW next_number=16352` on 2026-08-04.
 - Preflight/C-order/BOM/mobile v1 is the active local batch after Health v2. It adds shared `PRE_FLIGHT_CENTER_V1`, C-order Excel preview before sequence reservation, BOM import preview before Supabase write, a simplified BOM template, picking deduction preview, inbound approval preview, and a Health mobile audit panel for orders, Notes, C-order, and inventory adjustment.
+- C-order import UX v2 follow-up: the import preview now marks all duplicate Excel rows, separates existing-order rows from rows that will be skipped, blocks missing buyer accounts and non-positive quantities, summarizes per-SKU stock impact, and provides first-error row targeting. Confirmation remains the first `/api/corder/number-reserve` call.
 - Optimization order:
   1. Health v2 and current-state cleanup.
   2. Preflight Center for high-risk imports, deductions, approvals, and BOM writes.

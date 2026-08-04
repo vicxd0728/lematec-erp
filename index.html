@@ -681,6 +681,9 @@ body.modal-open{overflow:hidden;}
 .inventory-batch-preview tr.batch-error td{background:rgba(239,68,68,.06);}
 .inventory-batch-preview .batch-delta-plus{color:var(--green2);font-weight:700;}
 .inventory-batch-preview .batch-delta-minus{color:var(--red2);font-weight:700;}
+.preflight-detail-table tr.batch-error td{background:rgba(239,68,68,.08);}
+.preflight-detail-table tr.batch-warn td{background:rgba(245,158,11,.07);}
+.preflight-detail-table tr:target td{outline:2px solid var(--cyan2);outline-offset:-2px;}
 .preflight-center{border:1px solid var(--border2);border-radius:8px;background:var(--bg3);overflow:hidden;margin:12px 0;}
 .preflight-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06);}
 .preflight-title{font-weight:800;color:var(--text);font-size:.92rem;}
@@ -19892,18 +19895,28 @@ function buildCorderImportPreflight(incoming){
       newOrderKeys.push(orderKey);
     }
     const mat=sku?findMatBySku(sku):null;
-    const qty=parseInt(item.qty)||1;
+    const parsedQty=parseInt(item.qty);
+    const qty=Number.isFinite(parsedQty)?parsedQty:0;
     const usedBefore=stockUse.get(mat?.id||sku)||0;
     const before=Number(mat?.stock)||0;
     const after=mat?before-usedBefore-qty:null;
-    if(mat) stockUse.set(mat.id,usedBefore+qty);
+    if(mat&&qty>0) stockUse.set(mat.id,usedBefore+qty);
     let error='',warn='';
     if(!sku) error='商品選項貨號空白';
+    else if(!item.buyer) error='買家帳號空白，無法判斷是否沿用同一內部單號';
+    else if(!Number.isFinite(qty)||qty<=0) error='數量需大於 0';
     else if(!mat) error='庫存主檔找不到料號';
     else if(after<0) error='庫存不足，確認後會扣成負數';
     if(!error&&existingKeys.has(pairKey)) warn='ERP 已有相同蝦皮訂單/買家/料號，確認時會略過';
-    if(!error&&!warn&&incomingPairs.get(pairKey)>1) warn='同一 Excel 內重複，請確認是否同品項分列';
-    return {...item,orderKey,existingNo,previewNo:existingNo||'',sku,mat,before,after,impact:mat?-qty:0,error,warn};
+    return {...item,orderKey,pairKey,existingNo,previewNo:existingNo||'',sku,mat,before,after,impact:mat?-qty:0,error,warn,duplicateInFile:false};
+  });
+  rows.forEach(row=>{
+    const duplicateCount=incomingPairs.get(row.pairKey)||0;
+    if(duplicateCount>1){
+      row.duplicateInFile=true;
+      row.duplicateCount=duplicateCount;
+      if(!row.error&&!row.warn) row.warn=`同一 Excel 內有 ${duplicateCount} 列相同蝦皮訂單/買家/料號，請確認是否同品項分列`;
+    }
   });
   const start=Number(CORDER_SEQUENCE_STATE?.next_number||0);
   rows.forEach(row=>{
@@ -19913,23 +19926,38 @@ function buildCorderImportPreflight(incoming){
   });
   const errors=rows.filter(r=>r.error).length;
   const warnings=rows.filter(r=>r.warn).length;
+  const existingRows=rows.filter(r=>r.existingNo).length;
+  const skippedRows=rows.filter(r=>!r.error&&existingKeys.has(r.pairKey)).length;
   const sequenceRange=newOrderKeys.length&&start
     ? `${formatCorderNo(start)} - ${formatCorderNo(start+newOrderKeys.length-1)}`
-    : '不需新序號';
-  const duplicateGroups=[...incomingPairs.entries()].filter(([,count])=>count>1).length;
+    : newOrderKeys.length?'待取得共享序列':'不需新序號';
+  const duplicateDetails=[...incomingPairs.entries()]
+    .filter(([,count])=>count>1)
+    .map(([pairKey,count])=>{
+      const hit=rows.find(r=>r.pairKey===pairKey)||{};
+      return {pairKey,count,shopeeNo:hit.shopeeNo||'',buyer:hit.buyer||'',sku:hit.sku||'',lines:rows.filter(r=>r.pairKey===pairKey).map(r=>r.sourceRow)};
+    });
   const stockImpact=[...stockUse.entries()].map(([id,qty])=>{
     const mat=mats.find(m=>m.id===id);
-    return mat?`${mat.code||mat.name} -${qty}`:'';
-  }).filter(Boolean);
+    if(!mat) return null;
+    const before=Number(mat.stock)||0;
+    const after=before-qty;
+    return {id,code:mat.code||mat.name,name:mat.name||'',before,qty,after,short:after<0};
+  }).filter(Boolean).sort((a,b)=>Number(b.short)-Number(a.short)||String(a.code).localeCompare(String(b.code)));
+  const readyRows=rows.filter(r=>!r.error&&!existingKeys.has(r.pairKey)).length;
+  const firstErrorRow=rows.find(r=>r.error)?.sourceRow||0;
   return {
-    title:'Preflight Center - C-order import UX',
+    title:'Preflight Center - C-order import UX v2',
     subtitle:'匯入前預覽、重複判斷、序號區間、庫存影響、錯誤行定位。確認前不會保留 SHPTW 序號。',
-    incoming,rows,newOrderKeys,sequenceRange,duplicateGroups,stockImpact,errors,warnings,
+    incoming,rows,newOrderKeys,sequenceRange,duplicateDetails,stockImpact,errors,warnings,existingRows,skippedRows,readyRows,firstErrorRow,
   };
 }
 function openCorderImportPreflightModal(report){
   window._corderImportPreflight=report;
   const rows=report.rows||[];
+  const stockLines=(report.stockImpact||[]).map(x=>`${x.short?'庫存不足：':''}${x.code} 扣 ${x.qty}，庫存 ${x.before} -> ${x.after}`);
+  const duplicateLines=(report.duplicateDetails||[]).map(x=>`${x.shopeeNo||'無蝦皮單號'} / ${x.buyer||'無買家'} / ${x.sku||'無料號'}：${x.count} 列（Excel 行 ${x.lines.join('、')}）`);
+  const firstErrorAction=report.firstErrorRow?`<button class="btn btn-yellow btn-sm" onclick="location.hash='corder-import-row-${report.firstErrorRow}'">跳到第一個錯誤</button>`:'';
   document.getElementById('modalInner').innerHTML=`<h3>C-order 匯入預覽</h3>
     ${renderPreflightCenter({
       title:report.title,
@@ -19940,31 +19968,39 @@ function openCorderImportPreflightModal(report){
         {label:'Excel 品項',value:rows.length},
         {label:'新內部單號',value:report.newOrderKeys.length},
         {label:'序號區間',value:report.sequenceRange},
+        {label:'可匯入 / 會略過',value:`${report.readyRows}/${report.skippedRows}`},
         {label:'阻擋/提醒',value:`${report.errors}/${report.warnings}`},
       ],
       sections:[
-        {title:'重複判斷',lines:[`同檔重複群組 ${report.duplicateGroups} 組`,`既有訂單會沿用原內部單號，既有同品項確認時略過。`]},
-        {title:'庫存影響',lines:report.stockImpact.length?report.stockImpact.slice(0,16):['沒有可扣庫存品項']},
+        {title:'重複判斷',lines:[
+          `同檔重複群組 ${(report.duplicateDetails||[]).length} 組`,
+          `已存在訂單列 ${report.existingRows||0} 列；相同蝦皮單號與買家會沿用原內部單號。`,
+          `既有同品項 ${report.skippedRows||0} 列確認時會略過，不會重複扣庫。`,
+          ...duplicateLines.slice(0,8)
+        ]},
+        {title:'庫存影響',lines:stockLines.length?stockLines.slice(0,16):['沒有可扣庫存品項']},
       ],
       rows:rows.map(row=>({
         lineLabel:`第 ${row.sourceRow} 行`,
         title:`${row.previewNo} ${row.sku||'(無料號)'}`,
-        detail:row.error||row.warn||`${row.buyer||'未填買家'} / ${row.shipMethod||'未填物流'} / 庫存 ${row.before} -> ${row.after}`,
+        detail:row.error||row.warn||`${row.shopeeNo||'無蝦皮單號'} / ${row.buyer||'未填買家'} / ${row.shipMethod||'未填物流'} / 庫存 ${row.before} -> ${row.after}`,
         error:row.error,
         warn:row.warn,
         impact:row.impact,
       })),
     })}
-    <div class="table-wrap" style="max-height:42vh;overflow:auto"><table>
-      <tr><th>行</th><th>預計單號</th><th>蝦皮單號</th><th>買家</th><th>料號</th><th>數量</th><th>庫存</th><th>狀態</th></tr>
-      ${rows.map(row=>`<tr class="${row.error?'batch-error':''}">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px">${firstErrorAction}</div>
+    <div class="table-wrap preflight-detail-table" style="max-height:42vh;overflow:auto"><table>
+      <tr><th>行</th><th>預計單號</th><th>蝦皮單號</th><th>買家</th><th>料號</th><th>數量</th><th>庫存</th><th>定位</th><th>狀態</th></tr>
+      ${rows.map(row=>`<tr id="corder-import-row-${row.sourceRow}" class="${row.error?'batch-error':row.warn?'batch-warn':''}">
         <td>${row.sourceRow}</td>
         <td style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2)">${escapeHtml(row.previewNo)}</td>
         <td>${escapeHtml(row.shopeeNo||'')}</td>
         <td>${escapeHtml(row.buyer||'')}</td>
         <td style="font-family:var(--f-mono)">${escapeHtml(row.sku||'')}</td>
-        <td>${row.qty||1}</td>
+        <td>${Number.isFinite(Number(row.qty))?row.qty:'-'}</td>
         <td>${row.mat?`${row.before} -> ${row.after}`:'-'}</td>
+        <td><a href="#corder-import-row-${row.sourceRow}" style="color:var(--cyan2)">第 ${row.sourceRow} 行</a></td>
         <td style="color:${row.error?'var(--red2)':row.warn?'var(--amber)':'var(--green2)'}">${escapeHtml(row.error||row.warn||'可匯入')}</td>
       </tr>`).join('')}
     </table></div>
@@ -20147,7 +20183,9 @@ async function importShopeeExcel(input){
       const orderStatus=rowVal(row,['訂單狀態','狀態']);
       if(/不成立/.test(orderStatus)) continue;
       const sku=rowVal(row,['商品選項貨號']);
-      const qty=parseInt(rowVal(row,['數量','商品數量']))||1;
+      const qtyText=rowVal(row,['數量','商品數量']);
+      const parsedQty=qtyText?parseInt(qtyText):1;
+      const qty=Number.isFinite(parsedQty)?parsedQty:0;
       const buyer=rowVal(row,['買家帳號']);
       const shipMethod=mapShip(rowVal(row,['寄送方式','出貨方式']));
       const shipDate=dateVal(rowVal(row,['實際出貨時間','出日']));

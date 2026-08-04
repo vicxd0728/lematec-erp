@@ -50,7 +50,7 @@ Last verified on 2026-08-04.
 ## Immediate Optimization Queue
 
 Done: ERP Health v2 separates public read-only checks, authorized checks, and manual follow-up items in production.
-In progress locally: Preflight Center v1 covers batch inventory adjustment, C-order import preview, BOM import preview/template, picking deduction preview, inbound approval preview, and the mobile high-frequency audit panel.
+In progress locally: Preflight Center v1 covers batch inventory adjustment, C-order import preview, BOM import preview/template, picking deduction preview, inbound approval preview, and the mobile high-frequency audit panel. C-order import UX v2 adds clearer duplicate diagnostics, sequence-range preview, stock-impact summaries, invalid-quantity blocking, missing-buyer blocking, and first-error row targeting before any SHPTW reservation.
 
 1. Preflight Center: add consistent preflight summaries before C-order import, picking completion, inbound approval, BOM import, and batch inventory adjustment.
 2. C-order import UX: preview rows, duplicate groups, reserved number range, stock impact, and row-level errors before commit.
