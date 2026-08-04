@@ -24,7 +24,7 @@ def test_preflight_center_supports_action_strip():
 def test_bom_maintenance_v2_has_diff_and_missing_material_summary():
     build = section("function buildBomImportPreflight", "function openBomImportPreflightModal")
     modal = section("function openBomImportPreflightModal", "async function downloadGeneralBomTemplate")
-    assert "Preflight Center - BOM maintenance v2" in build
+    assert "執行前檢查 - BOM 維護" in build
     assert "currentPairs" in build
     assert "existingPairUpdates" in build
     assert "newPairCreates" in build

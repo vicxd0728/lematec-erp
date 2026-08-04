@@ -284,7 +284,7 @@ html[data-theme="premium"] .kpi-card{
   border-color:rgba(190,242,100,.15);
   box-shadow:0 18px 52px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.04);
 }
-html[data-theme="premium"] .kpi-num{font-size:52px;letter-spacing:-1px;}
+html[data-theme="premium"] .kpi-num{font-size:clamp(34px,2.85vw,52px);letter-spacing:0;}
 html[data-theme="premium"] .notion-bar{
   background:linear-gradient(90deg,rgba(34,211,238,.1),rgba(190,242,100,.045));
   border-color:rgba(103,232,249,.18);
@@ -363,10 +363,55 @@ html[data-theme="premium"] .premium-corder-footer{display:flex;justify-content:s
 html[data-theme="premium"] .premium-page-dots{display:flex;gap:8px;align-items:center;}
 html[data-theme="premium"] .premium-page-dots span{min-width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#cfdbe0;}
 html[data-theme="premium"] .premium-page-dots .active{background:linear-gradient(135deg,#22d3ee,#2f9cf4);color:#071015;font-weight:900;}
+html[data-theme="premium"] .dash-ann-panel{
+  overflow:hidden;border-radius:18px;border:1px solid rgba(103,232,249,.18);
+  background:linear-gradient(135deg,rgba(22,36,46,.92),rgba(9,17,22,.96));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 46px rgba(0,0,0,.24);
+}
+html[data-theme="premium"] .dash-ann-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:15px 18px;border-bottom:1px solid rgba(148,163,184,.16);
+  background:linear-gradient(180deg,rgba(20,34,44,.94),rgba(13,24,31,.82));
+}
+html[data-theme="premium"] .dash-ann-title{font-size:18px;font-weight:900;color:#eef7fb;letter-spacing:.2px;}
+html[data-theme="premium"] .dash-ann-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:14px 16px 16px;}
+html[data-theme="premium"] .dash-ann-group{min-width:0;}
+html[data-theme="premium"] .dash-ann-label{display:flex;align-items:center;gap:7px;margin:0 0 8px;font-size:12px;font-weight:900;color:#8fa1ab;letter-spacing:.08em;}
+html[data-theme="premium"] .dash-ann-card{
+  position:relative;min-height:112px;padding:15px 16px 13px 18px;margin:0;
+  border-radius:14px;border:1px solid rgba(148,163,184,.16);
+  background:rgba(7,16,21,.78);overflow:hidden;
+}
+html[data-theme="premium"] .dash-ann-card::before{
+  content:'';position:absolute;left:0;top:12px;bottom:12px;width:4px;border-radius:999px;background:var(--ann-color,#67e8f9);
+}
+html[data-theme="premium"] .dash-ann-card.is-pinned{--ann-color:#fbbf24;border-color:rgba(251,191,36,.26);background:rgba(26,22,9,.35);}
+html[data-theme="premium"] .dash-ann-card .ann-title{font-size:16px!important;font-weight:900;color:#f8fafc;line-height:1.35;}
+html[data-theme="premium"] .dash-ann-card .ann-body{font-size:13px!important;line-height:1.55;color:#b8c8d0;margin-top:7px!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+html[data-theme="premium"] .dash-ann-card .ann-meta{font-family:var(--f-mono);font-size:12px!important;color:#7f939e;margin-top:10px!important;}
+html[data-theme="premium"] .focus-stat-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+html[data-theme="premium"] .focus-stat{
+  position:relative;min-height:96px;padding:18px 20px 16px 78px;overflow:hidden;
+  border-radius:16px;border:1px solid rgba(103,232,249,.16);
+  background:linear-gradient(135deg,rgba(22,36,46,.96),rgba(9,17,22,.98));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 14px 34px rgba(0,0,0,.2);
+}
+html[data-theme="premium"] .focus-stat::before{
+  content:attr(data-icon);position:absolute;left:18px;top:19px;width:44px;height:44px;border-radius:999px;
+  display:grid;place-items:center;font-size:22px;background:rgba(34,211,238,.12);
+  border:1px solid rgba(34,211,238,.25);
+}
+html[data-theme="premium"] .focus-stat span{font-size:13px;color:#d6e4ea;}
+html[data-theme="premium"] .focus-stat b{font-size:32px;color:#eef7fb;}
+html[data-theme="premium"] .dash-kpi-grid{grid-template-columns:repeat(5,minmax(0,1fr));}
+html[data-theme="premium"] .dash-kpi-grid-5{grid-template-columns:repeat(6,minmax(0,1fr));}
 @media(max-width:1100px){
   html[data-theme="premium"] .corder-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
   html[data-theme="premium"] .corder-toolbar{grid-template-columns:1fr 1fr;}
   html[data-theme="premium"] .corder-sort-group{justify-content:flex-start;grid-column:1/-1;}
+  html[data-theme="premium"] .dash-ann-body{grid-template-columns:1fr;}
+  html[data-theme="premium"] .dash-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  html[data-theme="premium"] .dash-kpi-grid-5{grid-template-columns:repeat(3,minmax(0,1fr));}
 }
 
 /* 🖥 現場看板（投放螢幕：大字、少干擾） */
@@ -1011,6 +1056,51 @@ td{font-size:16px;padding:16px 17px;}
 }
 .dash-status-card strong{display:block;font-family:var(--f-mono);font-size:28px;line-height:1;color:var(--text);margin-bottom:5px;}
 .dash-status-card span{font-size:13px;color:#a9beb5;font-weight:700;}
+.quick-entry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 18px;}
+.quick-entry-card{
+  position:relative;overflow:hidden;text-align:left;cursor:pointer;
+  min-height:116px;padding:16px 17px;border-radius:18px;
+  border:1px solid rgba(170,194,180,.14);
+  background:linear-gradient(145deg,rgba(15,28,35,.9),rgba(7,13,18,.92));
+  color:var(--text);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+  transition:transform .16s,border-color .16s,background .16s;
+}
+.quick-entry-card::before{
+  content:'';position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:999px;
+  background:var(--entry-color,var(--cyan));
+}
+.quick-entry-card:hover{transform:translateY(-2px);border-color:rgba(94,234,212,.32);background:linear-gradient(145deg,rgba(18,35,44,.95),rgba(8,16,22,.96));}
+.quick-entry-card b{display:block;font-size:17px;margin-bottom:7px;}
+.quick-entry-card span{display:block;font-size:13px;line-height:1.45;color:var(--text2);}
+.quick-entry-card small{display:block;margin-top:12px;font-family:var(--f-mono);font-size:12px;color:var(--cyan2);}
+.module-brief{
+  display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:16px;align-items:center;
+  margin-bottom:14px;padding:18px 20px;border-radius:18px;
+  border:1px solid rgba(94,234,212,.18);
+  background:linear-gradient(135deg,rgba(10,21,28,.94),rgba(8,15,20,.86));
+}
+.module-brief h2{margin:0;font-size:24px;line-height:1.18;color:var(--text);letter-spacing:0;}
+.module-brief p{margin:7px 0 0;font-size:14px;line-height:1.55;color:var(--text2);}
+.module-brief-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.module-pill{
+  display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 11px;border-radius:999px;
+  border:1px solid rgba(170,194,180,.16);background:rgba(15,23,42,.48);
+  color:var(--text2);font-size:13px;font-weight:800;white-space:nowrap;
+}
+.module-pill b{font-family:var(--f-mono);color:var(--text);font-size:14px;}
+.source-strip{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-bottom:12px;padding:10px 13px;border-radius:14px;
+  border:1px solid rgba(94,234,212,.18);
+  background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(79,140,255,.04));
+  color:var(--text2);font-size:14px;line-height:1.5;
+}
+.source-strip b{color:var(--cyan2);}
+.focus-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+.focus-stat{padding:13px 14px;border:1px solid rgba(170,194,180,.14);border-radius:14px;background:rgba(15,23,42,.42);}
+.focus-stat span{display:block;color:var(--text3);font-size:12px;font-weight:800;margin-bottom:4px;}
+.focus-stat b{font-family:var(--f-mono);font-size:24px;color:var(--text);line-height:1;}
 .ops-board{height:calc(100dvh - 178px);min-height:560px;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);gap:14px;}
 .ops-hero{display:grid;grid-template-columns:1fr auto;align-items:center;gap:18px;min-height:118px;padding:20px 26px;border-radius:20px;background:
   radial-gradient(circle at 0 0,rgba(34,211,238,.14),transparent 36%),
@@ -1078,6 +1168,10 @@ td{font-size:16px;padding:16px 17px;}
   .dash-hero-title{font-size:28px;}
   .dash-hero-sub{font-size:15px;}
   .dash-status-grid{grid-template-columns:1fr 1fr;}
+  .quick-entry-grid,.focus-stat-grid{grid-template-columns:1fr 1fr;}
+  .quick-entry-card{min-height:104px;padding:14px 15px;}
+  .module-brief{grid-template-columns:1fr;padding:16px;}
+  .module-brief-actions{justify-content:flex-start;}
   .ops-board{height:auto;overflow:visible;grid-template-rows:auto auto;}
   .ops-hero{grid-template-columns:1fr;padding:16px;border-radius:18px;}
   .ops-total{text-align:left;min-width:0;display:flex;align-items:end;gap:10px;}
@@ -1833,7 +1927,7 @@ function previewInventoryBatch(){
   const totalOut=rows.filter(row=>row.delta<0).reduce((sum,row)=>sum+Math.abs(row.delta),0);
   const totalIn=rows.filter(row=>row.delta>0).reduce((sum,row)=>sum+row.delta,0);
   host.innerHTML=`${renderPreflightCenter({
-      title:'Preflight Center - 批量庫存調整',
+      title:'執行前檢查 - 批量庫存調整',
       subtitle:'匯入/扣庫/入庫前先顯示將影響哪些資料；此步驟不會寫入 Supabase 或 Notion。',
       errors:errors.length,
       warnings:0,
@@ -5432,7 +5526,7 @@ function renderPreflightCenter(report={}){
   const actionHtml=actions.length?`<div class="preflight-action-strip">${actions.map(action=>`<div class="preflight-action"><b>${escapeHtml(action.title||'下一步')}</b><div>${escapeHtml(action.detail||'')}</div></div>`).join('')}</div>`:'';
   return `<div class="preflight-center" data-contract="PRE_FLIGHT_CENTER_V1">
     <div class="preflight-head">
-      <div><div class="preflight-title">${escapeHtml(report.title||'Preflight Center')}</div><div class="preflight-sub">${escapeHtml(report.subtitle||'寫入前檢查即將影響的資料')}</div></div>
+      <div><div class="preflight-title">${escapeHtml(report.title||'執行前檢查')}</div><div class="preflight-sub">${escapeHtml(report.subtitle||'寫入前檢查即將影響的資料')}</div></div>
       ${preflightBadge(level,level==='error'?'需修正':level==='warn'?'需確認':'可執行')}
     </div>
     <div class="preflight-grid">${kpis.map(k=>`<div class="preflight-kpi"><b>${escapeHtml(k.value)}</b><span>${escapeHtml(k.label)}</span></div>`).join('')}</div>
@@ -9394,7 +9488,7 @@ function renderMobileHighFrequencyAudit(){
     {tab:'orders',title:'訂單',primary:'查交期 / 領料 / 出貨',checks:['表格可橫滑','領料/出貨 modal actions sticky','長品名不擠壓按鈕']},
     {tab:'notes',title:'記事',primary:'看待辦 / 回覆 / 附件',checks:['modal 原生直向捲動','附件欄不撐寬','待辦 chip 單行省略']},
     {tab:'corders',title:'C-order',primary:'查 SHPTW / 匯入 / 出貨',checks:['手機卡片版清單','匯入 preflight 可捲動','狀態/操作分行']},
-    {tab:'inventory',title:'庫存調整',primary:'查料號 / 批量調整 / 預覽',checks:['批量預覽可橫滑','提交按鈕 sticky','Preflight Center 單欄顯示']},
+    {tab:'inventory',title:'庫存調整',primary:'查料號 / 批量調整 / 預覽',checks:['批量預覽可橫滑','提交按鈕固定於底部','執行前檢查單欄顯示']},
   ];
   return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1" data-version="MOBILE_HIGH_FREQUENCY_AUDIT_V2">
     <div class="panel-hdr"><span class="panel-title">手機高頻操作 <span class="badge">4 頁</span></span>${healthBadge('ok','V2')}</div>
@@ -13006,42 +13100,49 @@ function renderDashboard(){
   const recentOrders=applySort('dash',orders).slice(0,6);
 
   const annSection=dashAnns.length?`
-  <div style="margin-bottom:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div style="font-size:0.8125rem;font-weight:700;color:var(--text)">📢 公告</div>
-      <button class="btn btn-ghost btn-xs" onclick="switchTab('announce')">查看全部 →</button>
+  <div class="dash-ann-panel" style="margin-bottom:18px">
+    <div class="dash-ann-head">
+      <div>
+        <div class="dash-ann-title">📢 公告</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px">置頂與最新消息先在總覽提醒，完整內容到公告分頁查看。</div>
+      </div>
+      <button class="btn btn-ghost btn-xs" onclick="switchTab('announce')">查看全部</button>
     </div>
+    <div class="dash-ann-body">
     ${(()=>{
       const pinnedAnns = dashAnns.filter(a=>a.pinned);
       const normalAnns = dashAnns.filter(a=>!a.pinned);
       let out='';
       if(pinnedAnns.length){
-        out+=`<div style="font-size:0.625rem;font-weight:700;color:var(--amber);letter-spacing:.08em;margin-bottom:6px;opacity:.8">📌 置頂</div>`;
-        out+=pinnedAnns.map(a=>`<div class="ann-card" style="margin-bottom:8px;border-left:3px solid var(--amber)">
+        out+=`<div class="dash-ann-group"><div class="dash-ann-label">📌 置頂</div>`;
+        out+=pinnedAnns.map(a=>`<div class="dash-ann-card ann-card is-pinned">
           <div class="ann-title" style="font-size:0.8125rem">${a.title}</div>
           <div class="ann-body" style="font-size:0.75rem;margin-top:4px">${a.content}</div>
           <div class="ann-meta" style="margin-top:4px">${a.date||'—'}</div>
         </div>`).join('');
+        out+=`</div>`;
       }
       if(normalAnns.length){
-        if(pinnedAnns.length) out+=`<div style="font-size:0.625rem;font-weight:700;color:var(--text3);letter-spacing:.08em;margin-bottom:6px;margin-top:10px;opacity:.7">最新消息</div>`;
-        out+=normalAnns.map(a=>`<div class="ann-card" style="margin-bottom:8px">
+        out+=`<div class="dash-ann-group"><div class="dash-ann-label">最新消息</div>`;
+        out+=normalAnns.map(a=>`<div class="dash-ann-card ann-card">
           <div class="ann-accent"></div>
           <div class="ann-title" style="font-size:0.8125rem">${a.title}</div>
           <div class="ann-body" style="font-size:0.75rem;margin-top:4px">${a.content}</div>
           <div class="ann-meta" style="margin-top:4px">${a.date||'—'}</div>
         </div>`).join('');
+        out+=`</div>`;
       }
       return out;
     })()}
+    </div>
   </div>`:'';
 
   const dashHero=`
   <div class="dash-hero">
     <div class="dash-hero-main">
-      <div class="dash-hero-kicker">LEMATEC ERP COMMAND</div>
+      <div class="dash-hero-kicker">LEMATEC ERP 營運中心</div>
       <div class="dash-hero-title">今日營運總覽</div>
-      <div class="dash-hero-sub">訂單、生產、庫存、品管與人員審核集中在同一個畫面，先看異常，再進模組處理。</div>
+      <div class="dash-hero-sub">先看重點與異常，再點進對應分頁處理細節；總覽只做導航與提醒，不取代各模組作業畫面。</div>
       <div class="dash-hero-actions">
         <button class="btn btn-blue" onclick="switchTab('orders')">查看訂單</button>
         <button class="btn btn-cyan" onclick="switchTab('inventory')">庫存主檔</button>
@@ -13062,7 +13163,23 @@ function renderDashboard(){
     </div>
   </div>`;
 
-  return`${dashHero}${annSection}
+  const quickEntries=`
+  <div class="quick-entry-grid">
+    <button class="quick-entry-card" style="--entry-color:var(--blue2)" onclick="switchTab('orders')">
+      <b>訂單處理</b><span>新增訂單、交期提醒、領料、出貨與狀態更新集中在訂單分頁。</span><small>${active.length} 筆進行中</small>
+    </button>
+    <button class="quick-entry-card" style="--entry-color:var(--cyan2)" onclick="switchTab('corders')">
+      <b>C端訂單</b><span>S- 成品出貨、Excel 匯入預覽、SHPTW 共用序號與物流資料。</span><small>${(window.corders||[]).filter(o=>o.status==='出貨中').length} 筆出貨中</small>
+    </button>
+    <button class="quick-entry-card" style="--entry-color:var(--green2)" onclick="switchTab('inventory')">
+      <b>庫存主檔</b><span>Supabase 主資料查詢、篩選、批量調整、BOM 匯入與 Notion 鏡像狀態。</span><small>${low.length} 項警示</small>
+    </button>
+    <button class="quick-entry-card" style="--entry-color:var(--amber)" onclick="switchTab('ops')">
+      <b>現場看板</b><span>快速查看今日待辦、出貨、生產、品檢與補料節點。</span><small>${todayShipOrders.length} 筆今日出貨</small>
+    </button>
+  </div>`;
+
+  return`${dashHero}${quickEntries}${annSection}
 
   <!-- KPI Row 1: 核心指標 -->
   <div class="dash-kpi-grid">
@@ -13216,7 +13333,7 @@ function renderOrders(){
       box-shadow:${OSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
   </div>`;
 
-  if(OSUB==='list') return _renderOrdersList(tabs);
+  if(OSUB==='list') return _renderOrdersList(tabs, soonOrders);
   if(OSUB==='deadline') return _renderDeadlineTab(tabs, soonOrders, warnDays);
   return _renderOrderCalendar(tabs);
 }
@@ -13233,7 +13350,7 @@ function orderCustomerLabel(o){
 // ══════════════════════════════════════
 // 原有訂單列表
 // ══════════════════════════════════════
-function _renderOrdersList(tabs){
+function _renderOrdersList(tabs, soonOrders=[]){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
   const canAdd=!isViewOnly()&&(ROLE==='sales'||isAdminRole());
   const canOperate=!isViewOnly();
@@ -13257,8 +13374,34 @@ function _renderOrdersList(tabs){
     if(_ordType==='sfg') return (o.orderType==='sfg'||o.orderType==='半成品');
     return true;
   });
+  const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
+  const orderShipCount=orders.filter(o=>o.status==='待出貨').length;
+  const orderQcCount=orders.filter(o=>o.status==='待檢驗').length;
+  const orderBrief=`
+  <div class="module-brief">
+    <div>
+      <h2>訂單</h2>
+      <p>維持原本訂單流程與分頁位置；這裡先看交期、狀態與篩選結果，細節直接在下方表格處理。</p>
+    </div>
+    <div class="module-brief-actions">
+      <span class="module-pill">全部 <b>${orders.length}</b></span>
+      <span class="module-pill">進行中 <b>${orderActiveCount}</b></span>
+      <span class="module-pill">待出貨 <b>${orderShipCount}</b></span>
+      <span class="module-pill">待檢驗 <b>${orderQcCount}</b></span>
+    </div>
+  </div>
+  <div class="focus-stat-grid">
+    <div class="focus-stat" data-icon="📋"><span>目前篩選</span><b>${data.length}</b></div>
+    <div class="focus-stat" data-icon="⏰"><span>交期提醒</span><b>${soonOrders.length}</b></div>
+    <div class="focus-stat" data-icon="🗂"><span>進行中</span><b>${orderActiveCount}</b></div>
+    <div class="focus-stat" data-icon="🚚"><span>待出貨</span><b>${orderShipCount}</b></div>
+  </div>
+  <div class="source-strip">
+    <span><b>資料路徑</b>：訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。</span>
+    <button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>
+  </div>`;
 
-  return _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return orderBrief + _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input class="inp" id="ordSearchQ" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordQ)}"
         oncompositionstart="this._composing=true"
@@ -13834,6 +13977,8 @@ function renderInventory(){
     setTimeout(()=>loadSupabaseInventoryForPage(false),0);
   }
   const low=invMats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
+  const outOfStock=invMats.filter(m=>(Number(m.stock)||0)<=0).length;
+  const pendingMirror=invMats.filter(m=>!m.notionId).length;
   const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
   const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
 
@@ -13878,10 +14023,27 @@ function renderInventory(){
   }
 
   let html = `
+  <div class="module-brief">
+    <div>
+      <h2>庫存</h2>
+      <p>目前已是 Supabase 主資料，Notion 保留為人工查閱鏡像與備援。這次只調整呈現，不改庫存寫入規則。</p>
+    </div>
+    <div class="module-brief-actions">
+      <span class="module-pill">主檔 <b>${invMats.length}</b></span>
+      <span class="module-pill">低庫存 <b>${low.length}</b></span>
+      <span class="module-pill">目前來源 <b>${usingSupabase?'Supabase':'Notion'}</b></span>
+    </div>
+  </div>
+  <div class="focus-stat-grid">
+    <div class="focus-stat" data-icon="📦"><span>料件主檔</span><b>${invMats.length}</b></div>
+    <div class="focus-stat" data-icon="⚠"><span>低庫存</span><b>${low.length}</b></div>
+    <div class="focus-stat" data-icon="∅"><span>缺料</span><b>${outOfStock}</b></div>
+    <div class="focus-stat" data-icon="↔"><span>待鏡像</span><b>${pendingMirror}</b></div>
+  </div>
 
   ${renderInventorySourceSwitch()}
 
-  ${usingSupabase?`<div class="info-box info-tip" style="margin-bottom:12px">Supabase 主資料模式：庫存查詢與修改優先寫入 Supabase，成功後同步 Notion 鏡像供查閱。</div>`:''}
+  ${usingSupabase?`<div class="source-strip"><span><b>現行資料流</b>：庫存查詢與修改以 Supabase 為正式主資料；成功後同步 Notion 鏡像供人工查閱。這不是新增架構，只是把目前狀態顯示清楚。</span><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">查看異動記錄</button></div>`:''}
 
   <!-- 搜尋 & 篩選列 -->
   <div class="panel" style="margin-bottom:12px">
@@ -15255,7 +15417,7 @@ function buildBomImportPreflight(parsed){
   const missingParents=[...missingMaterials.values()].filter(m=>m.role==='母件').length;
   const missingChildren=[...missingMaterials.values()].filter(m=>m.role==='子件').length;
   return {
-    title:'Preflight Center - BOM maintenance v2',
+    title:'執行前檢查 - BOM 維護',
     subtitle:'Excel 簡化格式、缺料號預建檔、直接子件規則防呆；確認前不寫 Supabase 或 Notion。',
     parsed,
     rows,
@@ -17364,7 +17526,19 @@ function renderCorders(){
       : `<button class="btn btn-cyan btn-sm" disabled title="${sequenceBlockedMessage}" onclick="${sequenceBlockedToast}">📤 匯入 Excel</button>`)
     : '';
   const trendVals=[6,10,8,14,12,18,23,16].map((v,i)=>`<i style="height:${18+v}px"></i>`).join('');
-  let html=`<div class="premium-corder-shell">${notionBar}
+  let html=`<div class="premium-corder-shell">
+  <div class="module-brief">
+    <div>
+      <h2>C端訂單</h2>
+      <p>手動新增與 Excel 匯入共用 Supabase SHPTW 序號；確認前先預覽重複、庫存影響與錯誤列，確認後才扣 S- 成品庫存。</p>
+    </div>
+    <div class="module-brief-actions">
+      <span class="module-pill">下一號 <b>${nextNo}</b></span>
+      <span class="module-pill">出貨中 <b>${countShip}</b></span>
+      <span class="module-pill">需確認 <b>${countWarn}</b></span>
+    </div>
+  </div>
+  ${notionBar}
   <div class="corder-stats">
     <div class="corder-stat is-ship" data-icon="🛒"><span>待出貨</span><strong>${countShip}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
@@ -17478,7 +17652,7 @@ function openPickModal(orderId){
       <div>品項：${o.product||o.matCode||'—'} × ${o.qty||0}</div>
     </div>
     ${renderPreflightCenter({
-      title:'Preflight Center - 領料扣庫',
+      title:'執行前檢查 - 領料扣庫',
       subtitle:'扣庫前先顯示 BOM 直接子件與庫存影響；半成品子件只扣半成品本身。',
       errors,
       warnings:hasBOM?0:1,
@@ -18936,7 +19110,7 @@ function openInboundApprovePreflight(id,matId,qty,opts={}){
   if(ib?.stStatus==='已入庫') errors.push('此入料單已入庫，確認會由後端防重複處理');
   document.getElementById('modalInner').innerHTML=`<h3>入庫品檢通過預覽</h3>
     ${renderPreflightCenter({
-      title:'Preflight Center - 入庫前確認',
+      title:'執行前檢查 - 入庫前確認',
       subtitle:'入庫前先顯示會增加哪一筆庫存；確認後由 Supabase inbound action 原子加庫並防重複。',
       errors:errors.length,
       warnings:ib?.stStatus==='已入庫'?1:0,
@@ -20013,7 +20187,7 @@ function buildCorderImportPreflight(incoming){
   const readyRows=rows.filter(r=>!r.error&&!existingKeys.has(r.pairKey)).length;
   const firstErrorRow=rows.find(r=>r.error)?.sourceRow||0;
   return {
-    title:'Preflight Center - C-order import UX v2',
+    title:'執行前檢查 - C端訂單匯入',
     subtitle:'匯入前預覽、重複判斷、序號區間、庫存影響、錯誤行定位。確認前不會保留 SHPTW 序號。',
     incoming,rows,newOrderKeys,sequenceRange,duplicateDetails,stockImpact,errors,warnings,existingRows,skippedRows,readyRows,firstErrorRow,
   };

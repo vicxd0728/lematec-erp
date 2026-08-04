@@ -71,10 +71,10 @@ def test_picking_and_inbound_high_risk_flows_use_preflight():
     picking = section("function openPickModal", "// ══ 品管檢驗單")
     inbound = section("function openInboundApprovePreflight", "async function approveQC")
     approve = section("async function approveQC", "  // 找入料單資料")
-    assert "Preflight Center - 領料扣庫" in picking
+    assert "執行前檢查 - 領料扣庫" in picking
     assert "doPick" in picking
     assert "errors?'disabled'" in picking
-    assert "Preflight Center - 入庫前確認" in inbound
+    assert "執行前檢查 - 入庫前確認" in inbound
     assert "inbound_qc_pass:<receipt-id>" in inbound
     assert "openInboundApprovePreflight" in approve
 
