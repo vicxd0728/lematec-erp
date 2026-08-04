@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
-<meta name="theme-color" content="#b51226">
+<meta name="theme-color" content="#070b10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LEMATEC ERP">
@@ -196,40 +196,41 @@ html[data-theme="rose"]{
 
 /* ✦ 高級科技（新版設計面板預覽主題，保留資料密度但提高質感） */
 html[data-theme="premium"]{
-  --bg:#071015;--bg2:#0b151b;--bg3:#101d25;--bg4:#152733;--bg5:#1b3240;
-  --border:#243743;--border2:#34515f;--border3:#4a7280;
-  --brand:#9c1b2c;--brand2:#e11d48;
-  --blue:#2f9cf4;--blue2:#7ec8ff;--cyan:#22d3ee;--cyan2:#67e8f9;
-  --green:#22c55e;--green2:#86efac;--yellow:#f59e0b;--amber:#fbbf24;
-  --red:#fb7185;--red2:#fda4af;--purple:#a78bfa;
-  --text:#eef7fb;--text2:#aab9c2;--text3:#6f8490;
-  --nav-bg:rgba(10,19,25,.94);
-  --surface-glass:rgba(11,21,27,.92);
-  --surface-glass-2:rgba(16,29,37,.9);
-  --line-soft:rgba(103,232,249,.16);
-  --accent-a:#22d3ee;--accent-b:#2f9cf4;--accent-c:#fb7185;
-  --shadow:0 22px 70px rgba(0,0,0,.46);
-  --radius-card:18px;
+  --bg:#070b10;--bg2:#0d141c;--bg3:#101821;--bg4:#16212b;--bg5:#1c2a35;
+  --border:#233744;--border2:#2e4555;--border3:#456878;
+  --brand:#1de4f2;--brand2:#4f8cff;
+  --blue:#4f8cff;--blue2:#86b6ff;--cyan:#1de4f2;--cyan2:#7af4ff;
+  --green:#39d98a;--green2:#8af0bd;--yellow:#ffb545;--amber:#ffb545;
+  --red:#ff5f57;--red2:#ff9a94;--purple:#9b8cff;
+  --text:#f2f8fb;--text2:#a9bfcc;--text3:#7892a2;
+  --nav-bg:rgba(13,20,28,.94);
+  --surface-glass:rgba(16,24,33,.92);
+  --surface-glass-2:rgba(22,33,43,.9);
+  --line-soft:rgba(29,228,242,.18);
+  --accent-a:#1de4f2;--accent-b:#39d98a;--accent-c:#ffb545;
+  --shadow:0 22px 60px rgba(0,0,0,.42),0 0 42px rgba(29,228,242,.07);
+  --radius-card:14px;
 }
 html[data-theme="premium"] body{
   background:
-    linear-gradient(135deg,rgba(34,211,238,.08),transparent 28%),
-    radial-gradient(circle at 18% -18%, rgba(34,211,238,.16), transparent 34rem),
-    radial-gradient(circle at 78% -12%, rgba(47,156,244,.12), transparent 32rem),
-    radial-gradient(circle at 86% 52%, rgba(225,29,72,.06), transparent 34rem),
+    radial-gradient(circle at 18% 0%,rgba(29,228,242,.12),transparent 32rem),
+    radial-gradient(circle at 82% 12%,rgba(57,217,138,.08),transparent 30rem),
+    linear-gradient(90deg,rgba(46,69,85,.16) 1px,transparent 1px) 0 0/64px 64px,
+    linear-gradient(180deg,rgba(46,69,85,.1) 1px,transparent 1px) 0 0/64px 64px,
+    linear-gradient(135deg,rgba(29,228,242,.08),transparent 34%,rgba(79,140,255,.05) 68%,transparent),
     var(--bg);
   color:var(--text);
   font-size:18px;
 }
 html[data-theme="premium"] .topbar{
-  height:68px;padding:0 26px;background:linear-gradient(180deg,rgba(14,24,31,.98),rgba(8,16,21,.96));
-  border-bottom-color:rgba(148,163,184,.18);
-  box-shadow:0 14px 42px rgba(0,0,0,.34);
+  height:68px;padding:0 26px;background:linear-gradient(180deg,rgba(16,24,33,.98),rgba(7,11,16,.96));
+  border-bottom-color:rgba(29,228,242,.18);
+  box-shadow:0 14px 42px rgba(0,0,0,.34),inset 0 -1px 0 rgba(29,228,242,.12);
 }
 html[data-theme="premium"] .topbar::after{
-  height:1px;opacity:.82;background:linear-gradient(90deg,transparent,#22d3ee,#2f9cf4,transparent);
+  height:1px;opacity:.86;background:linear-gradient(90deg,transparent,#1de4f2,#39d98a,transparent);
 }
-html[data-theme="premium"] .topbar-brand{font-size:22px;letter-spacing:4px;font-weight:850;color:#f05252;text-shadow:0 0 18px rgba(248,113,113,.2);}
+html[data-theme="premium"] .topbar-brand{font-size:22px;letter-spacing:4px;font-weight:850;color:#f2f8fb;text-shadow:0 0 18px rgba(29,228,242,.16);}
 html[data-theme="premium"] .topbar-sub{font-size:12px;color:#aab9c2;font-weight:700;letter-spacing:1px;}
 html[data-theme="premium"] #liveClock{min-height:30px;border-color:rgba(34,211,238,.34);background:rgba(8,34,45,.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
 html[data-theme="premium"] .topbar-right .btn-ghost{min-width:42px;background:rgba(255,255,255,.035);border-color:rgba(148,163,184,.2);color:#dbe7ec;}
@@ -251,14 +252,14 @@ html[data-theme="premium"] .tab-btn:hover{
   color:var(--text);background:rgba(255,255,255,.035);
 }
 html[data-theme="premium"] .tab-btn.active{
-  color:#67e8f9;
-  background:linear-gradient(180deg,rgba(34,211,238,.1),rgba(34,211,238,.03));
-  border-bottom-color:#22d3ee;
-  box-shadow:inset 0 -1px 0 rgba(34,211,238,.7),0 10px 28px rgba(34,211,238,.1);
+  color:#071015;
+  background:linear-gradient(135deg,#1de4f2,#39d98a);
+  border-bottom-color:#1de4f2;
+  box-shadow:0 0 0 3px rgba(29,228,242,.14),0 10px 28px rgba(29,228,242,.16);
 }
 html[data-theme="premium"] .panel{
-  border-radius:20px;
-  background:linear-gradient(180deg,rgba(15,27,35,.96),rgba(9,17,22,.94));
+  border-radius:14px;
+  background:linear-gradient(180deg,rgba(16,24,33,.96),rgba(7,11,16,.94));
   border-color:var(--line-soft);
   box-shadow:0 22px 70px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.04);
 }
@@ -274,7 +275,7 @@ html[data-theme="premium"] .inp{
 html[data-theme="premium"] .inp:focus{
   border-color:#22d3ee;box-shadow:0 0 0 4px rgba(34,211,238,.12);
 }
-html[data-theme="premium"] .btn{min-height:44px;font-size:15px;border-radius:12px;font-weight:760;}
+html[data-theme="premium"] .btn{min-height:44px;font-size:15px;border-radius:8px;font-weight:760;}
 html[data-theme="premium"] th{font-size:13px;padding:15px 17px;color:#a8bdb5;background:rgba(3,9,8,.86);}
 html[data-theme="premium"] td{font-size:16px;padding:16px 17px;}
 html[data-theme="premium"] .kpi-card{
@@ -832,25 +833,26 @@ body.modal-open{overflow:hidden;}
   --accent-c:#fbbf24;
 }
 html:not([data-theme]){
-  --bg:#050908;--bg2:#09110f;--bg3:#0e1917;--bg4:#14231f;--bg5:#1b302a;
-  --border:#18312a;--border2:#254a40;--border3:#3b6c5d;
-  --brand:#0f766e;--brand2:#14b8a6;
-  --blue:#38bdf8;--blue2:#7dd3fc;--cyan:#14b8a6;--cyan2:#5eead4;
-  --green:#84cc16;--green2:#bef264;--yellow:#f59e0b;--amber:#fbbf24;
-  --red:#f43f5e;--red2:#fb7185;--purple:#a78bfa;
-  --text:#f8fafc;--text2:#bfd0c8;--text3:#72877f;
+  --bg:#070b10;--bg2:#0d141c;--bg3:#101821;--bg4:#16212b;--bg5:#1c2a35;
+  --border:#233744;--border2:#2e4555;--border3:#456878;
+  --brand:#1de4f2;--brand2:#4f8cff;
+  --blue:#4f8cff;--blue2:#86b6ff;--cyan:#1de4f2;--cyan2:#7af4ff;
+  --green:#39d98a;--green2:#8af0bd;--yellow:#ffb545;--amber:#ffb545;
+  --red:#ff5f57;--red2:#ff9a94;--purple:#9b8cff;
+  --text:#f2f8fb;--text2:#a9bfcc;--text3:#7892a2;
 }
 body{
   background:
-    linear-gradient(135deg,rgba(45,212,191,.08),transparent 28%),
-    radial-gradient(circle at 16% -10%, rgba(45,212,191,.16), transparent 34rem),
-    radial-gradient(circle at 100% 4%, rgba(163,230,53,.13), transparent 28rem),
-    radial-gradient(circle at 58% 0%, rgba(251,191,36,.07), transparent 20rem),
+    radial-gradient(circle at 18% 0%,rgba(29,228,242,.12),transparent 32rem),
+    radial-gradient(circle at 82% 12%,rgba(57,217,138,.08),transparent 30rem),
+    linear-gradient(90deg,rgba(46,69,85,.16) 1px,transparent 1px) 0 0/64px 64px,
+    linear-gradient(180deg,rgba(46,69,85,.1) 1px,transparent 1px) 0 0/64px 64px,
+    linear-gradient(135deg,rgba(29,228,242,.08),transparent 34%,rgba(79,140,255,.05) 68%,transparent),
     var(--bg);
   font-size:18px;
 }
-.topbar{height:70px;padding:0 24px;background:rgba(5,9,8,.9);border-bottom-color:rgba(170,194,180,.15);}
-.topbar::after{height:2px;opacity:.75;background:linear-gradient(90deg,transparent,var(--accent-a),var(--accent-b),transparent);}
+.topbar{height:70px;padding:0 24px;background:rgba(7,11,16,.92);border-bottom-color:rgba(29,228,242,.18);}
+.topbar::after{height:2px;opacity:.75;background:linear-gradient(90deg,transparent,var(--cyan),var(--green2),transparent);}
 .topbar-brand{font-size:17px;letter-spacing:5px;font-weight:600;}
 .topbar-sub,.topbar span[style*="ERP"]{font-size:12px!important;}
 .role-nav{
@@ -864,19 +866,19 @@ body{
   padding:11px 16px;
   min-height:44px;
   font-size:15px;
-  color:#9fb4aa;
-  background:rgba(13,25,22,.72);
-  border:1px solid rgba(170,194,180,.14);
+  color:#a9bfcc;
+  background:rgba(16,24,33,.72);
+  border:1px solid rgba(169,191,204,.14);
   border-radius:14px;
   margin:0;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
-.tab-btn:hover{color:var(--text);background:rgba(27,48,42,.86);border-color:rgba(45,212,191,.28);}
+.tab-btn:hover{color:var(--text);background:rgba(22,33,43,.86);border-color:rgba(29,228,242,.28);}
 .tab-btn.active{
-  color:#f7fee7;
-  border-color:rgba(163,230,53,.42);
-  background:linear-gradient(135deg,rgba(20,184,166,.24),rgba(163,230,53,.12));
-  box-shadow:0 10px 28px rgba(20,184,166,.16), inset 0 1px 0 rgba(255,255,255,.08);
+  color:#071015;
+  border-color:rgba(29,228,242,.42);
+  background:linear-gradient(135deg,#1de4f2,#39d98a);
+  box-shadow:0 10px 28px rgba(29,228,242,.16), inset 0 1px 0 rgba(255,255,255,.08);
 }
 .tab-ico{font-size:18px;line-height:1;}
 .tab-text{font-weight:750;letter-spacing:.2px;}
@@ -6434,9 +6436,10 @@ const THEMES={
   nature:  {name:'自然風',   icon:'🌿', desc:'深綠自然，舒緩護眼', group:'更多'},
   minimal: {name:'極簡風',   icon:'⬜', desc:'純粹深灰，零干擾', group:'更多'},
 };
+const ERP_DEFAULT_THEME='premium';
 // 讀取已儲存的設定並套用（頁面載入時立即執行）
 (function(){
-  const t=localStorage.getItem('erp_theme');
+  const t=localStorage.getItem('erp_theme')||ERP_DEFAULT_THEME;
   const f=localStorage.getItem('erp_font');
   if(t&&t!=='tech') document.documentElement.setAttribute('data-theme',t);
   if(f) document.documentElement.style.fontSize=f+'px';
@@ -6480,7 +6483,7 @@ function buildThemePanel(p){
       }).join('')+'</div>';
   };
   let html='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px"><div><div style="font-size:1rem;font-weight:850;color:var(--text)">🎨 外觀設定</div><div style="font-size:.76rem;color:var(--text3);margin-top:2px">每台裝置獨立儲存，不影響其他人</div></div><button data-theme-close="1" style="width:32px;height:32px;border-radius:10px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer">×</button></div>';
-  html+=section('推薦設計',['tech','premium','board','light','warm']);
+  html+=section('推薦設計',['premium','tech','board','light','warm']);
   html+=section('更多風格',['ocean','violet','amber','titanium','rose','nature','minimal']);
   html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:0.72rem;font-weight:800;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">🔤 字體大小</div><div class="font-row" style="display:flex;gap:6px">';
   ['14','15','16','17','18'].forEach(function(s){
@@ -21033,7 +21036,7 @@ window.onload=async ()=>{
 
 // 初始化（頁面載入時）
 (function(){
-  const t=localStorage.getItem('erp_theme');
+  const t=localStorage.getItem('erp_theme')||ERP_DEFAULT_THEME;
   const f=localStorage.getItem('erp_font');
   if(t&&t!=='tech') document.documentElement.setAttribute('data-theme',t);
   if(f) document.documentElement.style.fontSize=f+'px';
