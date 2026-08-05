@@ -101,6 +101,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/orders/create') {
       return erpB2bOrderCreate(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/orders/list') {
+      return erpB2bOrderList(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/health/public') {
       return erpPublicHealth(request, env, cors);
     }
@@ -548,6 +551,42 @@ async function erpB2bOrderCreate(request, env, cors) {
       return new Response(JSON.stringify({ error: payload.message || 'B2B order creation failed', detail: payload }), { status: response.status, headers: jh(cors) });
     }
     return respOK(cors, { ok: true, formalOrderCreated: true, idempotent: false, orderId: payload.id, orderNo });
+  } catch (error) {
+    return resp500(cors, error.message);
+  }
+}
+
+async function erpB2bOrderList(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const url = new URL(request.url);
+    const authHeader = request.headers.get('Authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const orderNoFilter = cleanText(url.searchParams.get('orderNo'));
+    const customerFilter = cleanText(url.searchParams.get('customerName')).toLowerCase();
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || 200)));
+    const pages = await notionQueryAll(token, BOARD_DB.orders);
+    const rows = pages.map((page) => {
+      const props = page.properties || {};
+      return {
+        id: page.id,
+        orderNo: cleanText(props['訂單號']?.title?.[0]?.plain_text),
+        customerName: cleanText(props['客戶名稱']?.select?.name),
+        quantity: Number(props['訂購數量']?.number || 0),
+        unitPrice: props['產品單價']?.number ?? null,
+        deadline: cleanText(props['交期']?.date?.start),
+        shipDate: cleanText(props['實際出貨日']?.date?.start || props['出貨日']?.date?.start),
+        status: cleanText(props['狀態']?.select?.name),
+        orderType: cleanText(props['訂單類型']?.select?.name),
+        note: cleanText(props['業務備註']?.rich_text?.[0]?.plain_text),
+        piNo: cleanText(props['PI單號']?.rich_text?.[0]?.plain_text),
+        productPageId: cleanText(props['成品']?.relation?.[0]?.id),
+        createdAt: cleanText(page.created_time),
+        updatedAt: cleanText(page.last_edited_time),
+      };
+    }).filter((row) => (!orderNoFilter || row.orderNo === orderNoFilter) && (!customerFilter || row.customerName.toLowerCase().includes(customerFilter)));
+    rows.sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+    return respOK(cors, { ok: true, source: 'notion', fetchedAt: taipeiISOString(), count: Math.min(rows.length, limit), orders: rows.slice(0, limit) });
   } catch (error) {
     return resp500(cors, error.message);
   }

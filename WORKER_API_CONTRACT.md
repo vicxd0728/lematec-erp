@@ -52,6 +52,7 @@ This file classifies Worker routes by side effect and production safety. Before 
 | POST | `/api/notes/shadow/delete` | Mutating | Deletes/archives shadow copy path | Intentional Notes operation only. |
 | POST | `/api/notes/write` | Mutating | Writes structured Notes to Supabase, then Notion mirror | Structured Note source is Supabase; attachments remain Notion-backed. |
 | POST | `/api/orders/create` | Mutating | Creates a B2B order page in the Notion ERP customer orders database | Idempotent by `orderNo`; accepts `productPageId` or resolves an exact `productCode`; does not reserve C-order numbers. |
+| GET | `/api/orders/list` | Read-only | Reads normalized B2B order status, delivery and shipment fields from the ERP customer orders database | Requires ERP bearer token; supports `orderNo`, `customerName`, and `limit` filters. |
 | GET | `/api/health/public` | Read-only | Reads public ERP health status and access matrix | Safe public no-side-effect check. |
 | GET | `/api/health/supabase-usage` | Read-only | Reads Supabase resource usage RPC | Safe read; egress only when externally measured. |
 | POST | `/api/reliability/mirror/enqueue` | Mutating | Enqueues mirror retry job | Repair queue write. Requires dedupe key. |
