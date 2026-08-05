@@ -1,0 +1,3 @@
+name = "green-wave-c22f"
+main = "cloudflare-worker-green-wave-c22f-FULL-UPDATED.js"
+compatibility_date = "2026-08-04"
