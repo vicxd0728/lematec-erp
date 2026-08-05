@@ -98,6 +98,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/notes/write') {
       return erpNotesPrimaryWrite(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/orders/create') {
+      return erpB2bOrderCreate(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/health/public') {
       return erpPublicHealth(request, env, cors);
     }
@@ -478,6 +481,76 @@ async function notionQueryAll(token, databaseId) {
     cursor = data.has_more ? data.next_cursor : null;
   } while (cursor);
   return results;
+}
+
+async function erpB2bOrderCreate(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body = await request.json();
+    const order = body?.order || body || {};
+    const orderNo = cleanText(order.orderNo || order.order_no);
+    const customerName = cleanText(order.customerName || order.customer_name);
+    let productPageId = cleanText(order.productPageId || order.product_page_id);
+    const productCode = cleanText(order.productCode || order.product_code || order.product);
+    const quantity = Number(order.quantity ?? order.qty);
+    const deadline = cleanText(order.deadline);
+    if (!orderNo || !customerName || (!productPageId && !productCode) || !Number.isFinite(quantity) || quantity <= 0 || !deadline) {
+      return resp400(cors, 'orderNo, customerName, productPageId or productCode, positive quantity and deadline are required');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return resp400(cors, 'deadline must be YYYY-MM-DD');
+
+    const authHeader = request.headers.get('Authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!productPageId && productCode) {
+      const materialPages = await notionQueryAll(token, BOARD_DB.materials);
+      const normalizedCode = productCode.toLowerCase();
+      const material = materialPages.find((page) => {
+        const code = cleanText(page?.properties?.['料件編號']?.rich_text?.[0]?.plain_text || page?.properties?.['料件編號']?.title?.[0]?.plain_text || page?.properties?.['Name']?.title?.[0]?.plain_text).toLowerCase();
+        return code === normalizedCode;
+      });
+      if (!material) return resp400(cors, `ERP 找不到料號：${productCode}`);
+      productPageId = material.id;
+    }
+    const existingPages = await notionQueryAll(token, BOARD_DB.orders);
+    const existing = existingPages.find((page) => cleanText(page?.properties?.['訂單號']?.title?.[0]?.plain_text) === orderNo);
+    if (existing) {
+      return respOK(cors, { ok: true, idempotent: true, formalOrderCreated: true, orderId: existing.id, orderNo });
+    }
+
+    const properties = {
+      '訂單號': { title: [{ text: { content: orderNo } }] },
+      '客戶名稱': { select: { name: customerName } },
+      '訂購數量': { number: quantity },
+      '狀態': { select: { name: cleanText(order.status) || '待排程' } },
+      '訂單類型': { select: { name: cleanText(order.orderType || order.order_type) || '國外' } },
+      '業務備註': { rich_text: [{ text: { content: cleanText(order.note || order.notes) } }] },
+      '成品': { relation: [{ id: productPageId }] },
+      '交期': { date: { start: deadline } },
+    };
+    const unitPrice = order.unitPrice ?? order.unit_price;
+    if (unitPrice !== '' && unitPrice !== null && unitPrice !== undefined && Number.isFinite(Number(unitPrice))) {
+      properties['產品單價'] = { number: Number(unitPrice) };
+    }
+    const piNo = cleanText(order.piNo || order.pi_no);
+    if (piNo) properties['PI單號'] = { rich_text: [{ text: { content: piNo } }] };
+
+    const response = await fetchWithRetry(() => fetch('https://api.notion.com/v1/pages', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ parent: { database_id: BOARD_DB.orders }, properties }),
+    }));
+    const payload = await responseJson(response);
+    if (!response.ok || payload.object === 'error') {
+      return new Response(JSON.stringify({ error: payload.message || 'B2B order creation failed', detail: payload }), { status: response.status, headers: jh(cors) });
+    }
+    return respOK(cors, { ok: true, formalOrderCreated: true, idempotent: false, orderId: payload.id, orderNo });
+  } catch (error) {
+    return resp500(cors, error.message);
+  }
 }
 
 function propNumber(props, key) {
