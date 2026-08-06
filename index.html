@@ -9700,16 +9700,13 @@ function renderSupabaseUsageHealth(){
   const resources=data.resources||{
     database:legacyResource('database_bytes','database_bytes',{source:'supabase_rpc'}),
     storage:legacyResource('storage_bytes','storage_bytes',{object_count:usage.storage_objects,source:'supabase_rpc'}),
-    egress:legacyResource('egress_bytes','egress_bytes',{source:data.egress_source||'supabase_dashboard_required'}),
   };
   const database=resources.database||{};
   const storage=resources.storage||{};
-  const egress=resources.egress||{};
   const measured=data.measured_at?new Date(data.measured_at).toLocaleString('zh-TW',{hour12:false}):'尚未檢查';
   const levels=[
     usageLevel(database.percent,database.used_bytes!=null),
     usageLevel(storage.percent,storage.used_bytes!=null),
-    usageLevel(egress.percent,egress.used_bytes!=null),
   ];
   const level=report.error||levels.includes('err')?'err':levels.includes('warn')?'warn':'ok';
   const label=report.running?'檢查中':report.error?'ERROR':level==='ok'?'OK':level==='err'?'ERROR':'WARN';
@@ -9718,7 +9715,7 @@ function renderSupabaseUsageHealth(){
     const klass=itemLevel==='err'?'kpi-red':itemLevel==='warn'?'kpi-amber':'kpi-green';
     return `<div class="kpi-card ${klass}">
       <div class="kpi-label">${title}</div>
-      <div class="kpi-num" style="font-size:1.35rem">${available?`${Number(item.percent||0).toFixed(1)}%`:'需查 Dashboard'}</div>
+      <div class="kpi-num" style="font-size:1.35rem">${available?`${Number(item.percent||0).toFixed(1)}%`:'無法量測'}</div>
       <div class="kpi-sub">${available?`${formatUsageBytes(item.used_bytes)} / ${formatUsageBytes(item.limit_bytes)}`:sub}</div>
     </div>`;
   };
@@ -9729,13 +9726,12 @@ function renderSupabaseUsageHealth(){
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        資料庫與 Storage 由 ERP 透過 Supabase 即時量測；達 70% 顯示警示、90% 顯示錯誤。流量若未接外部量測來源，系統只提示到 Supabase Dashboard 核對，不顯示推測值。
+        資料庫與 Storage 由 ERP 透過 Supabase 即時量測；達 70% 顯示警示、90% 顯示錯誤。無法由系統可靠抓取的用量不列入此處。
       </div>
       ${report.running?'<div class="loading-row"><div class="spin"></div>讀取 Supabase 用量...</div>':`
       <div class="dash-kpi-grid">
         ${card('資料庫',database,'',database.used_bytes!=null)}
         ${card('Storage',storage,'',storage.used_bytes!=null)}
-        ${card('流量',egress,'未快取 5 GB；另有快取流量額度',egress.used_bytes!=null)}
         <div class="kpi-card kpi-cyan"><div class="kpi-label">Storage 物件</div><div class="kpi-num">${Number(storage.object_count||0).toLocaleString()}</div><div class="kpi-sub">量測 ${measured}</div></div>
       </div>`}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -10150,7 +10146,6 @@ function renderHealthCheck(){
   const usageLevels=[
     usageLevel(usageResources.database?.percent,usageResources.database?.used_bytes!=null),
     usageLevel(usageResources.storage?.percent,usageResources.storage?.used_bytes!=null),
-    usageLevel(usageResources.egress?.percent,usageResources.egress?.used_bytes!=null),
   ];
   const usageErrors=usageLevels.filter(level=>level==='err').length+(_supabaseUsageReport?.error?1:0);
   const usageWarnings=usageLevels.filter(level=>level==='warn').length;

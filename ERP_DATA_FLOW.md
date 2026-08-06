@@ -105,8 +105,8 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Exact in-app measures: PostgreSQL database bytes, Storage object metadata
   bytes, and Storage object count.
 - Warning thresholds: 70 percent warning and 90 percent error.
-- Egress is shown only when an external measurement is available; otherwise the
-  UI directs Vic to the Supabase Dashboard instead of inventing a number.
+- Egress/bandwidth is not shown in ERP Health because it is not available from
+  the current in-app Supabase measurement path.
 
 ## Batch Inventory Adjustment 2026-07-29
 

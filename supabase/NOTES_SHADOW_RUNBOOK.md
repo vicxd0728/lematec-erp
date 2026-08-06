@@ -80,8 +80,8 @@ or status changes are expected.
   the Note remains usable and clearly reports a pending mirror state.
 - The health page calls `GET /api/health/supabase-usage` and warns at 70 percent,
   then reports an error at 90 percent for measurable database and Storage usage.
-- Supabase egress usage is not exposed by PostgreSQL. The health page reports it
-  as unavailable unless Worker env `SUPABASE_EGRESS_USED_BYTES` is maintained.
+- Supabase egress usage is not exposed by PostgreSQL, so ERP Health does not
+  show a traffic card.
 
 ## Primary-flow acceptance
 

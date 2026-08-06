@@ -178,11 +178,11 @@ class NotesShadowContractTest(unittest.TestCase):
             "resources = {",
             "database: {",
             "storage: {",
-            "egress: {",
-            "supabase_dashboard_required",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.worker)
+        self.assertNotIn("SUPABASE_EGRESS_USED_BYTES", self.worker)
+        self.assertNotIn("supabase_dashboard_required", self.worker)
         for marker in (
             "function renderSupabaseUsageHealth",
             "async function loadSupabaseUsage",
@@ -192,6 +192,7 @@ class NotesShadowContractTest(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.index)
+        self.assertNotIn("card('流量'", self.index)
 
 
 if __name__ == "__main__":

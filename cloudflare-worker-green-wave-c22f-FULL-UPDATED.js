@@ -2772,7 +2772,6 @@ async function erpSupabaseUsage(request, env, cors) {
     const limits = {
       database_bytes: 500 * 1024 * 1024,
       storage_bytes: 1024 * 1024 * 1024,
-      egress_bytes: 5 * 1024 * 1024 * 1024,
     };
     const percentOf = (used, limit) => (
       Number.isFinite(Number(used)) && Number(limit) > 0
@@ -2782,8 +2781,6 @@ async function erpSupabaseUsage(request, env, cors) {
     const databaseBytes = Number(usage.database_bytes || 0);
     const storageBytes = Number(usage.storage_bytes || 0);
     const storageObjects = Number(usage.storage_objects || 0);
-    const egressValue = Number(env.SUPABASE_EGRESS_USED_BYTES || 0);
-    const egressBytes = egressValue > 0 ? egressValue : null;
     const resources = {
       database: {
         used_bytes: databaseBytes,
@@ -2798,12 +2795,6 @@ async function erpSupabaseUsage(request, env, cors) {
         percent: percentOf(storageBytes, limits.storage_bytes),
         source: 'supabase_rpc',
       },
-      egress: {
-        used_bytes: egressBytes,
-        limit_bytes: limits.egress_bytes,
-        percent: egressBytes != null ? percentOf(egressBytes, limits.egress_bytes) : null,
-        source: egressBytes != null ? 'worker_env' : 'supabase_dashboard_required',
-      },
     };
     return respOK(cors, {
       ok: true,
@@ -2812,11 +2803,9 @@ async function erpSupabaseUsage(request, env, cors) {
         database_bytes: databaseBytes,
         storage_bytes: storageBytes,
         storage_objects: storageObjects,
-        egress_bytes: egressBytes,
       },
       limits,
       resources,
-      egress_source: resources.egress.source,
       measured_at: usage.measured_at || taipeiISOString(),
     });
   } catch (e) {
@@ -2875,7 +2864,6 @@ async function erpPublicHealth(request, env, cors) {
       {route: '/api/reliability/summary', reason: 'Mirror jobs and missing mirror counts require ERP bearer token.'},
     ],
     manual_checks: [
-      {item: 'Supabase egress usage', reason: 'Egress is Dashboard-only unless Worker env provides a measured value.'},
       {item: 'Failed mirror jobs >= 5 attempts', reason: 'Needs staff review before marking complete or retrying indefinitely.'},
       {item: 'Sequence-mutating C-order checks', reason: 'Use reserve/set only for real orders or intentional admin correction.'},
     ],
