@@ -2774,18 +2774,49 @@ async function erpSupabaseUsage(request, env, cors) {
       storage_bytes: 1024 * 1024 * 1024,
       egress_bytes: 5 * 1024 * 1024 * 1024,
     };
+    const percentOf = (used, limit) => (
+      Number.isFinite(Number(used)) && Number(limit) > 0
+        ? Math.round((Number(used) / Number(limit)) * 1000) / 10
+        : null
+    );
+    const databaseBytes = Number(usage.database_bytes || 0);
+    const storageBytes = Number(usage.storage_bytes || 0);
+    const storageObjects = Number(usage.storage_objects || 0);
     const egressValue = Number(env.SUPABASE_EGRESS_USED_BYTES || 0);
+    const egressBytes = egressValue > 0 ? egressValue : null;
+    const resources = {
+      database: {
+        used_bytes: databaseBytes,
+        limit_bytes: limits.database_bytes,
+        percent: percentOf(databaseBytes, limits.database_bytes),
+        source: 'supabase_rpc',
+      },
+      storage: {
+        used_bytes: storageBytes,
+        limit_bytes: limits.storage_bytes,
+        object_count: storageObjects,
+        percent: percentOf(storageBytes, limits.storage_bytes),
+        source: 'supabase_rpc',
+      },
+      egress: {
+        used_bytes: egressBytes,
+        limit_bytes: limits.egress_bytes,
+        percent: egressBytes != null ? percentOf(egressBytes, limits.egress_bytes) : null,
+        source: egressBytes != null ? 'worker_env' : 'supabase_dashboard_required',
+      },
+    };
     return respOK(cors, {
       ok: true,
       plan: 'free',
       usage: {
-        database_bytes: Number(usage.database_bytes || 0),
-        storage_bytes: Number(usage.storage_bytes || 0),
-        storage_objects: Number(usage.storage_objects || 0),
-        egress_bytes: egressValue > 0 ? egressValue : null,
+        database_bytes: databaseBytes,
+        storage_bytes: storageBytes,
+        storage_objects: storageObjects,
+        egress_bytes: egressBytes,
       },
       limits,
-      egress_source: egressValue > 0 ? 'worker_env' : 'supabase_dashboard_required',
+      resources,
+      egress_source: resources.egress.source,
       measured_at: usage.measured_at || taipeiISOString(),
     });
   } catch (e) {

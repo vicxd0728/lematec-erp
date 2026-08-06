@@ -175,6 +175,11 @@ class NotesShadowContractTest(unittest.TestCase):
         for marker in (
             "/api/health/supabase-usage",
             "async function erpSupabaseUsage",
+            "resources = {",
+            "database: {",
+            "storage: {",
+            "egress: {",
+            "supabase_dashboard_required",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.worker)
@@ -182,6 +187,8 @@ class NotesShadowContractTest(unittest.TestCase):
             "function renderSupabaseUsageHealth",
             "async function loadSupabaseUsage",
             "function usageLevel",
+            "legacyResource",
+            "資料庫與 Storage 由 ERP 透過 Supabase 即時量測",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.index)

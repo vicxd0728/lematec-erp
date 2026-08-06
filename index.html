@@ -9689,7 +9689,19 @@ async function loadSupabaseUsage({quiet=false}={}){
 function renderSupabaseUsageHealth(){
   const report=_supabaseUsageReport||{};
   const data=report.data||{};
-  const resources=data.resources||{};
+  const usage=data.usage||{};
+  const limits=data.limits||{};
+  const legacyResource=(usedKey,limitKey,extra={})=>({
+    used_bytes:usage[usedKey],
+    limit_bytes:limits[limitKey],
+    percent:limits[limitKey]?Math.round((Number(usage[usedKey]||0)/Number(limits[limitKey]))*1000)/10:null,
+    ...extra,
+  });
+  const resources=data.resources||{
+    database:legacyResource('database_bytes','database_bytes',{source:'supabase_rpc'}),
+    storage:legacyResource('storage_bytes','storage_bytes',{object_count:usage.storage_objects,source:'supabase_rpc'}),
+    egress:legacyResource('egress_bytes','egress_bytes',{source:data.egress_source||'supabase_dashboard_required'}),
+  };
   const database=resources.database||{};
   const storage=resources.storage||{};
   const egress=resources.egress||{};
@@ -9717,7 +9729,7 @@ function renderSupabaseUsageHealth(){
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        資料庫與 Storage 由 Supabase 即時計算；達 70% 顯示警示、90% 顯示錯誤。流量用量若平台未提供可讀 API，系統會明確要求到 Supabase Dashboard 查看。
+        資料庫與 Storage 由 ERP 透過 Supabase 即時量測；達 70% 顯示警示、90% 顯示錯誤。流量若未接外部量測來源，系統只提示到 Supabase Dashboard 核對，不顯示推測值。
       </div>
       ${report.running?'<div class="loading-row"><div class="spin"></div>讀取 Supabase 用量...</div>':`
       <div class="dash-kpi-grid">
