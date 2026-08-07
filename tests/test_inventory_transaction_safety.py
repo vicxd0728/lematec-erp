@@ -67,6 +67,10 @@ class InventoryTransactionSafetyTest(unittest.TestCase):
             "queueInventoryNotionMirror(item.pageId,after,item.snap.sku,mirrorError)",
             INDEX,
         )
+        self.assertIn("function resolveInventoryNotionMirrorPageId", INDEX)
+        self.assertIn("isSupabaseShadowId", INDEX)
+        self.assertIn("source_page_id:pageId", INDEX)
+        self.assertIn("await updatePage(notionPageId", INDEX)
         self.assertIn("updateWorkflowPageAfterInventory", INDEX)
         self.assertIn("flushInventoryNotionMirrorQueue", INDEX)
         self.assertIn("flushWorkflowNotionSyncQueue", INDEX)

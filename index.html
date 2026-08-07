@@ -8189,6 +8189,28 @@ function normalizeSku(v){
     .replace(/[－–—]/g,'-')
     .trim();
 }
+function isSupabaseShadowId(v){
+  return String(v||'').trim().toLowerCase().startsWith('supabase:');
+}
+function isNotionPageIdCandidate(v){
+  const clean=String(v||'').trim();
+  return !!clean&&!isSupabaseShadowId(clean)&&/^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+}
+function resolveInventoryNotionMirrorPageId(taskOrPageId,sku=''){
+  const task=typeof taskOrPageId==='object'&&taskOrPageId?taskOrPageId:{page_id:taskOrPageId,sku};
+  const pageId=String(task.page_id||task.pageId||task.notion_page_id||'').trim();
+  const rawSupabaseId=isSupabaseShadowId(pageId)?pageId.slice('supabase:'.length):String(task.supabase_id||task.supabaseId||'').trim();
+  if(isNotionPageIdCandidate(pageId)) return pageId;
+  const skuKey=normalizeSku(task.sku||sku||'');
+  const sameId=(a,b)=>String(a||'').trim().replace(/^supabase:/i,'')===String(b||'').trim().replace(/^supabase:/i,'');
+  const match=mats.find(m=>
+    (rawSupabaseId&&sameId(m.supabaseId||m.supabase_id||'',rawSupabaseId))||
+    (pageId&&sameId(m.id,pageId))||
+    (skuKey&&normalizeSku(m.code||m.sku||m.name)===skuKey)
+  );
+  const notionId=String(match?.notionId||match?.notion_page_id||(!isSupabaseShadowId(match?.id)&&match?.id)||'').trim();
+  return isNotionPageIdCandidate(notionId)?notionId:'';
+}
 function materialReferenceKeys(m){
   const keys=new Set();
   const add=value=>{
@@ -8880,18 +8902,20 @@ async function updateWorkflowPageAfterInventory(pageId,properties,label){
 }
 function queueInventoryNotionMirror(pageId,stock,sku,error=''){
   if(!pageId||!Number.isFinite(Number(stock))) return;
+  const notionPageId=resolveInventoryNotionMirrorPageId({page_id:pageId,sku});
   const queue=readInventoryNotionMirrorQueue();
-  const key=`${pageId}:${Number(stock)}`;
+  const key=`${notionPageId||pageId}:${Number(stock)}`;
   const task={
     key,
-    page_id:pageId,
+    page_id:notionPageId||pageId,
+    source_page_id:pageId,
     stock:Number(stock),
     sku:sku||'',
     retry_count:0,
     created_at:new Date().toISOString(),
     last_error:error||''
   };
-  const next=queue.filter(x=>x?.page_id!==pageId);
+  const next=queue.filter(x=>x?.page_id!==pageId&&x?.page_id!==notionPageId&&x?.source_page_id!==pageId);
   next.push(task);
   writeInventoryNotionMirrorQueue(next);
   persistReliableMirrorJob('inventory_notion',task).catch(e=>console.warn('庫存鏡像持久化排程失敗:',e));
@@ -9236,11 +9260,19 @@ async function flushInventoryNotionMirrorQueue({quiet=false}={}){
   try{
     for(const task of queue){
       try{
+        const notionPageId=resolveInventoryNotionMirrorPageId(task);
+        if(!notionPageId){
+          throw new Error(`找不到 ${task.sku||task.page_id} 的 Notion 鏡像頁面 ID，請先確認料件主檔 notion_page_id`);
+        }
+        const normalizedTask={...task,page_id:notionPageId,source_page_id:task.source_page_id||task.page_id};
         assertNotionPage(
-          await updatePage(task.page_id,{'目前庫存':{number:Number(task.stock)}},{skipInventorySync:true}),
-          `Notion 庫存補同步 ${task.sku||task.page_id}`
+          await updatePage(notionPageId,{'目前庫存':{number:Number(task.stock)}},{skipInventorySync:true}),
+          `Notion 庫存補同步 ${task.sku||notionPageId}`
         );
         await completeReliableMirrorJob('inventory_notion',task);
+        if(normalizedTask.page_id!==task.page_id){
+          await completeReliableMirrorJob('inventory_notion',normalizedTask);
+        }
         synced++;
       }catch(e){
         await failReliableMirrorJob('inventory_notion',task,e);
