@@ -9563,22 +9563,27 @@ function renderHealthAccessMatrix(){
 }
 function renderMobileHighFrequencyAudit(){
   const pages=[
-    {tab:'orders',title:'訂單',primary:'查交期 / 領料 / 出貨',checks:['表格可橫滑','領料/出貨 modal actions sticky','長品名不擠壓按鈕']},
-    {tab:'notes',title:'記事',primary:'看待辦 / 回覆 / 附件',checks:['modal 原生直向捲動','附件欄不撐寬','待辦 chip 單行省略']},
-    {tab:'corders',title:'C-order',primary:'查 SHPTW / 匯入 / 出貨',checks:['手機卡片版清單','匯入 preflight 可捲動','狀態/操作分行']},
-    {tab:'inventory',title:'庫存調整',primary:'查料號 / 批量調整 / 預覽',checks:['批量預覽可橫滑','提交按鈕固定於底部','執行前檢查單欄顯示']},
+    {tab:'orders',title:'訂單',primary:'查交期 / 領料 / 出貨',count:orders.filter(o=>o.status==='待排程'||o.status==='生產中'||o.status==='待出貨').length,checks:['交期提醒先看總數','進入後保留原本排序','手機上以橫滑表格處理細節']},
+    {tab:'notes',title:'記事',primary:'看待辦 / 回覆 / 附件',count:(notes||[]).filter(noteNeedsMyAction).length,checks:['優先看我的待辦','附件仍從 Notion 頁面處理','回覆後自動補 Supabase read model']},
+    {tab:'corders',title:'C-order',primary:'查 SHPTW / 匯入 / 出貨',count:(window.corders||[]).filter(o=>o.status==='出貨中').length,checks:['共用序號由 Worker 同步','匯入前先看預覽','出貨資料回 C-order 頁']},
+    {tab:'inventory',title:'庫存調整',primary:'查料號 / 批量調整 / 預覽',count:mats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe)).length,checks:['先搜尋再調整','批量調整前先看影響','Notion 鏡像失敗可補同步']},
   ];
-  return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1" data-version="MOBILE_HIGH_FREQUENCY_AUDIT_V2">
-    <div class="panel-hdr"><span class="panel-title">手機高頻操作 <span class="badge">4 頁</span></span>${healthBadge('ok','V2')}</div>
+  return `<div class="panel" style="margin-bottom:14px" data-contract="MOBILE_HIGH_FREQUENCY_AUDIT_V1" data-version="MOBILE_HIGH_FREQUENCY_AUDIT_V2" data-current-version="MOBILE_HIGH_FREQUENCY_AUDIT_V3">
+    <div class="panel-hdr"><span class="panel-title">手機高頻操作入口 <span class="badge">4 頁</span></span>${healthBadge('ok','V3')}</div>
     <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">手機版先服務每天最常用的四個入口；這裡只做快速導航與風險提示，真正送出仍回到原分頁的正式流程。</div>
       <div class="mobile-audit-grid">
         ${pages.map(page=>`<div class="mobile-audit-item">
-          <b>${escapeHtml(page.title)}</b>
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+            <b>${escapeHtml(page.title)}</b>
+            <span class="badge">${Number(page.count||0)}</span>
+          </div>
           <div style="color:var(--cyan2);font-weight:800;margin-bottom:5px">${escapeHtml(page.primary)}</div>
           ${page.checks.map(x=>`<div style="color:var(--text3)">✓ ${escapeHtml(x)}</div>`).join('')}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
             <button class="btn btn-blue btn-xs" onclick="switchTab('${page.tab}')">開啟</button>
             <button class="btn btn-ghost btn-xs" onclick="refreshAll(true)">同步</button>
+            ${page.tab==='inventory'?`<button class="btn btn-ghost btn-xs" onclick="retryReliabilityMirrors()">補鏡像</button>`:''}
           </div>
         </div>`).join('')}
       </div>
@@ -9647,24 +9652,68 @@ function reliabilityModuleLabel(module=''){
     stock_log:'庫存異動記錄',
   })[module]||module||'補同步工作';
 }
+function reliabilityRowResolution(row={}){
+  const err=String(row.lastError||'');
+  const id=String(row.id||'');
+  if(row.status==='failed'||Number(row.attempts||0)>=5){
+    return {kind:'manual',label:'需人工處理',detail:'已達重試上限，需確認資料或權限後再補同步。'};
+  }
+  if(/找不到.+Notion|缺少.+page|missing.+notion|notion_page_id/i.test(err)){
+    return {kind:'missing',label:'缺鏡像目標',detail:'主資料缺 Notion 鏡像頁面 ID，需先補關聯或建立鏡像。'};
+  }
+  if(row.module==='inventory_notion'&&(/valid uuid|path\.page_id|^supabase:/i.test(err)||/^supabase:/i.test(id))){
+    return {kind:'auto',label:'可自動修復',detail:'會先把 Supabase 料件 ID 解析成 Notion page ID 再補同步。'};
+  }
+  if(['inventory_supabase','inventory_notion','workflow_notion','bom_notion','notes_notion','notes_shadow','stock_log'].includes(row.module)){
+    return {kind:'auto',label:'可自動修復',detail:'可由補同步按鈕重試，不會重複已完成的庫存交易。'};
+  }
+  return {kind:'manual',label:'需判斷',detail:'未知類型，建議先查看錯誤內容。'};
+}
+function renderReliabilityV2Summary(rows=[],missing={}){
+  const groups={auto:[],missing:[],manual:[]};
+  (rows||[]).forEach(row=>{
+    const res=reliabilityRowResolution(row);
+    groups[res.kind==='auto'?'auto':res.kind==='missing'?'missing':'manual'].push({...row,resolution:res});
+  });
+  const missingTotal=Object.values(missing||{}).reduce((sum,value)=>sum+Number(value||0),0);
+  const card=(key,title,color,action,module='')=>`<div class="kpi-card ${color}">
+    <div class="kpi-label">${title}</div>
+    <div class="kpi-num">${groups[key].length}</div>
+    <div class="kpi-sub">${key==='auto'?'可按補同步重試':key==='missing'?'需補 Notion 鏡像關聯':`含伺服器缺漏 ${missingTotal}`}</div>
+    <div style="margin-top:9px"><button class="btn btn-ghost btn-xs" onclick="${action}">${module?'修復此類':'處理'}</button></div>
+  </div>`;
+  return `<div style="margin-bottom:12px" data-contract="RELIABILITY_CENTER_V2">
+    <div class="dash-kpi-grid">
+      ${card('auto','可自動修復','kpi-green',"retryReliabilityMirrors()")}
+      ${card('missing','缺資料 / 缺鏡像','kpi-amber',"loadReliabilitySummary()")}
+      ${card('manual','需人工處理','kpi-red',"loadReliabilitySummary()")}
+      <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div><div style="margin-top:9px"><button class="btn btn-ghost btn-xs" onclick="loadReliabilitySummary()">重新檢查</button></div></div>
+    </div>
+  </div>`;
+}
 function renderReliabilityQueueTable(rows=[]){
   const list=(Array.isArray(rows)?rows:[]).slice(0,12);
   if(!list.length){
     return `<div style="padding:14px;border:1px solid var(--border);border-radius:8px;color:var(--text3);background:var(--bg3)">目前沒有待補同步項目。</div>`;
   }
-  return `<div class="table-wrap" style="margin-top:12px"><table style="min-width:760px">
-    <thead><tr><th>來源</th><th>類型</th><th>識別</th><th>狀態</th><th>錯誤 / 提示</th></tr></thead>
+  return `<div class="table-wrap" style="margin-top:12px"><table style="min-width:860px">
+    <thead><tr><th>來源</th><th>類型</th><th>識別</th><th>判斷</th><th>狀態</th><th>錯誤 / 提示</th><th>動作</th></tr></thead>
     <tbody>
       ${list.map(row=>{
         const level=row.status==='failed'||row.attempts>=5?'err':'warn';
+        const resolution=reliabilityRowResolution(row);
+        const resLevel=resolution.kind==='auto'?'ok':resolution.kind==='missing'?'warn':'err';
         const id=String(row.id||'—');
+        const retryModuleArg=JSON.stringify(String(row.module||''));
         const created=row.createdAt?`<div style="font-size:.68rem;color:var(--text3)">${escapeHtml(row.createdAt)}</div>`:'';
         return `<tr>
           <td><b>${escapeHtml(row.source||'—')}</b>${created}</td>
           <td>${escapeHtml(row.label||reliabilityModuleLabel(row.module))}<div style="font-size:.68rem;color:var(--text3)">${escapeHtml(row.module||'')}</div></td>
           <td style="font-family:var(--f-mono);font-size:.72rem;overflow-wrap:anywhere">${escapeHtml(id.length>72?id.slice(0,72)+'…':id)}</td>
+          <td>${healthBadge(resLevel,resolution.label)}<div style="font-size:.68rem;color:var(--text3);margin-top:3px">${escapeHtml(resolution.detail)}</div></td>
           <td>${healthBadge(level,level==='err'?'ERROR':'PENDING')}<div style="font-size:.68rem;color:var(--text3)">retry ${Number(row.attempts||0)}</div></td>
           <td style="font-size:.75rem;color:${row.lastError?'var(--amber)':'var(--text3)'}">${escapeHtml(row.lastError||row.hint||'等待補同步')}</td>
+          <td><button class="btn btn-ghost btn-xs" onclick="retryReliabilityModule(${escapeHtml(retryModuleArg)})">補此類</button></td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -9791,13 +9840,14 @@ function renderReliabilityCenter(){
   const oldest=jobs.oldest_created_at?new Date(jobs.oldest_created_at).toLocaleString('zh-TW',{hour12:false}):'—';
   return `<div class="panel" style="margin-bottom:14px">
     <div class="panel-hdr">
-      <span class="panel-title">補同步中心 v1<span class="badge">${allPending}</span></span>
+      <span class="panel-title">補同步中心 v2<span class="badge">${allPending}</span></span>
       ${healthBadge(level,label)}
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
         Supabase 是庫存、BOM、領料、入料、記事結構與異動記錄的主資料；Notion 是人工查閱鏡像與附件來源。主流程成功後若鏡像暫時失敗，系統會保留補同步工作，不會回滾或重複已完成的庫存交易。
       </div>
+      ${renderReliabilityV2Summary(rows,missing)}
       <div class="dash-kpi-grid">
         <div class="kpi-card ${pending?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器待補同步</div><div class="kpi-num">${pending}</div><div class="kpi-sub">最早 ${oldest}</div></div>
         <div class="kpi-card ${failed?'kpi-red':'kpi-green'}"><div class="kpi-label">重試失敗</div><div class="kpi-num">${failed}</div><div class="kpi-sub">達 5 次需人工處理</div></div>
@@ -9882,6 +9932,24 @@ function renderNotesShadowHealth(){
     </div>
   </div>`;
 }
+async function retryReliabilityModule(module=''){
+  const label=reliabilityModuleLabel(module);
+  showToast(`補同步處理中：${label}`,'warn');
+  try{
+    if(module==='inventory_supabase') await flushInventoryMirrorQueue({quiet:true});
+    else if(module==='inventory_notion') await flushInventoryNotionMirrorQueue({quiet:true});
+    else if(module==='workflow_notion') await flushWorkflowNotionSyncQueue({quiet:true});
+    else if(module==='bom_notion') await flushPendingBomNotionMirrors();
+    else if(module==='notes_notion') await flushNotesNotionMirrorQueue({quiet:true});
+    else if(module==='notes_shadow') await retryNotesShadowQueue({force:true,quiet:true});
+    else if(module==='stock_log') await flushPendingStockLogs({quiet:true,max:50});
+    else await flushReliableMirrorQueues({quiet:true});
+    await loadReliabilitySummary({quiet:true});
+    showToast(`✅ ${label} 已重試`,'ok');
+  }catch(e){
+    showToast(`⚠ ${label} 補同步未完成：${e.message||e}`,'warn');
+  }
+}
 async function retryReliabilityMirrors(){
   showToast('補同步處理中...','warn');
   try{
@@ -9926,6 +9994,17 @@ function setInventoryReadSource(source){
   }else if(CURRENT_TAB==='inventory'){
     renderTab('inventory');
   }
+}
+function _invQuick(value){
+  const INV=window._invState=window._invState||{};
+  INV.quick=value||'all';
+  INV.page=1;
+  if(CURRENT_TAB==='inventory')renderTab('inventory');
+}
+function _invSelect(id){
+  const INV=window._invState=window._invState||{};
+  INV.selectedId=id||'';
+  if(CURRENT_TAB==='inventory')renderTab('inventory');
 }
 async function loadSupabaseInventoryForPage(force=false){
   if(_supabaseInventoryState.running)return;
@@ -14064,12 +14143,16 @@ function renderInventory(){
   const low=invMats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
   const outOfStock=invMats.filter(m=>(Number(m.stock)||0)<=0).length;
   const pendingMirror=invMats.filter(m=>!m.notionId).length;
+  const bomParentIds=new Set(boms.map(b=>b.parentId).filter(Boolean));
+  const bomChildIds=new Set(boms.map(b=>b.childId).filter(Boolean));
+  const sLayer=invMats.filter(m=>normalizeSku(m.code||m.name).startsWith('S-')).length;
+  const yParts=invMats.filter(m=>normalizeSku(m.code||m.name).startsWith('Y-')).length;
   const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
   const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
-    q:'', type:'all', stockMin:'', stockMax:'', stockStatus:'all', page:1, pageSize:100
+    q:'', type:'all', stockMin:'', stockMax:'', stockStatus:'all', quick:'all', selectedId:'', page:1, pageSize:100
   };
 
   // ── 套用篩選
@@ -14084,6 +14167,11 @@ function renderInventory(){
   if(INV.stockStatus==='ok')  data=data.filter(m=>(Number(m.stock)||0)>0&&((Number(m.safe)||0)<=0||(Number(m.stock)||0)>Number(m.safe)));
   if(INV.stockStatus==='low') data=data.filter(m=>(Number(m.stock)||0)>0&&(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
   if(INV.stockStatus==='out') data=data.filter(m=>(Number(m.stock)||0)<=0);
+  if(INV.quick==='s') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('S-'));
+  if(INV.quick==='y') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('Y-'));
+  if(INV.quick==='mirror') data=data.filter(m=>!m.notionId);
+  if(INV.quick==='bomParent') data=data.filter(m=>bomParentIds.has(m.id));
+  if(INV.quick==='bomChild') data=data.filter(m=>bomChildIds.has(m.id));
 
   const total=data.length;
   const ps=INV.pageSize;
@@ -14105,6 +14193,10 @@ function renderInventory(){
     }
     btns.push(`<button class="btn btn-ghost btn-xs" ${p>=maxPage?'disabled':''} onclick="_invGo(${p+1})">›</button>`);
     return btns.join('');
+  }
+  function quickChip(value,label,count){
+    const active=INV.quick===value;
+    return `<button class="filter-chip${active?' active':''}" onclick="_invQuick('${value}')">${label} <b>${count}</b></button>`;
   }
 
   let html = `
@@ -14129,6 +14221,16 @@ function renderInventory(){
   ${renderInventorySourceSwitch()}
 
   ${usingSupabase?`<div class="source-strip"><span><b>現行資料流</b>：庫存查詢與修改以 Supabase 為正式主資料；成功後同步 Notion 鏡像供人工查閱。這不是新增架構，只是把目前狀態顯示清楚。</span><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">查看異動記錄</button></div>`:''}
+
+  <div class="filter-bar" style="margin-bottom:12px" data-contract="INVENTORY_SCAN_FILTERS_V1">
+    <span class="filter-label">快速掃描：</span>
+    ${quickChip('all','全部',invMats.length)}
+    ${quickChip('s','S- 蝦皮層',sLayer)}
+    ${quickChip('y','Y- 零件',yParts)}
+    ${quickChip('mirror','缺 Notion 鏡像',pendingMirror)}
+    ${quickChip('bomParent','作為母件',bomParentIds.size)}
+    ${quickChip('bomChild','作為子件',bomChildIds.size)}
+  </div>
 
   <!-- 搜尋 & 篩選列 -->
   <div class="panel" style="margin-bottom:12px">
@@ -14197,6 +14299,8 @@ function renderInventory(){
     </div>
   </div>
 
+  ${renderInventoryInsightPanel(invMats)}
+
   <!-- 表格 -->
   <div class="panel">
     <div class="panel-hdr">
@@ -14233,6 +14337,7 @@ function renderInventory(){
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
+          <button class="btn btn-ghost btn-sm" onclick="_invSelect('${m.id}')" style="margin-right:4px">詳情</button>
           ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
@@ -14244,6 +14349,49 @@ function renderInventory(){
     ${maxPage>1?`<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:4px">${pageBtns()}</div>`:''}
   </div>`;
   return _notionBar + html;
+}
+
+function renderInventoryInsightPanel(invMats=[]){
+  const state=window._invState||{};
+  const selectedId=state.selectedId||'';
+  if(!selectedId)return '';
+  const mat=(invMats||[]).find(m=>m.id===selectedId)||mats.find(m=>m.id===selectedId);
+  if(!mat)return '';
+  const parentRows=boms.filter(b=>b.parentId===mat.id);
+  const childRows=boms.filter(b=>b.childId===mat.id);
+  const relatedOrders=orders.filter(o=>o.productId===mat.id).slice(0,5);
+  const relatedLogs=(stockLogs||[]).filter(log=>{
+    const blob=[log.matId,log.materialId,log.code,log.itemCode,log.name,log.itemTitle,log.refNo].map(x=>String(x||'')).join(' ');
+    return blob.includes(mat.id)||blob.includes(mat.code||'')||blob.includes(mat.name||'');
+  }).slice(0,5);
+  const stock=Number(mat.stock||0);
+  const safe=Number(mat.safe||0);
+  const level=stock<=0?'err':safe>0&&stock<=safe?'warn':'ok';
+  const notion=mat.notionId?`<a class="btn btn-ghost btn-xs" href="https://www.notion.so/${String(mat.notionId).replace(/-/g,'')}" target="_blank" rel="noopener">開 Notion</a>`:`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">缺 Notion 鏡像</span>`;
+  return `<div class="panel" style="margin-bottom:12px" data-contract="INVENTORY_ITEM_INSIGHT_V1">
+    <div class="panel-hdr">
+      <span class="panel-title">料件詳情 <span class="badge">${escapeHtml(mat.code||mat.name||mat.id)}</span></span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${healthBadge(level,level==='ok'?'正常':level==='warn'?'低庫存':'缺料')}<button class="btn btn-ghost btn-xs" onclick="_invSelect('')">關閉</button></div>
+    </div>
+    <div style="padding:12px">
+      <div class="dash-kpi-grid">
+        <div class="kpi-card kpi-cyan"><div class="kpi-label">目前庫存</div><div class="kpi-num">${stock}</div><div class="kpi-sub">安全庫存 ${safe}</div></div>
+        <div class="kpi-card ${mat.notionId?'kpi-green':'kpi-amber'}"><div class="kpi-label">Notion 鏡像</div><div class="kpi-num" style="font-size:1rem">${mat.notionId?'已連結':'缺關聯'}</div><div class="kpi-sub">${mat.notionId?escapeHtml(mat.notionId):'補同步前需有鏡像頁面'}</div></div>
+        <div class="kpi-card kpi-blue"><div class="kpi-label">BOM 關聯</div><div class="kpi-num">${parentRows.length+childRows.length}</div><div class="kpi-sub">母件 ${parentRows.length} / 子件 ${childRows.length}</div></div>
+        <div class="kpi-card kpi-green"><div class="kpi-label">最近異動</div><div class="kpi-num">${relatedLogs.length}</div><div class="kpi-sub">目前載入範圍內</div></div>
+      </div>
+      <div class="preflight-action-strip" style="margin-top:10px;border:1px solid var(--border);border-radius:8px">
+        <div class="preflight-action"><b>主檔</b><div>${escapeHtml(mat.name||'')} / ${escapeHtml(mat.type||'未分類')} / ${escapeHtml(mat.unit||'個')}</div></div>
+        <div class="preflight-action"><b>BOM 使用</b><div>${parentRows.length?`作為母件：${parentRows.slice(0,3).map(b=>escapeHtml(b.childSku||b.childName||b.childId)).join('、')}`:'未作為母件'}；${childRows.length?`作為子件 ${childRows.length} 次`:'未作為子件'}</div></div>
+        <div class="preflight-action"><b>相關訂單</b><div>${relatedOrders.length?relatedOrders.map(o=>escapeHtml(o.no||o.name||o.id)).join('、'):'目前載入範圍內無直接關聯訂單'}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        ${notion}
+        <button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">看異動記錄</button>
+        <button class="btn btn-ghost btn-xs" onclick="retryReliabilityModule('inventory_notion')">補 Notion 鏡像</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════
@@ -14388,7 +14536,7 @@ function _invGo(page){
   document.getElementById('mainContent')?.scrollTo?.(0,0);
 }
 function _invReset(){
-  window._invState = {q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',page:1,pageSize:window._invState?.pageSize||100};
+  window._invState = {q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',quick:'all',selectedId:'',page:1,pageSize:window._invState?.pageSize||100};
   _invRender();
 }
 function _invRender(){

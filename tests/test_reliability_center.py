@@ -55,7 +55,8 @@ def test_frontend_persists_and_recovers_all_mirror_queues():
 
 
 def test_health_page_exposes_reliability_summary_and_retry():
-    assert "補同步中心 v1" in INDEX
+    assert "補同步中心 v2" in INDEX
+    assert "RELIABILITY_CENTER_V2" in INDEX
     assert "Notion 鏡像缺漏" in INDEX
     assert "retryReliabilityMirrors" in INDEX
     assert "retryAllReliabilityWork" in INDEX
