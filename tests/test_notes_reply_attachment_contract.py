@@ -42,7 +42,7 @@ def test_reply_attachments_are_marked_and_rendered_inline_with_thread():
     assert "noteAttachmentReplyKey" in attachment_helpers
     assert "noteGroupAttachmentsByReply" in attachment_helpers
     assert "noteReplyAttachmentGrid" in attachment_helpers
-    assert "formatNoteThread(text='',attachmentsByKey={})" in formatter
+    assert "formatNoteThread(text='',attachmentsByKey={},noteId='')" in formatter
     assert "noteReplyAttachmentGrid(attachmentsByKey[key])" in formatter
     assert 'id="note_thread_box"' in detail
     assert "loadNoteAttachments(n.actualNotionPageId,n.files||[],n)" in detail

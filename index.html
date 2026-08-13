@@ -10876,7 +10876,7 @@ async function loadNoteAttachments(pageId,legacyFiles=[],noteData=null){
     });
     const grouped=noteData?.replies?noteGroupAttachmentsByReply(noteData.replies,items):{byKey:{},unmatched:items};
     const threadBox=document.getElementById('note_thread_box');
-    if(threadBox&&noteData?.replies)threadBox.innerHTML=formatNoteThread(noteData.replies,grouped.byKey);
+    if(threadBox&&noteData?.replies)threadBox.innerHTML=formatNoteThread(noteData.replies,grouped.byKey,noteData.id||'');
     const topItems=grouped.unmatched||items;
     box.innerHTML=topItems.length
       ?`<div class="field-label" style="margin-bottom:7px">記事附件 ${topItems.length}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">${topItems.map(noteAttachmentCard).join('')}</div>`
@@ -11960,11 +11960,24 @@ function renderNoteList(list,showDate=false){
     </div>
   </div>`).join('')}</div>`;
 }
-function formatNoteThread(text='',attachmentsByKey={}){
-  return String(text||'').split('\n').map(line=>{
+function parseNoteReplyLine(line=''){
+  const raw=String(line||'');
+  const m=raw.match(/^\[([^\]]+?)\s+([^｜\]]+)｜([^\]]+)\]\s*([\s\S]*)$/);
+  return m?{stamp:m[1],role:m[2],action:m[3],body:m[4]||'',raw}:{stamp:'',role:'',action:'回覆',body:raw,raw};
+}
+function noteCanEditReplyLine(line='',n=null){
+  if(isViewOnly())return false;
+  const parsed=parseNoteReplyLine(line);
+  const role=loginRoleLabel();
+  return isAdminRole()||noteCanManage(n||{})||(parsed.role&&parsed.role===role);
+}
+function formatNoteThread(text='',attachmentsByKey={},noteId=''){
+  return String(text||'').split('\n').map((line,index)=>{
     const key=noteReplyAttachmentKeyFromLine(line);
     const body=escapeHtml(line).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
-    return body+(attachmentsByKey[key]?.length?noteReplyAttachmentGrid(attachmentsByKey[key]):'');
+    const editButton=noteId&&noteCanEditReplyLine(line,notes.find(n=>n.id===noteId))
+      ?`<button class="btn btn-ghost btn-xs" style="margin-left:8px" onclick="event.stopPropagation();openNoteReplyEdit('${noteId}',${index})">修正</button>`:'';
+    return `<div class="note-reply-line">${body}${editButton}</div>`+(attachmentsByKey[key]?.length?noteReplyAttachmentGrid(attachmentsByKey[key]):'');
   }).join('\n');
 }
 function noteRelationSummary(n){
@@ -12367,7 +12380,7 @@ async function openNoteDetail(id){
     ${(n.tags||[]).length?`<div class="note-tags" style="margin-bottom:12px">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
     ${n.body?`<div class="note-body" style="font-size:.95rem;margin-bottom:12px">${escapeHtml(n.body)}</div>`:'<div class="note-body" style="margin-bottom:12px;color:var(--text3)">沒有內容</div>'}
     <div id="note_attachment_list" class="note-body" style="margin-bottom:12px;color:var(--text3)">附件載入中...</div>
-    ${n.replies?`<div class="note-thread" id="note_thread_box">${formatNoteThread(n.replies)}</div>`:''}
+    ${n.replies?`<div class="note-thread" id="note_thread_box">${formatNoteThread(n.replies,{},n.id)}</div>`:''}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
       ${n.customerCode?`<button class="btn btn-cyan" onclick="resyncNoteCustomer('${n.id}')">同步客戶頁</button>`:''}
@@ -12656,6 +12669,73 @@ async function submitNoteReplyPrimary(id,quickAction=''){
     if(CURRENT_TAB==='notes')renderTab('notes');
   }catch(e){
     showToast('❌ Supabase 未寫入，回覆未送出：'+e.message,'err',9000);
+  }
+}
+function openNoteReplyEdit(id,lineIndex){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const lines=String(n.replies||'').split('\n');
+  const line=lines[lineIndex]||'';
+  if(!line||!noteCanEditReplyLine(line,n)){showToast('❌ 沒有權限修正這則回覆','err');return;}
+  const parsed=parseNoteReplyLine(line);
+  const opts=noteReplyOptions();
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>✏️ 修正回覆</h3>
+    <div class="info-box info-tip">
+      <b>${escapeHtml(n.title)}</b><br>
+      原回覆：${escapeHtml(parsed.stamp||'')} ${escapeHtml(parsed.role||'')}｜${escapeHtml(parsed.action||'回覆')}
+    </div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr">
+      <div><label class="field-label">回覆動作</label><select class="inp" id="note_reply_edit_action">${opts.map(x=>`<option value="${escapeHtml(x)}" ${x===parsed.action?'selected':''}>${escapeHtml(x)}</option>`).join('')}<option value="">自訂 / 空白</option></select></div>
+      <div><label class="field-label">自訂動作</label><input class="inp" id="note_reply_edit_custom" value="${NOTE_REPLY_DEFAULTS.includes(parsed.action)?'':escapeHtml(parsed.action||'')}" placeholder="例如：需補資料、已安排、請改期"></div>
+    </div>
+    <div style="margin-bottom:12px"><label class="field-label">修正內容</label><textarea class="inp" id="note_reply_edit_text" rows="5">${escapeHtml(parsed.body||'')}</textarea></div>
+    <div class="hint" style="margin-bottom:12px">送出後會重新通知此記事相關人員，並在回覆尾端留下修正標記。</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="openNoteDetail('${id}')">取消</button>
+      <button class="btn btn-blue" onclick="submitNoteReplyEdit('${id}',${Number(lineIndex)||0})">儲存修正並通知</button>
+    </div>`;
+  openSharedModal();
+}
+async function submitNoteReplyEdit(id,lineIndex){
+  const n=notes.find(x=>x.id===id);if(!n)return;
+  const lines=String(n.replies||'').split('\n');
+  const line=lines[lineIndex]||'';
+  if(!line||!noteCanEditReplyLine(line,n)){showToast('❌ 沒有權限修正這則回覆','err');return;}
+  const parsed=parseNoteReplyLine(line);
+  const editor=loginRoleLabel();
+  const action=(document.getElementById('note_reply_edit_custom')?.value.trim()||document.getElementById('note_reply_edit_action')?.value||parsed.action||'回覆').trim();
+  const body=(document.getElementById('note_reply_edit_text')?.value||'').trim();
+  if(!action&&!body){showToast('請輸入修正內容或動作','warn');return;}
+  const cleanedBody=body.replace(/（\d{2}\/\d{2}\s+\d{2}:\d{2}\s+.+?修正）$/,'').trim();
+  const originalBody=String(parsed.body||'').replace(/（\d{2}\/\d{2}\s+\d{2}:\d{2}\s+.+?修正）$/,'').trim();
+  if((action||'回覆')===(parsed.action||'回覆')&&cleanedBody===originalBody){showToast('內容沒有變更','warn');return;}
+  const nowIso=new Date().toISOString();
+  const editedLine=`[${parsed.stamp||fmtDateTime(nowIso)} ${parsed.role||editor}｜${action||'回覆'}]${cleanedBody?' '+cleanedBody:''}（${fmtDateTime(nowIso)} ${editor} 修正）`;
+  lines[lineIndex]=editedLine;
+  const notifyRoles=noteAudienceRoles(n).filter(role=>role!==editor);
+  const acked=[editor];
+  const nextStatus=noteIsDone(n)&&notifyRoles.length?'待確認':(n.status||'未處理');
+  Object.assign(n,{
+    replies:lines.filter(Boolean).join('\n').slice(-1800),
+    ackRoles:acked.join('、'),
+    pendingRoles:notifyRoles.join('、'),
+    replyAction:'修正回覆',
+    lastReply:`修正回覆：${cleanedBody||action}`,
+    lastReplyBy:editor,
+    lastReplyAt:nowIso,
+    status:nextStatus,
+    completedAt:nextStatus==='待確認'?'':n.completedAt,
+    notionSyncStatus:'pending'
+  });
+  try{
+    await writeNotePrimary(n,{event:{actorRole:editor,action:'修正回覆',comment:`${parsed.action||'回覆'} -> ${action||'回覆'} / ${cleanedBody}`.slice(0,800),createdAt:nowIso}});
+    queueNoteNotionMirror(n,'upsert');
+    closeModal();
+    logUserAction('修正記事回覆',n.title,cleanedBody||action,ROLE);
+    showToast(notifyRoles.length?`✅ 回覆已修正，已重新通知 ${notifyRoles.length} 個角色`:'✅ 回覆已修正','ok');
+    if(CURRENT_TAB==='notes')renderTab('notes');
+  }catch(e){
+    showToast('❌ Supabase 未寫入，回覆修正未儲存：'+e.message,'err',9000);
   }
 }
 async function submitNoteReply(id,quickAction=''){
