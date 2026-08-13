@@ -16399,7 +16399,9 @@ async function returnCorderStock(refs, refNo){
     const mat=r.mat;
     const stockMove=batchMoves.items.find(move=>move.pageId===r.id);
     if(!stockMove) throw new Error(`C端退料批次回傳缺少料號：${mat?.code||r.id}`);
-    await logStockChangeQuietly(r.id,mat?.name||'',mat?.code||'','C端退料',r.qty,stockMove.before,stockMove.after,refNo,ROLE);
+    if(!stockMove.duplicate){
+      await logStockChangeQuietly(r.id,mat?.name||'',mat?.code||'','C端退料',r.qty,stockMove.before,stockMove.after,refNo,ROLE);
+    }
     if(mat) mat.stock=stockMove.after;
   }
 }
@@ -19263,11 +19265,12 @@ function normalizeStockLogType(type){
   if(t.includes('新增訂單')||t.includes('建立訂單')) return '新增訂單';
   if(t.includes('刪除訂單')) return '刪除訂單';
   if(t.includes('取消')) return '取消訂單';
+  if(t.includes('C端出貨')) return 'C端出貨';
+  if(t.includes('C端退料')) return t.includes('刪除')?'C端退料（刪除）':'C端退料';
+  if(t.includes('完成C端訂單')||t.includes('C端訂單自動完成')) return '狀態更新';
   if(t.includes('狀態')) return '狀態更新';
   if(t.includes('出貨')) return '出貨完成';
   if(t.includes('補料')) return '補料';
-  if(t.includes('C端出貨')) return 'C端出貨';
-  if(t.includes('C端退料')) return t.includes('刪除')?'C端退料（刪除）':'C端退料';
   if(t.includes('入庫')||t.includes('入料')||t.includes('完成')) return '入料';
   if(t.includes('領料')||t.includes('扣料')||t.includes('組裝')) return '領料';
   return '手動調整';
