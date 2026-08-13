@@ -25,7 +25,7 @@ def function_body(name: str) -> str:
 
 def test_zero_quantity_rows_are_operation_records_not_inventory_moves():
     assert "function stockLogIsInventoryMove" in INDEX
-    assert "return Number(s?.qty||0)>0;" in function_body("stockLogIsInventoryMove")
+    assert "Number(s?.qty||0)>0||Number(s?.before||0)!==Number(s?.after||0)" in function_body("stockLogIsInventoryMove")
     assert "return stockLogIsInventoryMove(s)?(s?.type||'庫存異動'):'操作紀錄';" in function_body("stockLogDisplayType")
     assert "if(!stockLogIsInventoryMove(s)) return '紀錄';" in function_body("stockLogQtyLabel")
 

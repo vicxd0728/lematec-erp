@@ -1621,6 +1621,19 @@ function isShopeeProductionOrder(o){
 }
 function canMoveOrderStatus(oldStatus,newStatus,o){
   if(oldStatus===newStatus) return {ok:true,msg:''};
+  if(isShopeeProductionOrder(o)){
+    if(oldStatus==='待排程'&&newStatus==='取消') return {ok:true,msg:''};
+    if(oldStatus==='待排程'&&newStatus==='生產中'){
+      return {ok:false,msg:'蝦皮 S- 補庫單請按「領料」，扣 BOM 直接子件後系統會轉生產中'};
+    }
+    if(newStatus==='待檢驗'||newStatus==='待出貨'||newStatus==='已完成'){
+      return {ok:false,msg:'蝦皮 S- 補庫單請按「完成」入庫 S- 成品，不可用狀態選單跳流程'};
+    }
+    if(newStatus==='取消'){
+      return {ok:false,msg:'蝦皮 S- 補庫單已領料或生產後不可直接取消；請先做庫存沖銷/作廢稽核'};
+    }
+    return {ok:false,msg:'蝦皮 S- 補庫單請使用「領料 / 完成 / 取消」流程'};
+  }
   if(oldStatus==='生產中'&&newStatus==='待檢驗'&&!canProductionToQcRole()){
     return {ok:false,msg:'生產完成送待檢驗僅限倉管、採購、Vic、廠長'};
   }
@@ -1631,7 +1644,6 @@ function canMoveOrderStatus(oldStatus,newStatus,o){
     return {ok:false,msg:'待出貨完成僅限業務、倉管、Vic、廠長'};
   }
   if(oldStatus==='生產中'&&newStatus==='已完成'){
-    if(isShopeeProductionOrder(o)) return {ok:false,msg:'蝦皮 S- 訂單請使用完成按鈕，才能增加 S-庫存'};
     if(!isAdminRole()) return {ok:false,msg:'一般訂單不可跳過品管直接完成'};
   }
   return {ok:true,msg:''};
@@ -10409,7 +10421,7 @@ async function loadStockLog(options={}){
 }
 
 function stockLogIsInventoryMove(s){
-  return Number(s?.qty||0)>0;
+  return Number(s?.qty||0)>0||Number(s?.before||0)!==Number(s?.after||0);
 }
 function stockLogDisplayType(s){
   return stockLogIsInventoryMove(s)?(s?.type||'庫存異動'):'操作紀錄';
