@@ -16439,13 +16439,17 @@ function openEditCorder(id){
   openModal();
 }
 
+function normalizeNotionIdForCompare(id=''){
+  return String(id||'').trim().replace(/-/g,'').toLowerCase();
+}
 async function corderInternalNoExists(orderNo,currentId=''){
+  const currentKey=normalizeNotionIdForCompare(currentId);
   const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
     page_size:10,
     filter:{property:'訂單號碼',title:{equals:orderNo}},
   });
   if(r?.object==='error') throw new Error('單號查核失敗：'+(r.message||r.code||'未知錯誤'));
-  return (r.results||[]).some(p=>p.id!==currentId);
+  return (r.results||[]).some(p=>normalizeNotionIdForCompare(p.id)!==currentKey);
 }
 
 async function saveEditCorder(id){
