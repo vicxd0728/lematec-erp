@@ -16457,16 +16457,20 @@ async function saveEditCorder(id){
   const serial=normalizeCorderSerialInput(document.getElementById('eco_order_serial')?.value||'');
   if(!serial){showToast('請輸入 C端內部單號數字','warn');return;}
   const orderNo=formatCorderNo(serial);
-  const localDuplicated=(window.corders||[]).find(x=>x.id!==id&&String(x.no||'').trim().toUpperCase()===orderNo.toUpperCase());
-  try{
-    if(localDuplicated) showToast('正在重新確認內部單號...','warn',2500);
-    if(await corderInternalNoExists(orderNo,id)){
-      showToast('❌ 此 C端內部單號已存在，請改用其他數字','err');
+  const originalOrderNo=String(o?.no||'').trim().toUpperCase();
+  const orderNoChanged=orderNo.toUpperCase()!==originalOrderNo;
+  if(orderNoChanged){
+    const localDuplicated=(window.corders||[]).find(x=>x.id!==id&&String(x.no||'').trim().toUpperCase()===orderNo.toUpperCase());
+    try{
+      if(localDuplicated) showToast('正在重新確認內部單號...','warn',2500);
+      if(await corderInternalNoExists(orderNo,id)){
+        showToast('❌ 此 C端內部單號已存在，請改用其他數字','err');
+        return;
+      }
+    }catch(e){
+      showToast('❌ '+e.message,'err');
       return;
     }
-  }catch(e){
-    showToast('❌ '+e.message,'err');
-    return;
   }
   const buyer=(document.getElementById('eco_buyer')?.value||'').trim();
   const shopeeNo=(document.getElementById('eco_shopee_no')?.value||'').trim();

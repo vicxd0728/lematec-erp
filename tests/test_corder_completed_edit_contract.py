@@ -30,6 +30,15 @@ class CorderCompletedEditContractTests(unittest.TestCase):
         self.assertIn("currentKey=normalizeNotionIdForCompare(currentId)", helper)
         self.assertIn("normalizeNotionIdForCompare(p.id)!==currentKey", helper)
 
+
+    def test_unchanged_corder_number_skips_duplicate_lookup(self):
+        body = function_body("saveEditCorder")
+        self.assertIn("const originalOrderNo=String(o?.no||'').trim().toUpperCase();", body)
+        self.assertIn("const orderNoChanged=orderNo.toUpperCase()!==originalOrderNo;", body)
+        self.assertIn("if(orderNoChanged){", body)
+        self.assertGreater(body.index("if(orderNoChanged){"), body.index("const orderNoChanged"))
+        self.assertGreater(body.index("corderInternalNoExists(orderNo,id)"), body.index("if(orderNoChanged){"))
+
     def test_corder_edit_can_write_ship_date(self):
         body = function_body("saveEditCorder")
         self.assertIn("const shipDate=document.getElementById('eco_ship_date')", body)
