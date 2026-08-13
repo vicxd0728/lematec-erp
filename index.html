@@ -16530,6 +16530,22 @@ async function saveEditCorder(id){
   const ship=(document.getElementById('eco_ship')?.value||'').trim();
   const shipDate=document.getElementById('eco_ship_date')?.value||'';
   const note=(document.getElementById('eco_note')?.value||'').trim();
+  const originalStatus=o?.status||'出貨中';
+  if(status!==originalStatus){
+    showToast('C端狀態請用列表的「完成 / 取消」按鈕，才會套用出日與庫存回料流程','warn',9000);
+    return;
+  }
+  const originalQty=Number(o?.qty||0);
+  if(qty!==originalQty){
+    showToast('C端數量已牽涉出貨扣庫，不可在一般編輯直接修改；請用取消回料、重新建立或庫存調整並留原因','err',10000);
+    return;
+  }
+  const oldMatText=String(o?.matCode||o?.matName||'').trim().toUpperCase();
+  const newMatText=String(matName||'').trim().toUpperCase();
+  if(newMatText!==oldMatText){
+    showToast('C端品名/料號已牽涉出貨扣庫，不可在一般編輯直接修改；請用取消回料、重新建立或庫存調整並留原因','err',10000);
+    return;
+  }
   closeModal(); showToast('C端訂單更新中...','warn');
   try{
     const props={
