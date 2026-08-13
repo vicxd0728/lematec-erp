@@ -10758,8 +10758,8 @@ function noteTargetsForSubmit(){
 function noteTagsForSubmit(){
   return noteSplitList(document.getElementById('note_tags')?.value||'').slice(0,12);
 }
-function renderNoteFileSelection(input){
-  const el=document.getElementById('note_file_selection');
+function renderNoteFileSelection(input,targetId=''){
+  const el=document.getElementById(targetId||input?.dataset?.selectionTarget||'note_file_selection');
   if(!el)return;
   const files=[...(input?.files||[])];
   if(!files.length){el.textContent='尚未選擇附件';return;}
@@ -12539,6 +12539,12 @@ function openNoteReply(id,preset=''){
       <div><label class="field-label">自訂動作（會儲存成選項）</label><input class="inp" id="note_reply_custom" placeholder="例如：需要補資料、已安排、請改期"></div>
     </div>
     <div style="margin-bottom:12px"><label class="field-label">留言</label><textarea class="inp" id="note_reply_text" rows="4" placeholder="可以補充原因、問題、下一步或處理結果"></textarea></div>
+    <div style="margin-bottom:12px">
+      <label class="field-label">回覆附件</label>
+      <input class="inp" id="note_reply_files" type="file" multiple data-selection-target="note_reply_file_selection" onchange="renderNoteFileSelection(this)">
+      <div id="note_reply_file_selection" class="hint" style="margin-top:6px">尚未選擇附件</div>
+      <div class="hint" style="margin-top:4px">照片、影片、PDF、Office、壓縮檔等皆可附加；單次最多 5 個，每個 20MB 以內。</div>
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="submitNoteReply('${id}')">送出回覆</button>
@@ -12550,7 +12556,12 @@ async function submitNoteReplyPrimary(id,quickAction=''){
   const role=loginRoleLabel();
   const action=(quickAction||document.getElementById('note_reply_custom')?.value.trim()||document.getElementById('note_reply_action')?.value||'知道了').trim();
   const comment=(document.getElementById('note_reply_text')?.value||'').trim();
-  if(!action&&!comment){showToast('請輸入回覆內容或選擇動作','warn');return;}
+  const replyFiles=quickAction?[]:[...(document.getElementById('note_reply_files')?.files||[])];
+  if(replyFiles.length>NOTE_MAX_ATTACHMENTS){showToast(`附件一次最多 ${NOTE_MAX_ATTACHMENTS} 個`,'warn');return;}
+  const uploadableFiles=replyFiles.filter(file=>(file.size||0)>0&&(file.size||0)<=NOTE_MAX_ATTACHMENT_BYTES);
+  const oversizedFiles=replyFiles.filter(file=>(file.size||0)>NOTE_MAX_ATTACHMENT_BYTES);
+  const emptyFiles=replyFiles.filter(file=>(file.size||0)<=0);
+  if(!action&&!comment&&!replyFiles.length){showToast('請輸入回覆內容、選擇動作或附加檔案','warn');return;}
   saveNoteReplyOption(action);
   let nextStatus=n.status||'未處理';
   if(action==='接受處理')nextStatus='已接受';
@@ -12559,19 +12570,28 @@ async function submitNoteReplyPrimary(id,quickAction=''){
   if(!acked.includes(role))acked.push(role);
   const pending=noteAudienceRoles(n).filter(r=>r!==role);
   const nowIso=new Date().toISOString();
-  const line=`[${fmtDateTime(nowIso)} ${role}｜${action||'回覆'}]${comment?' '+comment:''}`;
+  const replyAttachmentNote=uploadableFiles.length?`附件 ${uploadableFiles.length} 個`:'';
+  const line=`[${fmtDateTime(nowIso)} ${role}｜${action||'回覆'}]${comment?' '+comment:replyAttachmentNote?' '+replyAttachmentNote:''}`;
   Object.assign(n,{
     ackRoles:acked.join('、'),pendingRoles:pending.join('、'),replyAction:action,
     replies:[n.replies||'',line].filter(Boolean).join('\n').slice(-1800),
-    lastReply:comment||action,lastReplyBy:role,lastReplyAt:nowIso,status:nextStatus,
+    lastReply:comment||replyAttachmentNote||action,lastReplyBy:role,lastReplyAt:nowIso,status:nextStatus,
     owner:action==='接受處理'&&!n.owner?role:n.owner,notionSyncStatus:'pending'
   });
   try{
-    await writeNotePrimary(n,{event:{actorRole:role,action,comment,createdAt:nowIso}});
+    await writeNotePrimary(n,{event:{actorRole:role,action,comment:comment||replyAttachmentNote||action,createdAt:nowIso}});
+    if(uploadableFiles.length)_notesNotionPendingFiles[n.id]=uploadableFiles;
     queueNoteNotionMirror(n,'upsert');
     closeModal();
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
-    showToast('✅ 回覆已送出；Notion 將於背景同步','ok');
+    showToast(uploadableFiles.length?'✅ 回覆已送出；附件將於背景同步':'✅ 回覆已送出；Notion 將於背景同步','ok');
+    if(uploadableFiles.length){
+      setTimeout(()=>flushNotesNotionMirrorQueue({quiet:true}).then(result=>{
+        if(!result.pending)showToast(`✅ ${uploadableFiles.length} 個回覆附件已同步`,'ok');
+      }).catch(e=>showToast('⚠ 回覆已送出，但附件待重試：'+e.message,'warn',8000)),50);
+    }
+    if(oversizedFiles.length)showToast(`⚠ ${oversizedFiles.length} 個超過 20MB 的回覆附件請從 Notion 事件頁補上傳`,'warn',9000);
+    if(emptyFiles.length)showToast(`⚠ ${emptyFiles.length} 個空檔案未上傳`,'warn',7000);
     if(CURRENT_TAB==='notes')renderTab('notes');
   }catch(e){
     showToast('❌ Supabase 未寫入，回覆未送出：'+e.message,'err',9000);
