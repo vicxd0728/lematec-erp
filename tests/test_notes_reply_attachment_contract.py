@@ -25,10 +25,28 @@ def test_note_reply_submit_queues_attachments_after_primary_write():
     assert "replyFiles.length>NOTE_MAX_ATTACHMENTS" in submit
     assert "const uploadableFiles=replyFiles.filter" in submit
     assert "const replyAttachmentNote=uploadableFiles.length" in submit
+    assert "const replyKey=noteReplyAttachmentKeyFromParts" in submit
     assert "await writeNotePrimary" in submit
     assert "_notesNotionPendingFiles[n.id]=uploadableFiles" in submit
+    assert "_notesNotionPendingAttachmentContexts[n.id]={replyKey}" in submit
     assert "queueNoteNotionMirror(n,'upsert')" in submit
     assert "flushNotesNotionMirrorQueue({quiet:true})" in submit
+
+
+def test_reply_attachments_are_marked_and_rendered_inline_with_thread():
+    attachment_helpers = section("function noteAttachmentName", "async function countNoteAttachmentBlocks")
+    formatter = section("function formatNoteThread", "function noteRelationSummary")
+    detail = section("async function openNoteDetail", "async function resyncNoteCustomer")
+    mirror = section("async function flushNotesNotionMirrorQueue", "async function loadLiveNoteConversation")
+    assert "ERP_REPLY_ATTACHMENT" in attachment_helpers
+    assert "noteAttachmentReplyKey" in attachment_helpers
+    assert "noteGroupAttachmentsByReply" in attachment_helpers
+    assert "noteReplyAttachmentGrid" in attachment_helpers
+    assert "formatNoteThread(text='',attachmentsByKey={})" in formatter
+    assert "noteReplyAttachmentGrid(attachmentsByKey[key])" in formatter
+    assert 'id="note_thread_box"' in detail
+    assert "loadNoteAttachments(n.actualNotionPageId,n.files||[],n)" in detail
+    assert "uploadNoteAttachments(notionId,files,_notesNotionPendingAttachmentContexts[task.noteKey]||{})" in mirror
 
 
 def test_file_selection_renderer_supports_reply_target():

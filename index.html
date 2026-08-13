@@ -10794,7 +10794,13 @@ function noteAttachmentUrl(payload={}){
   return payload?.file?.url||payload?.external?.url||payload?.file_upload?.url||'';
 }
 function noteAttachmentName(block={},payload={}){
-  return payload?.name||block?.caption?.map(x=>x.plain_text||x.text?.content||'').join('')||block?.type||'附件';
+  const raw=payload?.name||block?.caption?.map(x=>x.plain_text||x.text?.content||'').join('')||block?.type||'附件';
+  return String(raw||'附件').replace(/^\[ERP_REPLY_ATTACHMENT:[^\]]+\]\s*/,'')||'附件';
+}
+function noteAttachmentReplyKey(block={},payload={}){
+  const raw=payload?.name||block?.caption?.map(x=>x.plain_text||x.text?.content||'').join('')||'';
+  const m=String(raw||'').match(/^\[ERP_REPLY_ATTACHMENT:([^\]]+)\]/);
+  return m?m[1]:'';
 }
 function noteAttachmentCard(item){
   const url=escapeHtml(item.url||'');
@@ -10805,7 +10811,47 @@ function noteAttachmentCard(item){
   if(item.kind==='audio')return `<audio controls preload="metadata" style="width:100%"><source src="${url}"></audio><div class="hint" style="margin-top:5px">${name}</div>`;
   return `<a class="btn btn-ghost btn-sm" href="${url}" target="_blank" rel="noopener">📎 ${name}</a>`;
 }
-async function loadNoteAttachments(pageId,legacyFiles=[]){
+function noteReplyAttachmentKeyFromParts(stamp='',role=''){
+  return `reply:${String(stamp||'').trim()}:${String(role||'').trim()}`;
+}
+function noteReplyAttachmentKeyFromLine(line=''){
+  const m=String(line||'').match(/^\[([^\]]+?)\s+([^｜\]]+)｜/);
+  return m?noteReplyAttachmentKeyFromParts(m[1],m[2]):'';
+}
+function noteReplyLineTimeMs(line=''){
+  const m=String(line||'').match(/^\[(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})\s+/);
+  if(!m)return 0;
+  const now=new Date();
+  const d=new Date(now.getFullYear(),Number(m[1])-1,Number(m[2]),Number(m[3]),Number(m[4]),0,0);
+  if(d.getTime()-now.getTime()>24*60*60*1000)d.setFullYear(d.getFullYear()-1);
+  return d.getTime();
+}
+function noteGroupAttachmentsByReply(replies='',items=[]){
+  const lines=String(replies||'').split('\n');
+  const replyMeta=lines.map((line,index)=>({index,key:noteReplyAttachmentKeyFromLine(line),time:noteReplyLineTimeMs(line)})).filter(x=>x.key);
+  const byKey={};
+  const unmatched=[];
+  (items||[]).forEach(item=>{
+    let key=item.replyKey||'';
+    if(!key&&item.createdTime&&replyMeta.length){
+      const created=new Date(item.createdTime).getTime();
+      if(!isNaN(created)){
+        const nearest=replyMeta.map(meta=>({...meta,diff:Math.abs(created-meta.time)})).sort((a,b)=>a.diff-b.diff)[0];
+        if(nearest&&nearest.diff<=45*60*1000)key=nearest.key;
+      }
+    }
+    if(key)(byKey[key]=byKey[key]||[]).push(item);else unmatched.push(item);
+  });
+  return {byKey,unmatched};
+}
+function noteReplyAttachmentGrid(items=[]){
+  if(!items.length)return '';
+  return `<div class="note-reply-attachments" style="margin:8px 0 2px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(34,211,238,.06)">
+    <div class="field-label" style="margin-bottom:6px">本次回覆附件 ${items.length}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">${items.map(noteAttachmentCard).join('')}</div>
+  </div>`;
+}
+async function loadNoteAttachments(pageId,legacyFiles=[],noteData=null){
   const box=document.getElementById('note_attachment_list');
   if(!box)return;
   try{
@@ -10819,17 +10865,21 @@ async function loadNoteAttachments(pageId,legacyFiles=[]){
         if(!['image','video','audio','pdf','file'].includes(block.type))return;
         const payload=block[block.type]||{};
         const url=noteAttachmentUrl(payload);
-        if(url)items.push({kind:block.type,name:noteAttachmentName(block,payload),url});
+        if(url)items.push({kind:block.type,name:noteAttachmentName(block,payload),url,replyKey:noteAttachmentReplyKey(block,payload),createdTime:block.created_time||''});
       });
       cursor=result?.has_more?result.next_cursor:'';
     }while(cursor);
     (legacyFiles||[]).forEach(file=>{
       const payload=file[file.type]||file;
       const url=noteAttachmentUrl(payload);
-      if(url&&!items.some(x=>x.url===url))items.push({kind:noteAttachmentKind(file),name:file.name||'附件',url});
+      if(url&&!items.some(x=>x.url===url))items.push({kind:noteAttachmentKind(file),name:file.name||'附件',url,replyKey:'',createdTime:file.created_time||file.createdTime||''});
     });
-    box.innerHTML=items.length
-      ?`<div class="field-label" style="margin-bottom:7px">附件 ${items.length}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">${items.map(noteAttachmentCard).join('')}</div>`
+    const grouped=noteData?.replies?noteGroupAttachmentsByReply(noteData.replies,items):{byKey:{},unmatched:items};
+    const threadBox=document.getElementById('note_thread_box');
+    if(threadBox&&noteData?.replies)threadBox.innerHTML=formatNoteThread(noteData.replies,grouped.byKey);
+    const topItems=grouped.unmatched||items;
+    box.innerHTML=topItems.length
+      ?`<div class="field-label" style="margin-bottom:7px">記事附件 ${topItems.length}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">${topItems.map(noteAttachmentCard).join('')}</div>`
       :'<span style="color:var(--text3)">沒有附件</span>';
   }catch(e){
     box.innerHTML=`<span style="color:var(--red)">附件讀取失敗：${escapeHtml(e.message||String(e))}</span>`;
@@ -10847,7 +10897,7 @@ async function countNoteAttachmentBlocks(pageId){
   }while(cursor);
   return count;
 }
-async function uploadNoteAttachments(pageId,files=[]){
+async function uploadNoteAttachments(pageId,files=[],context={}){
   const outcome={uploaded:[],failed:[]};
   if(!pageId||!files.length)return outcome;
   const blocks=[];
@@ -10858,12 +10908,13 @@ async function uploadNoteAttachments(pageId,files=[]){
       const uploaded=await uploadNotionFileViaProxy(file);
       const kind=noteAttachmentKind(file);
       const blockType=['image','video','audio','pdf'].includes(kind)?kind:'file';
+      const captionName=context.replyKey?`[ERP_REPLY_ATTACHMENT:${context.replyKey}] ${file.name||'附件'}`:(file.name||'附件');
       blocks.push({
         type:blockType,
         [blockType]:{
           type:'file_upload',
           file_upload:{id:uploaded.file_upload.id},
-          caption:[{type:'text',text:{content:file.name||'附件'}}]
+          caption:[{type:'text',text:{content:captionName}}]
         }
       });
       outcome.uploaded.push({name:file.name||'附件',size:file.size||0});
@@ -11909,8 +11960,12 @@ function renderNoteList(list,showDate=false){
     </div>
   </div>`).join('')}</div>`;
 }
-function formatNoteThread(text=''){
-  return escapeHtml(text).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
+function formatNoteThread(text='',attachmentsByKey={}){
+  return String(text||'').split('\n').map(line=>{
+    const key=noteReplyAttachmentKeyFromLine(line);
+    const body=escapeHtml(line).replace(/\[([^\]]+)\]/g,'<b>[$1]</b>');
+    return body+(attachmentsByKey[key]?.length?noteReplyAttachmentGrid(attachmentsByKey[key]):'');
+  }).join('\n');
 }
 function noteRelationSummary(n){
   const parts=[];
@@ -12150,6 +12205,7 @@ function queueNoteNotionMirror(n,action='upsert',error=''){
 }
 let _notesNotionMirrorFlushing=false;
 const _notesNotionPendingFiles={};
+const _notesNotionPendingAttachmentContexts={};
 async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
   if(_notesNotionMirrorFlushing||!TOKEN||!navigator.onLine)return {processed:0,pending:readNotesNotionMirrorQueue().length};
   _notesNotionMirrorFlushing=true;
@@ -12181,7 +12237,7 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
           }
           const files=(volatileFiles||_notesNotionPendingFiles)[task.noteKey]||[];
           if(files.length){
-            const result=await uploadNoteAttachments(notionId,files);
+            const result=await uploadNoteAttachments(notionId,files,_notesNotionPendingAttachmentContexts[task.noteKey]||{});
             n.attachmentCount=Number(n.attachmentCount||0)+result.uploaded.length;
             if(result.failed.length)throw new Error(result.failed.map(x=>`${x.name}: ${x.error}`).join('；'));
           }
@@ -12200,6 +12256,7 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
           n.notionSyncError='';
           await writeNotePrimary(n,{notionSyncStatus:'synced'});
           delete _notesNotionPendingFiles[task.noteKey];
+          delete _notesNotionPendingAttachmentContexts[task.noteKey];
         }
         await completeReliableMirrorJob('notes_notion',task);
         processed++;
@@ -12310,7 +12367,7 @@ async function openNoteDetail(id){
     ${(n.tags||[]).length?`<div class="note-tags" style="margin-bottom:12px">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
     ${n.body?`<div class="note-body" style="font-size:.95rem;margin-bottom:12px">${escapeHtml(n.body)}</div>`:'<div class="note-body" style="margin-bottom:12px;color:var(--text3)">沒有內容</div>'}
     <div id="note_attachment_list" class="note-body" style="margin-bottom:12px;color:var(--text3)">附件載入中...</div>
-    ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
+    ${n.replies?`<div class="note-thread" id="note_thread_box">${formatNoteThread(n.replies)}</div>`:''}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
       ${n.customerCode?`<button class="btn btn-cyan" onclick="resyncNoteCustomer('${n.id}')">同步客戶頁</button>`:''}
@@ -12319,7 +12376,7 @@ async function openNoteDetail(id){
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
     </div>`;
   openSharedModal();
-  if(n.actualNotionPageId)loadNoteAttachments(n.actualNotionPageId,n.files||[]);
+  if(n.actualNotionPageId)loadNoteAttachments(n.actualNotionPageId,n.files||[],n);
   else{
     const attachmentBox=document.getElementById('note_attachment_list');
     if(attachmentBox)attachmentBox.textContent='Notion 鏡像建立中；附件會在背景同步完成後顯示。';
@@ -12571,7 +12628,8 @@ async function submitNoteReplyPrimary(id,quickAction=''){
   const pending=noteAudienceRoles(n).filter(r=>r!==role);
   const nowIso=new Date().toISOString();
   const replyAttachmentNote=uploadableFiles.length?`附件 ${uploadableFiles.length} 個`:'';
-  const line=`[${fmtDateTime(nowIso)} ${role}｜${action||'回覆'}]${comment?' '+comment:replyAttachmentNote?' '+replyAttachmentNote:''}`;
+  const replyKey=noteReplyAttachmentKeyFromParts(fmtDateTime(nowIso),role);
+  const line=`[${fmtDateTime(nowIso)} ${role}｜${action||'回覆'}]${comment?' '+comment:''}${replyAttachmentNote?`（${replyAttachmentNote}）`:''}`;
   Object.assign(n,{
     ackRoles:acked.join('、'),pendingRoles:pending.join('、'),replyAction:action,
     replies:[n.replies||'',line].filter(Boolean).join('\n').slice(-1800),
@@ -12580,7 +12638,10 @@ async function submitNoteReplyPrimary(id,quickAction=''){
   });
   try{
     await writeNotePrimary(n,{event:{actorRole:role,action,comment:comment||replyAttachmentNote||action,createdAt:nowIso}});
-    if(uploadableFiles.length)_notesNotionPendingFiles[n.id]=uploadableFiles;
+    if(uploadableFiles.length){
+      _notesNotionPendingFiles[n.id]=uploadableFiles;
+      _notesNotionPendingAttachmentContexts[n.id]={replyKey};
+    }
     queueNoteNotionMirror(n,'upsert');
     closeModal();
     logUserAction('回覆記事',n.title,`${action}${comment?' / '+comment:''}`,ROLE);
