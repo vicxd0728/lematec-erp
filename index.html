@@ -18476,7 +18476,84 @@ function renderQCTab(){
 // ACTIONS
 // ═══════════════════════════════════════════════
 // ── 刪除訂單（跳確認框，Notion archive 同步刪除）
-async function deleteOrder(oid, no){
+function orderAuditLogText(row){
+  return [
+    row?.ref_no,row?.change_type,row?.original_action,row?.material_code,row?.material_name,row?.note
+  ].map(v=>String(v||'')).join(' ');
+}
+function isStockImpactLog(row){
+  const text=orderAuditLogText(row);
+  const qty=Number(row?.quantity)||0;
+  if(qty>0&&/(領料|扣料|入庫|出貨|退料|調整|C端|蝦皮完成)/.test(text)) return true;
+  return /(領料扣|蝦皮完成入庫|C端出貨|C端退料|訂單領料扣庫|訂單成品直接扣庫)/.test(text);
+}
+async function fetchOrderStockAuditRows(orderNo){
+  const target=String(orderNo||'').trim();
+  if(!target) return [];
+  const all=[];
+  let offset=0;
+  for(let guard=0;guard<8;guard++){
+    const res=await fetch(`${PROXY}/api/stock-log/list?mode=all&limit=995&offset=${offset}&order_delete_audit=1`);
+    const data=await res.json().catch(()=>null);
+    if(!res.ok||data?.ok===false||data?.error) throw new Error(data?.error||`異動記錄查詢失敗 HTTP ${res.status}`);
+    const rows=Array.isArray(data?.rows)?data.rows:[];
+    all.push(...rows);
+    if(!data?.has_more) break;
+    offset=Number(data.next_offset)||offset+995;
+  }
+  const related=all.filter(row=>String(row?.ref_no||'')===target||orderAuditLogText(row).includes(target));
+  const pickRefs=new Set(related.map(row=>String(row?.ref_no||'')).filter(ref=>/^PK-/i.test(ref)));
+  const withPick=all.filter(row=>pickRefs.has(String(row?.ref_no||'')));
+  const seen=new Set();
+  return [...related,...withPick].filter(row=>{
+    const key=String(row?.id||row?.client_trace_id||`${row?.created_at}|${row?.ref_no}|${row?.material_name}`);
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+}
+function openOrderDeleteBlockedModal(oid,no,rows){
+  const impact=rows.filter(isStockImpactLog);
+  const list=rows.slice(-12).map(row=>`
+    <tr>
+      <td style="font-family:var(--f-mono);font-size:.75rem">${escapeHtml(String(row.created_at||row.change_date||'').replace('T',' ').slice(0,19))}</td>
+      <td>${escapeHtml(row.change_type||row.original_action||'')}</td>
+      <td>${escapeHtml(row.material_code||row.material_name||'')}</td>
+      <td style="font-family:var(--f-mono)">${Number(row.quantity)||0}</td>
+      <td style="font-family:var(--f-mono)">${escapeHtml(row.ref_no||'')}</td>
+    </tr>`).join('');
+  document.getElementById('modalInner').innerHTML=`
+    <h3>⚠️ 訂單已有庫存異動，禁止直接刪除</h3>
+    <div class="info-box info-warn" style="margin-bottom:12px">
+      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。
+    </div>
+    <div style="font-size:.8125rem;color:var(--text2);margin-bottom:10px">
+      請改用「狀態」標記取消/作廢，必要時再用庫存調整或沖銷流程修正數量。
+    </div>
+    <div class="table-wrap" style="max-height:280px"><table>
+      <tr><th>時間</th><th>動作</th><th>料號/內容</th><th>數量</th><th>單號</th></tr>
+      ${list||'<tr><td colspan="5">無明細</td></tr>'}
+    </table></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      <button class="btn btn-yellow" onclick="closeModal();openStatusModal('${oid}',(orders.find(o=>o.id==='${oid}')||{}).status||'')">改狀態</button>
+    </div>`;
+  openModal();
+}
+async function deleteOrder(oid, no, opts={}){
+  if(!opts.skipAudit){
+    showToast('刪除前檢查庫存異動...','warn');
+    try{
+      const rows=await fetchOrderStockAuditRows(no);
+      if(rows.some(isStockImpactLog)){
+        openOrderDeleteBlockedModal(oid,no,rows);
+        return;
+      }
+    }catch(e){
+      showToast('❌ 刪除前檢查失敗，已停止刪除：'+e.message,'err',9000);
+      return;
+    }
+  }
   if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將從 Notion 永久刪除，無法復原。')) return;
   showToast('刪除中...','warn');
   try{
@@ -21523,7 +21600,7 @@ async function submitShopeeOrdersV2(){
   }
   window._shopeeOrderItems=[];
   await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});
-  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}`,fail?'warn':'ok');
+  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}；下一步請由倉管/採購按「領料」才會扣 BOM 直接子件`,fail?'warn':'ok',9000);
   if(messages.length) alert('以下 S-料號未完成建立：\n\n'+messages.join('\n'));
 }
 
