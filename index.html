@@ -10445,6 +10445,242 @@ function stockLogQtyLabel(s){
   if(!stockLogIsInventoryMove(s)) return '紀錄';
   return `${s.type==='入料'?'+':''}${Number(s.qty)||0}`;
 }
+const STOCK_LOG_AUDIT_ACK_STORAGE='lematec_stock_log_audit_ack_v1';
+function readStockLogAuditAck(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(STOCK_LOG_AUDIT_ACK_STORAGE)||'[]');
+    return new Set(Array.isArray(rows)?rows:[]);
+  }catch{return new Set();}
+}
+function writeStockLogAuditAck(keys){
+  localStorage.setItem(STOCK_LOG_AUDIT_ACK_STORAGE,JSON.stringify([...keys].slice(-300)));
+}
+function stockLogAuditOrderSkuQty(text=''){
+  const m=String(text||'').match(/\b(S-[^\s]+)\s+x\s+(\d+(?:\.\d+)?)/i);
+  return m?{sku:m[1],qty:Number(m[2])||0}:null;
+}
+function buildStockLogAuditReport(logs=stockLogs){
+  const ack=readStockLogAuditAck();
+  const rows=(Array.isArray(logs)?logs:[]).filter(Boolean);
+  const inventoryMoves=rows.filter(stockLogIsInventoryMove);
+  const operationLogs=rows.filter(s=>!stockLogIsInventoryMove(s));
+  const issues=[];
+  const addIssue=issue=>{
+    if(!issue?.key||ack.has(issue.key)) return;
+    issues.push(issue);
+  };
+  const exactMoveGroups=new Map();
+  inventoryMoves
+    .filter(s=>(s.source||'')==='erp_frontend')
+    .forEach(s=>{
+      const key=[s.ref||'',s.matCode||'',s.type||'',Number(s.qty)||0,Number(s.before)||0,Number(s.after)||0].join('|');
+      const group=exactMoveGroups.get(key)||[];
+      group.push(s);
+      exactMoveGroups.set(key,group);
+    });
+  exactMoveGroups.forEach((group,key)=>{
+    if(group.length<2) return;
+    const s=group[0];
+    addIssue({
+      key:`dup:${key}`,
+      level:'warn',
+      category:'重複紀錄',
+      title:`同單同料號有 ${group.length} 筆相同庫存異動`,
+      detail:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${s.type||'庫存異動'} ${Number(s.before)||0} → ${Number(s.after)||0}`,
+      action:'mark',
+      rows:group
+    });
+  });
+
+  const orders=new Map();
+  const ensureOrder=no=>{
+    if(!orders.has(no)) orders.set(no,{no,created:[],pickOps:[],pickMoves:[],completeOps:[],completeMoves:[],pickRefs:new Set(),sku:'',qty:0});
+    return orders.get(no);
+  };
+  operationLogs.forEach(s=>{
+    const title=s.title||s.matName||'';
+    if(/^ORD-/i.test(s.ref||'')){
+      const skuQty=stockLogAuditOrderSkuQty(title);
+      if(skuQty&&title.includes('建立蝦皮訂單')){
+        const order=ensureOrder(s.ref);
+        order.created.push(s);
+        order.sku=order.sku||skuQty.sku;
+        order.qty=order.qty||skuQty.qty;
+      }
+      if(skuQty&&title.includes('完成蝦皮訂單')){
+        const order=ensureOrder(s.ref);
+        order.completeOps.push(s);
+        order.sku=order.sku||skuQty.sku;
+        order.qty=order.qty||skuQty.qty;
+      }
+    }
+    if(/^PK-/i.test(s.ref||'')){
+      const m=title.match(/\b(ORD-[A-Z0-9-]+)/i);
+      if(m){
+        const order=ensureOrder(m[1]);
+        order.pickOps.push(s);
+        order.pickRefs.add(s.ref);
+      }
+    }
+  });
+  inventoryMoves.forEach(s=>{
+    if(/^ORD-/i.test(s.ref||'')&&(s.matCode||'').startsWith('S-')){
+      const order=ensureOrder(s.ref);
+      order.completeMoves.push(s);
+      order.sku=order.sku||s.matCode;
+      order.qty=order.qty||Math.abs(Number(s.qty)||0);
+    }
+  });
+  const movesByPickRef=new Map();
+  inventoryMoves.forEach(s=>{
+    if(!/^PK-/i.test(s.ref||'')) return;
+    const group=movesByPickRef.get(s.ref)||[];
+    group.push(s);
+    movesByPickRef.set(s.ref,group);
+  });
+  orders.forEach(order=>{
+    order.pickRefs.forEach(pk=>(movesByPickRef.get(pk)||[]).forEach(s=>order.pickMoves.push(s)));
+    if(order.pickOps.length&&!order.pickMoves.length){
+      addIssue({
+        key:`pick-op-no-move:${order.no}:${[...order.pickRefs].join(',')}`,
+        level:'error',
+        category:'領料異常',
+        title:'有領料操作紀錄，但找不到實際扣庫紀錄',
+        detail:`${order.no} / ${[...order.pickRefs].join('、')||'無領料單號'}`,
+        action:'manual',
+        rows:order.pickOps
+      });
+    }
+    if(order.created.length&&order.pickMoves.length&&!order.completeMoves.length){
+      const canRepair=!!order.sku&&Number(order.qty)>0&&mats.some(m=>m.code===order.sku);
+      addIssue({
+        key:`shopee-picked-no-stock-in:${order.no}:${order.sku}:${order.qty}`,
+        level:'error',
+        category:'補庫未完成',
+        title:'蝦皮補庫已扣子件，但未入 S- 成品',
+        detail:`${order.no} / ${order.sku||'未解析料號'} x ${order.qty||0}；已扣子件 ${order.pickMoves.length} 筆`,
+        action:canRepair?'stockIn':'manual',
+        orderNo:order.no,
+        sku:order.sku,
+        qty:Number(order.qty)||0,
+        rows:[...order.created,...order.pickOps,...order.pickMoves,...order.completeOps]
+      });
+    }
+    if(order.completeOps.length&&!order.completeMoves.length&&!order.pickMoves.length){
+      addIssue({
+        key:`complete-op-no-move:${order.no}:${order.sku}:${order.qty}`,
+        level:'warn',
+        category:'完成紀錄待查',
+        title:'有完成操作紀錄，但找不到 S- 入庫異動',
+        detail:`${order.no} / ${order.sku||'未解析料號'} x ${order.qty||0}`,
+        action:'manual',
+        rows:order.completeOps
+      });
+    }
+  });
+  const errors=issues.filter(i=>i.level==='error').length;
+  const warnings=issues.filter(i=>i.level!=='error').length;
+  const repairable=issues.filter(i=>i.action==='stockIn').length;
+  const manual=issues.filter(i=>i.action==='manual').length;
+  return {issues,errors,warnings,repairable,manual,checked:rows.length,moves:inventoryMoves.length,operations:operationLogs.length};
+}
+function stockLogAuditIssueCard(issue){
+  const border=issue.level==='error'?'rgba(239,68,68,.32)':'rgba(245,158,11,.3)';
+  const color=issue.level==='error'?'var(--red2)':'var(--amber)';
+  const rowHint=(issue.rows||[]).slice(0,3).map(r=>`${r.date||'—'} ${r.ref||''} ${stockLogDisplayName(r)} ${stockLogQtyLabel(r)}`).join('｜');
+  const actions=[
+    issue.action==='stockIn'?`<button class="btn btn-green btn-xs" onclick="repairShopeeStockInFromAudit('${escapeHtml(issue.orderNo)}','${escapeHtml(issue.sku)}',${Number(issue.qty)||0})">補入 S- 成品</button>`:'',
+    `<button class="btn btn-ghost btn-xs" onclick="ackStockLogAuditIssue('${escapeHtml(issue.key)}')">標記已確認</button>`,
+    issue.rows?.length?`<button class="btn btn-ghost btn-xs" onclick="filterStockLogAuditRef('${escapeHtml(issue.orderNo||issue.rows[0]?.ref||'')}')">查看相關異動</button>`:''
+  ].filter(Boolean).join('');
+  return `<div style="border:1px solid ${border};background:rgba(255,255,255,.025);border-radius:10px;padding:12px;display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap">
+    <div style="min-width:220px;flex:1">
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:5px">
+        <span class="pill" style="background:${color}22;color:${color};border:1px solid ${border}">${escapeHtml(issue.category||'異常')}</span>
+        <b style="color:var(--text)">${escapeHtml(issue.title||'異常')}</b>
+      </div>
+      <div style="font-size:.75rem;color:var(--text2);line-height:1.55">${escapeHtml(issue.detail||'')}</div>
+      ${rowHint?`<div style="font-size:.68rem;color:var(--text3);margin-top:6px;font-family:var(--f-mono)">${escapeHtml(rowHint)}</div>`:''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${actions}</div>
+  </div>`;
+}
+function renderStockLogAuditPanel(report=buildStockLogAuditReport()){
+  const hasIssues=report.issues.length>0;
+  const statusColor=hasIssues?'var(--amber)':'var(--green2)';
+  const statusText=hasIssues?`${report.issues.length} 筆待處理`:'正常';
+  return `<div class="panel" style="margin-bottom:12px;padding:14px;border-color:${hasIssues?'rgba(245,158,11,.28)':'rgba(61,220,151,.24)'}">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <div>
+        <div style="font-size:.8rem;color:var(--text3);font-weight:700;margin-bottom:4px">異動記錄稽核</div>
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+          <b style="font-size:1.35rem;color:${statusColor}">${statusText}</b>
+          <span style="font-size:.76rem;color:var(--text2)">檢查 ${report.checked} 筆；庫存異動 ${report.moves} 筆；操作紀錄 ${report.operations} 筆</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-xs" onclick="renderTab('stocklog')">重新檢查</button>
+        ${DATA_LOAD_MODE.stocklog!=='all'?`<button class="btn btn-blue btn-xs" onclick="loadFullData('stocklog')">載入全部再檢查</button>`:''}
+      </div>
+    </div>
+    ${hasIssues?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:.72rem;color:var(--text2)">
+      <span class="badge">可平台補正 ${report.repairable}</span><span class="badge">需人工判斷 ${report.manual}</span><span class="badge">警示 ${report.warnings}</span><span class="badge">錯誤 ${report.errors}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
+    ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現重複庫存異動、領料未扣庫、或補庫扣料後未入 S- 成品的異常。</div>`}
+  </div>`;
+}
+function ackStockLogAuditIssue(key){
+  const ack=readStockLogAuditAck();
+  ack.add(String(key||''));
+  writeStockLogAuditAck(ack);
+  renderTab('stocklog');
+  showToast('已標記為人工確認','ok');
+}
+function filterStockLogAuditRef(refNo){
+  const input=document.getElementById('slSearch');
+  if(input) input.value=refNo||'';
+  renderTab('stocklog');
+}
+async function repairShopeeStockInFromAudit(orderNo,sku,qty){
+  if(denyViewOnlyAction()) return;
+  if(!(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole())){
+    showToast('補入 S- 成品僅限倉管、採購、Vic、廠長','warn');
+    return;
+  }
+  const amount=Number(qty)||0;
+  const mat=mats.find(m=>m.code===sku);
+  if(!orderNo||!sku||amount<=0||!mat){
+    showToast('找不到可補入庫的 S- 料號，請先同步庫存主檔','err');
+    return;
+  }
+  if(!confirm(`確認補入 ${sku} x ${amount}？\n\n此動作會正式增加 Supabase 庫存，並寫入異動紀錄。`)) return;
+  const typed=prompt('請輸入「補入庫」確認執行');
+  if(typed!=='補入庫') return;
+  const reason=(prompt('補正原因（必填，會寫入異動紀錄）')||'').trim();
+  if(!reason){showToast('請填寫補正原因','warn');return;}
+  showToast('補入庫處理中...','warn');
+  try{
+    const stockMove=await applyInventoryDeltaAndMirror(mat.id,{
+      delta:amount,
+      reason:`異動記錄稽核補入 S- 成品：${reason}`,
+      refNo:orderNo,
+      sourceType:'stocklog_audit_shopee_stock_in_repair',
+      sourceId:`${orderNo}:${sku}:${amount}`
+    });
+    if(!stockMove.duplicate){
+      await logStockChangeQuietly(mat.id,mat.name||sku,mat.code||sku,'蝦皮完成入庫',amount,stockMove.before,stockMove.after,orderNo,ROLE);
+      logUserAction('異動稽核補入庫',orderNo,`${sku} x ${amount} / ${reason}`,ROLE);
+    }
+    mat.stock=stockMove.after;
+    await refreshAffectedData({core:true,tabs:['stocklog','inventory'],label:'異動稽核補入庫已完成'});
+    if(CURRENT_TAB==='stocklog')renderTab('stocklog');
+    showToast(stockMove.duplicate?'此補正先前已完成，未重複入庫':'✅ 已完成補入庫','ok',8000);
+  }catch(e){
+    showToast('❌ 補入庫失敗：'+e.message,'err',9000);
+  }
+}
 
 function renderStockLog(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
@@ -10495,7 +10731,9 @@ function renderStockLog(){
 
   const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)','操作紀錄':'var(--text3)'};
 
-  return _notionBar + syncStatus + `
+  const auditReport=buildStockLogAuditReport(stockLogs);
+
+  return _notionBar + syncStatus + renderStockLogAuditPanel(auditReport) + `
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
