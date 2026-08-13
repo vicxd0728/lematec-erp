@@ -10459,6 +10459,29 @@ function stockLogAuditOrderSkuQty(text=''){
   const m=String(text||'').match(/\b(S-[^\s]+)\s+x\s+(\d+(?:\.\d+)?)/i);
   return m?{sku:m[1],qty:Number(m[2])||0}:null;
 }
+function stockLogAuditPickSourceNo(text=''){
+  const parts=String(text||'').trim().split(/\s+/);
+  const idx=parts.findIndex(p=>p.includes('確認領料'));
+  if(idx<0||idx+1>=parts.length) return '';
+  const value=String(parts[idx+1]||'').trim();
+  return /^(ORD-[A-Z0-9-]+|[A-Z0-9][A-Z0-9._()/+-]*)$/i.test(value)?value:'';
+}
+function stockLogAuditMathIssue(s){
+  if(!stockLogIsInventoryMove(s)) return '';
+  const q=Math.abs(Number(s.qty)||0);
+  const before=Number(s.before)||0;
+  const after=Number(s.after)||0;
+  if(q<=0) return '';
+  const t=String(s.type||'');
+  if(['入料','C端退料','蝦皮完成入庫'].some(x=>t.includes(x))&&Math.abs((after-before)-q)>0.000001){
+    return `入庫/回庫數學不一致：${before} + ${q} 應為 ${before+q}，目前紀錄 ${after}`;
+  }
+  if(['領料','C端出貨'].some(x=>t.includes(x))&&Math.abs((before-after)-q)>0.000001){
+    return `扣庫數學不一致：${before} - ${q} 應為 ${before-q}，目前紀錄 ${after}`;
+  }
+  if(after<0) return `庫存異動後為負數：${after}`;
+  return '';
+}
 function buildStockLogAuditReport(logs=stockLogs){
   const ack=readStockLogAuditAck();
   const rows=(Array.isArray(logs)?logs:[]).filter(Boolean);
@@ -10491,6 +10514,19 @@ function buildStockLogAuditReport(logs=stockLogs){
       rows:group
     });
   });
+  inventoryMoves.forEach(s=>{
+    const mathIssue=stockLogAuditMathIssue(s);
+    if(!mathIssue) return;
+    addIssue({
+      key:`math:${s.id||s.clientTraceId||[s.ref,s.matCode,s.type,s.qty,s.before,s.after].join(':')}`,
+      level:'error',
+      category:'數量異常',
+      title:'庫存異動前後數量不一致',
+      detail:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${mathIssue}`,
+      action:'manual',
+      rows:[s]
+    });
+  });
 
   const orders=new Map();
   const ensureOrder=no=>{
@@ -10515,9 +10551,9 @@ function buildStockLogAuditReport(logs=stockLogs){
       }
     }
     if(/^PK-/i.test(s.ref||'')){
-      const m=title.match(/\b(ORD-[A-Z0-9-]+)/i);
-      if(m){
-        const order=ensureOrder(m[1]);
+      const sourceNo=stockLogAuditPickSourceNo(title);
+      if(sourceNo){
+        const order=ensureOrder(sourceNo);
         order.pickOps.push(s);
         order.pickRefs.add(s.ref);
       }
@@ -10578,6 +10614,32 @@ function buildStockLogAuditReport(logs=stockLogs){
       });
     }
   });
+  const inboundGroups=new Map();
+  const ensureInbound=refNo=>{
+    if(!inboundGroups.has(refNo)) inboundGroups.set(refNo,{refNo,qcOps:[],stockMoves:[]});
+    return inboundGroups.get(refNo);
+  };
+  operationLogs.forEach(s=>{
+    if(/^IB-/i.test(s.ref||'')&&String(s.title||s.matName||'').includes('品管通過')){
+      ensureInbound(s.ref).qcOps.push(s);
+    }
+  });
+  inventoryMoves.forEach(s=>{
+    if(/^IB-/i.test(s.ref||'')) ensureInbound(s.ref).stockMoves.push(s);
+  });
+  inboundGroups.forEach(group=>{
+    if(group.qcOps.length&&!group.stockMoves.length){
+      addIssue({
+        key:`inbound-qc-no-stock:${group.refNo}`,
+        level:'error',
+        category:'入料異常',
+        title:'入料單已品管通過，但找不到入庫異動',
+        detail:`${group.refNo} / 品管通過 ${group.qcOps.length} 筆，但沒有對應庫存增加`,
+        action:'manual',
+        rows:group.qcOps
+      });
+    }
+  });
   const errors=issues.filter(i=>i.level==='error').length;
   const warnings=issues.filter(i=>i.level!=='error').length;
   const repairable=issues.filter(i=>i.action==='stockIn').length;
@@ -10628,7 +10690,7 @@ function renderStockLogAuditPanel(report=buildStockLogAuditReport()){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現重複庫存異動、領料未扣庫、或補庫扣料後未入 S- 成品的異常。</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。</div>`}
   </div>`;
 }
 function ackStockLogAuditIssue(key){

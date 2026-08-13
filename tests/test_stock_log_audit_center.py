@@ -52,3 +52,13 @@ def test_stock_log_audit_has_manual_ack_without_mutating_inventory():
     assert "STOCK_LOG_AUDIT_ACK_STORAGE" in INDEX
     assert "writeStockLogAuditAck" in body
     assert "renderTab('stocklog')" in body
+
+
+def test_stock_log_audit_is_not_limited_to_s_sku_workflows():
+    assert "function stockLogAuditPickSourceNo" in INDEX
+    assert "function stockLogAuditMathIssue" in INDEX
+    body = function_body("buildStockLogAuditReport")
+    assert "ensureOrder(sourceNo)" in body
+    assert "inbound-qc-no-stock" in body
+    assert "stockLogAuditMathIssue" in body
+    assert "pick-op-no-move" in body
