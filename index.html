@@ -10408,6 +10408,32 @@ async function loadStockLog(options={}){
   }
 }
 
+function stockLogIsInventoryMove(s){
+  return Number(s?.qty||0)>0;
+}
+function stockLogDisplayType(s){
+  return stockLogIsInventoryMove(s)?(s?.type||'庫存異動'):'操作紀錄';
+}
+function stockLogDisplayName(s){
+  const name=String(s?.matName||'').trim();
+  const code=String(s?.matCode||'').trim();
+  if(stockLogIsInventoryMove(s)) return name||code||'—';
+  if(name) return name;
+  if(s?.ref) return `操作紀錄：${s.ref}`;
+  return '操作紀錄';
+}
+function stockLogDisplaySubText(s){
+  const parts=[];
+  if(stockLogIsInventoryMove(s)&&s?.matCode) parts.push(s.matCode);
+  if(!stockLogIsInventoryMove(s)&&s?.ref) parts.push(`單號：${s.ref}`);
+  if(!stockLogIsInventoryMove(s)&&s?.note) parts.push(String(s.note).replace(/^原始動作：/,''));
+  return parts.filter(Boolean).join('｜');
+}
+function stockLogQtyLabel(s){
+  if(!stockLogIsInventoryMove(s)) return '紀錄';
+  return `${s.type==='入料'?'+':''}${Number(s.qty)||0}`;
+}
+
 function renderStockLog(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const pendingCount=readPendingStockLogs().length;
@@ -10421,6 +10447,7 @@ function renderStockLog(){
   </div>`;
   const dateVal=document.getElementById('slDateFilter')?.value||'month';
   const typeVal=document.getElementById('slTypeFilter')?.value||'all';
+  const viewVal=document.getElementById('slViewFilter')?.value||'all';
   const qVal=(document.getElementById('slSearch')?.value||'').toLowerCase().trim();
 
   let data=[...stockLogs];
@@ -10438,28 +10465,31 @@ function renderStockLog(){
 
   // 類型篩選
   if(typeVal!=='all') data=data.filter(s=>s.type===typeVal);
+  if(viewVal==='inventory') data=data.filter(stockLogIsInventoryMove);
+  if(viewVal==='operation') data=data.filter(s=>!stockLogIsInventoryMove(s));
 
   // 關鍵字
   if(qVal) data=data.filter(s=>
     s.matName.toLowerCase().includes(qVal)||
     (s.matCode&&s.matCode.toLowerCase().includes(qVal))||
-    (s.ref&&s.ref.toLowerCase().includes(qVal))
+    (s.ref&&s.ref.toLowerCase().includes(qVal))||
+    (s.note&&s.note.toLowerCase().includes(qVal))
   );
 
   // 統計
-  const inTotal=stockLogs.filter(s=>s.type==='入料').reduce((a,s)=>a+s.qty,0);
-  const outTotal=stockLogs.filter(s=>s.type==='領料').reduce((a,s)=>a+s.qty,0);
-  const adjTotal=stockLogs.filter(s=>s.type==='手動調整').length;
+  const inventoryMoves=stockLogs.filter(stockLogIsInventoryMove);
+  const operationLogs=stockLogs.filter(s=>!stockLogIsInventoryMove(s));
+  const adjTotal=inventoryMoves.filter(s=>s.type==='手動調整').length;
 
-  const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)'};
+  const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)','操作紀錄':'var(--text3)'};
 
   return _notionBar + syncStatus + `
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
       {label:'總異動筆數',val:stockLogs.length,color:'var(--cyan2)',icon:'📊'},
-      {label:'入料次數',val:stockLogs.filter(s=>s.type==='入料').length,color:'var(--green)',icon:'📥'},
-      {label:'領料次數',val:stockLogs.filter(s=>s.type==='領料').length,color:'var(--blue)',icon:'🗂️'},
+      {label:'庫存異動',val:inventoryMoves.length,color:'var(--green)',icon:'📦'},
+      {label:'操作紀錄',val:operationLogs.length,color:'var(--text2)',icon:'🧾'},
       {label:'手動調整',val:adjTotal,color:'var(--yellow)',icon:'✏️'},
     ].map(c=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
       <div style="font-size:1.125rem;margin-bottom:3px">${c.icon}</div>
@@ -10485,6 +10515,11 @@ function renderStockLog(){
       <option value="手動調整" ${typeVal==='手動調整'?'selected':''}>✏️ 手動調整</option>
       <option value="品管退回" ${typeVal==='品管退回'?'selected':''}>❌ 品管退回</option>
     </select>
+    <select class="inp" id="slViewFilter" style="width:120px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('stocklog')">
+      <option value="all" ${viewVal==='all'?'selected':''}>全部紀錄</option>
+      <option value="inventory" ${viewVal==='inventory'?'selected':''}>只看庫存異動</option>
+      <option value="operation" ${viewVal==='operation'?'selected':''}>只看操作紀錄</option>
+    </select>
     <input class="inp" id="slSearch" value="${qVal}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="requestFullDataForSearch('stocklog',this.value);renderTab('stocklog')">
     <span style="font-size:0.6875rem;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
   </div>
@@ -10505,15 +10540,17 @@ function renderStockLog(){
       <th class="hide-m">操作人員</th>
     </tr>
     ${data.map(s=>{
+      const isMove=stockLogIsInventoryMove(s);
+      const displayType=stockLogDisplayType(s);
       const isIn=s.type==='入料';
-      const qtyColor=isIn?'var(--green)':s.type==='領料'?'var(--blue)':'var(--yellow)';
+      const qtyColor=!isMove?'var(--text3)':isIn?'var(--green)':s.type==='領料'?'var(--blue)':'var(--yellow)';
       return`<tr>
         <td style="font-family:monospace;font-size:0.6875rem;color:var(--text3)">${s.date||'—'}</td>
-        <td style="font-size:0.75rem;font-weight:600">${s.matName||'—'}${s.matCode?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">${s.matCode}</div>`:''}</td>
-        <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[s.type]||'var(--border)'}44">${s.type||'—'}</span></td>
-        <td style="font-family:monospace;font-weight:700;color:${qtyColor}">${isIn?'+':''}${s.qty}</td>
-        <td style="font-family:monospace;color:var(--text3)">${s.before}</td>
-        <td style="font-family:monospace;font-weight:600;color:var(--text)">${s.after}</td>
+        <td style="font-size:0.75rem;font-weight:600">${escapeHtml(stockLogDisplayName(s))}${stockLogDisplaySubText(s)?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">${escapeHtml(stockLogDisplaySubText(s))}</div>`:''}</td>
+        <td><span class="pill" style="background:${typeColors[displayType]||typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[displayType]||typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[displayType]||typeColors[s.type]||'var(--border)'}44">${displayType}</span></td>
+        <td style="font-family:monospace;font-weight:700;color:${qtyColor}">${stockLogQtyLabel(s)}</td>
+        <td style="font-family:monospace;color:var(--text3)">${isMove?s.before:'—'}</td>
+        <td style="font-family:monospace;font-weight:600;color:var(--text)">${isMove?s.after:'—'}</td>
         <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:var(--cyan2)">${s.ref||'—'}</td>
         <td class="hide-m" style="font-size:0.6875rem;color:var(--text2)">${s.operator||'—'}</td>
       </tr>`;
