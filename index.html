@@ -8468,7 +8468,7 @@ function applyDateFilterValue(val,data,dateKey='created'){
   });
 }
 function getOrderFilters(){
-  return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',date:'0',hide:false});
+  return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',status:'all',date:'0',hide:false});
 }
 function updateOrderFilter(key,value,focusId=''){
   const f=getOrderFilters();
@@ -14273,6 +14273,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
   // ── 搜尋過濾 ──
   const _ordQ = String(filters.q||'').trim();
   const _ordType = filters.type||'all';
+  const _ordStatus = filters.status||'all';
   if(_ordQ) data=data.filter(o=>searchIncludesAll(orderSearchBlob(o),_ordQ));
   if(_ordType!=='all') data=data.filter(o=>{
     if(_ordType==='shopee') return (o.orderType==='shopee'||o.orderType==='蝦皮'||(o.product||'').startsWith('S-')||(o.matCode||'').startsWith('S-'));
@@ -14281,6 +14282,9 @@ function _renderOrdersList(tabs, soonOrders=[]){
     if(_ordType==='sfg') return (o.orderType==='sfg'||o.orderType==='半成品');
     return true;
   });
+  if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
+  const ORDER_STATUS_OPTIONS=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
+  const orderStatusOptions=[...new Set([...ORDER_STATUS_OPTIONS,...orders.map(o=>o.status).filter(Boolean)])];
   const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
   const orderShipCount=orders.filter(o=>o.status==='待出貨').length;
   const orderQcCount=orders.filter(o=>o.status==='待檢驗').length;
@@ -14324,6 +14328,10 @@ function _renderOrdersList(tabs, soonOrders=[]){
       </select>
       <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('date',this.value)">
         <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option>
+      </select>
+      <select class="inp" id="ordStatusFilter" style="width:120px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('status',this.value)">
+        <option value="all" ${_ordStatus==='all'?'selected':''}>全部狀態</option>
+        ${orderStatusOptions.map(s=>`<option value="${escapeHtml(s)}" ${_ordStatus===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
       </select>
       <label style="font-size:0.6875rem;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
         <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="updateOrderFilter('hide',this.checked)" style="accent-color:var(--blue)">隱藏完成/取消
@@ -19433,7 +19441,7 @@ async function doDeleteMat(mid){
 function openEditOrder(orderId){
   const o=orders.find(x=>x.id===orderId);if(!o)return;
   document.getElementById('modalInner').innerHTML=`<h3>✏️ 編輯訂單</h3>
-    <div style="font-family:monospace;font-size:0.6875rem;color:var(--text3);margin-bottom:12px">${o.no}</div>
+    <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂單號</label><input class="inp" id="eo_no" value="${escapeHtml(o.no||'')}" placeholder="訂單號 / PI / 內部單號"></div>
     <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="eo_cust" value="${(o.customer||'').replace(/"/g,'&quot;')}"></div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂購數量</label><input class="inp" type="number" id="eo_qty" value="${o.qty}" min="1"></div>
@@ -19447,15 +19455,18 @@ function openEditOrder(orderId){
 }
 
 async function doEditOrder(orderId){
+  const orderNo=document.getElementById('eo_no').value.trim();
   const cust=document.getElementById('eo_cust').value.trim();
   const qty=parseInt(document.getElementById('eo_qty').value)||0;
   const unitPriceRaw=(document.getElementById('eo_unit_price')?.value||'').trim();
   const date=document.getElementById('eo_date').value;
   const note=document.getElementById('eo_note').value.trim();
-  if(!cust||!qty||!date){alert('請填入所有欄位');return;}
+  if(!orderNo||!cust||!qty||!date){alert('請填入所有欄位');return;}
   closeModal();showToast('更新中...','warn');
   try{
+    const oldOrder=orders.find(o=>o.id===orderId);
     const props={
+      '訂單號':{title:[{text:{content:orderNo}}]},
       '客戶名稱':{select:{name:cust}},
       '訂購數量':{number:qty},
       '交期':{date:{start:date}},
@@ -19469,6 +19480,11 @@ async function doEditOrder(orderId){
       props['產品單價']={number:null};
     }
     await updatePage(orderId,props);
+    const auditBits=[];
+    if(oldOrder?.no&&oldOrder.no!==orderNo)auditBits.push(`訂單號 ${oldOrder.no} → ${orderNo}`);
+    if(oldOrder?.customer&&oldOrder.customer!==cust)auditBits.push(`客戶 ${oldOrder.customer} → ${cust}`);
+    if(oldOrder?.qty!==undefined&&oldOrder.qty!==qty)auditBits.push(`數量 ${oldOrder.qty} → ${qty}`);
+    logUserAction('編輯訂單',orderNo,auditBits.join(' / ')||'更新訂單欄位',ROLE);
     await refreshAffectedData({core:true,label:'訂單資料已更新'});showToast('✅ 訂單已更新','ok');
   }catch(e){showToast('更新失敗：'+e.message,'err');}
 }
