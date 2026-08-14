@@ -67,6 +67,14 @@ def test_stock_log_audit_is_not_limited_to_s_sku_workflows():
 def test_stock_log_audit_allows_repeated_move_after_reversal():
     body = function_body("buildStockLogAuditReport")
     assert "stockLogAuditHasReversalBetween" in INDEX
-    assert "hasUnexplainedDuplicate" in body
-    assert "if(!hasUnexplainedDuplicate) return;" in body
+    assert "autoResolvedDuplicates" in body
+    assert "same_result_duplicate" in body
+    assert "reversal_cycle" in body
     assert body.index("stockLogAuditHasReversalBetween") < body.index("addIssue({")
+
+
+def test_stock_log_audit_panel_reports_auto_resolved_duplicates():
+    body = function_body("renderStockLogAuditPanel")
+    assert "report.autoResolved" in body
+    assert "系統已排除" in body
+    assert "系統已自動排除" in body

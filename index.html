@@ -10506,6 +10506,7 @@ function buildStockLogAuditReport(logs=stockLogs){
   const inventoryMoves=rows.filter(stockLogIsInventoryMove);
   const operationLogs=rows.filter(s=>!stockLogIsInventoryMove(s));
   const issues=[];
+  const autoResolvedDuplicates=[];
   const addIssue=issue=>{
     if(!issue?.key||ack.has(issue.key)) return;
     issues.push(issue);
@@ -10522,22 +10523,20 @@ function buildStockLogAuditReport(logs=stockLogs){
   exactMoveGroups.forEach((group,key)=>{
     if(group.length<2) return;
     const ordered=[...group].sort((a,b)=>stockLogAuditTime(a)-stockLogAuditTime(b));
-    let hasUnexplainedDuplicate=false;
+    let reversalExplained=0;
+    let sameResultDuplicates=0;
     for(let i=1;i<ordered.length;i++){
-      if(!stockLogAuditHasReversalBetween(ordered[i-1],ordered[i],inventoryMoves)){
-        hasUnexplainedDuplicate=true;
-        break;
-      }
+      if(stockLogAuditHasReversalBetween(ordered[i-1],ordered[i],inventoryMoves)) reversalExplained++;
+      else sameResultDuplicates++;
     }
-    if(!hasUnexplainedDuplicate) return;
     const s=group[0];
-    addIssue({
+    autoResolvedDuplicates.push({
       key:`dup:${key}`,
-      level:'warn',
-      category:'重複紀錄',
-      title:`同單同料號有 ${group.length} 筆相同庫存異動`,
-      detail:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${s.type||'庫存異動'} ${Number(s.before)||0} → ${Number(s.after)||0}`,
-      action:'mark',
+      reason:sameResultDuplicates?'same_result_duplicate':'reversal_cycle',
+      count:group.length,
+      sameResultDuplicates,
+      reversalExplained,
+      title:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${s.type||'庫存異動'} ${Number(s.before)||0} → ${Number(s.after)||0}`,
       rows:group
     });
   });
@@ -10671,7 +10670,7 @@ function buildStockLogAuditReport(logs=stockLogs){
   const warnings=issues.filter(i=>i.level!=='error').length;
   const repairable=issues.filter(i=>i.action==='stockIn').length;
   const manual=issues.filter(i=>i.action==='manual').length;
-  return {issues,errors,warnings,repairable,manual,checked:rows.length,moves:inventoryMoves.length,operations:operationLogs.length};
+  return {issues,errors,warnings,repairable,manual,autoResolvedDuplicates,autoResolved:autoResolvedDuplicates.length,checked:rows.length,moves:inventoryMoves.length,operations:operationLogs.length};
 }
 function stockLogAuditIssueCard(issue){
   const border=issue.level==='error'?'rgba(239,68,68,.32)':'rgba(245,158,11,.3)';
@@ -10713,11 +10712,11 @@ function renderStockLogAuditPanel(report=buildStockLogAuditReport()){
       </div>
     </div>
     ${hasIssues?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:.72rem;color:var(--text2)">
-      <span class="badge">可平台補正 ${report.repairable}</span><span class="badge">需人工判斷 ${report.manual}</span><span class="badge">警示 ${report.warnings}</span><span class="badge">錯誤 ${report.errors}</span>
+      <span class="badge">可平台補正 ${report.repairable}</span><span class="badge">需人工判斷 ${report.manual}</span><span class="badge">警示 ${report.warnings}</span><span class="badge">錯誤 ${report.errors}</span>${report.autoResolved?`<span class="badge">系統已排除 ${report.autoResolved}</span>`:''}
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
   </div>`;
 }
 function ackStockLogAuditIssue(key){
