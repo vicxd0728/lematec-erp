@@ -62,3 +62,11 @@ def test_stock_log_audit_is_not_limited_to_s_sku_workflows():
     assert "inbound-qc-no-stock" in body
     assert "stockLogAuditMathIssue" in body
     assert "pick-op-no-move" in body
+
+
+def test_stock_log_audit_allows_repeated_move_after_reversal():
+    body = function_body("buildStockLogAuditReport")
+    assert "stockLogAuditHasReversalBetween" in INDEX
+    assert "hasUnexplainedDuplicate" in body
+    assert "if(!hasUnexplainedDuplicate) return;" in body
+    assert body.index("stockLogAuditHasReversalBetween") < body.index("addIssue({")

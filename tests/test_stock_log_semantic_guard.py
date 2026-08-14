@@ -29,6 +29,13 @@ def test_corder_return_does_not_log_duplicate_idempotent_inventory_result():
     assert body.index("if(!stockMove.duplicate)") < body.index("logStockChangeQuietly")
 
 
+def test_corder_ship_does_not_log_duplicate_idempotent_inventory_result():
+    body = function_body("deductCorderStock")
+    assert "sourceType:'corder_ship'" in body
+    assert "if(!stockMove.duplicate)" in body
+    assert body.index("if(!stockMove.duplicate)") < body.index("logStockChangeQuietly")
+
+
 def test_corder_completion_actions_are_status_logs_not_inventory_inbound_logs():
     body = function_body("normalizeStockLogType")
     assert "完成C端訂單" in body

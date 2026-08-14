@@ -10482,6 +10482,24 @@ function stockLogAuditMathIssue(s){
   if(after<0) return `庫存異動後為負數：${after}`;
   return '';
 }
+function stockLogAuditTime(s){
+  const t=Date.parse(s?.createdAt||s?.date||'');
+  return Number.isFinite(t)?t:0;
+}
+function stockLogAuditHasReversalBetween(a,b,moves){
+  const start=stockLogAuditTime(a);
+  const end=stockLogAuditTime(b);
+  if(!start||!end||end<=start)return false;
+  const before=Number(a?.before)||0;
+  const after=Number(a?.after)||0;
+  return (moves||[]).some(row=>{
+    if(row===a||row===b)return false;
+    if((row.ref||'')!==(a.ref||''))return false;
+    if((row.matCode||'')!==(a.matCode||''))return false;
+    const t=stockLogAuditTime(row);
+    return t>start&&t<end&&Number(row.before)===after&&Number(row.after)===before;
+  });
+}
 function buildStockLogAuditReport(logs=stockLogs){
   const ack=readStockLogAuditAck();
   const rows=(Array.isArray(logs)?logs:[]).filter(Boolean);
@@ -10503,6 +10521,15 @@ function buildStockLogAuditReport(logs=stockLogs){
     });
   exactMoveGroups.forEach((group,key)=>{
     if(group.length<2) return;
+    const ordered=[...group].sort((a,b)=>stockLogAuditTime(a)-stockLogAuditTime(b));
+    let hasUnexplainedDuplicate=false;
+    for(let i=1;i<ordered.length;i++){
+      if(!stockLogAuditHasReversalBetween(ordered[i-1],ordered[i],inventoryMoves)){
+        hasUnexplainedDuplicate=true;
+        break;
+      }
+    }
+    if(!hasUnexplainedDuplicate) return;
     const s=group[0];
     addIssue({
       key:`dup:${key}`,
@@ -16875,9 +16902,11 @@ async function deductCorderStock(mat, qty, refNo, operator, operationKey=''){
     sourceType:'corder_ship',
     sourceId:operationKey||refNo
   });
-  await logStockChangeQuietly(mat.id,mat.name||'',mat.code||'','C端出貨',-need,stockMove.before,stockMove.after,refNo,operator||ROLE);
+  if(!stockMove.duplicate){
+    await logStockChangeQuietly(mat.id,mat.name||'',mat.code||'','C端出貨',-need,stockMove.before,stockMove.after,refNo,operator||ROLE);
+  }
   mat.stock=stockMove.after;
-  return {before:stockMove.before,after:stockMove.after};
+  return {before:stockMove.before,after:stockMove.after,duplicate:stockMove.duplicate===true};
 }
 async function deductCorderStockByBom(mat, qty, refNo, operator, operationKey=''){
   const need=parseInt(qty)||1;
