@@ -33,10 +33,11 @@ class NotesMobileInboxContractTests(unittest.TestCase):
 
     def test_mobile_inbox_keeps_simple_staff_views(self):
         body = function_body("renderNoteMobileInbox")
-        for phrase in ["我的待辦", "提醒到期", "今日記事", "全部未完成"]:
+        for phrase in ["我的待辦", "提醒到期", "今日記事", "全部未完成", "月曆檢視"]:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, body)
         self.assertIn("點卡片可看完整對話與附件", body)
+        self.assertIn("往下可用月曆選日期", body)
         self.assertIn("openModal('newNote')", body)
         self.assertIn("renderNoteList(active.list,true)", body)
 
@@ -44,6 +45,8 @@ class NotesMobileInboxContractTests(unittest.TestCase):
         self.assertIn(".note-mobile-inbox{display:none}", INDEX)
         self.assertIn(".note-mobile-inbox{display:block}", INDEX)
         self.assertIn(".note-layout,.note-desktop-section{display:none}", INDEX)
+        self.assertIn(".note-layout.note-mobile-calendar{display:grid}", INDEX)
+        self.assertIn("note-mobile-calendar", function_body("renderNotes"))
         self.assertIn("note-desktop-section", function_body("renderNotes"))
 
     def test_reply_attachment_and_reply_edit_contracts_still_exist(self):

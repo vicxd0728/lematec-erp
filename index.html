@@ -1488,7 +1488,7 @@ html[data-theme="warm"] #themePanel{
 .note-tag{font-size:.68rem;border:1px solid rgba(34,211,238,.2);background:rgba(34,211,238,.08);color:var(--cyan2);border-radius:999px;padding:2px 7px}
 .note-alert{border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.09)}
 .note-mobile-inbox{display:none}
-.note-mobile-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}
+.note-mobile-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:10px}
 .note-mobile-tabs .btn{min-width:0;padding:9px 6px}
 .note-mobile-tabs .active{background:linear-gradient(135deg,var(--cyan),var(--green));color:#031015;border-color:transparent}
 .m-only{display:none!important}
@@ -1509,6 +1509,7 @@ html[data-theme="warm"] #themePanel{
   .note-toolbar .btn{width:100%}
   .note-mobile-inbox{display:block}
   .note-layout,.note-desktop-section{display:none}
+  .note-layout.note-mobile-calendar{display:grid}
   .note-mobile-inbox .panel-hdr{align-items:flex-start;gap:6px}
   .note-mobile-hint{color:var(--text3);font-size:.76rem;line-height:1.45;margin:0 0 10px}
   .note-list{padding:10px 0}
@@ -12508,7 +12509,7 @@ function renderNotes(){
       ${canAdd?`<button class="btn btn-blue" onclick="openModal('newNote')">＋ 新增記事</button>`:''}
     </div>
     ${renderNoteMobileInbox({data,myTodo,dueList,openList,selectedList,canAdd})}
-    <div class="note-layout">
+    <div class="note-layout ${window._NOTE_MOBILE_VIEW==='calendar'?'note-mobile-calendar':''}">
       <div class="note-calendar">
         <div class="note-cal-head">
           <button class="btn btn-ghost btn-sm" onclick="window._NOTE_MONTH--;if(window._NOTE_MONTH<0){window._NOTE_MONTH=11;window._NOTE_YEAR--;}renderTab('notes')">‹</button>
@@ -12549,7 +12550,8 @@ function renderNoteMobileInbox({data=[],myTodo=[],dueList=[],openList=[],selecte
     todo:{label:'待辦',title:'我的待辦',hint:`指定給 ${loginRoleLabel()}、尚未確認或需要回覆。`,list:myTodo.slice(0,30)},
     due:{label:'到期',title:'提醒到期',hint:'已到提醒日但尚未完成的事項。',list:dueList.slice(0,30)},
     today:{label:'今天',title:'今日記事',hint:'今天相關的行程、來訪與跟進。',list:todayList.slice(0,30)},
-    all:{label:'全部',title:'全部未完成',hint:'目前篩選條件下尚未完成的記事。',list:openList.length?openList.slice(0,30):data.filter(n=>!noteIsDone(n)).slice(0,30)}
+    all:{label:'全部',title:'全部未完成',hint:'目前篩選條件下尚未完成的記事。',list:openList.length?openList.slice(0,30):data.filter(n=>!noteIsDone(n)).slice(0,30)},
+    calendar:{label:'月曆',title:'月曆檢視',hint:'月曆會顯示在下方，可依日期查看行程與提醒。',list:selectedList.slice(0,30)}
   };
   const active=views[view]||views.todo;
   const countFor=key=>(views[key]?.list||[]).length;
@@ -12563,7 +12565,7 @@ function renderNoteMobileInbox({data=[],myTodo=[],dueList=[],openList=[],selecte
       ${Object.entries(views).map(([key,item])=>`<button class="btn btn-ghost btn-sm ${view===key?'active':''}" onclick="window._NOTE_MOBILE_VIEW='${key}';renderTab('notes')">${item.label} ${countFor(key)}</button>`).join('')}
     </div>
     <p class="note-mobile-hint">${escapeHtml(active.hint)} 點卡片可看完整對話與附件。</p>
-    ${renderNoteList(active.list,true)}
+    ${view==='calendar'?'<div class="note-mobile-hint">往下可用月曆選日期；下方同時顯示選取日期的記事。</div>':renderNoteList(active.list,true)}
   </section>`;
 }
 function renderNoteList(list,showDate=false){
