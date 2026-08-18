@@ -1487,20 +1487,45 @@ html[data-theme="warm"] #themePanel{
 .note-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
 .note-tag{font-size:.68rem;border:1px solid rgba(34,211,238,.2);background:rgba(34,211,238,.08);color:var(--cyan2);border-radius:999px;padding:2px 7px}
 .note-alert{border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.09)}
+.note-mobile-inbox{display:none}
+.note-mobile-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}
+.note-mobile-tabs .btn{min-width:0;padding:9px 6px}
+.note-mobile-tabs .active{background:linear-gradient(135deg,var(--cyan),var(--green));color:#031015;border-color:transparent}
 .m-only{display:none!important}
 .order-mobile-detail{margin-top:5px;color:var(--text3);font-size:.68rem;font-family:var(--f-ui);font-weight:600;line-height:1.45}
 @media(max-width:900px){.note-hero{align-items:flex-start;flex-direction:column}.note-metrics{width:100%;min-width:0}.note-toolbar{grid-template-columns:1fr}.note-layout{grid-template-columns:1fr}.note-cal-cell{min-height:78px;padding:6px}.note-chip{font-size:.62rem}}
 @media(max-width:600px){
   .m-only{display:block!important}
+  .note-board{gap:10px}
+  .note-hero{padding:14px;border-radius:14px}
+  .note-eyebrow{display:none}
+  .note-hero h2{font-size:1.15rem;margin:0 0 3px}
+  .note-hero p{font-size:.82rem;line-height:1.45}
+  .note-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+  .note-metrics div{padding:8px 6px;text-align:center}
+  .note-metrics b{font-size:1.05rem}
+  .note-metrics span{font-size:.66rem;line-height:1.25}
+  .note-toolbar{position:sticky;top:0;z-index:15;background:rgba(5,12,18,.94);border:1px solid var(--border);border-radius:14px;padding:9px;backdrop-filter:blur(14px)}
+  .note-toolbar .btn{width:100%}
+  .note-mobile-inbox{display:block}
+  .note-layout,.note-desktop-section{display:none}
+  .note-mobile-inbox .panel-hdr{align-items:flex-start;gap:6px}
+  .note-mobile-hint{color:var(--text3);font-size:.76rem;line-height:1.45;margin:0 0 10px}
   .note-list{padding:10px 0}
-  .note-item{display:block;padding:14px;border-radius:14px}
-  .note-item-title{line-height:1.38;word-break:break-word;overflow-wrap:anywhere}
+  .note-item{display:block;padding:14px;border-radius:14px;background:rgba(8,19,28,.92)}
+  .note-item-title{font-size:1rem;line-height:1.38;word-break:break-word;overflow-wrap:anywhere}
   .note-item-meta{font-size:.78rem;gap:7px 9px}
+  .note-item-meta span{display:inline-flex;align-items:center;min-height:24px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035)}
   .note-body,.note-thread{font-size:.92rem;line-height:1.55;overflow-wrap:anywhere;word-break:break-word}
+  .note-item .note-body{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .note-item .note-thread{max-height:112px;overflow:hidden}
   .note-actions{justify-content:flex-start;margin-top:12px}
-  .note-actions .btn-sm{flex:1 1 auto;min-width:88px}
+  .note-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .note-actions .btn-sm{width:100%;min-width:0}
   .note-targets label{flex:1 1 calc(50% - 8px);justify-content:center;min-height:40px}
   #modalInner .form-row{grid-template-columns:1fr!important}
+  #modalInner .form-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #modalInner .form-actions .btn{width:100%}
   .modal,.modal-box{width:min(100%,calc(100vw - 12px))!important;max-height:calc(100dvh - 14px)!important}
   .note-calendar{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .note-week,.note-grid{min-width:620px}
@@ -12444,6 +12469,7 @@ function renderNotes(){
   const monthKey=noteMonthKey(window._NOTE_YEAR,window._NOTE_MONTH);
   const monthCount=visibleNotes.filter(n=>(n.date||'').startsWith(monthKey)).length;
   const canAdd=!isViewOnly();
+  window._NOTE_MOBILE_VIEW=window._NOTE_MOBILE_VIEW||(pendingAck?'todo':'all');
   const first=new Date(window._NOTE_YEAR,window._NOTE_MONTH,1);
   const start=new Date(first);start.setDate(1-first.getDay());
   const cells=[];
@@ -12481,6 +12507,7 @@ function renderNotes(){
       ${limitedDataHint('notes','記事')}
       ${canAdd?`<button class="btn btn-blue" onclick="openModal('newNote')">＋ 新增記事</button>`:''}
     </div>
+    ${renderNoteMobileInbox({data,myTodo,dueList,openList,selectedList,canAdd})}
     <div class="note-layout">
       <div class="note-calendar">
         <div class="note-cal-head">
@@ -12496,23 +12523,48 @@ function renderNotes(){
         ${renderNoteList(selectedList,true)}
       </aside>
     </div>
-    <div class="panel ${pendingList.length?'note-alert':''}">
+    <div class="panel note-desktop-section ${pendingList.length?'note-alert':''}">
       <div class="panel-hdr"><span class="panel-title">我的待辦 <span class="badge">${pendingList.length}</span></span><span style="color:var(--text3);font-size:.76rem">指定給 ${escapeHtml(loginRoleLabel())} 且尚未已讀 / 回覆</span></div>
       ${renderNoteList(pendingList,true)}
     </div>
-    <div class="panel">
+    <div class="panel note-desktop-section">
       <div class="panel-hdr"><span class="panel-title">提醒到期 <span class="badge">${dueList.length}</span></span></div>
       ${renderNoteList(dueList,true)}
     </div>
-    <div class="panel">
+    <div class="panel note-desktop-section">
       <div class="panel-hdr"><span class="panel-title">未完成事項 <span class="badge">${openList.length}</span></span></div>
       ${renderNoteList(openList,true)}
     </div>
-    <div class="panel">
+    <div class="panel note-desktop-section">
       <div class="panel-hdr"><span class="panel-title">已完成 <span class="badge">${doneList.length}</span></span></div>
       ${renderNoteList(doneList,true)}
     </div>
   </div>`;
+}
+function renderNoteMobileInbox({data=[],myTodo=[],dueList=[],openList=[],selectedList=[],canAdd=false}={}){
+  const view=window._NOTE_MOBILE_VIEW||'todo';
+  const today=noteIsoDate();
+  const todayList=data.filter(n=>n.date===today&&!noteIsDone(n));
+  const views={
+    todo:{label:'待辦',title:'我的待辦',hint:`指定給 ${loginRoleLabel()}、尚未確認或需要回覆。`,list:myTodo.slice(0,30)},
+    due:{label:'到期',title:'提醒到期',hint:'已到提醒日但尚未完成的事項。',list:dueList.slice(0,30)},
+    today:{label:'今天',title:'今日記事',hint:'今天相關的行程、來訪與跟進。',list:todayList.slice(0,30)},
+    all:{label:'全部',title:'全部未完成',hint:'目前篩選條件下尚未完成的記事。',list:openList.length?openList.slice(0,30):data.filter(n=>!noteIsDone(n)).slice(0,30)}
+  };
+  const active=views[view]||views.todo;
+  const countFor=key=>(views[key]?.list||[]).length;
+  const shouldAlert=(view==='todo'||view==='due')&&active.list.length;
+  return `<section class="note-mobile-inbox panel ${shouldAlert?'note-alert':''}">
+    <div class="panel-hdr">
+      <span class="panel-title">${active.title} <span class="badge">${active.list.length}</span></span>
+      ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newNote')">新增</button>`:''}
+    </div>
+    <div class="note-mobile-tabs">
+      ${Object.entries(views).map(([key,item])=>`<button class="btn btn-ghost btn-sm ${view===key?'active':''}" onclick="window._NOTE_MOBILE_VIEW='${key}';renderTab('notes')">${item.label} ${countFor(key)}</button>`).join('')}
+    </div>
+    <p class="note-mobile-hint">${escapeHtml(active.hint)} 點卡片可看完整對話與附件。</p>
+    ${renderNoteList(active.list,true)}
+  </section>`;
 }
 function renderNoteList(list,showDate=false){
   if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
