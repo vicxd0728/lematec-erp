@@ -14627,7 +14627,7 @@ const VIDEO_LIBRARY_YOUTUBE_MAP={
   'https://www.lematec-tools.com/lematec-sandblaster-comparison':'Q-b8KXAmXX4'
 };
 let supabaseVideoLibraryRows=[];
-let _supabaseVideoLibraryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
+let _supabaseVideoLibraryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0,source:''};
 let videoLibraryFallbackRows=[];
 let _videoLibraryFallbackState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 function normalizeVideoLibraryRow(r){
@@ -14648,16 +14648,26 @@ function normalizeVideoLibraryRow(r){
   };
 }
 async function loadSupabaseVideoLibrary(force=false){
-  if(!getSupabaseAnonKey())return;
   if(_supabaseVideoLibraryState.running)return;
   if(_supabaseVideoLibraryState.loaded&&!force)return;
   _supabaseVideoLibraryState={..._supabaseVideoLibraryState,running:true,error:''};
   const t0=performance.now();
   try{
-    const rows=await supabaseRestSelect(
-      'video_library_public',
-      'select=video_id,title,url,thumbnail_url,source,video_type,category,model,keywords,duration_seconds,view_count,sort_order,is_published&order=sort_order.asc'
-    );
+    let rows=[];
+    let source='supabase_worker';
+    try{
+      const res=await fetch(`${PROXY}/api/video-library/list?limit=1000${force?'&refresh=1':''}`,{cache:force?'reload':'no-cache'});
+      const payload=await res.json().catch(()=>({}));
+      if(!res.ok||payload?.error) throw new Error(payload?.error||`HTTP ${res.status}`);
+      rows=payload.videos||payload.rows||[];
+    }catch(workerErr){
+      if(!getSupabaseAnonKey()) throw workerErr;
+      source='supabase_anon';
+      rows=await supabaseRestSelect(
+        'video_library_public',
+        'select=video_id,title,url,thumbnail_url,source,video_type,category,model,keywords,duration_seconds,view_count,sort_order,is_published&order=sort_order.asc'
+      );
+    }
     supabaseVideoLibraryRows=rows.map(normalizeVideoLibraryRow).filter(v=>v.title&&v.url);
     _supabaseVideoLibraryState={
       loaded:true,
@@ -14665,7 +14675,8 @@ async function loadSupabaseVideoLibrary(force=false){
       error:'',
       ts:Date.now(),
       count:supabaseVideoLibraryRows.length,
-      durationMs:Math.round(performance.now()-t0)
+      durationMs:Math.round(performance.now()-t0),
+      source
     };
     if(CURRENT_TAB==='videos')renderTab('videos');
   }catch(e){
@@ -14698,7 +14709,7 @@ async function loadVideoLibraryFallback(force=false){
   }
 }
 function getVideoLibraryRows(){
-  if(getSupabaseAnonKey()&&!_supabaseVideoLibraryState.loaded&&!_supabaseVideoLibraryState.running&&!_supabaseVideoLibraryState.error){
+  if(!_supabaseVideoLibraryState.loaded&&!_supabaseVideoLibraryState.running&&!_supabaseVideoLibraryState.error){
     loadSupabaseVideoLibrary(false);
   }
   if(!_videoLibraryFallbackState.loaded&&!_videoLibraryFallbackState.running&&!_videoLibraryFallbackState.error){
@@ -14713,13 +14724,13 @@ function renderVideoLibrarySourceNotice(){
   const usingSupabase=s.loaded&&supabaseVideoLibraryRows.length;
   const usingFallback=!usingSupabase&&_videoLibraryFallbackState.loaded&&videoLibraryFallbackRows.length;
   const msg=usingSupabase
-    ? `Supabase 影片庫：${s.count} 支 · ${s.durationMs||0}ms · ${new Date(s.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`
+    ? `${s.source==='supabase_worker'?'Worker / Supabase 影片庫':'Supabase 影片庫'}：${s.count} 支 · ${s.durationMs||0}ms · ${new Date(s.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`
     : usingFallback
       ? `外部備援影片庫：${_videoLibraryFallbackState.count} 支 · ${_videoLibraryFallbackState.durationMs||0}ms`
     : s.running
-      ? 'Supabase 影片庫讀取中；若失敗會改讀外部備援清單。'
+      ? 'Worker 正在讀取 Supabase 影片庫；若失敗會改讀外部備援清單。'
       : s.error
-        ? `Supabase 影片庫讀取失敗，會改讀外部備援清單：${s.error}`
+        ? `Worker / Supabase 影片庫讀取失敗，會改讀外部備援清單：${s.error}`
         : _videoLibraryFallbackState.running
           ? '影片庫讀取中...'
           : '影片庫資料會在進入此分頁後載入，不占首頁初始下載。';
@@ -14840,7 +14851,7 @@ function renderVideoLibrary(){
       </div>
     </div>
     <div class="kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
-      <div class="kpi-card"><span>目前影片</span><b>${library.length}</b><small>${_supabaseVideoLibraryState.loaded?'Supabase 資料':'內建備援'}</small></div>
+      <div class="kpi-card"><span>目前影片</span><b>${library.length}</b><small>${_supabaseVideoLibraryState.loaded?(_supabaseVideoLibraryState.source==='supabase_worker'?'Worker / Supabase':'Supabase 資料'):'內建備援'}</small></div>
       <div class="kpi-card"><span>分類</span><b>${cats.length}</b><small>噴砂 / 調壓 / 胎壓 / 氣動工具</small></div>
       <div class="kpi-card"><span>搜尋結果</span><b>${data.length}</b><small>可直接複製給客戶</small></div>
     </div>
@@ -14852,7 +14863,7 @@ function renderVideoLibrary(){
         <select id="videoSource" class="input" onchange="renderTab('videos')">${videoLibrarySelectOptions(sources,source,'全部來源')}</select>
       </div>
       <div style="margin-top:10px;padding:10px 12px;border:1px solid rgba(34,211,238,.18);border-radius:10px;background:rgba(6,182,212,.08);color:var(--text2);font-size:.86rem;line-height:1.6">
-        影片庫已整理 YouTube 長影片、Shorts、直播；前端優先讀 Supabase，讀取失敗時自動退回內建清單。
+        影片庫已整理 YouTube 長影片、Shorts、直播；前端優先透過 Worker 讀 Supabase，讀取失敗時自動退回內建清單。
       </div>
       ${renderVideoLibrarySourceNotice()}
     </div>
@@ -19204,7 +19215,63 @@ function openOrderDeleteBlockedModal(oid,no,rows){
     </div>`;
   openModal();
 }
+const ORDER_PICKING_INACTIVE_STATUSES=new Set(['取消','已取消','作廢','封存','已封存']);
+function orderLinkedPickingRecords(orderId){
+  const key=canonicalPageId(orderId);
+  if(!key)return [];
+  return (picks||[]).filter(p=>canonicalPageId(p.orderId)===key);
+}
+function orderActivePickingRecords(orderId){
+  return orderLinkedPickingRecords(orderId).filter(p=>!ORDER_PICKING_INACTIVE_STATUSES.has(String(p.status||'').trim()));
+}
+async function loadOrderPickingGuardRows(orderId){
+  await loadPicks();
+  return orderActivePickingRecords(orderId);
+}
+function renderOrderPickingRows(rows){
+  return rows.slice(0,12).map(p=>`
+    <tr>
+      <td style="font-family:var(--f-mono);font-size:.75rem">${escapeHtml(p.no||p.id||'')}</td>
+      <td>${escapeHtml(p.status||'')}</td>
+      <td>${escapeHtml(p.product||'')}</td>
+      <td style="font-family:var(--f-mono)">${Number(p.qty)||0}</td>
+      <td style="font-size:.75rem;color:var(--text3)">${escapeHtml(p.date||p.created||'')}</td>
+    </tr>`).join('');
+}
+function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
+  const completed=rows.some(p=>/已領料|已確認|完成/.test(String(p.status||'')));
+  document.getElementById('modalInner').innerHTML=`
+    <h3>⚠️ 此訂單已有領料紀錄</h3>
+    <div class="info-box info-warn" style="margin-bottom:12px">
+      訂單 <b>${escapeHtml(no||oid)}</b> 已有 ${rows.length} 筆領料單。${completed?'其中已有完成領料紀錄，請先走回料/沖銷流程，再修改或刪除訂單。':'請先取消或處理既有領料單，再修改品項、數量或刪除訂單。'}
+    </div>
+    <div class="table-wrap" style="max-height:260px"><table>
+      <tr><th>領料單</th><th>狀態</th><th>品項</th><th>數量</th><th>日期</th></tr>
+      ${renderOrderPickingRows(rows)||'<tr><td colspan="5">無明細</td></tr>'}
+    </table></div>
+    <div style="font-size:.8125rem;color:var(--text2);line-height:1.6;margin-top:10px">
+      已停止「${escapeHtml(actionLabel)}」。這是為了避免訂單品項/數量與領料扣庫內容不同步。
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      <button class="btn btn-blue" onclick="closeModal();renderTab('picking')">前往領料分頁</button>
+    </div>`;
+  openModal();
+}
 async function deleteOrder(oid, no, opts={}){
+  if(!opts.skipPickingGuard){
+    showToast('刪除前檢查領料紀錄...','warn');
+    try{
+      const activePicks=await loadOrderPickingGuardRows(oid);
+      if(activePicks.length){
+        openOrderPickingBlockedModal(oid,no,activePicks,'刪除訂單');
+        return;
+      }
+    }catch(e){
+      showToast('❌ 刪除前領料檢查失敗，已停止刪除：'+e.message,'err',9000);
+      return;
+    }
+  }
   if(!opts.skipAudit){
     showToast('刪除前檢查庫存異動...','warn');
     try{
@@ -19494,9 +19561,18 @@ async function doDeleteMat(mid){
 
 function openEditOrder(orderId){
   const o=orders.find(x=>x.id===orderId);if(!o)return;
+  const product=mats.find(m=>m.id===o.productId);
+  const productLabel=product?.code||product?.name||o.matCode||o.product||'';
   document.getElementById('modalInner').innerHTML=`<h3>✏️ 編輯訂單</h3>
     <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂單號</label><input class="inp" id="eo_no" value="${escapeHtml(o.no||'')}" placeholder="訂單號 / PI / 內部單號"></div>
     <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">客戶名稱</label><input class="inp" id="eo_cust" value="${(o.customer||'').replace(/"/g,'&quot;')}"></div>
+    <div class="field" style="margin-bottom:10px">
+      <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">品項 / 成品</label>
+      <input class="inp" id="eo_product_search" value="${escapeHtml(productLabel)}" data-selected-value="${escapeHtml(productLabel)}" placeholder="搜尋料號或名稱後點選" oninput="filterEditOrderProductList(this.value)" onfocus="filterEditOrderProductList(this.value)" autocomplete="off">
+      <input type="hidden" id="eo_product" value="${escapeHtml(o.productId||'')}">
+      <div id="editOrderProductResults" style="display:none;margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid var(--border2);border-radius:10px;background:var(--bg3);box-shadow:0 12px 30px rgba(0,0,0,.35)"></div>
+      <div id="editOrderProductMsg" style="font-size:0.6875rem;color:var(--text3);margin-top:4px;min-height:16px">若已建立領料單，系統會要求先取消或回料後才允許改品項/數量。</div>
+    </div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂購數量</label><input class="inp" type="number" id="eo_qty" value="${o.qty}" min="1"></div>
       <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">產品單價</label><input class="inp" type="number" id="eo_unit_price" value="${o.unitPrice??''}" min="0" step="0.01" placeholder="選填"></div>
@@ -19508,20 +19584,69 @@ function openEditOrder(orderId){
   openModal();
 }
 
+function filterEditOrderProductList(q){
+  const msg=document.getElementById('editOrderProductMsg');
+  const panel=document.getElementById('editOrderProductResults');
+  const hidden=document.getElementById('eo_product');
+  if(!panel)return;
+  const search=document.getElementById('eo_product_search');
+  if(hidden&&search&&String(search.dataset.selectedValue||'')!==String(q||''))hidden.value='';
+  const list=productCandidates(q);
+  const input=String(q||'').trim();
+  panel.style.display=input?'block':'none';
+  panel.innerHTML=list.length?list.map(m=>`<button type="button" onclick="selectEditOrderProduct('${m.id}')" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);text-align:left;cursor:pointer">
+    <span style="font-family:var(--f-mono);font-weight:700">${escapeHtml(m.code||m.name||'')}</span>
+    <span style="font-size:0.75rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.name&&m.name!==m.code?m.name:m.type||'')}</span>
+  </button>`).join(''):`<div style="padding:12px;color:var(--amber);font-size:0.8125rem">找不到「${escapeHtml(input)}」，請先到料件主檔建檔後再選擇。</div>`;
+  if(msg){
+    if(!input)msg.innerHTML='若已建立領料單，系統會要求先取消或回料後才允許改品項/數量。';
+    else if(list.length)msg.innerHTML=`顯示 ${list.length} 個相關料號，點選即可帶入`;
+    else msg.innerHTML=`<span style="color:var(--amber)">找不到料號，請先到料件主檔建檔後再選擇</span>`;
+  }
+}
+
+function selectEditOrderProduct(id){
+  const hidden=document.getElementById('eo_product');
+  const search=document.getElementById('eo_product_search');
+  const panel=document.getElementById('editOrderProductResults');
+  const msg=document.getElementById('editOrderProductMsg');
+  const mat=mats.find(m=>m.id===id);
+  if(hidden)hidden.value=id;
+  if(mat&&search){
+    search.value=mat.code||mat.name||'';
+    search.dataset.selectedValue=search.value;
+  }
+  if(panel)panel.style.display='none';
+  if(msg&&mat)msg.innerHTML=`已選擇 <b style="color:var(--green2)">${escapeHtml(mat.code||mat.name||'')}</b>`;
+}
+
 async function doEditOrder(orderId){
   const orderNo=document.getElementById('eo_no').value.trim();
   const cust=document.getElementById('eo_cust').value.trim();
+  const productId=document.getElementById('eo_product')?.value||'';
   const qty=parseInt(document.getElementById('eo_qty').value)||0;
   const unitPriceRaw=(document.getElementById('eo_unit_price')?.value||'').trim();
   const date=document.getElementById('eo_date').value;
   const note=document.getElementById('eo_note').value.trim();
   if(!orderNo||!cust||!qty||!date){alert('請填入所有欄位');return;}
-  closeModal();showToast('更新中...','warn');
+  if(!productId){showToast('請從清單選擇品項 / 成品','warn');document.getElementById('eo_product_search')?.focus();return;}
   try{
     const oldOrder=orders.find(o=>o.id===orderId);
+    const productChanged=canonicalPageId(oldOrder?.productId)!==canonicalPageId(productId);
+    const qtyChanged=Number(oldOrder?.qty||0)!==Number(qty);
+    if(productChanged||qtyChanged){
+      showToast('檢查此訂單是否已有領料紀錄...','warn');
+      const activePicks=await loadOrderPickingGuardRows(orderId);
+      if(activePicks.length){
+        openOrderPickingBlockedModal(orderId,orderNo,activePicks,'修改品項或數量');
+        return;
+      }
+    }
+    closeModal();showToast('更新中...','warn');
     const props={
       '訂單號':{title:[{text:{content:orderNo}}]},
       '客戶名稱':{select:{name:cust}},
+      '成品':{relation:[{id:productId}]},
       '訂購數量':{number:qty},
       '交期':{date:{start:date}},
       '業務備註':{rich_text:[{text:{content:note}}]}
@@ -19537,6 +19662,11 @@ async function doEditOrder(orderId){
     const auditBits=[];
     if(oldOrder?.no&&oldOrder.no!==orderNo)auditBits.push(`訂單號 ${oldOrder.no} → ${orderNo}`);
     if(oldOrder?.customer&&oldOrder.customer!==cust)auditBits.push(`客戶 ${oldOrder.customer} → ${cust}`);
+    if(productChanged){
+      const oldMat=mats.find(m=>m.id===oldOrder?.productId);
+      const newMat=mats.find(m=>m.id===productId);
+      auditBits.push(`品項 ${oldMat?.code||oldOrder?.product||oldOrder?.productId||'未設定'} → ${newMat?.code||newMat?.name||productId}`);
+    }
     if(oldOrder?.qty!==undefined&&oldOrder.qty!==qty)auditBits.push(`數量 ${oldOrder.qty} → ${qty}`);
     logUserAction('編輯訂單',orderNo,auditBits.join(' / ')||'更新訂單欄位',ROLE);
     await refreshAffectedData({core:true,label:'訂單資料已更新'});showToast('✅ 訂單已更新','ok');

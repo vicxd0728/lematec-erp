@@ -49,6 +49,22 @@ class OrderFiltersAndEditContractTests(unittest.TestCase):
         self.assertIn("'訂單號':{title:[{text:{content:orderNo}}]}", save_body)
         self.assertIn("if(!orderNo||!cust||!qty||!date)", save_body)
 
+    def test_edit_order_product_is_selectable_and_guarded_by_picking_state(self):
+        open_body = function_body("openEditOrder")
+        save_body = function_body("doEditOrder")
+        delete_body = function_body("deleteOrder")
+        self.assertIn("id=\"eo_product_search\"", open_body)
+        self.assertIn("id=\"eo_product\"", open_body)
+        self.assertIn("filterEditOrderProductList", INDEX)
+        self.assertIn("selectEditOrderProduct", INDEX)
+        self.assertIn("const productChanged=", save_body)
+        self.assertIn("const qtyChanged=", save_body)
+        self.assertIn("loadOrderPickingGuardRows(orderId)", save_body)
+        self.assertIn("openOrderPickingBlockedModal(orderId,orderNo,activePicks,'修改品項或數量')", save_body)
+        self.assertIn("'成品':{relation:[{id:productId}]}", save_body)
+        self.assertIn("loadOrderPickingGuardRows(oid)", delete_body)
+        self.assertIn("openOrderPickingBlockedModal(oid,no,activePicks,'刪除訂單')", delete_body)
+
 
 if __name__ == "__main__":
     unittest.main()

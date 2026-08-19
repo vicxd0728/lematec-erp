@@ -104,6 +104,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/orders/list') {
       return erpB2bOrderList(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/video-library/list') {
+      return erpVideoLibraryList(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/health/public') {
       return erpPublicHealth(request, env, cors);
     }
@@ -587,6 +590,46 @@ async function erpB2bOrderList(request, env, cors) {
     }).filter((row) => (!orderNoFilter || row.orderNo === orderNoFilter) && (!customerFilter || row.customerName.toLowerCase().includes(customerFilter)));
     rows.sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
     return respOK(cors, { ok: true, source: 'notion', fetchedAt: taipeiISOString(), count: Math.min(rows.length, limit), orders: rows.slice(0, limit) });
+  } catch (error) {
+    return resp500(cors, error.message);
+  }
+}
+
+async function erpVideoLibraryList(request, env, cors) {
+  try {
+    const url = new URL(request.url);
+    const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') || 500)));
+    const select = [
+      'video_id',
+      'title',
+      'url',
+      'thumbnail_url',
+      'source',
+      'video_type',
+      'category',
+      'model',
+      'keywords',
+      'duration_seconds',
+      'view_count',
+      'sort_order',
+      'is_published',
+      'synced_at',
+      'updated_at',
+    ].join(',');
+    const rows = await supabaseAll(
+      env,
+      `/rest/v1/video_library_public?select=${select}&order=sort_order.asc,updated_at.desc`
+    );
+    const videos = rows
+      .filter((row) => row && row.is_published !== false)
+      .slice(0, limit);
+    return respOK(cors, {
+      ok: true,
+      source: 'supabase_worker',
+      fetchedAt: taipeiISOString(),
+      count: videos.length,
+      videos,
+    });
   } catch (error) {
     return resp500(cors, error.message);
   }
