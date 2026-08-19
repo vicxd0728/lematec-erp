@@ -43,12 +43,21 @@ class OrderFiltersAndEditContractTests(unittest.TestCase):
     def test_order_search_is_ime_safe(self):
         filter_body = function_body("updateOrderFilter")
         list_body = function_body("_renderOrdersList")
+        apply_body = function_body("applyOrderSearch")
+        clear_body = function_body("clearOrderSearch")
         self.assertIn("setTimeout(render,320)", filter_body)
         self.assertIn("autocomplete=\"off\"", list_body)
         self.assertIn("autocorrect=\"off\"", list_body)
         self.assertIn("spellcheck=\"false\"", list_body)
         self.assertIn("dataset.composing='1'", list_body)
         self.assertIn("event.isComposing", list_body)
+        self.assertIn("oninput=\"setOrderSearchDraft(this.value)\"", list_body)
+        self.assertIn("event.key==='Enter'", list_body)
+        self.assertIn("applyOrderSearch(this.value)", list_body)
+        self.assertIn("onclick=\"applyOrderSearch()\"", list_body)
+        self.assertIn("onclick=\"clearOrderSearch()\"", list_body)
+        self.assertIn("updateOrderFilter('q',String(v||'').trim(),'ordSearchQ')", apply_body)
+        self.assertIn("updateOrderFilter('q','','ordSearchQ')", clear_body)
 
     def test_edit_order_number_is_visible_and_saved_to_notion_title(self):
         open_body = function_body("openEditOrder")

@@ -8496,6 +8496,23 @@ function applyDateFilterValue(val,data,dateKey='created'){
 function getOrderFilters(){
   return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',status:'all',date:'0',hide:false});
 }
+function getOrderSearchDraft(){
+  const f=getOrderFilters();
+  if(window._ORDER_SEARCH_DRAFT===undefined)window._ORDER_SEARCH_DRAFT=f.q||'';
+  return window._ORDER_SEARCH_DRAFT;
+}
+function setOrderSearchDraft(value){
+  window._ORDER_SEARCH_DRAFT=String(value||'');
+}
+function applyOrderSearch(value){
+  const v=value!==undefined?value:(document.getElementById('ordSearchQ')?.value||'');
+  setOrderSearchDraft(v);
+  updateOrderFilter('q',String(v||'').trim(),'ordSearchQ');
+}
+function clearOrderSearch(){
+  setOrderSearchDraft('');
+  updateOrderFilter('q','','ordSearchQ');
+}
 function updateOrderFilter(key,value,focusId=''){
   const f=getOrderFilters();
   f[key]=value;
@@ -14326,6 +14343,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
 
   // ── 搜尋過濾 ──
   const _ordQ = String(filters.q||'').trim();
+  const _ordDraft = getOrderSearchDraft();
   const _ordType = filters.type||'all';
   const _ordStatus = filters.status||'all';
   if(_ordQ) data=data.filter(o=>searchIncludesAll(orderSearchBlob(o),_ordQ));
@@ -14368,11 +14386,14 @@ function _renderOrdersList(tabs, soonOrders=[]){
 
   return orderBrief + _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input class="inp" id="ordSearchQ" name="lematec_order_search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordQ)}"
+      <input class="inp" id="ordSearchQ" name="lematec_order_search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordDraft)}"
         oncompositionstart="this._composing=true;this.dataset.composing='1'"
-        oncompositionend="this._composing=false;this.dataset.composing='0';updateOrderFilter('q',this.value,'ordSearchQ')"
-        oninput="if(!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing))updateOrderFilter('q',this.value,'ordSearchQ')"
+        oncompositionend="this._composing=false;this.dataset.composing='0';setOrderSearchDraft(this.value)"
+        oninput="setOrderSearchDraft(this.value)"
+        onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyOrderSearch(this.value)}"
         style="min-width:180px;padding:5px 10px;font-size:0.6875rem">
+      <button class="btn btn-blue btn-sm" onclick="applyOrderSearch()">搜尋</button>
+      ${_ordQ?`<button class="btn btn-ghost btn-sm" onclick="clearOrderSearch()">清除</button>`:''}
       <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('type',this.value)">
         <option value="all" ${_ordType==='all'?'selected':''}>全部類型</option>
         <option value="overseas" ${_ordType==='overseas'?'selected':''}>🌍 國外</option>
