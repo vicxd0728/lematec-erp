@@ -40,6 +40,16 @@ class OrderFiltersAndEditContractTests(unittest.TestCase):
         self.assertIn("orders.map(o=>o.status).filter(Boolean)", list_body)
         self.assertIn("data=data.filter(o=>(o.status||'')===_ordStatus)", list_body)
 
+    def test_order_search_is_ime_safe(self):
+        filter_body = function_body("updateOrderFilter")
+        list_body = function_body("_renderOrdersList")
+        self.assertIn("setTimeout(render,320)", filter_body)
+        self.assertIn("autocomplete=\"off\"", list_body)
+        self.assertIn("autocorrect=\"off\"", list_body)
+        self.assertIn("spellcheck=\"false\"", list_body)
+        self.assertIn("dataset.composing='1'", list_body)
+        self.assertIn("event.isComposing", list_body)
+
     def test_edit_order_number_is_visible_and_saved_to_notion_title(self):
         open_body = function_body("openEditOrder")
         save_body = function_body("doEditOrder")

@@ -8515,7 +8515,7 @@ function updateOrderFilter(key,value,focusId=''){
   };
   if(focusId){
     clearTimeout(window._orderFilterTimer);
-    window._orderFilterTimer=setTimeout(render,180);
+    window._orderFilterTimer=setTimeout(render,320);
   }else{
     render();
   }
@@ -14368,10 +14368,10 @@ function _renderOrdersList(tabs, soonOrders=[]){
 
   return orderBrief + _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input class="inp" id="ordSearchQ" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordQ)}"
-        oncompositionstart="this._composing=true"
-        oncompositionend="this._composing=false;updateOrderFilter('q',this.value,'ordSearchQ')"
-        oninput="if(!this._composing)updateOrderFilter('q',this.value,'ordSearchQ')"
+      <input class="inp" id="ordSearchQ" name="lematec_order_search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordQ)}"
+        oncompositionstart="this._composing=true;this.dataset.composing='1'"
+        oncompositionend="this._composing=false;this.dataset.composing='0';updateOrderFilter('q',this.value,'ordSearchQ')"
+        oninput="if(!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing))updateOrderFilter('q',this.value,'ordSearchQ')"
         style="min-width:180px;padding:5px 10px;font-size:0.6875rem">
       <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('type',this.value)">
         <option value="all" ${_ordType==='all'?'selected':''}>全部類型</option>
