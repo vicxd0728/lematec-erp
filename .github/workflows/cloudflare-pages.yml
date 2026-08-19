@@ -55,3 +55,45 @@ jobs:
             exit 1
           fi
           npx wrangler@latest pages deploy _publish --project-name=lematec-erp --branch=main
+
+      - name: Verify Worker dependency matches this commit
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          import time
+          from urllib.request import Request, urlopen
+
+          base = "https://green-wave-c22f.vic-e93.workers.dev"
+          expected_sha = "${{ github.sha }}"
+          last = ""
+          for attempt in range(1, 61):
+              try:
+                  req = Request(f"{base}/api/version?pages_check={attempt}-{int(time.time())}", headers={"User-Agent": "lematec-erp-pages-worker-gate/1.0"})
+                  with urlopen(req, timeout=30) as res:
+                      version_body = res.read().decode("utf-8", "replace")
+                  version = json.loads(version_body)
+                  if version.get("deploy_sha") != expected_sha:
+                      last = version_body
+                      raise RuntimeError("Worker deploy SHA is not yet aligned with this Pages commit")
+
+                  for path in ("/api/health/public", "/api/inventory/versions", "/api/corder/number-state", "/api/video-library/list?limit=1"):
+                      req = Request(f"{base}{path}", headers={"User-Agent": "lematec-erp-pages-worker-gate/1.0"})
+                      with urlopen(req, timeout=30) as res:
+                          body = res.read().decode("utf-8", "replace")
+                      data = json.loads(body)
+                      if data.get("error") or data.get("ok") is False:
+                          last = body
+                          raise RuntimeError(f"Worker dependency failed: {path}")
+
+                  print("Worker dependency verified for this Pages commit.")
+                  sys.exit(0)
+              except Exception as exc:
+                  print(f"Worker dependency attempt {attempt} failed: {exc}")
+                  time.sleep(5)
+
+          print("::error::Worker dependency did not match this Pages commit")
+          print(last)
+          sys.exit(1)
+          PY

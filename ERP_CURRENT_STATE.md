@@ -14,6 +14,9 @@ This is the single current-state entry point. Use it before reading older timeli
 - Latest Pages deploy: verify the current GitHub Actions Pages run after each frontend commit.
 - Worker deploy workflow: `Deploy ERP Worker`
 - Pages deploy workflow: `Deploy ERP to Cloudflare Pages`
+- Worker deployment integrity: every `main` push redeploys the Worker and stamps
+  `ERP_DEPLOY_SHA`; Pages deployment waits for `GET /api/version` to match the
+  same GitHub SHA before reporting success.
 
 ## Verified Production Checks
 
@@ -29,6 +32,7 @@ Last verified on 2026-08-04.
 | `GET /api/stock-log/list?limit=1` | Public read-only | HTTP 200 |
 | `GET /api/corder/number-state` | Public read-only | HTTP 200, `SHPTW`, `next_number=16352` |
 | `GET /api/health/public` | Public read-only | HTTP 200, `erp-health-v2`, public/authorized/manual split |
+| `GET /api/version` | Public read-only | HTTP 200, Worker source version and deployed Git SHA |
 | `GET /api/notes/shadow/summary` | Authorized only | HTTP 401 without ERP token |
 | `GET /api/health/supabase-usage` | Authorized only | HTTP 401 without ERP token |
 | `GET /api/reliability/summary` | Authorized only | HTTP 401 without ERP token |
@@ -46,6 +50,19 @@ Last verified on 2026-08-04.
 - GitHub secrets currently include `CLOUDFLARE_API_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, and `NOTION_TOKEN`.
 - `npx wrangler@latest` is available through Node/npm even when no local global `wrangler` is installed.
 - Supabase C-order sequence migration workflow exists at `.github/workflows/supabase-corder-sequence.yml`; default use is dry-run first.
+
+## Deployment Integrity
+
+- 2026-08-19 incident: production Worker briefly served an older/inconsistent
+  deployment and returned `Unexpected end of JSON input` for public health,
+  inventory version, and C-order state checks.
+- Immediate repair: redeployed `Deploy ERP Worker`; production public checks
+  returned HTTP 200 again.
+- Prevention: Worker no longer deploys only when Worker files change. It deploys
+  on every `main` push, writes the current Git SHA into Worker vars, and exposes
+  `GET /api/version`. Pages deployment now verifies that Worker SHA equals the
+  Pages commit and that health, inventory version, C-order state, and video
+  library reads all return valid JSON before the deploy is accepted.
 
 ## Immediate Optimization Queue
 

@@ -11,6 +11,9 @@ export default {
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/version') {
+      return erpWorkerVersion(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/inventory/versions') {
       return cachedInventoryVersions(request, env, cors);
     }
@@ -319,6 +322,7 @@ const resp400 = (c,e) => new Response(JSON.stringify({error:e}), { status:400, h
 const resp500 = (c,e) => new Response(JSON.stringify({error:e}), { status:500, headers:jh(c) });
 const NOTION_DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const RETRYABLE_UPSTREAM_STATUSES = new Set([429, 500, 502, 503, 504]);
+const ERP_WORKER_SOURCE_VERSION = '2026-08-19-worker-integrity-v1';
 
 const erpDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -330,6 +334,17 @@ async function responseJson(response) {
   } catch {
     return { message: text.slice(0, 500) };
   }
+}
+
+async function erpWorkerVersion(request, env, cors) {
+  return respOK(cors, {
+    ok: true,
+    worker: 'green-wave-c22f',
+    source_version: ERP_WORKER_SOURCE_VERSION,
+    deploy_sha: cleanText(env.ERP_DEPLOY_SHA || ''),
+    deploy_ref: cleanText(env.ERP_DEPLOY_REF || ''),
+    checked_at: taipeiISOString(),
+  });
 }
 
 async function fetchWithRetry(makeRequest, maxAttempts = 4) {

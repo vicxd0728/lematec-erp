@@ -20,6 +20,7 @@ This file classifies Worker routes by side effect and production safety. Before 
 
 | Method | Route | Class | Primary effect | Verification note |
 |---|---|---|---|---|
+| GET | `/api/version` | Read-only | Returns Worker source marker and deployed Git SHA | Safe read; Pages deployment must verify it matches the Pages commit before reporting success. |
 | GET | `/api/board.json` | Read-only | Returns board summary | Safe read. |
 | GET | `/erp-board-summary` | Read-only | Returns board summary alias | Safe read. |
 | GET | `/api/inventory/versions` | Read-only | Returns inventory/BOM data versions | Safe read; useful first sync probe. |
@@ -69,6 +70,7 @@ This file classifies Worker routes by side effect and production safety. Before 
 Preferred production checks:
 
 ```text
+GET /api/version
 GET /api/inventory/versions
 GET /api/inventory/list?limit=1
 GET /api/inventory/bom/list

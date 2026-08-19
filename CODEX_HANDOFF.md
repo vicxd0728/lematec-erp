@@ -20,6 +20,13 @@
 - `WORKER_API_CONTRACT.md` classifies Worker routes by side effect and production safety. Check it before calling production endpoints.
 - These contract files do not replace `CODEX_HANDOFF.md`; they keep the current state compact while this file remains the timeline.
 
+## Worker Deployment Integrity 2026-08-19
+
+- Incident: production Worker briefly returned `Unexpected end of JSON input` on public ERP Health, inventory versions, and C-order number-state checks while Pages still loaded.
+- Evidence: the live Worker response headers matched an older Worker CORS shape, so the production Worker deployment had drifted from the expected current source.
+- Immediate repair: reran `Deploy ERP Worker`; production public checks returned HTTP 200 again.
+- Prevention added: `GET /api/version` returns the Worker source marker and deployed Git SHA. `Deploy ERP Worker` now runs on every `main` push and stamps `ERP_DEPLOY_SHA` into Worker vars. `Deploy ERP to Cloudflare Pages` waits until Worker `/api/version` matches the same GitHub SHA and the core no-side-effect Worker routes return valid JSON before reporting success.
+
 ## Reliability Center v1 2026-08-03
 
 - Health Check now shows `補同步中心 v1`.
