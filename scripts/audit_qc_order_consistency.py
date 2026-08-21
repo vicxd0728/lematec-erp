@@ -247,6 +247,7 @@ def main():
         },
         "repairable_items": repairable[:80],
         "manual_items": manual[:80],
+        "unmatched_items": unmatched[:30],
         "applied": applied,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
