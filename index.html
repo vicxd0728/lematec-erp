@@ -2223,6 +2223,7 @@ let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let _bomDataReady=false,_bomDataError='',_bomDataSource='not-loaded',_bomDataFallbackReason='';
 let QC_SUB='pending',QC_FILTER='all',QC_DATE='0';
+let _qcInspectionsLoaded=false,_qcInspectionsLoading=false,_qcInspectionsPromise=null,_qcInspectionsError='';
 let announces=[],leaves=[],notes=[];
 let leaveEmployees=[];
 const LEAVE_TYPE_OPTIONS=['\u5e74\u5047','\u4e8b\u5047','\u75c5\u5047','\u7279\u4f11','\u5176\u4ed6'];
@@ -18794,6 +18795,9 @@ function openPickModal(orderId){
 
 // ══ 品管檢驗單 ══
 async function loadQCInspections(){
+  if(_qcInspectionsLoading&&_qcInspectionsPromise)return _qcInspectionsPromise;
+  _qcInspectionsLoading=true;
+  _qcInspectionsPromise=(async()=>{
   try{
     const r = await dbQueryAll(DB.qcInspection);
     window._qcInspections = r.map(p=>({
@@ -18817,7 +18821,14 @@ async function loadQCInspections(){
       toStock:  p.properties?.['料號入庫']?.checkbox||false,
       note:     p.properties?.['備註']?.rich_text?.[0]?.plain_text||'',
     })).sort((a,b)=>b.date.localeCompare(a.date));
-  }catch(e){ console.warn('loadQCInspections error:',e); window._qcInspections=[]; }
+    _qcInspectionsLoaded=true;
+    _qcInspectionsError='';
+    markLoaded('qcInspections');
+  }catch(e){ console.warn('loadQCInspections error:',e); window._qcInspections=[]; _qcInspectionsLoaded=false; _qcInspectionsError=e?.message||String(e); }
+  finally{ _qcInspectionsLoading=false; _qcInspectionsPromise=null; }
+  return window._qcInspections||[];
+  })();
+  return _qcInspectionsPromise;
 }
 
 
@@ -18982,7 +18993,22 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
   </div>`;
 }
 
+function qcInspectionsReady(){
+  return _qcInspectionsLoaded||isFresh('qcInspections',300000);
+}
+function qcNeedsInspectionData(sub=QC_SUB){
+  return sub==='inspect'||sub==='report';
+}
+function selectQCSub(sub){
+  QC_SUB=sub;
+  if(CURRENT_TAB==='qc')renderTab('qc');
+  if(qcNeedsInspectionData(sub)&&!qcInspectionsReady()&&!_qcInspectionsLoading){
+    loadQCInspections().then(()=>{if(CURRENT_TAB==='qc'&&QC_SUB===sub)renderTab('qc');});
+  }
+}
+
 function renderQCTab(){
+  if(QC_SUB==='history')QC_SUB='inspect';
   const _notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
     <span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span>
     <a href="https://www.notion.so/48f1a7b91e894f9ca4db6df8e5ee7e5f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">✅ 品管檢驗單</a>
@@ -19008,11 +19034,10 @@ function renderQCTab(){
     ${canQC?`<button class="btn btn-blue btn-sm" onclick="openNewInspection('','','',1)">＋ 新增品檢</button>`:''}
   </div>
   <div class="qc-tabs" style="margin-bottom:12px">
-    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="QC_SUB='pending';renderTab('qc')">📥 入料待品檢<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span></button>
-    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="QC_SUB='order_qc';renderTab('qc')">📋 訂單待檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></button>
-    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="QC_SUB='inspect';if(!window._qcInspections||!window._qcInspections.length){loadQCInspections().then(()=>renderTab('qc'));}else{renderTab('qc');}">🗂 檢驗紀錄<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${allInspections.length}</span></button>
-    <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="QC_SUB='report';if(!window._qcInspections||!window._qcInspections.length){loadQCInspections().then(()=>renderTab('qc'));}else{renderTab('qc');}">📈 品管報表</button>
-    <button class="qc-tab${QC_SUB==='history'?' active':''}" onclick="QC_SUB='history';renderTab('qc')">✅ 入料已檢測<span class="badge" style="background:rgba(46,196,138,.1);color:var(--green)">${doneInbound.length}</span></button>
+    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">📥 入料待品檢<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span></button>
+    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單待檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></button>
+    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">🗂 檢驗紀錄<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':allInspections.length}</span></button>
+    <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="selectQCSub('report')">📈 品管報表${_qcInspectionsLoading?'<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">讀取中</span>':''}</button>
   </div>`;
 
   // ══════════════════════════════
@@ -19054,6 +19079,12 @@ function renderQCTab(){
   }
 
   if(QC_SUB==='report'){
+    if(_qcInspectionsError){
+      return _notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections().then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
+    }
+    if(!qcInspectionsReady()||_qcInspectionsLoading){
+      return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
+    }
     return _notionBar+tabs+renderQCReport(allInspections,pendingInbound,pendingOrders,doneInbound);
   }
 
@@ -19088,6 +19119,12 @@ function renderQCTab(){
   // tab 3：檢驗紀錄（入料 + 訂單分開）
   // ══════════════════════════════
   if(QC_SUB==='inspect'){
+    if(_qcInspectionsError){
+      return _notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections().then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
+    }
+    if(!qcInspectionsReady()||_qcInspectionsLoading){
+      return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
+    }
     const inspections = allInspections;
     const _qcDateOpts=[['0','全部'],['7','近7天'],['30','當月'],['90','近3個月']];
     const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
@@ -19123,8 +19160,28 @@ function renderQCTab(){
       <td style="font-size:0.6875rem">${escapeHtml(ins.inspector||'—')}</td>
       <td><a href="https://www.notion.so/${(ins.id||'').replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-xs">🔗</a></td>
     </tr>`; }
+    function inboundHistoryRow(i){
+      const mat=mats.find(m=>m.id===i.matId);
+      const isFail=i.qcStatus==='品檢不合格';
+      return `<tr>
+        <td style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.no||'—')}</td>
+        <td style="font-size:0.6875rem">${escapeHtml(mat?.name||i.matName||'—')}</td>
+        <td style="font-family:monospace">${Number(i.qty)||0}</td>
+        <td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.date||'—')}</td>
+        <td><span style="padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.1)':'rgba(46,196,138,.1)'};color:${isFail?'var(--red)':'var(--green)'}">${escapeHtml(i.qcStatus||'—')}</span></td>
+      </tr>`;
+    }
 
     const thead = `<tr><th>檢驗單號</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
+    const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th></tr>`;
+    const linkedInboundNos=new Set(ibIns.map(i=>i.orderRef||'').filter(Boolean));
+    const inboundHistoryCutoff=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
+    const extraDoneInbound=doneInbound.filter(i=>{
+      if(linkedInboundNos.has(i.no))return false;
+      if(!inboundHistoryCutoff)return true;
+      const t=new Date(i.date||'').getTime();
+      return t&&t>=inboundHistoryCutoff;
+    });
 
     let content = '';
     if(ordIns.length){
@@ -19146,42 +19203,20 @@ function renderQCTab(){
         <div class="table-wrap"><table>${thead}${otherIns.map(insRow).join('')}</table></div>
       </div>`;
     }
+    if(extraDoneInbound.length){
+      content += `<div class="panel" style="margin-top:12px">
+        <div class="panel-hdr"><span class="panel-title">✅ 入料已檢測補充</span><span class="badge">${extraDoneInbound.length}</span></div>
+        <div style="padding:0 14px 10px;color:var(--text3);font-size:.76rem">此區保留舊入料狀態紀錄；若已建立正式品管檢驗單，會優先顯示在上方入料品管檢驗。</div>
+        <div class="table-wrap"><table>${inboundHistoryHead}${applySort('qch',extraDoneInbound).map(inboundHistoryRow).join('')}</table></div>
+      </div>`;
+    }
     if(!content) content = `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有符合條件的檢驗紀錄</div></div>`;
 
     return _notionBar+tabs+filterBar+content;
   }
 
-  // ══════════════════════════════
-  // tab 4：入料已檢測歷史
-  // ══════════════════════════════
-  const _qcDateOpts=[['0','全部'],['7','近7天'],['30','當月'],['90','近3個月']];
-  const filterBar2=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-    <span style="font-size:0.6875rem;color:var(--text2)">時間：</span>
-    ${_qcDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="QC_DATE='${v}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
-  </div>`;
-  const cutoff2 = QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
-  const filteredDone = doneInbound.filter(i=>{
-    if(!cutoff2) return true;
-    const t=new Date(i.date||'').getTime(); return t&&t>=cutoff2;
-  });
-  if(!filteredDone.length) return _notionBar+tabs+filterBar2+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有已檢測記錄</div></div>`;
-  return _notionBar+tabs+filterBar2+`<div class="panel">
-    <div class="panel-hdr"><span class="panel-title">✅ 入料已檢測</span><span class="badge">${filteredDone.length}</span></div>
-    <div class="table-wrap"><table>
-      <tr>${TH('qch','no','入料單號')}<th>料件</th>${TH('qch','qty','數量','num')}${TH('qch','date','日期','str','hide-m')}<th>狀態</th></tr>
-      ${applySort('qch',filteredDone).map(i=>{
-        const mat=mats.find(m=>m.id===i.matId);
-        const isFail=i.qcStatus==='品檢不合格';
-        return `<tr>
-          <td style="font-family:monospace;font-size:0.6875rem">${i.no}</td>
-          <td style="font-size:0.6875rem">${mat?.name||'—'}</td>
-          <td style="font-family:monospace">${i.qty}</td>
-          <td class="hide-m" style="font-size:0.6875rem">${i.date||'—'}</td>
-          <td><span style="padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.1)':'rgba(46,196,138,.1)'};color:${isFail?'var(--red)':'var(--green)'}">${i.qcStatus||'—'}</span></td>
-        </tr>`;
-      }).join('')}
-    </table></div>
-  </div>`;
+  QC_SUB='inspect';
+  return renderQCTab();
 }
 
 // ═══════════════════════════════════════════════
