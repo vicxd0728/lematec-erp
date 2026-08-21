@@ -2222,8 +2222,8 @@ const PILL={
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let _bomDataReady=false,_bomDataError='',_bomDataSource='not-loaded',_bomDataFallbackReason='';
-let QC_SUB='pending',QC_FILTER='all',QC_DATE='0';
-let _qcInspectionsLoaded=false,_qcInspectionsLoading=false,_qcInspectionsPromise=null,_qcInspectionsError='';
+let QC_SUB='pending',QC_FILTER='all',QC_KIND='all',QC_DATE='90';
+let _qcInspectionsLoaded=false,_qcInspectionsLoading=false,_qcInspectionsPromise=null,_qcInspectionsError='',_qcInspectionsScope='none',_qcInspectionsLoadingScope='';
 let announces=[],leaves=[],notes=[];
 let leaveEmployees=[];
 const LEAVE_TYPE_OPTIONS=['\u5e74\u5047','\u4e8b\u5047','\u75c5\u5047','\u7279\u4f11','\u5176\u4ed6'];
@@ -18794,12 +18794,30 @@ function openPickModal(orderId){
 
 
 // ══ 品管檢驗單 ══
-async function loadQCInspections(){
-  if(_qcInspectionsLoading&&_qcInspectionsPromise)return _qcInspectionsPromise;
+function qcInspectionDateFilter(days=90){
+  const d=new Date();
+  d.setDate(d.getDate()-days);
+  return {property:'檢驗日期',date:{on_or_after:d.toISOString().slice(0,10)}};
+}
+function qcInspectionLoadScope(){
+  return QC_DATE==='0'?'all':'recent';
+}
+function qcInspectionQueryForScope(scope='recent'){
+  if(scope==='all')return {};
+  return {filter:qcInspectionDateFilter(90),sorts:[{property:'檢驗日期',direction:'descending'}]};
+}
+async function loadQCInspections(options={}){
+  const scope=options.scope||qcInspectionLoadScope();
+  if(_qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope))return window._qcInspections||[];
+  if(_qcInspectionsLoading&&_qcInspectionsPromise){
+    if(_qcInspectionsLoadingScope===scope)return _qcInspectionsPromise;
+    return _qcInspectionsPromise.then(()=>loadQCInspections({scope}));
+  }
   _qcInspectionsLoading=true;
+  _qcInspectionsLoadingScope=scope;
   _qcInspectionsPromise=(async()=>{
   try{
-    const r = await dbQueryAll(DB.qcInspection);
+    const r = await dbQueryAll(DB.qcInspection,qcInspectionQueryForScope(scope));
     window._qcInspections = r.map(p=>({
       id:       p.id,
       no:       p.properties?.['檢驗單號']?.title?.[0]?.plain_text||'',
@@ -18822,10 +18840,11 @@ async function loadQCInspections(){
       note:     p.properties?.['備註']?.rich_text?.[0]?.plain_text||'',
     })).sort((a,b)=>b.date.localeCompare(a.date));
     _qcInspectionsLoaded=true;
+    _qcInspectionsScope=scope;
     _qcInspectionsError='';
     markLoaded('qcInspections');
   }catch(e){ console.warn('loadQCInspections error:',e); window._qcInspections=[]; _qcInspectionsLoaded=false; _qcInspectionsError=e?.message||String(e); }
-  finally{ _qcInspectionsLoading=false; _qcInspectionsPromise=null; }
+  finally{ _qcInspectionsLoading=false; _qcInspectionsPromise=null; _qcInspectionsLoadingScope=''; }
   return window._qcInspections||[];
   })();
   return _qcInspectionsPromise;
@@ -18964,6 +18983,7 @@ async function updateInspectionStatus(id, status){
 
 function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],doneInbound=[]){
   const month=new Date().toISOString().slice(0,7);
+  const scopeLabel=QC_DATE==='0'?'全部紀錄':'近3個月紀錄';
   const monthIns=allInspections.filter(x=>(x.date||'').startsWith(month));
   const pass=allInspections.filter(x=>x.result==='通過'||x.result==='條件通過').length;
   const fail=allInspections.filter(x=>x.result==='不通過').length;
@@ -18973,7 +18993,7 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
   const reasons=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const rate=allInspections.length?Math.round(pass/allInspections.length*100):100;
   return `<div class="dash-kpi-grid">
-    <div class="kpi-card kpi-green"><div class="kpi-label">通過率</div><div class="kpi-num">${rate}<span style="font-size:1.2rem">%</span></div><div class="kpi-sub">${pass} 通過 / ${allInspections.length} 總檢驗</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">通過率</div><div class="kpi-num">${rate}<span style="font-size:1.2rem">%</span></div><div class="kpi-sub">${pass} 通過 / ${allInspections.length} ${scopeLabel}</div></div>
     <div class="kpi-card ${fail?'kpi-red':'kpi-green'}"><div class="kpi-label">不通過</div><div class="kpi-num">${fail}</div><div class="kpi-sub">不良數量 ${badQty}</div></div>
     <div class="kpi-card ${pendingInbound.length+pendingOrders.length?'kpi-amber':'kpi-green'}"><div class="kpi-label">待檢項目</div><div class="kpi-num">${pendingInbound.length+pendingOrders.length}</div><div class="kpi-sub">入料 ${pendingInbound.length} / 訂單 ${pendingOrders.length}</div></div>
     <div class="kpi-card kpi-cyan"><div class="kpi-label">本月檢驗</div><div class="kpi-num">${monthIns.length}</div><div class="kpi-sub">${month}</div></div>
@@ -18994,7 +19014,8 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
 }
 
 function qcInspectionsReady(){
-  return _qcInspectionsLoaded||isFresh('qcInspections',300000);
+  const scope=qcInspectionLoadScope();
+  return _qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope);
 }
 function qcNeedsInspectionData(sub=QC_SUB){
   return sub==='inspect'||sub==='report';
@@ -19005,6 +19026,17 @@ function selectQCSub(sub){
   if(qcNeedsInspectionData(sub)&&!qcInspectionsReady()&&!_qcInspectionsLoading){
     loadQCInspections().then(()=>{if(CURRENT_TAB==='qc'&&QC_SUB===sub)renderTab('qc');});
   }
+}
+function setQCKind(kind){
+  QC_KIND=kind;
+  if(CURRENT_TAB==='qc')renderTab('qc');
+}
+function setQCDateRange(days){
+  QC_DATE=String(days);
+  if(qcNeedsInspectionData()&&!qcInspectionsReady()&&!_qcInspectionsLoading){
+    renderTab('qc');
+    loadQCInspections().then(()=>{if(CURRENT_TAB==='qc')renderTab('qc');});
+  }else if(CURRENT_TAB==='qc')renderTab('qc');
 }
 
 function renderQCTab(){
@@ -19085,7 +19117,12 @@ function renderQCTab(){
     if(!qcInspectionsReady()||_qcInspectionsLoading){
       return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
     }
-    return _notionBar+tabs+renderQCReport(allInspections,pendingInbound,pendingOrders,doneInbound);
+    const _qcReportDateOpts=[['90','近3個月'],['30','當月'],['7','近7天'],['0','全部（較慢）']];
+    const reportFilterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:0.6875rem;color:var(--text2)">報表範圍：</span>
+      ${_qcReportDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="setQCDateRange('${v}')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
+    </div>`;
+    return _notionBar+tabs+reportFilterBar+renderQCReport(allInspections,pendingInbound,pendingOrders,doneInbound);
   }
 
   // ══════════════════════════════
@@ -19126,31 +19163,52 @@ function renderQCTab(){
       return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
     }
     const inspections = allInspections;
-    const _qcDateOpts=[['0','全部'],['7','近7天'],['30','當月'],['90','近3個月']];
+    const _qcDateOpts=[['90','近3個月'],['30','當月'],['7','近7天'],['0','全部（較慢）']];
+    const _qcKindOpts=[
+      ['all','全部'],
+      ['order','訂單檢驗'],
+      ['inbound','入料檢驗'],
+      ['manual','手動/開發']
+    ];
     const filterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <span style="font-size:0.6875rem;color:var(--text2)">結果：</span>
       ${['all','pass','fail'].map(f=>{const lb={all:'全部',pass:'✅通過',fail:'❌不合格'};const a=QC_FILTER===f;return`<button onclick="QC_FILTER='${f}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${lb[f]}</button>`;}).join('')}
+      <span style="font-size:0.6875rem;color:var(--text2);margin-left:8px">類型：</span>
+      ${_qcKindOpts.map(([v,l])=>{const a=QC_KIND===v;return`<button onclick="setQCKind('${v}')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--cyan2)':'var(--border)'};background:${a?'rgba(45,212,191,.12)':'var(--bg3)'};color:${a?'var(--cyan2)':'var(--text2)'}">${l}</button>`;}).join('')}
       <span style="font-size:0.6875rem;color:var(--text2);margin-left:8px">時間：</span>
-      ${_qcDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="QC_DATE='${v}';renderTab('qc')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
+      ${_qcDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="setQCDateRange('${v}')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
     </div>`;
 
     const cutoff = QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
+    function qcInspectionKind(ins){
+      const ref=ins.orderRef||ins.no||'';
+      if(ref.startsWith('IB-'))return 'inbound';
+      if(/^(ORD-|SO-|SFG-|26|25|24)/.test(ref)||ins.type==='訂單'||(ins.orderId&&orders.some(o=>o.id===ins.orderId)))return 'order';
+      return 'manual';
+    }
     function insFilter(ins){
       if(QC_FILTER==='pass' && ins.result!=='通過' && ins.result!=='條件通過') return false;
       if(QC_FILTER==='fail' && ins.result!=='不通過') return false;
+      if(QC_KIND!=='all'&&qcInspectionKind(ins)!==QC_KIND)return false;
       if(cutoff){ const t=new Date(ins.created||ins.date||'').getTime(); if(!t||t<cutoff) return false; }
       return true;
     }
 
     // 分成入料、訂單與手動品檢。關聯單號來自舊資料時可能只有單號，避免吃到 undefined 欄位。
     const filteredInspections = inspections.filter(insFilter);
-    const ibIns  = filteredInspections.filter(i=>(i.orderRef||i.no||'').startsWith('IB-'));
-    const ordIns = filteredInspections.filter(i=>/^(ORD-|SO-|SFG-|26|25|24)/.test(i.orderRef||'') || (i.orderId&&orders.some(o=>o.id===i.orderId)));
-    const otherIns = inspections.filter(i=>insFilter(i) && !ibIns.includes(i) && !ordIns.includes(i));
+    const ibIns  = filteredInspections.filter(i=>qcInspectionKind(i)==='inbound');
+    const ordIns = filteredInspections.filter(i=>qcInspectionKind(i)==='order');
+    const otherIns = filteredInspections.filter(i=>qcInspectionKind(i)==='manual');
 
     const statusColors={'待檢驗':'var(--text3)','通過':'var(--green)','不通過':'var(--red)','條件通過':'var(--yellow)'};
-    function insRow(ins){ return `<tr>
+    function insTypeBadge(kind){
+      const map={order:['訂單','rgba(168,85,247,.12)','var(--purple,#a855f7)'],inbound:['入料','rgba(45,212,191,.12)','var(--cyan2)'],manual:['手動','rgba(245,158,11,.12)','var(--yellow)']};
+      const [label,bg,color]=map[kind]||['其他','rgba(148,163,184,.12)','var(--text2)'];
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:800;background:${bg};color:${color}">${label}</span>`;
+    }
+    function insRow(ins){ const kind=qcInspectionKind(ins); return `<tr>
       <td style="font-family:monospace;font-size:0.6875rem">${escapeHtml(ins.no||'—')}</td>
+      <td>${insTypeBadge(kind)}</td>
       <td style="font-size:0.6875rem">${escapeHtml(ins.orderRef||'—')}</td>
       <td style="font-size:0.6875rem">${escapeHtml(ins.matName||ins.matCode||'—')}</td>
       <td style="font-family:monospace">${Number(ins.qtyAct)||0}/${Number(ins.qtyReq)||0}</td>
@@ -19172,11 +19230,12 @@ function renderQCTab(){
       </tr>`;
     }
 
-    const thead = `<tr><th>檢驗單號</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
+    const thead = `<tr><th>檢驗單號</th><th>類型</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
     const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th></tr>`;
     const linkedInboundNos=new Set(ibIns.map(i=>i.orderRef||'').filter(Boolean));
     const inboundHistoryCutoff=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
     const extraDoneInbound=doneInbound.filter(i=>{
+      if(QC_KIND!=='all'&&QC_KIND!=='inbound')return false;
       if(linkedInboundNos.has(i.no))return false;
       if(!inboundHistoryCutoff)return true;
       const t=new Date(i.date||'').getTime();
