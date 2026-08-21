@@ -77,6 +77,10 @@ def worker_post(path, payload):
     return http_json("POST", f"{WORKER}{path}", body={"payload": payload})
 
 
+def worker_post_raw(path, payload, *, token=""):
+    return http_json("POST", f"{WORKER}{path}", token=token, body=payload)
+
+
 def notion_query_all(db_id, token, body):
     rows = []
     cursor = None
@@ -204,6 +208,124 @@ def update_notion_refs(token, keep_page_id, remove_page_ids, refs):
         notion_patch_page(page["id"], token, {"properties": {"料件ID": {"rich_text": [{"text": {"content": next_value}}]}}})
 
 
+def update_notion_bom_refs(token, keep_page_id, keep_sku, remove_page_ids, refs):
+    for page in refs["boms"]:
+        props = page.get("properties") or {}
+        parent_rel = [rel.get("id") for rel in ((props.get("母件") or {}).get("relation") or [])]
+        child_rel = [rel.get("id") for rel in ((props.get("子件") or {}).get("relation") or [])]
+        patch = {"備註": {"rich_text": [{"text": {"content": "重複料號合併：BOM 關聯改至 Vic 指定保留料號"}}]}}
+        if any(page_id in parent_rel for page_id in remove_page_ids):
+            patch["母件"] = {"relation": [{"id": keep_page_id}]}
+        if any(page_id in child_rel for page_id in remove_page_ids):
+            patch["子件"] = {"relation": [{"id": keep_page_id}]}
+        notion_patch_page(page["id"], token, {"properties": patch})
+
+
+def repair_f_fic_bom_refs(token, plan):
+    target = next((group for group in plan["groups"] if group["keep_sku"] == "F-FIC-06-2+PR-13B"), None)
+    if not target:
+        raise RuntimeError("F-FIC target group not found")
+    if target["missing"]:
+        raise RuntimeError(f"Missing material rows: {', '.join(target['missing'])}")
+    keep = target["keep"]
+    removes = target["removes"]
+    keep_page_id = clean(keep.get("notion_page_id"))
+    keep_sku = target["keep_sku"]
+    remove_skus = {sku.upper() for sku in target["remove_skus"]}
+    remove_page_ids = [clean(row.get("notion_page_id")) for row in removes if clean(row.get("notion_page_id"))]
+
+    current_bom = worker_get(f"/api/inventory/bom/list?repair_f_fic={int(time.time())}")
+    current_rows = current_bom.get("rows") or []
+    affected_parent_skus = {keep_sku}
+    for row in current_rows:
+        parent = clean(row.get("parent_sku"))
+        child = clean(row.get("child_sku"))
+        if parent.upper() in remove_skus:
+            affected_parent_skus.add(keep_sku)
+        if child.upper() in remove_skus:
+            affected_parent_skus.add(parent)
+
+    replacement_rows = []
+    rows_by_pair = {}
+    for row in current_rows:
+        parent = clean(row.get("parent_sku"))
+        child = clean(row.get("child_sku"))
+        mapped_parent = keep_sku if parent.upper() in remove_skus else parent
+        mapped_child = keep_sku if child.upper() in remove_skus else child
+        if mapped_parent not in affected_parent_skus:
+            continue
+        pair = (mapped_parent, mapped_child)
+        quantity = float(row.get("quantity") or row.get("qty") or 0)
+        existing = rows_by_pair.get(pair)
+        if existing:
+            if float(existing["quantity"]) != quantity:
+                raise RuntimeError(f"Duplicate mapped BOM pair has different quantities: {mapped_parent} -> {mapped_child}")
+            continue
+        rows_by_pair[pair] = {
+            "parent_sku": mapped_parent,
+            "child_sku": mapped_child,
+            "quantity": quantity,
+            "notes": "重複料號合併：BOM 關聯改至 Vic 指定保留料號",
+            "notion_page_id": clean(row.get("notion_page_id")),
+        }
+    replacement_rows = list(rows_by_pair.values())
+    if not replacement_rows:
+        raise RuntimeError("No replacement BOM rows were built")
+
+    material_specs = [{"sku": keep_sku, "name": keep_sku, "material_type": "半成品", "notion_page_id": keep_page_id}]
+    worker_post_raw(
+        "/api/inventory/sync",
+        {"kind": "upsert_material", "payload": {"sku": keep_sku, "name": keep_sku, "type": "半成品", "stock": target["target_stock"], "safe": float(keep.get("safety_stock") or keep.get("safe") or 0), "note": "重複料號合併：接手半成品 BOM", "notion_page_id": keep_page_id}},
+    )
+    notion_patch_page(
+        keep_page_id,
+        token,
+        {"properties": {"類型": {"select": {"name": "半成品"}}, "備註": {"rich_text": [{"text": {"content": "重複料號合併：接手半成品 BOM"}}]}}},
+    )
+    bom_result = worker_post_raw(
+        "/api/inventory/bom/upsert",
+        {"rows": replacement_rows, "materials": material_specs, "replace_parent_boms": True},
+        token=token,
+    )
+    refs = fetch_live_notion_refs(token, remove_page_ids)
+    update_notion_bom_refs(token, keep_page_id, keep_sku, remove_page_ids, refs)
+    remaining = fetch_live_notion_refs(token, remove_page_ids)
+    if remaining["total"]:
+        raise RuntimeError(f"{keep_sku} still has references after BOM migration: {ref_counts(remaining)}")
+    archive_result = worker_post(
+        "/api/inventory/material/archive",
+        {
+            "items": [
+                {
+                    "sku": clean(row.get("sku") or row.get("code")),
+                    "notion_page_id": clean(row.get("notion_page_id")),
+                    "allow_nonzero": False,
+                }
+                for row in removes
+            ],
+            "mode": "preserved_sku_bom_duplicate_cleanup",
+            "reason": f"重複料號合併封存；BOM 已改至 {keep_sku}",
+            "allow_nonzero": False,
+            "bom_notion_page_ids": sorted(
+                {
+                    *remove_page_ids,
+                    *[clean(row.get("notion_page_id")) for row in target["bom_refs"] if clean(row.get("notion_page_id"))],
+                }
+            ),
+        },
+    )
+    for row in removes:
+        notion_patch_page(clean(row.get("notion_page_id")), token, {"archived": True})
+    return {
+        "keep_sku": keep_sku,
+        "affected_parent_skus": sorted(affected_parent_skus),
+        "replacement_bom_rows": len(replacement_rows),
+        "bom_result": bom_result,
+        "migrated_refs": ref_counts(refs),
+        "archive_result": archive_result,
+    }
+
+
 def apply_group(token, group):
     if group["missing"]:
         raise RuntimeError(f"Missing material rows: {', '.join(group['missing'])}")
@@ -286,6 +408,7 @@ def apply_group(token, group):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--repair-bom-refs", action="store_true")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
@@ -316,8 +439,11 @@ def main():
                 continue
             results.append(apply_group(token, group))
         plan["apply_results"] = results
+    if args.repair_bom_refs:
+        plan["mode"] = "repair-bom-refs"
+        plan["bom_repair_result"] = repair_f_fic_bom_refs(token, plan)
 
-    output = args.output or f"tmp_preserved_sku_merge_{'apply' if args.apply else 'dryrun'}_20260821.json"
+    output = args.output or f"tmp_preserved_sku_merge_{plan['mode']}_20260821.json"
     Path(output).write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"output": output, "mode": plan["mode"], "groups": [
         {
@@ -331,7 +457,7 @@ def main():
             "block_reasons": g.get("block_reasons"),
         }
         for g in plan["groups"]
-    ], "apply_results": plan.get("apply_results", [])}, ensure_ascii=False, indent=2))
+    ], "apply_results": plan.get("apply_results", []), "bom_repair_result": plan.get("bom_repair_result")}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

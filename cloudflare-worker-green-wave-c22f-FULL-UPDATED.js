@@ -748,6 +748,37 @@ async function supabaseTableVersion(env, table, organizationId, filters = {}) {
   return { table, count, latest_updated_at: cleanText(rows[0]?.updated_at || '') };
 }
 
+async function supabaseActiveBomComponentsVersion(env, organizationId, latestUpdatedAt = '') {
+  const base = String(env.SUPABASE_URL || env.SUPABASE_REST_URL || '').replace(/\/+$/, '');
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
+  if (!base || !serviceKey) throw new Error('Supabase active BOM version env missing');
+  const query = new URLSearchParams({
+    organization_id: `eq.${organizationId}`,
+    select: 'organization_id',
+    limit: '1',
+  });
+  const res = await fetch(`${base}/rest/v1/active_bom_components?${query}`, {
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: 'application/json',
+      Prefer: 'count=exact',
+      Range: '0-0',
+    },
+  });
+  const text = await res.text();
+  let rows = null;
+  try { rows = text ? JSON.parse(text) : []; } catch { rows = null; }
+  if (!res.ok || !Array.isArray(rows)) {
+    throw new Error(rows?.message || text || `Supabase active BOM components version HTTP ${res.status}`);
+  }
+  const contentRange = res.headers.get('Content-Range') || '';
+  const countText = contentRange.includes('/') ? contentRange.split('/').pop() : '';
+  const count = /^\d+$/.test(countText) ? Number(countText) : null;
+  if (count === null) throw new Error('Supabase active BOM components exact count unavailable');
+  return { table: 'active_bom_components', count, latest_updated_at: cleanText(latestUpdatedAt) };
+}
+
 async function buildInventoryVersions(env) {
   const versionStep = async (label, work) => {
     try { return await work(); }
@@ -755,12 +786,15 @@ async function buildInventoryVersions(env) {
   };
   const context = await versionStep('inventory context', () => getSupabaseInventoryContext(env));
   const organizationId = context.organization.id;
-  const [materials, balances, bomHeaders, bomItems] = await Promise.all([
+  const [materials, balances, bomHeaders, rawBomItems] = await Promise.all([
     versionStep('materials version', () => supabaseTableVersion(env, 'materials', organizationId, {archived_at: 'is.null'})),
     versionStep('inventory balances version', () => supabaseTableVersion(env, 'inventory_balances', organizationId)),
     versionStep('BOM headers version', () => supabaseTableVersion(env, 'bom_headers', organizationId, {archived_at: 'is.null'})),
     versionStep('BOM items version', () => supabaseTableVersion(env, 'bom_items', organizationId)),
   ]);
+  const bomItems = await versionStep('active BOM items version', () =>
+    supabaseActiveBomComponentsVersion(env, organizationId, rawBomItems.latest_updated_at)
+  );
   const inventoryPayload = JSON.stringify({ materials, balances });
   const bomPayload = JSON.stringify({ materials, bomHeaders, bomItems });
   return {
