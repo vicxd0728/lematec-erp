@@ -713,7 +713,7 @@ async function sha256Short(value) {
   ))].slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function supabaseTableVersion(env, table, organizationId) {
+async function supabaseTableVersion(env, table, organizationId, filters = {}) {
   const base = String(env.SUPABASE_URL || env.SUPABASE_REST_URL || '').replace(/\/+$/, '');
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
   if (!base || !serviceKey) throw new Error('Supabase version env missing');
@@ -722,6 +722,9 @@ async function supabaseTableVersion(env, table, organizationId) {
     select: 'updated_at',
     order: 'updated_at.desc',
     limit: '1',
+  });
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (key && value !== undefined && value !== null && value !== '') query.set(key, String(value));
   });
   const res = await fetch(`${base}/rest/v1/${table}?${query}`, {
     headers: {
@@ -753,9 +756,9 @@ async function buildInventoryVersions(env) {
   const context = await versionStep('inventory context', () => getSupabaseInventoryContext(env));
   const organizationId = context.organization.id;
   const [materials, balances, bomHeaders, bomItems] = await Promise.all([
-    versionStep('materials version', () => supabaseTableVersion(env, 'materials', organizationId)),
+    versionStep('materials version', () => supabaseTableVersion(env, 'materials', organizationId, {archived_at: 'is.null'})),
     versionStep('inventory balances version', () => supabaseTableVersion(env, 'inventory_balances', organizationId)),
-    versionStep('BOM headers version', () => supabaseTableVersion(env, 'bom_headers', organizationId)),
+    versionStep('BOM headers version', () => supabaseTableVersion(env, 'bom_headers', organizationId, {archived_at: 'is.null'})),
     versionStep('BOM items version', () => supabaseTableVersion(env, 'bom_items', organizationId)),
   ]);
   const inventoryPayload = JSON.stringify({ materials, balances });
