@@ -1706,6 +1706,15 @@ async function doUpdateStatus(id, s){
   showToast('更新狀態中...','warn');
   try{
     await updatePage(id,{'狀態':{select:{name:s}}});
+    if(o&&(s==='待出貨'||s==='已完成')){
+      try{
+        const repaired=await syncLinkedOrderPendingInspections(o,'通過');
+        if(repaired)logUserAction('品檢同步補正',o.no||id,`狀態 ${s} 後補正同訂單待檢驗紀錄 ${repaired} 筆`,ROLE);
+      }catch(syncErr){
+        console.warn('order status qc inspection sync failed',syncErr);
+        showToast('⚠ 訂單狀態已更新，但品管紀錄補正失敗；請到健康檢查或品管紀錄確認','warn',8000);
+      }
+    }
     logUserAction('訂單狀態更新',o?.no||id,`${oldStatus||'—'} → ${s}`,ROLE);
     showToast('✅ 狀態→「'+s+'」','ok');
     setTimeout(()=>refreshAffectedData({core:true,label:'訂單狀態已更新'}).catch(()=>{}),300);
@@ -18808,7 +18817,7 @@ function qcInspectionQueryForScope(scope='recent'){
 }
 async function loadQCInspections(options={}){
   const scope=options.scope||qcInspectionLoadScope();
-  if(_qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope))return window._qcInspections||[];
+  if(!options.force&&_qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope))return window._qcInspections||[];
   if(_qcInspectionsLoading&&_qcInspectionsPromise){
     if(_qcInspectionsLoadingScope===scope)return _qcInspectionsPromise;
     return _qcInspectionsPromise.then(()=>loadQCInspections({scope}));
@@ -18848,6 +18857,29 @@ async function loadQCInspections(options={}){
   return window._qcInspections||[];
   })();
   return _qcInspectionsPromise;
+}
+
+function qcInspectionLinkedToOrder(ins,orderId='',orderNo=''){
+  const raw=ins?.orderRefRaw||'';
+  const ref=ins?.orderRef||'';
+  return !!ins&&(
+    (orderId&&raw.includes(orderId))||
+    (orderNo&&(ref===orderNo||raw.endsWith('|'+orderNo)||raw===orderNo))
+  );
+}
+async function syncLinkedOrderPendingInspections(order,result='通過',sourceInspectionId=''){
+  if(!order||!(result==='通過'||result==='條件通過'))return 0;
+  await loadQCInspections({scope:'recent'});
+  const targets=(window._qcInspections||[]).filter(ins=>
+    ins.id!==sourceInspectionId&&
+    (ins.result==='待檢驗'||!ins.result)&&
+    qcInspectionLinkedToOrder(ins,order.id,order.no)
+  );
+  for(const ins of targets){
+    await updatePage(ins.id,{'檢驗結果':{select:{name:'通過'}}});
+    ins.result='通過';
+  }
+  return targets.length;
 }
 
 
@@ -18941,6 +18973,13 @@ async function doInspResult(insId, orderRef, resultCode){
           targetOrder.status = '待出貨';
           criticalCommitted=true;
         }
+        try{
+          const repaired=await syncLinkedOrderPendingInspections(targetOrder,result,insId);
+          if(repaired)logUserAction('品檢同步補正',targetOrder.no||targetOrder.id,`同訂單待檢驗紀錄補為通過 ${repaired} 筆`,ROLE);
+        }catch(syncErr){
+          console.warn('sync linked order inspections failed',syncErr);
+          showToast('⚠ 訂單已通過，但同單檢驗紀錄補正失敗；請按同步狀態後到品管紀錄檢查','warn',8000);
+        }
       } else {
         // 不通過 → 維持待檢驗
         await updatePage(targetOrder.id, {'狀態':{select:{name:'待檢驗'}}});
@@ -18950,7 +18989,7 @@ async function doInspResult(insId, orderRef, resultCode){
     }else criticalCommitted=true;
 
     // 3. 重新載入並刷新
-    await loadQCInspections();
+    await loadQCInspections({force:true});
     await refreshAffectedData({core:true,label:'品檢資料已更新'});
 
     const passMsg = result==='通過'
