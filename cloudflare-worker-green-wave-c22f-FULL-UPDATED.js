@@ -1153,6 +1153,7 @@ async function erpInventoryBomUpsert(request, env, cors) {
     const body = await request.json();
     const sourceRows = Array.isArray(body?.rows) ? body.rows : [];
     const sourceMaterials = Array.isArray(body?.materials) ? body.materials : [];
+    const replaceParentBoms = body?.replace_parent_boms === true;
     if (!sourceRows.length) return resp400(cors, 'Missing BOM rows');
     if (sourceRows.length > 5000) return resp400(cors, 'BOM update exceeds 5000 rows');
 
@@ -1293,6 +1294,24 @@ async function erpInventoryBomUpsert(request, env, cors) {
         body: JSON.stringify(chunk),
       });
     }
+    let deletedBomItems = 0;
+    const deletedBomItemNotionPageIds = [];
+    if (replaceParentBoms) {
+      const desiredItemIds = new Set(itemRows.map((row) => cleanText(row.id)));
+      const desiredHeaderIds = new Set(headerRows.map((row) => cleanText(row.id)));
+      const extras = allItems
+        .filter((row) => desiredHeaderIds.has(cleanText(row.bom_header_id)) && !desiredItemIds.has(cleanText(row.id)))
+        .map((row) => ({
+          id: cleanText(row.id),
+          notion_page_id: cleanText(row.notion_page_id || ''),
+        }))
+        .filter((row) => row.id);
+      for (const chunk of chunkRows(extras.map((row) => encodeURIComponent(row.id)))) {
+        if (chunk.length) await supabaseFetch(env, `/rest/v1/bom_items?id=in.(${chunk.join(',')})`, {method: 'DELETE'});
+      }
+      deletedBomItems = extras.length;
+      deletedBomItemNotionPageIds.push(...extras.map((row) => row.notion_page_id).filter(Boolean));
+    }
 
     return respOK(cors, {
       ok: true,
@@ -1302,6 +1321,8 @@ async function erpInventoryBomUpsert(request, env, cors) {
       created_materials: createdMaterials,
       parent_count: headerRows.length,
       bom_row_count: itemRows.length,
+      deleted_bom_items: deletedBomItems,
+      deleted_bom_item_notion_page_ids: deletedBomItemNotionPageIds,
       updated_at: taipeiISOString(),
     });
   } catch (e) {
