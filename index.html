@@ -301,7 +301,7 @@ html[data-theme="premium"] #mainContent{padding:18px 22px;}
 html[data-theme="premium"] .premium-corder-shell{display:flex;flex-direction:column;gap:18px;}
 html[data-theme="premium"] .premium-corder-shell>.notion-bar{display:none;}
 html[data-theme="premium"] .corder-stats{
-  grid-template-columns:1fr 1fr 1fr 1fr minmax(220px,.95fr);
+  grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
   gap:14px;margin:0;
 }
 html[data-theme="premium"] .corder-stat{
@@ -322,10 +322,7 @@ html[data-theme="premium"] .corder-stat.is-ship{border-color:rgba(34,211,238,.25
 html[data-theme="premium"] .corder-stat.is-done{border-color:rgba(34,197,94,.26);}
 html[data-theme="premium"] .corder-stat.is-cancel{border-color:rgba(245,158,11,.27);}
 html[data-theme="premium"] .corder-stat.is-warn{border-color:rgba(251,113,133,.28);}
-html[data-theme="premium"] .corder-stat.is-trend{padding-left:22px;}
-html[data-theme="premium"] .corder-stat.is-trend::before{display:none;}
-html[data-theme="premium"] .corder-trend-bars{height:44px;display:flex;align-items:end;gap:8px;margin-top:8px;}
-html[data-theme="premium"] .corder-trend-bars i{display:block;width:12px;border-radius:4px 4px 0 0;background:linear-gradient(180deg,#67e8f9,#274454);opacity:.72;}
+html[data-theme="premium"] .corder-stat.is-filter{border-color:rgba(129,140,248,.26);}
 html[data-theme="premium"] .premium-corder-panel{border-radius:18px;border-color:rgba(103,232,249,.18);}
 html[data-theme="premium"] .premium-corder-panel>.panel-hdr{
   padding:16px 18px;background:linear-gradient(180deg,rgba(20,34,44,.94),rgba(13,24,31,.86));
@@ -687,7 +684,7 @@ body.modal-open{overflow:hidden;}
 }
 .corder-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px;background:linear-gradient(180deg,rgba(59,130,246,.06),transparent);border-bottom:1px solid var(--border);}
 .corder-toolbar .inp{font-size:0.9375rem;min-height:42px;}
-.corder-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.corder-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;}
 .corder-stat{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
 .corder-stat strong{display:block;font-size:1.75rem;line-height:1;font-family:var(--f-mono);margin-bottom:4px;}
 .corder-stat span{font-size:0.8125rem;color:var(--text2);font-weight:600;}
@@ -1104,10 +1101,16 @@ td{font-size:16px;padding:16px 17px;}
 .quick-entry-card span{display:block;font-size:13px;line-height:1.45;color:var(--text2);}
 .quick-entry-card small{display:block;margin-top:12px;font-family:var(--f-mono);font-size:12px;color:var(--cyan2);}
 .module-brief{
+  position:relative;
+  overflow:hidden;
   display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:16px;align-items:center;
   margin-bottom:14px;padding:18px 20px;border-radius:18px;
   border:1px solid rgba(94,234,212,.18);
   background:linear-gradient(135deg,rgba(10,21,28,.94),rgba(8,15,20,.86));
+}
+.module-brief::before{
+  content:'';position:absolute;left:0;top:16px;bottom:16px;width:4px;border-radius:999px;
+  background:linear-gradient(180deg,var(--cyan2),var(--green2));opacity:.86;
 }
 .module-brief h2{margin:0;font-size:24px;line-height:1.18;color:var(--text);letter-spacing:0;}
 .module-brief p{margin:7px 0 0;font-size:14px;line-height:1.55;color:var(--text2);}
@@ -1119,6 +1122,7 @@ td{font-size:16px;padding:16px 17px;}
 }
 .module-pill b{font-family:var(--f-mono);color:var(--text);font-size:14px;}
 .source-strip{
+  position:relative;
   display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
   margin-bottom:12px;padding:10px 13px;border-radius:14px;
   border:1px solid rgba(94,234,212,.18);
@@ -1127,7 +1131,16 @@ td{font-size:16px;padding:16px 17px;}
 }
 .source-strip b{color:var(--cyan2);}
 .focus-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
-.focus-stat{padding:13px 14px;border:1px solid rgba(170,194,180,.14);border-radius:14px;background:rgba(15,23,42,.42);}
+.focus-stat{
+  position:relative;min-width:0;padding:13px 14px 13px 54px;
+  border:1px solid rgba(170,194,180,.14);border-radius:14px;
+  background:linear-gradient(145deg,rgba(15,28,35,.64),rgba(7,13,18,.82));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
+}
+.focus-stat::before{
+  content:attr(data-icon);position:absolute;left:14px;top:15px;width:28px;height:28px;border-radius:10px;
+  display:grid;place-items:center;background:rgba(34,211,238,.1);border:1px solid rgba(94,234,212,.18);
+}
 .focus-stat span{display:block;color:var(--text3);font-size:12px;font-weight:800;margin-bottom:4px;}
 .focus-stat b{font-family:var(--f-mono);font-size:24px;color:var(--text);line-height:1;}
 .ops-board{height:calc(100dvh - 178px);min-height:560px;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);gap:14px;}
@@ -1203,6 +1216,10 @@ td{font-size:16px;padding:16px 17px;}
   .quick-entry-card{min-height:104px;padding:14px 15px;}
   .module-brief{grid-template-columns:1fr;padding:16px;}
   .module-brief-actions{justify-content:flex-start;}
+  .source-strip{display:block;padding:12px 13px;}
+  .source-strip .btn{margin-top:9px;width:100%;}
+  .focus-stat{padding:12px 12px 12px 48px;min-height:72px;}
+  .focus-stat::before{left:12px;top:14px;width:26px;height:26px;}
   .ops-board{height:auto;overflow:visible;grid-template-rows:auto auto;}
   .ops-hero{grid-template-columns:1fr;padding:16px;border-radius:18px;}
   .ops-total{text-align:left;min-width:0;display:flex;align-items:end;gap:10px;}
@@ -18623,7 +18640,6 @@ function renderCorders(){
       ? `<label class="btn btn-cyan btn-sm" style="cursor:pointer">📤 匯入 Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadCorderFile(this)"></label>`
       : `<button class="btn btn-cyan btn-sm" disabled title="${sequenceBlockedMessage}" onclick="${sequenceBlockedToast}">📤 匯入 Excel</button>`)
     : '';
-  const trendVals=[6,10,8,14,12,18,23,16].map((v,i)=>`<i style="height:${18+v}px"></i>`).join('');
   let html=`<div class="premium-corder-shell">
   <div class="module-brief">
     <div>
@@ -18642,7 +18658,7 @@ function renderCorders(){
     <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-cancel" data-icon="□"><span>已取消</span><strong>${countCancel}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-warn" data-icon="!"><span>需確認</span><strong>${countWarn}</strong><small>筆訂單</small></div>
-    <div class="corder-stat is-trend"><span>今日出貨趨勢</span><strong>${countShip}</strong><small>較昨日 ▲ 12%</small><div class="corder-trend-bars">${trendVals}</div></div>
+    <div class="corder-stat is-filter" data-icon="🔎"><span>目前顯示</span><strong>${filtered.length}</strong><small>共 ${data.length} 筆</small></div>
   </div>
   <div class="panel premium-corder-panel">
     <div class="panel-hdr">
