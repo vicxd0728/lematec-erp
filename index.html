@@ -1587,8 +1587,18 @@ html[data-theme="warm"] #themePanel{
 .note-chip.urgent{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.28);color:var(--red2)}
 .note-list{display:flex;flex-direction:column;gap:8px;padding:12px}
 .note-item{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.025)}
+.note-item.is-action{border-color:rgba(245,158,11,.36);background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(255,255,255,.025))}
+.note-item.is-due{border-color:rgba(239,68,68,.32);background:linear-gradient(135deg,rgba(239,68,68,.09),rgba(255,255,255,.025))}
+.note-item.is-done{opacity:.78}
 .note-item-title{font-weight:800;color:var(--text)}
 .note-item-meta{display:flex;flex-wrap:wrap;gap:6px 10px;color:var(--text3);font-size:.72rem;margin-top:4px}
+.note-item-flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px;font-size:.72rem;color:var(--text3)}
+.note-state-pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:.7rem;font-weight:800;border:1px solid var(--border2);background:rgba(255,255,255,.04);color:var(--text2)}
+.note-state-pill.action{color:var(--amber);border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.13)}
+.note-state-pill.due{color:var(--red2);border-color:rgba(239,68,68,.34);background:rgba(239,68,68,.13)}
+.note-state-pill.done{color:var(--green2);border-color:rgba(16,185,129,.28);background:rgba(16,185,129,.1)}
+.note-state-pill.normal{color:var(--cyan2);border-color:rgba(34,211,238,.22);background:rgba(34,211,238,.08)}
+.note-reply-line{padding:3px 0}
 .note-body{margin-top:8px;color:var(--text2);font-size:.86rem;white-space:pre-wrap}
 .note-thread{margin-top:10px;border-top:1px dashed var(--border2);padding-top:8px;color:var(--text2);font-size:.78rem;white-space:pre-wrap;line-height:1.55}
 .note-thread b{color:var(--cyan2)}
@@ -1629,6 +1639,8 @@ html[data-theme="warm"] #themePanel{
   .note-mobile-hint{color:var(--text3);font-size:.76rem;line-height:1.45;margin:0 0 10px}
   .note-list{padding:10px 0}
   .note-item{display:block;padding:14px;border-radius:14px;background:rgba(8,19,28,.92)}
+  .note-item-flow{margin-bottom:9px;gap:6px}
+  .note-state-pill{min-height:28px;font-size:.76rem}
   .note-item-title{font-size:1rem;line-height:1.38;word-break:break-word;overflow-wrap:anywhere}
   .note-item-meta{font-size:.78rem;gap:7px 9px}
   .note-item-meta span{display:inline-flex;align-items:center;min-height:24px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.035)}
@@ -12831,19 +12843,40 @@ function renderNoteMobileInbox({data=[],myTodo=[],dueList=[],openList=[],selecte
     ${view==='calendar'?'<div class="note-mobile-hint">往下可用月曆選日期；下方同時顯示選取日期的記事。</div>':renderNoteList(active.list,true)}
   </section>`;
 }
+function noteCardState(n){
+  if(noteNeedsRoleAck(n))return {key:'action',label:notePendingLabel(n),className:'is-action',icon:'待'};
+  if(noteReminderDue(n))return {key:'due',label:'提醒到期',className:'is-due',icon:'到'};
+  if(noteIsDone(n))return {key:'done',label:n.status||'完成',className:'is-done',icon:'完'};
+  return {key:'normal',label:n.status||'未處理',className:'',icon:'狀'};
+}
+function noteCompactFlow(n,showDate=false){
+  const parts=[];
+  if(showDate)parts.push(n.date||'未排日期');
+  if(n.time)parts.push(n.time);
+  if(n.remindDate)parts.push(`提醒 ${n.remindDate}`);
+  if(n.owner)parts.push(`負責 ${n.owner}`);
+  const targets=(n.targetRoles||[]).filter(Boolean);
+  if(targets.length)parts.push(`通知 ${targets.join('、')}`);
+  if(n.lastReplyBy)parts.push(`最後 ${n.lastReplyBy}`);
+  return parts.slice(0,6);
+}
 function renderNoteList(list,showDate=false){
   if(!list.length) return '<div style="padding:22px;text-align:center;color:var(--text3)">目前沒有紀錄</div>';
-  return `<div class="note-list">${list.map(n=>`<div class="note-item" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">
+  return `<div class="note-list">${list.map(n=>{
+    const state=noteCardState(n);
+    const flow=noteCompactFlow(n,showDate);
+    return `<div class="note-item ${state.className}" onclick="openNoteDetail('${n.id}')" style="cursor:pointer">
     <div style="min-width:0">
-      <div class="note-item-title">${escapeHtml(n.title)} ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''} ${noteNeedsRoleAck(n)?`<span class="pill" style="background:rgba(245,158,11,.16);color:var(--amber)">${notePendingLabel(n)}</span>`:''} ${noteReminderDue(n)?'<span class="pill" style="background:rgba(239,68,68,.13);color:var(--red2)">提醒到期</span>':''}</div>
+      <div class="note-item-flow">
+        <span class="note-state-pill ${state.key}">${escapeHtml(state.icon)} ${escapeHtml(state.label)}</span>
+        <span>${escapeHtml(n.type||'一般')}</span>
+        ${n.priority?`<span class="note-priority ${escapeHtml(n.priority)}">${escapeHtml(n.priority)}</span>`:''}
+      </div>
+      <div class="note-item-title">${escapeHtml(n.title)}</div>
       <div class="note-item-meta">
-        ${showDate?`<span>${escapeHtml(n.date||'未排日期')}</span>`:''}<span>${escapeHtml(n.time||'')}</span><span>${escapeHtml(n.type)}</span><span>${escapeHtml(n.status)}</span>
-        ${n.remindDate?`<span>提醒：${escapeHtml(n.remindDate)}</span>`:''}
-        <span>建立：${escapeHtml(n.authorRole||n.author||'未知')}</span>
-        ${n.owner?`<span>負責：${escapeHtml(n.owner)}</span>`:''}
-        ${(n.targetRoles||[]).length?`<span>通知：${escapeHtml(n.targetRoles.join('、'))}</span>`:''}
+        ${flow.map(x=>`<span>${escapeHtml(x)}</span>`).join('')}
+        <span>建立 ${escapeHtml(n.authorRole||n.author||'未知')}</span>
         ${n.ackRoles?`<span>已確認：${escapeHtml(n.ackRoles)}</span>`:''}
-        ${n.lastReplyBy?`<span>最後回覆：${escapeHtml(n.lastReplyBy)} ${escapeHtml(n.replyAction||'')}</span>`:''}
       </div>
       ${(n.tags||[]).length?`<div class="note-tags">${n.tags.map(t=>`<span class="note-tag">${escapeHtml(t)}</span>`).join('')}</div>`:''}
       ${noteRelationSummary(n)?`<div class="note-body" style="font-size:.82rem;color:var(--cyan2);margin-top:8px">🔗 ${escapeHtml(noteRelationSummary(n))}${n.backendUrl?`　<a href="${escapeHtml(n.backendUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--cyan2)">後台</a>`:''}</div>`:''}
@@ -12858,7 +12891,7 @@ function renderNoteList(list,showDate=false){
       ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green btn-sm" onclick="completeNote('${n.id}')">完成</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow btn-sm" onclick="openEditNote('${n.id}')">編輯</button><button class="btn btn-red btn-sm" onclick="deleteNote('${n.id}')">刪除</button>`:''}
     </div>
-  </div>`).join('')}</div>`;
+  </div>`;}).join('')}</div>`;
 }
 function parseNoteReplyLine(line=''){
   const raw=String(line||'');
