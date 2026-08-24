@@ -1945,7 +1945,7 @@ function openInventoryBatchAdjust(){
     return;
   }
   window._inventoryBatchDraft=null;
-  document.getElementById('modalInner').innerHTML=`<h3>批量調整庫存 / 安全庫存</h3>
+  document.getElementById('modalInner').innerHTML=`<h3>Excel/貼表批量調整</h3>
     <div class="info-box info-tip">庫存數量由 Supabase 原子提交；安全庫存屬料件主檔，先寫 Supabase 再同步 Notion 鏡像與修改記錄。</div>
     <div class="inventory-batch-help">
       <div><b>增減庫存</b><br>每行輸入：<span style="font-family:var(--f-mono)">料號 +10</span> 或 <span style="font-family:var(--f-mono)">料號 -5</span></div>
@@ -15656,8 +15656,8 @@ function renderInventory(){
         ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
         ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
-        ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">批量調整</button>`:''}
-        ${usingSupabase&&canEditStock?`<button class="btn btn-green btn-sm" onclick="openSelectedSafetyStockBatch()" ${selectedCount?'':'disabled'}>勾選套用安全庫存</button>`:''}
+        ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">Excel/貼表批量</button>`:''}
+        ${usingSupabase&&canEditStock?`<button class="btn btn-green btn-sm" onclick="openSelectedSafetyStockBatch()" ${selectedCount?'':'disabled'}>勾選改安全庫存</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
@@ -15678,6 +15678,8 @@ function renderInventory(){
       </div>
     </div>
   </div>
+
+  ${usingSupabase&&canEditStock&&selectedCount?`<div class="source-strip" data-contract="INVENTORY_SELECTED_ACTION_BAR_V1"><span><b>已勾選 ${selectedCount} 筆料件</b>：可一次設定相同安全庫存；不會修改目前庫存數量。</span><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-green btn-xs" onclick="openSelectedSafetyStockBatch()">設定安全庫存</button><button class="btn btn-ghost btn-xs" onclick="clearInvSelection()">清除勾選</button></div></div>`:''}
 
   <!-- 表格 -->
   <div class="panel">

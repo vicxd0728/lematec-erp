@@ -74,9 +74,16 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("function toggleInvVisibleSelection", INDEX)
         self.assertIn("function openSelectedSafetyStockBatch()", INDEX)
         self.assertIn("async function executeSelectedSafetyStockBatch()", INDEX)
-        self.assertIn("勾選套用安全庫存", INDEX)
+        self.assertIn("勾選改安全庫存", INDEX)
+        self.assertIn("INVENTORY_SELECTED_ACTION_BAR_V1", INDEX)
+        self.assertIn("已勾選 ${selectedCount} 筆料件", INDEX)
         self.assertIn("sourceType:'selected_safety_stock_batch'", INDEX)
         self.assertIn("這只會修改「安全庫存」主檔欄位，不會增加或扣除目前庫存", INDEX)
+
+    def test_batch_entry_labels_separate_excel_from_checked_rows(self):
+        self.assertIn("Excel/貼表批量調整", INDEX)
+        self.assertIn("Excel/貼表批量", INDEX)
+        self.assertIn("勾選改安全庫存", INDEX)
 
     def test_database_contract_is_atomic_and_idempotent(self):
         sql = RPC_SQL.lower()
