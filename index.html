@@ -1019,6 +1019,19 @@ td{font-size:16px;padding:16px 17px;}
   font-size:15px;font-weight:800;
 }
 .qc-tab.active{background:rgba(45,212,191,.15);border-bottom-color:transparent;border-color:rgba(94,234,212,.35);color:#ecfeff;}
+.qc-tab small{display:block;margin-top:3px;font-size:11px;font-weight:750;color:var(--text3);line-height:1.2;}
+.qc-tab.active small{color:#a7f3d0;}
+.order-workbench{display:flex;flex-direction:column;gap:14px;}
+.order-action-panel{overflow:hidden;border-radius:18px;border:1px solid rgba(103,232,249,.18);background:linear-gradient(180deg,rgba(10,19,28,.84),rgba(7,13,18,.9));}
+.order-action-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 17px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(30,41,59,.5),rgba(15,23,42,.18));}
+.order-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto auto;gap:9px;padding:14px 16px;align-items:center;}
+.order-search-wrap{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;}
+.order-status-chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px;}
+.order-status-chip{min-height:38px;border-radius:999px;border:1px solid rgba(170,194,180,.16);background:rgba(15,23,42,.48);color:var(--text2);font-size:14px;font-weight:800;padding:7px 13px;cursor:pointer;}
+.order-status-chip.active{background:rgba(45,212,191,.16);border-color:rgba(94,234,212,.45);color:#67e8f9;}
+.order-action-note{padding:9px 16px;border-top:1px solid rgba(148,163,184,.14);color:var(--text3);font-size:13px;line-height:1.55;background:rgba(45,212,191,.045);}
+.note-search-wrap{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;}
+.note-action-bar-label{display:none;}
 .dash-hero{
   display:grid;
   grid-template-columns:minmax(280px,1.15fr) minmax(320px,.85fr);
@@ -1176,6 +1189,31 @@ td{font-size:16px;padding:16px 17px;}
 .video-keywords{font-size:13px;color:var(--text2);line-height:1.5;min-height:39px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .video-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto;}
 .video-actions .btn{width:100%;padding-left:8px;padding-right:8px;}
+.analytics-shell{display:flex;flex-direction:column;gap:14px;}
+.analytics-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:16px;align-items:center;padding:20px 22px;border-radius:18px;border:1px solid rgba(94,234,212,.2);background:linear-gradient(135deg,rgba(10,24,31,.96),rgba(7,13,18,.9) 62%,rgba(79,140,255,.08));box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 48px rgba(0,0,0,.22);}
+.analytics-hero::before{content:'';position:absolute;left:0;top:16px;bottom:16px;width:4px;border-radius:999px;background:linear-gradient(180deg,var(--cyan2),var(--green2));}
+.analytics-hero h2{margin:0;font-size:25px;line-height:1.18;color:var(--text);letter-spacing:0;}
+.analytics-hero p{margin:8px 0 0;font-size:14px;line-height:1.55;color:var(--text2);}
+.analytics-hero-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.analytics-source-strip{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;padding:11px 14px;border-radius:14px;border:1px solid rgba(94,234,212,.18);background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(79,140,255,.04));color:var(--text2);font-size:13px;line-height:1.55;}
+.analytics-source-strip b{color:var(--cyan2);}
+.analytics-decision-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+.analytics-decision-card{position:relative;min-height:128px;text-align:left;cursor:pointer;padding:15px 15px 14px 56px;border-radius:16px;border:1px solid rgba(170,194,180,.14);background:linear-gradient(145deg,rgba(15,28,35,.74),rgba(7,13,18,.88));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);transition:transform .16s,border-color .16s,background .16s;}
+.analytics-decision-card::before{content:attr(data-icon);position:absolute;left:15px;top:16px;width:30px;height:30px;border-radius:11px;display:grid;place-items:center;background:rgba(34,211,238,.1);border:1px solid rgba(94,234,212,.18);}
+.analytics-decision-card:hover{transform:translateY(-2px);border-color:rgba(94,234,212,.34);background:linear-gradient(145deg,rgba(18,35,44,.92),rgba(8,16,22,.96));}
+.analytics-decision-card span{display:block;color:var(--text3);font-size:12px;font-weight:850;margin-bottom:5px;}
+.analytics-decision-card b{display:block;font-family:var(--f-mono);font-size:27px;line-height:1;color:var(--text);}
+.analytics-decision-card small{display:block;margin-top:7px;color:var(--text2);font-size:12px;line-height:1.42;}
+.analytics-decision-card em{display:block;margin-top:10px;color:var(--cyan2);font-style:normal;font-size:12px;font-weight:850;}
+.analytics-panel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
+.analytics-panel{padding:16px;border-radius:18px;border:1px solid rgba(170,194,180,.14);background:linear-gradient(180deg,var(--surface-glass),rgba(8,13,25,.84));}
+.analytics-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}
+.analytics-panel-head h3{margin:0;font-size:17px;line-height:1.25;color:var(--text);}
+.analytics-panel-head p{margin:4px 0 0;color:var(--text3);font-size:12px;line-height:1.45;}
+.analytics-row-link{cursor:pointer;border-radius:10px;padding:7px 8px;margin:0 -8px;}
+.analytics-row-link:hover{background:rgba(45,212,191,.075);}
+.analytics-action-table tr{cursor:pointer;}
+.analytics-action-table tr:hover td{background:rgba(45,212,191,.075);}
 .focus-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
 .focus-stat{
   position:relative;min-width:0;padding:13px 14px 13px 54px;
@@ -1273,6 +1311,11 @@ td{font-size:16px;padding:16px 17px;}
   .video-card{min-height:0;padding:13px;}
   .video-source-notice{display:block;}
   .video-source-notice .btn{width:100%;margin-top:9px;}
+  .analytics-hero{grid-template-columns:1fr;padding:17px 16px;border-radius:18px;}
+  .analytics-hero-actions{justify-content:flex-start;}
+  .analytics-decision-grid{grid-template-columns:1fr 1fr;}
+  .analytics-decision-card{min-height:118px;padding:14px 13px 14px 52px;}
+  .analytics-source-strip{display:block;}
   .focus-stat{padding:12px 12px 12px 48px;min-height:72px;}
   .focus-stat::before{left:12px;top:14px;width:26px;height:26px;}
   .ops-board{height:auto;overflow:visible;grid-template-rows:auto auto;}
@@ -1593,8 +1636,13 @@ html[data-theme="warm"] #themePanel{
   .note-item .note-body{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .note-item .note-thread{max-height:112px;overflow:hidden}
   .note-actions{justify-content:flex-start;margin-top:12px}
-  .note-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .note-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding-top:10px;border-top:1px solid var(--border);background:linear-gradient(180deg,rgba(8,19,28,0),rgba(8,19,28,.92))}
   .note-actions .btn-sm{width:100%;min-width:0}
+  .note-action-bar-label{display:block;grid-column:1/-1;color:var(--text3);font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .order-toolbar{grid-template-columns:1fr;padding:12px}
+  .order-search-wrap{grid-template-columns:1fr}
+  .order-action-head{align-items:flex-start;flex-direction:column}
+  .order-status-chips{padding:0 12px 12px}
   .note-targets label{flex:1 1 calc(50% - 8px);justify-content:center;min-height:40px}
   #modalInner .form-row{grid-template-columns:1fr!important}
   #modalInner .form-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -2286,7 +2334,7 @@ const PILL={
 let TOKEN='',ROLE='',CURRENT_TAB='dashboard';
 let mats=[],boms=[],orders=[],customers=[],picks=[],inbounds=[];
 let _bomDataReady=false,_bomDataError='',_bomDataSource='not-loaded',_bomDataFallbackReason='';
-let QC_SUB='pending',QC_FILTER='all',QC_KIND='all',QC_DATE='90';
+let QC_SUB='pending',QC_FILTER='all',QC_KIND='all',QC_DATE='30';
 let _qcInspectionsLoaded=false,_qcInspectionsLoading=false,_qcInspectionsPromise=null,_qcInspectionsError='',_qcInspectionsScope='none',_qcInspectionsLoadingScope='';
 let announces=[],leaves=[],notes=[];
 let leaveEmployees=[];
@@ -10966,21 +11014,35 @@ function analyticsIsConsumptionLog(row){
   const t=String(row?.type||'');
   return stockLogIsInventoryMove(row)&&['領料','C端出貨'].some(x=>t.includes(x));
 }
-function analyticsKpiCard(title,value,sub,color='var(--cyan2)',bar=0){
+function analyticsGo(tab,setup){
+  if(typeof setup==='function'){
+    try{setup();}catch(e){console.warn('analyticsGo setup:',e);}
+  }
+  switchTab(tab);
+}
+function analyticsKpiCard(title,value,sub,color='var(--cyan2)',bar=0,tab='analytics'){
   const pct=Math.max(0,Math.min(100,Number(bar)||0));
-  return `<div class="kpi-card" style="min-height:132px">
+  return `<div class="kpi-card" style="min-height:132px;cursor:pointer" onclick="analyticsGo('${tab}')">
     <span>${escapeHtml(title)}</span>
     <b style="color:${color}">${escapeHtml(String(value))}</b>
     <small>${escapeHtml(sub||'')}</small>
     <div class="progress"><div style="width:${pct}%;background:${color}"></div></div>
   </div>`;
 }
-function analyticsBarList(items,{empty='目前沒有資料',unit=''}={}){
+function analyticsDecisionCard({icon,title,value,sub,action,tab,color='var(--cyan2)'}={}){
+  return `<button class="analytics-decision-card" data-icon="${escapeHtml(icon||'•')}" onclick="analyticsGo('${tab||'analytics'}')">
+    <span>${escapeHtml(title||'')}</span>
+    <b style="color:${color}">${escapeHtml(String(value??'—'))}</b>
+    <small>${escapeHtml(sub||'')}</small>
+    <em>${escapeHtml(action||'查看來源')}</em>
+  </button>`;
+}
+function analyticsBarList(items,{empty='目前沒有資料',unit='',tab='analytics'}={}){
   const max=Math.max(1,...items.map(x=>Number(x[1])||0));
   if(!items.length)return `<div style="font-size:.78rem;color:var(--text3);padding:10px 0">${escapeHtml(empty)}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px">${items.map(([label,value])=>{
     const pct=Math.max(3,Math.round((Number(value)||0)*100/max));
-    return `<div>
+    return `<div class="analytics-row-link" onclick="analyticsGo('${tab}')">
       <div style="display:flex;justify-content:space-between;gap:10px;font-size:.78rem">
         <b style="color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(label)}</b>
         <span style="color:var(--cyan2);font-family:var(--f-mono)">${analyticsNum(value)}${escapeHtml(unit)}</span>
@@ -10989,11 +11051,11 @@ function analyticsBarList(items,{empty='目前沒有資料',unit=''}={}){
     </div>`;
   }).join('')}</div>`;
 }
-function analyticsMiniTable(rows,{empty='目前沒有資料'}={}){
+function analyticsMiniTable(rows,{empty='目前沒有資料',tab='analytics'}={}){
   if(!rows.length)return `<div style="font-size:.78rem;color:var(--text3);padding:10px 0">${escapeHtml(empty)}</div>`;
-  return `<div style="overflow:auto"><table class="data-table" style="min-width:520px">
+  return `<div style="overflow:auto"><table class="data-table analytics-action-table" style="min-width:520px">
     <thead><tr><th>項目</th><th>數量</th><th>提示</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr>
+    <tbody>${rows.map(r=>`<tr onclick="analyticsGo('${r.tab||tab}')">
       <td><b>${escapeHtml(r.name||'—')}</b><br><small>${escapeHtml(r.sub||'')}</small></td>
       <td style="font-family:var(--f-mono);color:${r.color||'var(--cyan2)'}">${escapeHtml(String(r.value??'—'))}</td>
       <td>${escapeHtml(r.hint||'')}</td>
@@ -11059,46 +11121,76 @@ function renderAnalytics(){
   const allRangeWarn=DATA_LOAD_MODE.corders!=='all'||DATA_LOAD_MODE.stocklog!=='all';
   const rangeButtons=['30','90','all'].map(r=>`<button class="btn ${a.range===r?'btn-blue':'btn-ghost'} btn-sm" onclick="setAnalyticsRange('${r}')">${escapeHtml(analyticsRangeLabel(r))}</button>`).join('');
   const orderKpis=[
-    analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders)),
-    analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0),
-    analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length)),
-    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10))
+    analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders),'orders'),
+    analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0,'orders'),
+    analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders'),
+    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders')
+  ].join('');
+  const topRisk=a.lowStockRisk[0];
+  const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
+  const decisionCards=[
+    analyticsDecisionCard({
+      icon:'⏰',title:'先追交期',value:analyticsNum(a.overdue.length),
+      sub:a.overdue.length?'正式訂單已逾期未完成':'目前無逾期正式訂單',
+      action:'查看訂單分頁',tab:'orders',color:a.overdue.length?'var(--red2)':'var(--green2)'
+    }),
+    analyticsDecisionCard({
+      icon:'📦',title:'補料優先',value:topRisk?topRisk.sku:'正常',
+      sub:topRisk?`耗用 ${analyticsNum(topRisk.used)}，${topRisk.hint}`:'目前沒有明顯高耗用低庫存',
+      action:'查看庫存主檔',tab:'inventory',color:topRisk?'var(--amber)':'var(--green2)'
+    }),
+    analyticsDecisionCard({
+      icon:'🧾',title:'資料品質',value:analyticsNum(a.audit.issues.length),
+      sub:a.audit.issues.length?'異動紀錄有待處理項目':'異動紀錄稽核正常',
+      action:'查看異動記錄',tab:'stocklog',color:a.audit.issues.length?'var(--amber)':'var(--green2)'
+    }),
+    analyticsDecisionCard({
+      icon:'🛒',title:'C端品項',value:topUse?topUse[0]:'無資料',
+      sub:topUse?`期間耗用 ${analyticsNum(topUse[1])} 件，可回 C端/異動查明細`:'期間內沒有扣庫耗用',
+      action:'查看 C端訂單',tab:'corders',color:'var(--cyan2)'
+    })
   ].join('');
   const dataQualityRows=[
-    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:a.audit.issues.length,hint:a.audit.issues.length?'到異動記錄分頁處理':'目前正常',color:a.audit.issues.length?'var(--amber)':'var(--green2)'},
-    {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)'},
-    {name:'C端料號缺漏',sub:'缺料件編號或料件ID',value:a.missingCorderSku.length,hint:a.missingCorderSku.length?'到 C端訂單補齊':'正常',color:a.missingCorderSku.length?'var(--red2)':'var(--green2)'},
-    {name:'正式訂單 BOM 風險',sub:'有訂單料號但找不到 BOM',value:a.noBomFinished.length,hint:a.noBomFinished.length?'到庫存/BOM 檢查':'正常',color:a.noBomFinished.length?'var(--amber)':'var(--green2)'}
+    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:a.audit.issues.length,hint:a.audit.issues.length?'到異動記錄分頁處理':'目前正常',color:a.audit.issues.length?'var(--amber)':'var(--green2)',tab:'stocklog'},
+    {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)',tab:'stocklog'},
+    {name:'C端料號缺漏',sub:'缺料件編號或料件ID',value:a.missingCorderSku.length,hint:a.missingCorderSku.length?'到 C端訂單補齊':'正常',color:a.missingCorderSku.length?'var(--red2)':'var(--green2)',tab:'corders'},
+    {name:'正式訂單 BOM 風險',sub:'有訂單料號但找不到 BOM',value:a.noBomFinished.length,hint:a.noBomFinished.length?'到庫存/BOM 檢查':'正常',color:a.noBomFinished.length?'var(--amber)':'var(--green2)',tab:'inventory'}
   ];
   return `
-  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+  <div class="analytics-shell">
+  <section class="analytics-hero">
     <div>
-      <h2 style="margin:0;color:var(--cyan2)">📈 營運分析</h2>
-      <div style="color:var(--text2);font-size:.82rem;margin-top:5px">訂單、C端、用料與資料品質的唯讀總表。細節與修正仍回原分頁處理。</div>
+      <h2>營運分析</h2>
+      <p>把訂單、C端、用料與資料品質整理成決策入口；每張卡片都能回到來源分頁處理。</p>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <div class="analytics-hero-actions">
       ${rangeButtons}
       <button class="btn btn-ghost btn-sm" onclick="setAnalyticsRange(analyticsRange())">重新整理</button>
     </div>
+  </section>
+  <div class="analytics-source-strip">
+    <span><b>資料範圍</b>：${escapeHtml(analyticsRangeLabel(a.range))}；正式訂單來自 Notion，C端與庫存異動依目前已載入資料統計。</span>
+    <span>${allRangeWarn&&a.range!=='all'?'快速載入模式，長期判斷可切全部':'資料已依目前範圍整理'}</span>
   </div>
-  ${allRangeWarn&&a.range!=='all'?`<div class="info-box" style="margin-bottom:12px">目前使用快速載入資料；要做長期趨勢判斷可切到「全部已載入資料」。</div>`:''}
-  <div class="kpi-grid" style="margin-bottom:14px">${orderKpis}</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px">
-    <div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3>訂單狀態</h3><button class="btn btn-ghost btn-xs" onclick="switchTab('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單'})}</div>
-    <div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3>C端狀態</h3><button class="btn btn-ghost btn-xs" onclick="switchTab('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單'})}</div>
-    <div class="panel"><h3>正式訂單客戶排行</h3>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單'})}</div>
-    <div class="panel"><h3>C端品項排行</h3>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件'})}</div>
+  <div class="analytics-decision-grid">${decisionCards}</div>
+  <div class="kpi-grid">${orderKpis}</div>
+  <div class="analytics-panel-grid">
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>蝦皮/C端流程狀態，回 C端訂單看寄件與完成。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>看哪些客戶在期間內最活躍。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('customers')">看客戶</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'customers'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端品項排行</h3><p>用來觀察熱賣品項與補貨方向。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders'})}</div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px">
-    <div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3>用料耗用排行</h3><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件'})}</div>
-    <div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3>庫存決策提示</h3><button class="btn btn-ghost btn-xs" onclick="switchTab('inventory')">看庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:r.hint,value:`耗用 ${analyticsNum(r.used)}`,hint:r.mat?'建議確認補料':'料號未對上主檔',color:r.stock<=0?'var(--red2)':'var(--amber)'})),{empty:'目前沒有明顯的高耗用低庫存項目'})}</div>
+  <div class="analytics-panel-grid">
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>用料耗用排行</h3><p>由領料與 C端出貨扣庫彙整，適合判斷常用料。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件',tab:'stocklog'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>庫存決策提示</h3><p>高耗用、低庫存、缺主檔關聯會優先浮出。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('inventory')">看庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:r.hint,value:`耗用 ${analyticsNum(r.used)}`,hint:r.mat?'建議確認補料':'料號未對上主檔',color:r.stock<=0?'var(--red2)':'var(--amber)',tab:'inventory'})),{empty:'目前沒有明顯的高耗用低庫存項目',tab:'inventory'})}</div>
   </div>
-  <div class="panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
-      <h3>資料品質與半自動修正入口</h3>
+  <div class="analytics-panel">
+    <div class="analytics-panel-head">
+      <div><h3>資料品質與半自動修正入口</h3><p>異常只列可追查的來源，修正仍回原分頁，避免在分析頁直接改資料。</p></div>
       <button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">處理異常</button>
     </div>
-    ${analyticsMiniTable(dataQualityRows)}
+    ${analyticsMiniTable(dataQualityRows,{tab:'stocklog'})}
+  </div>
   </div>`;
 }
 
@@ -12539,6 +12631,30 @@ function noteReminderDue(n){
   if(!n.remindDate||noteIsDone(n)) return false;
   return n.remindDate<=noteIsoDate();
 }
+function getNoteFilters(){
+  return window._NOTE_FILTERS||(window._NOTE_FILTERS={q:'',draft:'',type:'all',status:'all'});
+}
+function setNoteSearchDraft(value){
+  getNoteFilters().draft=String(value||'');
+}
+function applyNoteSearch(value){
+  const f=getNoteFilters();
+  const v=value!==undefined?value:(document.getElementById('noteQ')?.value||f.draft||'');
+  f.draft=String(v||'');
+  f.q=String(v||'').trim();
+  renderTab('notes');
+}
+function clearNoteSearch(){
+  const f=getNoteFilters();
+  f.q='';
+  f.draft='';
+  renderTab('notes');
+}
+function updateNoteFilter(key,value){
+  const f=getNoteFilters();
+  f[key]=value;
+  renderTab('notes');
+}
 function renderNotes(){
   if(!_notesLoaded){
     loadNotes().then(()=>{if(CURRENT_TAB==='notes')renderTab('notes');});
@@ -12549,9 +12665,11 @@ function renderNotes(){
   window._NOTE_YEAR=window._NOTE_YEAR??now.getFullYear();
   window._NOTE_MONTH=window._NOTE_MONTH??now.getMonth();
   window._NOTE_SELECTED=window._NOTE_SELECTED||today;
-  const q=(document.getElementById('noteQ')?.value||'').trim().toLowerCase();
-  const type=document.getElementById('noteTypeFilter')?.value||'all';
-  const status=document.getElementById('noteStatusFilter')?.value||'all';
+  const noteFilters=getNoteFilters();
+  if(noteFilters.draft===''&&noteFilters.q) noteFilters.draft=noteFilters.q;
+  const q=(noteFilters.q||'').trim().toLowerCase();
+  const type=noteFilters.type||'all';
+  const status=noteFilters.status||'all';
   const visibleNotes=notes.filter(noteVisibleInUi);
   let data=visibleNotes.filter(n=>{
     const text=[
@@ -12601,9 +12719,18 @@ function renderNotes(){
       </div>
     </section>
     <div class="note-toolbar">
-      <input class="inp" id="noteQ" value="${escapeHtml(document.getElementById('noteQ')?.value||'')}" oninput="requestFullDataForSearch('notes',this.value);renderTab('notes')" placeholder="搜尋標題、內容、建立者、角色...">
-      <select class="inp" id="noteTypeFilter" onchange="renderTab('notes')"><option value="all">全部類型</option>${NOTE_TYPES.map(x=>`<option value="${x}" ${type===x?'selected':''}>${x}</option>`).join('')}</select>
-      <select class="inp" id="noteStatusFilter" onchange="renderTab('notes')"><option value="all">全部狀態</option>${NOTE_STATUS.map(x=>`<option value="${x}" ${status===x?'selected':''}>${x}</option>`).join('')}</select>
+      <div class="note-search-wrap">
+        <input class="inp" id="noteQ" value="${escapeHtml(noteFilters.draft||'')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+          oncompositionstart="this._composing=true;this.dataset.composing='1'"
+          oncompositionend="this._composing=false;this.dataset.composing='0';setNoteSearchDraft(this.value)"
+          oninput="setNoteSearchDraft(this.value)"
+          onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();requestFullDataForSearch('notes',this.value);applyNoteSearch(this.value)}"
+          placeholder="搜尋標題、內容、建立者、角色...">
+        <button class="btn btn-blue btn-sm" onclick="requestFullDataForSearch('notes',document.getElementById('noteQ')?.value||'');applyNoteSearch()">搜尋</button>
+        ${q?`<button class="btn btn-ghost btn-sm" onclick="clearNoteSearch()">清除</button>`:''}
+      </div>
+      <select class="inp" id="noteTypeFilter" onchange="updateNoteFilter('type',this.value)"><option value="all">全部類型</option>${NOTE_TYPES.map(x=>`<option value="${x}" ${type===x?'selected':''}>${x}</option>`).join('')}</select>
+      <select class="inp" id="noteStatusFilter" onchange="updateNoteFilter('status',this.value)"><option value="all">全部狀態</option>${NOTE_STATUS.map(x=>`<option value="${x}" ${status===x?'selected':''}>${x}</option>`).join('')}</select>
       ${limitedDataHint('notes','記事')}
       ${canAdd?`<button class="btn btn-blue" onclick="openModal('newNote')">＋ 新增記事</button>`:''}
     </div>
@@ -12687,6 +12814,7 @@ function renderNoteList(list,showDate=false){
       ${n.replies?`<div class="note-thread">${formatNoteThread(n.replies)}</div>`:''}
     </div>
     <div class="note-actions" onclick="event.stopPropagation()">
+      <span class="note-action-bar-label">快速操作</span>
       <button class="btn btn-ghost btn-sm" onclick="openNoteDetail('${n.id}')">查看</button>
       ${noteNeedsRoleAck(n)?`<button class="btn btn-green btn-sm" onclick="submitNoteReply('${n.id}','知道了')">知道了</button><button class="btn btn-blue btn-sm" onclick="submitNoteReply('${n.id}','接受處理')">接受</button><button class="btn btn-red btn-sm" onclick="openNoteReply('${n.id}','拒絕/退回')">拒絕</button>`:''}
       ${noteCanReply(n)?`<button class="btn btn-cyan btn-sm" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
@@ -14442,6 +14570,12 @@ function _renderOrdersList(tabs, soonOrders=[]){
   const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
   const orderShipCount=orders.filter(o=>o.status==='待出貨').length;
   const orderQcCount=orders.filter(o=>o.status==='待檢驗').length;
+  const countStatus=s=>s==='all'?orders.length:orders.filter(o=>(o.status||'')===s).length;
+  const statusChips=['all','待排程','生產中','待檢驗','待出貨','已完成','取消'].map(s=>{
+    const label=s==='all'?'全部':s;
+    const active=_ordStatus===s||(!_ordStatus&&s==='all');
+    return `<button class="order-status-chip${active?' active':''}" onclick="updateOrderFilter('status','${s}')">${label} <b>${countStatus(s)}</b></button>`;
+  }).join('');
   const orderBrief=`
   <div class="module-brief">
     <div>
@@ -14466,27 +14600,36 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>
   </div>`;
 
-  return orderBrief + _notionBar + tabs + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  return `<div class="order-workbench">${orderBrief}${_notionBar}${tabs}<div class="order-action-panel">
+    <div class="order-action-head">
+      <div>
+        <div class="panel-title">訂單作業</div>
+        <div style="color:var(--text3);font-size:.78rem;margin-top:4px">搜尋按 Enter 或按搜尋套用；狀態與日期會即時切換。</div>
+      </div>
+      ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
+    </div>
+    <div class="order-toolbar">
+      <div class="order-search-wrap">
       <input class="inp" id="ordSearchQ" name="lematec_order_search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="🔍 搜尋訂單號、客戶、品項..." value="${escapeHtml(_ordDraft)}"
         oncompositionstart="this._composing=true;this.dataset.composing='1'"
         oncompositionend="this._composing=false;this.dataset.composing='0';setOrderSearchDraft(this.value)"
         oninput="setOrderSearchDraft(this.value)"
         onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyOrderSearch(this.value)}"
-        style="min-width:180px;padding:5px 10px;font-size:0.6875rem">
+        style="min-width:180px">
       <button class="btn btn-blue btn-sm" onclick="applyOrderSearch()">搜尋</button>
       ${_ordQ?`<button class="btn btn-ghost btn-sm" onclick="clearOrderSearch()">清除</button>`:''}
-      <select class="inp" id="ordTypeFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('type',this.value)">
+      </div>
+      <select class="inp" id="ordTypeFilter" onchange="updateOrderFilter('type',this.value)">
         <option value="all" ${_ordType==='all'?'selected':''}>全部類型</option>
         <option value="overseas" ${_ordType==='overseas'?'selected':''}>🌍 國外</option>
         <option value="domestic" ${_ordType==='domestic'?'selected':''}>🏠 國內</option>
         <option value="sfg" ${_ordType==='sfg'?'selected':''}>📦 SFG</option>
         <option value="shopee" ${_ordType==='shopee'?'selected':''}>🛒 蝦皮</option>
       </select>
-      <select class="inp" id="orderDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('date',this.value)">
+      <select class="inp" id="orderDateFilter" onchange="updateOrderFilter('date',this.value)">
         <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option>
       </select>
-      <select class="inp" id="ordStatusFilter" style="width:120px;padding:5px 8px;font-size:0.6875rem" onchange="updateOrderFilter('status',this.value)">
+      <select class="inp" id="ordStatusFilter" onchange="updateOrderFilter('status',this.value)">
         <option value="all" ${_ordStatus==='all'?'selected':''}>全部狀態</option>
         ${orderStatusOptions.map(s=>`<option value="${escapeHtml(s)}" ${_ordStatus===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
       </select>
@@ -14494,7 +14637,8 @@ function _renderOrdersList(tabs, soonOrders=[]){
         <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="updateOrderFilter('hide',this.checked)" style="accent-color:var(--blue)">隱藏完成/取消
       </label>
     </div>
-    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newOrder')">＋ 新增訂單</button>`:''}
+    <div class="order-status-chips">${statusChips}</div>
+    <div class="order-action-note">資料來源仍是 Notion 訂單；領料扣庫與庫存交易維持既有 Supabase 正式流程。</div>
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶訂單 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
   <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
@@ -14512,7 +14656,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
       ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>`:''}
   </tr>`;}).join('')}
-  </table></div></div>`;
+  </table></div></div></div>`;
 }
 // ══════════════════════════════════════
 // 交期提醒 Tab
@@ -18896,7 +19040,7 @@ function openPickModal(orderId){
 
 
 // ══ 品管檢驗單 ══
-function qcInspectionDateFilter(days=90){
+function qcInspectionDateFilter(days=30){
   const d=new Date();
   d.setDate(d.getDate()-days);
   return {property:'檢驗日期',date:{on_or_after:d.toISOString().slice(0,10)}};
@@ -18904,9 +19048,13 @@ function qcInspectionDateFilter(days=90){
 function qcInspectionLoadScope(){
   return QC_DATE==='0'?'all':'recent';
 }
+function qcInspectionRangeDays(){
+  const n=parseInt(QC_DATE,10);
+  return Number.isFinite(n)&&n>0?n:30;
+}
 function qcInspectionQueryForScope(scope='recent'){
   if(scope==='all')return {};
-  return {filter:qcInspectionDateFilter(90),sorts:[{property:'檢驗日期',direction:'descending'}]};
+  return {filter:qcInspectionDateFilter(qcInspectionRangeDays()),sorts:[{property:'檢驗日期',direction:'descending'}]};
 }
 async function loadQCInspections(options={}){
   const scope=options.scope||qcInspectionLoadScope();
@@ -18917,6 +19065,7 @@ async function loadQCInspections(options={}){
   }
   _qcInspectionsLoading=true;
   _qcInspectionsLoadingScope=scope;
+  window._qcInspectionsLoadStartedAt=performance.now();
   _qcInspectionsPromise=(async()=>{
   try{
     const r = await dbQueryAll(DB.qcInspection,qcInspectionQueryForScope(scope));
@@ -18943,7 +19092,10 @@ async function loadQCInspections(options={}){
     })).sort((a,b)=>b.date.localeCompare(a.date));
     _qcInspectionsLoaded=true;
     _qcInspectionsScope=scope;
+    window._qcInspectionsRangeDays=scope==='all'?Infinity:qcInspectionRangeDays();
     _qcInspectionsError='';
+    window._qcInspectionsLoadMs=Math.round(performance.now()-(window._qcInspectionsLoadStartedAt||performance.now()));
+    window._qcInspectionsLoadedAt=new Date();
     markLoaded('qcInspections');
   }catch(e){ console.warn('loadQCInspections error:',e); window._qcInspections=[]; _qcInspectionsLoaded=false; _qcInspectionsError=e?.message||String(e); }
   finally{ _qcInspectionsLoading=false; _qcInspectionsPromise=null; _qcInspectionsLoadingScope=''; }
@@ -19147,13 +19299,28 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
 
 function qcInspectionsReady(){
   const scope=qcInspectionLoadScope();
-  return _qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope);
+  if(!_qcInspectionsLoaded) return false;
+  if(_qcInspectionsScope==='all') return true;
+  if(scope==='all') return false;
+  return _qcInspectionsScope===scope&&Number(window._qcInspectionsRangeDays||0)>=qcInspectionRangeDays();
+}
+function qcLoadTimeLabel(){
+  if(_qcInspectionsLoading){
+    const start=window._qcInspectionsLoadStartedAt||performance.now();
+    return `讀取中 ${Math.max(0,((performance.now()-start)/1000)).toFixed(1)} 秒`;
+  }
+  if(window._qcInspectionsLoadMs!==undefined){
+    return `已載入 ${((window._qcInspectionsLoadMs||0)/1000).toFixed(1)} 秒`;
+  }
+  return `尚未載入`;
 }
 function qcNeedsInspectionData(sub=QC_SUB){
   return sub==='inspect'||sub==='report';
 }
 function selectQCSub(sub){
   QC_SUB=sub;
+  if(sub==='inspect'&&QC_KIND==='all') QC_KIND='inbound';
+  if(sub==='report'&&QC_KIND==='inbound') QC_KIND='all';
   if(CURRENT_TAB==='qc')renderTab('qc');
   if(qcNeedsInspectionData(sub)&&!qcInspectionsReady()&&!_qcInspectionsLoading){
     loadQCInspections().then(()=>{if(CURRENT_TAB==='qc'&&QC_SUB===sub)renderTab('qc');});
@@ -19187,29 +19354,50 @@ function renderQCTab(){
   const doneInbound     = inbounds.filter(i=>i.qcStatus!=='待品檢');          // 入料已檢測
   const pendingOrders   = getInspectionOrders();                               // 訂單待檢驗（狀態=待檢驗 或 品檢異常）
   const allInspections  = window._qcInspections||[];
+  const qcRangeLabel=QC_DATE==='0'?'全部紀錄':`近 ${qcInspectionRangeDays()} 天`;
+  const qcLoadLabel=qcLoadTimeLabel();
+  const qcBrief=`
+  <div class="module-brief">
+    <div>
+      <h2>品管</h2>
+      <p>待處理先分流入料與訂單；歷史紀錄與報表採用按需載入，預設 ${qcRangeLabel}，避免切換分頁時一次讀太多資料。</p>
+    </div>
+    <div class="module-brief-actions">
+      <span class="module-pill">待處理 <b>${pendingInbound.length+pendingOrders.length}</b></span>
+      <span class="module-pill">入料 <b>${pendingInbound.length}</b></span>
+      <span class="module-pill">訂單 <b>${pendingOrders.length}</b></span>
+      <span class="module-pill">載入 <b>${qcLoadLabel}</b></span>
+    </div>
+  </div>
+  <div class="focus-stat-grid">
+    <div class="focus-stat" data-icon="⚡"><span>待處理</span><b>${pendingInbound.length+pendingOrders.length}</b></div>
+    <div class="focus-stat" data-icon="📥"><span>入料檢驗</span><b>${pendingInbound.length}</b></div>
+    <div class="focus-stat" data-icon="📋"><span>訂單檢驗</span><b>${pendingOrders.length}</b></div>
+    <div class="focus-stat" data-icon="⏱"><span>紀錄範圍</span><b>${QC_DATE==='0'?'全部':qcInspectionRangeDays()+'天'}</b></div>
+  </div>
+  <div class="source-strip">
+    <span><b>操作分流</b>：待處理只放需要動作的項目；檢驗紀錄與報表才讀歷史資料。${qcLoadLabel}</span>
+    ${canQC?`<button class="btn btn-blue btn-xs" onclick="openNewInspection('','','',1)">新增品檢</button>`:''}
+  </div>`;
 
   // ── 四個 tab ──
   // 1. 待品檢：入料待品檢
   // 2. 待檢驗：訂單待檢驗（含品檢異常）
   // 3. 檢驗單：所有品管記錄（分入料/訂單）
   // 4. 已檢測：入料歷史
-  const tabs=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-    <div style="font-size:.84rem;color:var(--text2);line-height:1.5">入料、訂單、開發測試與臨時抽檢都統一寫入品管檢驗單。</div>
-    ${canQC?`<button class="btn btn-blue btn-sm" onclick="openNewInspection('','','',1)">＋ 新增品檢</button>`:''}
-  </div>
-  <div class="qc-tabs" style="margin-bottom:12px">
-    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">📥 入料待品檢<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span></button>
-    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單待檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></button>
-    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">🗂 檢驗紀錄<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':allInspections.length}</span></button>
-    <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="selectQCSub('report')">📈 品管報表${_qcInspectionsLoading?'<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">讀取中</span>':''}</button>
+  const tabs=`<div class="qc-tabs" style="margin-bottom:12px">
+    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">⚡ 待處理<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span><small>入料</small></button>
+    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span><small>待檢驗</small></button>
+    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">📥 入料檢驗<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':allInspections.length}</span><small>含歷史</small></button>
+    <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="selectQCSub('report')">📈 歷史紀錄/報表${_qcInspectionsLoading?'<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">讀取中</span>':''}<small>${qcRangeLabel}</small></button>
   </div>`;
 
   // ══════════════════════════════
   // tab 1：入料待品檢（原有功能）
   // ══════════════════════════════
   if(QC_SUB==='pending'){
-    if(!pendingInbound.length) return _notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有入料待品檢項目</div></div>`;
-    return _notionBar+tabs+`<div class="panel">
+    if(!pendingInbound.length) return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有入料待品檢項目</div></div>`;
+    return qcBrief+_notionBar+tabs+`<div class="panel">
       <div class="panel-hdr" style="gap:10px;flex-wrap:wrap">
         <span class="panel-title">📥 入料待品檢</span>
         <span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span>
@@ -19244,25 +19432,25 @@ function renderQCTab(){
 
   if(QC_SUB==='report'){
     if(_qcInspectionsError){
-      return _notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections().then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
+      return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections({force:true}).then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
     }
     if(!qcInspectionsReady()||_qcInspectionsLoading){
-      return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
+      return qcBrief+_notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料... ${qcLoadLabel}</div><div style="padding:0 24px 22px;color:var(--text3);font-size:.78rem">目前範圍：${qcRangeLabel}。若選「全部」資料量會較大。</div></div>`;
     }
-    const _qcReportDateOpts=[['90','近3個月'],['30','當月'],['7','近7天'],['0','全部（較慢）']];
+    const _qcReportDateOpts=[['30','近30天'],['14','近14天'],['7','近7天'],['90','近3個月'],['0','全部（較慢）']];
     const reportFilterBar=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <span style="font-size:0.6875rem;color:var(--text2)">報表範圍：</span>
       ${_qcReportDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="setQCDateRange('${v}')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
     </div>`;
-    return _notionBar+tabs+reportFilterBar+renderQCReport(allInspections,pendingInbound,pendingOrders,doneInbound);
+    return qcBrief+_notionBar+tabs+reportFilterBar+renderQCReport(allInspections,pendingInbound,pendingOrders,doneInbound);
   }
 
   // ══════════════════════════════
   // tab 2：訂單待檢驗（只有訂單）
   // ══════════════════════════════
   if(QC_SUB==='order_qc'){
-    if(!pendingOrders.length) return _notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有訂單待檢驗</div></div>`;
-    return _notionBar+tabs+`<div class="panel">
+    if(!pendingOrders.length) return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有訂單待檢驗</div></div>`;
+    return qcBrief+_notionBar+tabs+`<div class="panel">
       <div class="panel-hdr"><span class="panel-title">📋 訂單待檢驗</span><span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></div>
       <div class="table-wrap"><table>
         <tr><th>訂單號</th><th>客戶</th><th>品項</th><th>數量</th><th>狀態</th><th>操作</th></tr>
@@ -19289,13 +19477,13 @@ function renderQCTab(){
   // ══════════════════════════════
   if(QC_SUB==='inspect'){
     if(_qcInspectionsError){
-      return _notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections().then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
+      return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:24px;color:var(--red2)">品管檢驗資料讀取失敗：${escapeHtml(_qcInspectionsError)}</div><div style="padding:0 24px 24px"><button class="btn btn-blue btn-sm" onclick="loadQCInspections({force:true}).then(()=>renderTab('qc'))">重新讀取</button></div></div>`;
     }
     if(!qcInspectionsReady()||_qcInspectionsLoading){
-      return _notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料...</div></div>`;
+      return qcBrief+_notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料... ${qcLoadLabel}</div><div style="padding:0 24px 22px;color:var(--text3);font-size:.78rem">預設先讀 ${qcRangeLabel}；切換成全部才會抓完整歷史。</div></div>`;
     }
     const inspections = allInspections;
-    const _qcDateOpts=[['90','近3個月'],['30','當月'],['7','近7天'],['0','全部（較慢）']];
+    const _qcDateOpts=[['30','近30天'],['14','近14天'],['7','近7天'],['90','近3個月'],['0','全部（較慢）']];
     const _qcKindOpts=[
       ['all','全部'],
       ['order','訂單檢驗'],
@@ -19403,7 +19591,7 @@ function renderQCTab(){
     }
     if(!content) content = `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有符合條件的檢驗紀錄</div></div>`;
 
-    return _notionBar+tabs+filterBar+content;
+    return qcBrief+_notionBar+tabs+filterBar+content;
   }
 
   QC_SUB='inspect';
