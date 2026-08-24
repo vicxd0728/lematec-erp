@@ -1461,7 +1461,7 @@ async function erpInventorySync(request, env, cors) {
     }
 
     const existedBeforeSync = !!material;
-    if (task.kind === 'upsert_material' || !material) {
+    if (task.kind === 'upsert_material' || task.kind === 'update_material' || !material) {
       material = await upsertSupabaseMaterial(env, organization.id, material, {...payload, sku});
     }
     if (!material?.id) throw new Error(`Supabase material sync failed: ${sku}`);

@@ -39,6 +39,9 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn(
             "['修改後數量','新庫存','庫存','數量','stock','qty']", INDEX
         )
+        self.assertIn(
+            "['安全庫存','安全庫存量','safe','safety_stock','safety']", INDEX
+        )
 
     def test_submit_uses_atomic_batch_gateway_and_mirror_queue(self):
         self.assertIn("await applyInventoryBatchAndMirror(", INDEX)
@@ -52,9 +55,19 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn('onclick="downloadInventoryBatchTemplate()"', INDEX)
         self.assertIn("LEMATEC_庫存批量增減範本.xlsx", INDEX)
         self.assertIn("LEMATEC_庫存批量設定範本.xlsx", INDEX)
+        self.assertIn("LEMATEC_安全庫存批量設定範本.xlsx", INDEX)
         self.assertIn("XLSX.utils.book_append_sheet(workbook,dataSheet,sheetName)", INDEX)
         self.assertIn("XLSX.utils.book_append_sheet(workbook,guideSheet,'填寫說明')", INDEX)
         self.assertIn("const dataSheet=XLSX.utils.aoa_to_sheet([['料號',valueHeader]])", INDEX)
+
+    def test_safety_stock_batch_uses_material_update_not_stock_adjustment(self):
+        self.assertIn('<option value="safe">設定安全庫存</option>', INDEX)
+        self.assertIn("async function applyInventorySafeBatchAndMirror", INDEX)
+        self.assertIn("buildInventoryMirrorTask('update_material'", INDEX)
+        self.assertIn("sourceType:'manual_safety_stock_batch'", INDEX)
+        self.assertIn("安全庫存不可小於 0", INDEX)
+        self.assertIn("安全庫存沒有變化", INDEX)
+        self.assertIn("task.kind === 'update_material'", WORKER)
 
     def test_database_contract_is_atomic_and_idempotent(self):
         sql = RPC_SQL.lower()

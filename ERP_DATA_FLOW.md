@@ -113,13 +113,13 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Entry: Inventory page > `批量調整`.
 - Allowed roles: Vic, manager, warehouse, and sales. View-only users cannot submit it.
 - Scope: existing Supabase materials only. Creating new materials stays in the separate material workflow.
-- Input: paste `SKU +10` / `SKU -5`, set final quantities, or import the first Excel/CSV sheet.
+- Input: paste `SKU +10` / `SKU -5`, set final quantities, set safety stock, or import the first Excel/CSV sheet.
 - Excel template: choose the adjustment mode first, then click `下載 Excel 範本`. The first sheet contains only the fixed import headers; examples and rules are kept on the second sheet so sample SKUs cannot be imported accidentally.
-- Template columns: delta mode uses `料號` + `異動量`; set mode uses `料號` + `修改後數量`. The shared reason remains a required ERP field and is not read from Excel.
+- Template columns: delta mode uses `料號` + `異動量`; set mode uses `料號` + `修改後數量`; safety-stock mode uses `料號` + `安全庫存`. The shared reason remains a required ERP field and is not read from Excel.
 - Required: a reason and 1-100 unique materials.
 - Preflight blocks unknown SKUs, missing Notion mirrors, duplicates, non-integer values, no-op changes, and negative final stock.
-- Commit: Worker calls `apply_inventory_batch`; PostgreSQL locks all balances and commits the complete batch in one transaction.
-- Audit: every material creates an inventory transaction under the same batch idempotency prefix.
+- Commit: inventory quantity modes call `apply_inventory_batch`; PostgreSQL locks all balances and commits the complete quantity batch in one transaction. Safety-stock mode updates Supabase material master rows through the Worker material-update path and does not create stock transactions.
+- Audit: inventory quantity mode creates inventory transactions under the same batch idempotency prefix. Safety-stock mode writes material edit logs.
 - Mirror: Notion is updated after Supabase commits. Temporary mirror failures remain in the retry queue.
 
 最後更新：2026-07-28
