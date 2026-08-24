@@ -15679,8 +15679,6 @@ function renderInventory(){
     </div>
   </div>
 
-  ${renderInventoryInsightPanel(invMats)}
-
   <!-- 表格 -->
   <div class="panel">
     <div class="panel-hdr">
@@ -15719,7 +15717,6 @@ function renderInventory(){
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
-          <button class="btn btn-ghost btn-sm" onclick="_invSelect('${m.id}')" style="margin-right:4px">詳情</button>
           ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
