@@ -110,7 +110,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 
 ## Batch Inventory Adjustment 2026-07-29
 
-- Entry: Inventory page > `批量調整`.
+- Entry: Inventory page > `批量調整`; safety stock can also be updated by checking rows in the material table and choosing `勾選套用安全庫存`.
 - Allowed roles: Vic, manager, warehouse, and sales. View-only users cannot submit it.
 - Scope: existing Supabase materials only. Creating new materials stays in the separate material workflow.
 - Input: paste `SKU +10` / `SKU -5`, set final quantities, set safety stock, or import the first Excel/CSV sheet.

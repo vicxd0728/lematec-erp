@@ -69,6 +69,15 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("安全庫存沒有變化", INDEX)
         self.assertIn("task.kind === 'update_material'", WORKER)
 
+    def test_selected_safety_stock_batch_is_supported(self):
+        self.assertIn("function invSelectionSet()", INDEX)
+        self.assertIn("function toggleInvVisibleSelection", INDEX)
+        self.assertIn("function openSelectedSafetyStockBatch()", INDEX)
+        self.assertIn("async function executeSelectedSafetyStockBatch()", INDEX)
+        self.assertIn("勾選套用安全庫存", INDEX)
+        self.assertIn("sourceType:'selected_safety_stock_batch'", INDEX)
+        self.assertIn("這只會修改「安全庫存」主檔欄位，不會增加或扣除目前庫存", INDEX)
+
     def test_database_contract_is_atomic_and_idempotent(self):
         sql = RPC_SQL.lower()
         self.assertIn("inventory batch exceeds 100 items", sql)

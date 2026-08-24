@@ -10280,6 +10280,125 @@ function _invSelect(id){
   INV.selectedId=id||'';
   if(CURRENT_TAB==='inventory')renderTab('inventory');
 }
+function invSelectionSet(){
+  if(!(window._INV_SELECTED_IDS instanceof Set)) window._INV_SELECTED_IDS=new Set();
+  return window._INV_SELECTED_IDS;
+}
+function invSelectedMaterials(){
+  const selected=invSelectionSet();
+  const rows=getInventoryReadSet().rows||[];
+  return rows.filter(m=>selected.has(String(m.id))&&m.notionId);
+}
+function toggleInvSelect(id,checked){
+  const selected=invSelectionSet();
+  const key=String(id||'');
+  if(!key)return;
+  if(checked) selected.add(key);
+  else selected.delete(key);
+  if(CURRENT_TAB==='inventory')_invRender();
+}
+function toggleInvVisibleSelection(checked){
+  const selected=invSelectionSet();
+  (window._INV_VISIBLE_PAGE_IDS||[]).forEach(id=>{
+    const key=String(id||'');
+    if(!key)return;
+    if(checked) selected.add(key);
+    else selected.delete(key);
+  });
+  if(CURRENT_TAB==='inventory')_invRender();
+}
+function clearInvSelection(){
+  invSelectionSet().clear();
+  if(CURRENT_TAB==='inventory')_invRender();
+}
+function openSelectedSafetyStockBatch(){
+  if(denyViewOnlyAction()) return;
+  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  if(!canEdit){showToast('此角色無法批量設定安全庫存','warn');return;}
+  if(getInventoryReadSource()!=='supabase'){
+    showToast('勾選批量設定只允許在 Supabase 主資料模式執行','warn');
+    return;
+  }
+  const selected=invSelectedMaterials();
+  if(!selected.length){
+    showToast('請先在庫存表勾選要修改的料件','warn');
+    return;
+  }
+  window._inventorySelectedSafeDraft={items:selected};
+  const sample=selected.slice(0,12).map(m=>`
+    <tr>
+      <td style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2)">${escapeHtml(m.code||m.name||'')}</td>
+      <td>${escapeHtml(m.name||'')}</td>
+      <td style="font-family:var(--f-mono)">${Number(m.safe)||0}</td>
+    </tr>`).join('');
+  document.getElementById('modalInner').innerHTML=`
+    <h3>勾選套用安全庫存</h3>
+    <div class="help-box">已勾選 ${selected.length} 筆料件。這只會修改「安全庫存」主檔欄位，不會增加或扣除目前庫存。</div>
+    <div class="form-row" style="grid-template-columns:.7fr 1.3fr">
+      <div>
+        <label class="field-label">新的安全庫存 *</label>
+        <input class="inp" id="selected_safe_value" type="number" min="0" step="1" placeholder="例如 10" autofocus>
+      </div>
+      <div>
+        <label class="field-label">修改原因 *</label>
+        <input class="inp" id="selected_safe_reason" placeholder="例如：盤點後調整安全庫存">
+      </div>
+    </div>
+    <div class="table-wrap" style="max-height:260px;margin-top:12px">
+      <table>
+        <tr><th>料號</th><th>名稱</th><th>目前安全庫存</th></tr>
+        ${sample}
+        ${selected.length>12?`<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:10px">另有 ${selected.length-12} 筆將一起套用</td></tr>`:''}
+      </table>
+    </div>
+    <div id="selected_safe_msg" class="hint" style="margin-top:10px">送出前會跳過數值沒有變化的料件；全部無變化時不寫入。</div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-green" id="selected_safe_submit" onclick="executeSelectedSafetyStockBatch()">套用到勾選料件</button>
+    </div>`;
+  openModal();
+}
+async function executeSelectedSafetyStockBatch(){
+  const submit=document.getElementById('selected_safe_submit');
+  const msg=document.getElementById('selected_safe_msg');
+  const draft=window._inventorySelectedSafeDraft;
+  const selected=(draft?.items||[]).filter(m=>m?.notionId);
+  const valueRaw=document.getElementById('selected_safe_value')?.value;
+  const reason=(document.getElementById('selected_safe_reason')?.value||'').trim();
+  const after=Number(valueRaw);
+  if(!selected.length){showToast('沒有可修改的勾選料件','warn');return;}
+  if(!Number.isInteger(after)||after<0){showToast('安全庫存請輸入 0 以上整數','warn');return;}
+  if(reason.length<2){showToast('請填寫修改原因','warn');return;}
+  const rows=selected.map((m,i)=>{
+    const before=Number(m.safe)||0;
+    return {line:i+1,sku:normalizeSku(m.code||m.name),mat:m,notionId:m.notionId,before,after,delta:after-before};
+  }).filter(row=>row.delta!==0);
+  if(!rows.length){
+    if(msg)msg.textContent='勾選料件目前已經都是這個安全庫存值，沒有寫入。';
+    showToast('安全庫存沒有變化，不需要寫入','warn');
+    return;
+  }
+  submit.disabled=true;
+  submit.textContent='套用中...';
+  try{
+    const batchId=`selected-safe-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const result=await applyInventorySafeBatchAndMirror(rows,{
+      reason,
+      refNo:batchId,
+      sourceType:'selected_safety_stock_batch',
+      sourceId:batchId
+    });
+    clearInvSelection();
+    closeModal();
+    await loadSupabaseInventoryForPage(true);
+    if(CURRENT_TAB==='inventory')renderTab('inventory');
+    showToast(`勾選安全庫存設定完成：${result.items.length} 筆${result.mirrorPending?`；${result.mirrorPending} 筆 Notion 鏡像待補同步`:''}`,result.mirrorPending?'warn':'ok',7000);
+  }catch(e){
+    submit.disabled=false;
+    submit.textContent='套用到勾選料件';
+    showToast('勾選安全庫存設定失敗：'+e.message,'err',8000);
+  }
+}
 async function loadSupabaseInventoryForPage(force=false){
   if(_supabaseInventoryState.running)return;
   if(_supabaseInventoryState.loaded&&!force){
@@ -15430,6 +15549,12 @@ function renderInventory(){
   const maxPage=Math.max(1,Math.ceil(total/ps));
   if(INV.page>maxPage) INV.page=maxPage;
   const pageData=data.slice((INV.page-1)*ps, INV.page*ps);
+  const selectedIds=invSelectionSet();
+  const selectablePageData=pageData.filter(m=>m.notionId);
+  window._INV_VISIBLE_PAGE_IDS=selectablePageData.map(m=>m.id);
+  const allPageSelected=selectablePageData.length>0&&selectablePageData.every(m=>selectedIds.has(String(m.id)));
+  const selectedRows=invSelectedMaterials();
+  const selectedCount=selectedRows.length;
 
   // ── 分頁按鈕
   function pageBtns(){
@@ -15532,6 +15657,7 @@ function renderInventory(){
         ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">批量調整</button>`:''}
+        ${usingSupabase&&canEditStock?`<button class="btn btn-green btn-sm" onclick="openSelectedSafetyStockBatch()" ${selectedCount?'':'disabled'}>勾選套用安全庫存</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
       </div>
     </div>
@@ -15540,8 +15666,10 @@ function renderInventory(){
       <span style="font-size:0.75rem;color:var(--text3)">
         共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${invMats.length} 筆
         ${INV.page>1||total<invMats.length?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
+        ${usingSupabase&&canEditStock&&selectedCount?`　已勾選 <b style="color:var(--green2)">${selectedCount}</b> 筆可設定安全庫存`:''}
       </span>
       <div style="display:flex;align-items:center;gap:6px">
+        ${usingSupabase&&canEditStock&&selectedCount?`<button class="btn btn-ghost btn-xs" onclick="clearInvSelection()">清除勾選</button>`:''}
         <span style="font-size:0.6875rem;color:var(--text3)">每頁</span>
         <select class="inp" style="width:70px;padding:4px 8px;font-size:0.75rem" onchange="_invFilter('pageSize',parseInt(this.value))">
           ${[50,100,200,500].map(n=>`<option value="${n}" ${INV.pageSize===n?'selected':''}>${n}</option>`).join('')}
@@ -15562,6 +15690,7 @@ function renderInventory(){
     <div class="table-wrap">
     <table>
       <tr>
+        ${usingSupabase&&canEditStock?`<th style="width:42px;text-align:center"><input type="checkbox" aria-label="勾選本頁料件" ${allPageSelected?'checked':''} ${selectablePageData.length?'':'disabled'} onchange="toggleInvVisibleSelection(this.checked)" style="width:16px;height:16px;accent-color:var(--green)"></th>`:''}
         ${TH('inventory','name','料件名稱')}
         ${TH('inventory','code','料件編號','str','hide-m')}
         ${TH('inventory','type','類型','str','hide-m')}
@@ -15577,6 +15706,7 @@ function renderInventory(){
         const fill=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
         const sc=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
         return`<tr>
+        ${usingSupabase&&canEditStock?`<td style="text-align:center"><input type="checkbox" aria-label="勾選 ${escapeHtml(m.code||m.name||'料件')}" ${m.notionId?'':'disabled'} ${selectedIds.has(String(m.id))?'checked':''} onclick="event.stopPropagation()" onchange='toggleInvSelect(${JSON.stringify(String(m.id))},this.checked)' style="width:16px;height:16px;accent-color:var(--green)"></td>`:''}
         <td style="font-weight:600">${m.name}${m.code?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${m.code}</div>`:''}</td>
         <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${m.code||'—'}</td>
         <td class="hide-m">${pill(m.type)}</td>
@@ -15595,7 +15725,7 @@ function renderInventory(){
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
         </td>
       </tr>`;}).join('')
-      :`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
+      :`<tr><td colspan="${usingSupabase&&canEditStock?8:7}" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
     </table>
     </div>
     ${maxPage>1?`<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:4px">${pageBtns()}</div>`:''}
