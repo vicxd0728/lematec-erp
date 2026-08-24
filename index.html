@@ -8624,7 +8624,7 @@ function applyDateFilterValue(val,data,dateKey='created'){
   });
 }
 function getOrderFilters(){
-  return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',status:'all',date:'0',hide:false});
+  return window._ORDER_FILTERS||(window._ORDER_FILTERS={q:'',type:'all',status:'all',date:'0',hide:false,deadline:''});
 }
 function getOrderSearchDraft(){
   const f=getOrderFilters();
@@ -11014,35 +11014,69 @@ function analyticsIsConsumptionLog(row){
   const t=String(row?.type||'');
   return stockLogIsInventoryMove(row)&&['領料','C端出貨'].some(x=>t.includes(x));
 }
-function analyticsGo(tab,setup){
-  if(typeof setup==='function'){
-    try{setup();}catch(e){console.warn('analyticsGo setup:',e);}
+function analyticsJsArg(value){
+  return `'${String(value??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ')}'`;
+}
+function analyticsGo(tab,action='',value=''){
+  try{
+    if(tab==='orders'){
+      const f=getOrderFilters();
+      f.date='0'; f.hide=false; f.deadline='';
+      if(action==='status'){f.status=value||'all';f.q='';window._ORD_SUB='list';}
+      else if(action==='overdue'){f.status='all';f.q='';f.deadline='overdue';window._ORD_SUB='list';}
+      else if(action==='customer'||action==='product'){f.status='all';f.q=value||'';window._ORD_SUB='list';}
+      else {f.status='all';f.q='';window._ORD_SUB='list';}
+      setOrderSearchDraft(f.q||'');
+    }else if(tab==='corders'){
+      if(action==='status'){window._CO_STATUS=value||'';window._CO_Q='';}
+      else if(action==='product'||action==='search'){window._CO_STATUS='';window._CO_Q=value||'';}
+      else {window._CO_STATUS='';}
+      window._CO_DAYS=analyticsRange()==='all'?'0':String(analyticsRange());
+    }else if(tab==='stocklog'){
+      const state=window._STOCKLOG_FILTERS=window._STOCKLOG_FILTERS||{};
+      state.date=analyticsRange()==='all'?'0':'1';
+      state.view='inventory';
+      state.type=action==='manual'?'手動調整':'all';
+      state.q=(action==='sku'||action==='consume')?(value||''):'';
+      if(action==='audit'){state.view='all';state.type='all';state.q='';}
+    }else if(tab==='inventory'){
+      const inv=window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',quick:'all',selectedId:'',page:1,pageSize:100};
+      inv.q=value||''; inv.page=1;
+      inv.stockStatus=action==='low'||action==='sku'?'low':'all';
+      inv.quick='all';
+      const mat=(mats||[]).find(m=>normalizeSearchText(m.code||m.name)===normalizeSearchText(value));
+      inv.selectedId=mat?.id||'';
+    }else if(tab==='customers'){
+      window._CUSTOMER_ANALYTICS_Q=value||'';
+    }
+  }catch(e){
+    console.warn('analyticsGo setup:',e);
   }
   switchTab(tab);
 }
-function analyticsKpiCard(title,value,sub,color='var(--cyan2)',bar=0,tab='analytics'){
+function analyticsKpiCard(title,value,sub,color='var(--cyan2)',bar=0,tab='analytics',action='',filterValue=''){
   const pct=Math.max(0,Math.min(100,Number(bar)||0));
-  return `<div class="kpi-card" style="min-height:132px;cursor:pointer" onclick="analyticsGo('${tab}')">
+  return `<div class="kpi-card" style="min-height:132px;cursor:pointer" onclick="analyticsGo('${tab}',${analyticsJsArg(action)},${analyticsJsArg(filterValue)})">
     <span>${escapeHtml(title)}</span>
     <b style="color:${color}">${escapeHtml(String(value))}</b>
     <small>${escapeHtml(sub||'')}</small>
     <div class="progress"><div style="width:${pct}%;background:${color}"></div></div>
   </div>`;
 }
-function analyticsDecisionCard({icon,title,value,sub,action,tab,color='var(--cyan2)'}={}){
-  return `<button class="analytics-decision-card" data-icon="${escapeHtml(icon||'•')}" onclick="analyticsGo('${tab||'analytics'}')">
+function analyticsDecisionCard({icon,title,value,sub,action,tab,color='var(--cyan2)',nav='',filter=''}={}){
+  return `<button class="analytics-decision-card" data-icon="${escapeHtml(icon||'•')}" onclick="analyticsGo('${tab||'analytics'}',${analyticsJsArg(nav)},${analyticsJsArg(filter)})">
     <span>${escapeHtml(title||'')}</span>
     <b style="color:${color}">${escapeHtml(String(value??'—'))}</b>
     <small>${escapeHtml(sub||'')}</small>
     <em>${escapeHtml(action||'查看來源')}</em>
   </button>`;
 }
-function analyticsBarList(items,{empty='目前沒有資料',unit='',tab='analytics'}={}){
+function analyticsBarList(items,{empty='目前沒有資料',unit='',tab='analytics',action='search'}={}){
   const max=Math.max(1,...items.map(x=>Number(x[1])||0));
   if(!items.length)return `<div style="font-size:.78rem;color:var(--text3);padding:10px 0">${escapeHtml(empty)}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px">${items.map(([label,value])=>{
     const pct=Math.max(3,Math.round((Number(value)||0)*100/max));
-    return `<div class="analytics-row-link" onclick="analyticsGo('${tab}')">
+    return `<div class="analytics-row-link" onclick="analyticsGo('${tab}',${analyticsJsArg(action)},${analyticsJsArg(label)})">
       <div style="display:flex;justify-content:space-between;gap:10px;font-size:.78rem">
         <b style="color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(label)}</b>
         <span style="color:var(--cyan2);font-family:var(--f-mono)">${analyticsNum(value)}${escapeHtml(unit)}</span>
@@ -11055,7 +11089,7 @@ function analyticsMiniTable(rows,{empty='目前沒有資料',tab='analytics'}={}
   if(!rows.length)return `<div style="font-size:.78rem;color:var(--text3);padding:10px 0">${escapeHtml(empty)}</div>`;
   return `<div style="overflow:auto"><table class="data-table analytics-action-table" style="min-width:520px">
     <thead><tr><th>項目</th><th>數量</th><th>提示</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr onclick="analyticsGo('${r.tab||tab}')">
+    <tbody>${rows.map(r=>`<tr onclick="analyticsGo('${r.tab||tab}',${analyticsJsArg(r.nav||'search')},${analyticsJsArg(r.filter||r.name||'')})">
       <td><b>${escapeHtml(r.name||'—')}</b><br><small>${escapeHtml(r.sub||'')}</small></td>
       <td style="font-family:var(--f-mono);color:${r.color||'var(--cyan2)'}">${escapeHtml(String(r.value??'—'))}</td>
       <td>${escapeHtml(r.hint||'')}</td>
@@ -11122,9 +11156,9 @@ function renderAnalytics(){
   const rangeButtons=['30','90','all'].map(r=>`<button class="btn ${a.range===r?'btn-blue':'btn-ghost'} btn-sm" onclick="setAnalyticsRange('${r}')">${escapeHtml(analyticsRangeLabel(r))}</button>`).join('');
   const orderKpis=[
     analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders),'orders'),
-    analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0,'orders'),
-    analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders'),
-    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders')
+    analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0,'orders','status','已完成'),
+    analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders','status','生產中'),
+    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue')
   ].join('');
   const topRisk=a.lowStockRisk[0];
   const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
@@ -11132,29 +11166,29 @@ function renderAnalytics(){
     analyticsDecisionCard({
       icon:'⏰',title:'先追交期',value:analyticsNum(a.overdue.length),
       sub:a.overdue.length?'正式訂單已逾期未完成':'目前無逾期正式訂單',
-      action:'查看訂單分頁',tab:'orders',color:a.overdue.length?'var(--red2)':'var(--green2)'
+      action:'查看逾期訂單',tab:'orders',nav:'overdue',color:a.overdue.length?'var(--red2)':'var(--green2)'
     }),
     analyticsDecisionCard({
       icon:'📦',title:'補料優先',value:topRisk?topRisk.sku:'正常',
       sub:topRisk?`耗用 ${analyticsNum(topRisk.used)}，${topRisk.hint}`:'目前沒有明顯高耗用低庫存',
-      action:'查看庫存主檔',tab:'inventory',color:topRisk?'var(--amber)':'var(--green2)'
+      action:'查看該料號',tab:'inventory',nav:'sku',filter:topRisk?.sku||'',color:topRisk?'var(--amber)':'var(--green2)'
     }),
     analyticsDecisionCard({
       icon:'🧾',title:'資料品質',value:analyticsNum(a.audit.issues.length),
       sub:a.audit.issues.length?'異動紀錄有待處理項目':'異動紀錄稽核正常',
-      action:'查看異動記錄',tab:'stocklog',color:a.audit.issues.length?'var(--amber)':'var(--green2)'
+      action:'查看稽核結果',tab:'stocklog',nav:'audit',color:a.audit.issues.length?'var(--amber)':'var(--green2)'
     }),
     analyticsDecisionCard({
       icon:'🛒',title:'C端品項',value:topUse?topUse[0]:'無資料',
       sub:topUse?`期間耗用 ${analyticsNum(topUse[1])} 件，可回 C端/異動查明細`:'期間內沒有扣庫耗用',
-      action:'查看 C端訂單',tab:'corders',color:'var(--cyan2)'
+      action:'查看 C端品項',tab:'corders',nav:'product',filter:topUse?.[0]||'',color:'var(--cyan2)'
     })
   ].join('');
   const dataQualityRows=[
-    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:a.audit.issues.length,hint:a.audit.issues.length?'到異動記錄分頁處理':'目前正常',color:a.audit.issues.length?'var(--amber)':'var(--green2)',tab:'stocklog'},
-    {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)',tab:'stocklog'},
-    {name:'C端料號缺漏',sub:'缺料件編號或料件ID',value:a.missingCorderSku.length,hint:a.missingCorderSku.length?'到 C端訂單補齊':'正常',color:a.missingCorderSku.length?'var(--red2)':'var(--green2)',tab:'corders'},
-    {name:'正式訂單 BOM 風險',sub:'有訂單料號但找不到 BOM',value:a.noBomFinished.length,hint:a.noBomFinished.length?'到庫存/BOM 檢查':'正常',color:a.noBomFinished.length?'var(--amber)':'var(--green2)',tab:'inventory'}
+    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:a.audit.issues.length,hint:a.audit.issues.length?'到異動記錄分頁處理':'目前正常',color:a.audit.issues.length?'var(--amber)':'var(--green2)',tab:'stocklog',nav:'audit'},
+    {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)',tab:'stocklog',nav:'manual'},
+    {name:'C端料號缺漏',sub:'缺料件編號或料件ID',value:a.missingCorderSku.length,hint:a.missingCorderSku.length?'到 C端訂單補齊':'正常',color:a.missingCorderSku.length?'var(--red2)':'var(--green2)',tab:'corders',nav:'search',filter:'無料號 找不到 未扣'},
+    {name:'正式訂單 BOM 風險',sub:'有訂單料號但找不到 BOM',value:a.noBomFinished.length,hint:a.noBomFinished.length?'到庫存/BOM 檢查':'正常',color:a.noBomFinished.length?'var(--amber)':'var(--green2)',tab:'inventory',nav:'low'}
   ];
   return `
   <div class="analytics-shell">
@@ -11175,19 +11209,19 @@ function renderAnalytics(){
   <div class="analytics-decision-grid">${decisionCards}</div>
   <div class="kpi-grid">${orderKpis}</div>
   <div class="analytics-panel-grid">
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>蝦皮/C端流程狀態，回 C端訂單看寄件與完成。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>看哪些客戶在期間內最活躍。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('customers')">看客戶</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'customers'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端品項排行</h3><p>用來觀察熱賣品項與補貨方向。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>蝦皮/C端流程狀態，回 C端訂單看寄件與完成。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders',action:'status'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>看哪些客戶在期間內最活躍。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端品項排行</h3><p>用來觀察熱賣品項與補貨方向。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders',action:'product'})}</div>
   </div>
   <div class="analytics-panel-grid">
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>用料耗用排行</h3><p>由領料與 C端出貨扣庫彙整，適合判斷常用料。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件',tab:'stocklog'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>庫存決策提示</h3><p>高耗用、低庫存、缺主檔關聯會優先浮出。</p></div><button class="btn btn-ghost btn-xs" onclick="switchTab('inventory')">看庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:r.hint,value:`耗用 ${analyticsNum(r.used)}`,hint:r.mat?'建議確認補料':'料號未對上主檔',color:r.stock<=0?'var(--red2)':'var(--amber)',tab:'inventory'})),{empty:'目前沒有明顯的高耗用低庫存項目',tab:'inventory'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>用料耗用排行</h3><p>由領料與 C端出貨扣庫彙整，適合判斷常用料。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','consume')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件',tab:'stocklog',action:'consume'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>庫存決策提示</h3><p>高耗用、低庫存、缺主檔關聯會優先浮出。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('inventory','low')">看庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:r.hint,value:`耗用 ${analyticsNum(r.used)}`,hint:r.mat?'建議確認補料':'料號未對上主檔',color:r.stock<=0?'var(--red2)':'var(--amber)',tab:'inventory',nav:'sku',filter:r.sku})),{empty:'目前沒有明顯的高耗用低庫存項目',tab:'inventory'})}</div>
   </div>
   <div class="analytics-panel">
     <div class="analytics-panel-head">
       <div><h3>資料品質與半自動修正入口</h3><p>異常只列可追查的來源，修正仍回原分頁，避免在分析頁直接改資料。</p></div>
-      <button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">處理異常</button>
+      <button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','audit')">處理異常</button>
     </div>
     ${analyticsMiniTable(dataQualityRows,{tab:'stocklog'})}
   </div>
@@ -11205,10 +11239,12 @@ function renderStockLog(){
     </div>
     ${(stockLogLoadError||pendingCount)?`<button class="btn btn-ghost btn-xs" onclick="retryStockLogSync()">重新同步</button>`:''}
   </div>`;
-  const dateVal=document.getElementById('slDateFilter')?.value||'month';
-  const typeVal=document.getElementById('slTypeFilter')?.value||'all';
-  const viewVal=document.getElementById('slViewFilter')?.value||'all';
-  const qVal=(document.getElementById('slSearch')?.value||'').toLowerCase().trim();
+  const slState=window._STOCKLOG_FILTERS=window._STOCKLOG_FILTERS||{};
+  const dateVal=document.getElementById('slDateFilter')?.value||slState.date||'month';
+  const typeVal=document.getElementById('slTypeFilter')?.value||slState.type||'all';
+  const viewVal=document.getElementById('slViewFilter')?.value||slState.view||'all';
+  const qVal=(document.getElementById('slSearch')?.value||slState.q||'').toLowerCase().trim();
+  slState.date=dateVal; slState.type=typeVal; slState.view=viewVal; slState.q=qVal;
 
   let data=[...stockLogs];
 
@@ -11262,27 +11298,28 @@ function renderStockLog(){
 
   <!-- 篩選列 -->
   <div class="panel" style="margin-bottom:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="if(this.value==='0'&&DATA_LOAD_MODE.stocklog!=='all'){loadFullData('stocklog')}else{renderTab('stocklog')}">
+    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),date:this.value};if(this.value==='0'&&DATA_LOAD_MODE.stocklog!=='all'){loadFullData('stocklog')}else{renderTab('stocklog')}">
       <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option>
       <option value="month" ${dateVal==='month'?'selected':''}>當月</option>
-      <option value="1">近1個月</option>
-      <option value="3">近3個月</option>
-      <option value="6">近半年</option>
-      <option value="0">全部</option>
+      <option value="1" ${dateVal==='1'?'selected':''}>近1個月</option>
+      <option value="3" ${dateVal==='3'?'selected':''}>近3個月</option>
+      <option value="6" ${dateVal==='6'?'selected':''}>近半年</option>
+      <option value="0" ${dateVal==='0'?'selected':''}>全部</option>
     </select>
-    <select class="inp" id="slTypeFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('stocklog')">
+    <select class="inp" id="slTypeFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),type:this.value};renderTab('stocklog')">
       <option value="all">全部類型</option>
       <option value="入料" ${typeVal==='入料'?'selected':''}>📥 入料</option>
       <option value="領料" ${typeVal==='領料'?'selected':''}>🗂️ 領料</option>
       <option value="手動調整" ${typeVal==='手動調整'?'selected':''}>✏️ 手動調整</option>
       <option value="品管退回" ${typeVal==='品管退回'?'selected':''}>❌ 品管退回</option>
     </select>
-    <select class="inp" id="slViewFilter" style="width:120px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('stocklog')">
+    <select class="inp" id="slViewFilter" style="width:120px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),view:this.value};renderTab('stocklog')">
       <option value="all" ${viewVal==='all'?'selected':''}>全部紀錄</option>
       <option value="inventory" ${viewVal==='inventory'?'selected':''}>只看庫存異動</option>
       <option value="operation" ${viewVal==='operation'?'selected':''}>只看操作紀錄</option>
     </select>
-    <input class="inp" id="slSearch" value="${qVal}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="requestFullDataForSearch('stocklog',this.value);renderTab('stocklog')">
+    <input class="inp" id="slSearch" value="${escapeHtml(qVal)}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),q:this.value};requestFullDataForSearch('stocklog',this.value);renderTab('stocklog')">
+    ${(slState.q||slState.type!=='all'||slState.view!=='all'||slState.date!=='month')?`<button class="btn btn-ghost btn-xs" onclick="window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:''};renderTab('stocklog')">清除</button>`:''}
     <span style="font-size:0.6875rem;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
   </div>
   ${limitedDataHint('stocklog','異動紀錄')}
@@ -14565,6 +14602,10 @@ function _renderOrdersList(tabs, soonOrders=[]){
     return true;
   });
   if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
+  if(filters.deadline==='overdue'){
+    const today=todayStr();
+    data=data.filter(o=>o.deadline&&o.deadline<today&&o.status!=='已完成'&&o.status!=='取消');
+  }
   const ORDER_STATUS_OPTIONS=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
   const orderStatusOptions=[...new Set([...ORDER_STATUS_OPTIONS,...orders.map(o=>o.status).filter(Boolean)])];
   const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
@@ -14596,8 +14637,8 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <div class="focus-stat" data-icon="🚚"><span>待出貨</span><b>${orderShipCount}</b></div>
   </div>
   <div class="source-strip">
-    <span><b>資料路徑</b>：訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。</span>
-    <button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>
+    <span><b>${filters.deadline==='overdue'?'分析帶入':'資料路徑'}</b>：${filters.deadline==='overdue'?'目前只顯示逾期且未完成的正式訂單。':'訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。'}</span>
+    ${filters.deadline==='overdue'?`<button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button>`:`<button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>`}
   </div>`;
 
   return `<div class="order-workbench">${orderBrief}${_notionBar}${tabs}<div class="order-action-panel">
