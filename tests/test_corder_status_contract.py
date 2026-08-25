@@ -28,8 +28,13 @@ class CorderStatusContractTest(unittest.TestCase):
     def test_corder_status_options_keep_completed_and_cancelled_values(self):
         shipping = "\u51fa\u8ca8\u4e2d"
         completed = "\u5df2\u5b8c\u6210"
+        partial_return = "\u90e8\u5206\u9000\u8ca8"
+        returned = "\u5df2\u9000\u8ca8"
         cancelled = "\u5df2\u53d6\u6d88"
-        self.assertIn(f"['{shipping}','{completed}','{cancelled}']", self.index)
+        self.assertIn(
+            f"['{shipping}','{completed}','{partial_return}','{returned}','{cancelled}']",
+            self.index,
+        )
 
 
 if __name__ == "__main__":

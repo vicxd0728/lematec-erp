@@ -6442,6 +6442,7 @@ function corderRecentFilter(){
     {and:[
       activeStatusFilter('狀態','已完成'),
       activeStatusFilter('狀態','已取消'),
+      activeStatusFilter('狀態','已退貨'),
     ]}
   ]};
 }
@@ -17552,7 +17553,7 @@ async function deductCorderStockByBom(mat, qty, refNo, operator, operationKey=''
   await deductCorderStock(mat,need,refNo,operator,operationKey);
   return {mode:'direct',refs:[{id:mat.id,qty:need}],items:[{...mat,needed:need}]};
 }
-async function returnCorderStock(refs, refNo){
+async function returnCorderStock(refs, refNo, operationKey=''){
   const valid=(refs||[]).map(r=>({
     ...r,
     qty:parseInt(r.qty)||1,
@@ -17565,7 +17566,7 @@ async function returnCorderStock(refs, refNo){
       reason:'C端退料回庫',
       refNo,
       sourceType:'corder_return_batch',
-      sourceId:refNo
+      sourceId:operationKey||refNo
     }
   );
   for(const r of valid){
@@ -17626,6 +17627,88 @@ async function completeCorder(id){
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
+function corderReturnStatusColor(status){
+  if(status==='已完成') return {bg:'rgba(16,185,129,.15)',fg:'var(--green)'};
+  if(status==='已取消') return {bg:'rgba(239,68,68,.15)',fg:'var(--red)'};
+  if(status==='已退貨') return {bg:'rgba(239,68,68,.15)',fg:'var(--red)'};
+  if(status==='部分退貨') return {bg:'rgba(245,158,11,.16)',fg:'var(--amber)'};
+  return {bg:'rgba(245,158,11,.15)',fg:'var(--amber)'};
+}
+
+function openReturnCorder(id){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  if(!['已完成','部分退貨'].includes(o.status)){
+    showToast('只有已完成或部分退貨的 C端訂單可走退貨流程','warn');
+    return;
+  }
+  const refs=parseCorderStockRefs(o.matId,o.qty||1);
+  const mat=refs.length===1?mats.find(m=>m.id===refs[0].id):null;
+  const qty=Number(o.qty)||1;
+  document.getElementById('modalInner').innerHTML=`
+    <h3>↩ C端退貨處理</h3>
+    <div class="help-box" style="margin-bottom:12px">已完成訂單不可直接取消。退貨會保留原出貨紀錄，另建立 C端退料與狀態更新紀錄。</div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2)">${escapeHtml(o.no||id)}</div>
+      <div style="font-size:.82rem;color:var(--text2);margin-top:4px">${escapeHtml(o.matCode||o.matName||'—')} × ${qty}</div>
+      <div style="font-size:.75rem;color:var(--text3);margin-top:4px">目前狀態：${escapeHtml(o.status||'—')}；回庫料號：${mat?escapeHtml(mat.code||mat.name||''):'未對上料件'}</div>
+    </div>
+    ${refs.length!==1?`<div class="info-box info-warn" style="margin-bottom:12px">此 C端訂單沒有單一可回庫料號，請先檢查料件關聯後再退貨。</div>`:''}
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label class="field-label">退貨數量 *</label><input class="inp" id="corder_return_qty" type="number" min="1" max="${qty}" value="${qty}"></div>
+      <div><label class="field-label">庫存處理 *</label><select class="inp" id="corder_return_stock"><option value="return">回補 S- 庫存</option><option value="scrap">不回補 / 報銷</option></select></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <div><label class="field-label">退貨原因 *</label><select class="inp" id="corder_return_reason_type" onchange="document.getElementById('corder_return_reason_other').style.display=this.value==='其他'?'':'none'"><option value="買錯/不需要該產品">買錯/不需要該產品</option><option value="故障">故障</option><option value="寄錯產品">寄錯產品</option><option value="其他">其他</option></select></div>
+      <div><label class="field-label">其他原因</label><input class="inp" id="corder_return_reason_other" placeholder="選其他時必填" style="display:none"></div>
+    </div>
+    <div class="hint">退貨數量小於原訂單數量時，狀態會改為「部分退貨」；等於原數量時改為「已退貨」。</div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-red" id="corder_return_submit" onclick="submitReturnCorder('${id}')" ${refs.length===1?'':'disabled'}>確認退貨</button>
+    </div>`;
+  openModal();
+}
+
+async function submitReturnCorder(id){
+  const btn=document.getElementById('corder_return_submit');
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  const orderQty=Number(o.qty)||1;
+  const returnQty=parseInt(document.getElementById('corder_return_qty')?.value)||0;
+  const stockMode=document.getElementById('corder_return_stock')?.value||'return';
+  const reasonType=(document.getElementById('corder_return_reason_type')?.value||'').trim();
+  const reasonOther=(document.getElementById('corder_return_reason_other')?.value||'').trim();
+  const reason=reasonType==='其他'?`其他：${reasonOther}`:reasonType;
+  if(returnQty<=0||returnQty>orderQty){showToast(`退貨數量需介於 1 到 ${orderQty}`,'warn');return;}
+  if(!reasonType){showToast('請選擇退貨原因','warn');return;}
+  if(reasonType==='其他'&&reasonOther.length<2){showToast('選其他時請填寫原因','warn');return;}
+  const refs=parseCorderStockRefs(o.matId,o.qty||1);
+  if(refs.length!==1){showToast('此 C端訂單沒有單一可回庫料號，已停止退貨','err');return;}
+  const returnRefNo=`${o.no||id}-RET-${Date.now()}`;
+  const nextStatus=returnQty>=orderQty?'已退貨':'部分退貨';
+  const noteParts=[o.note||'',`退貨 ${returnQty}/${orderQty}：${reason}${stockMode==='return'?'（回補庫存）':'（不回補庫存）'} ${new Date().toISOString().slice(0,10)}`].filter(Boolean);
+  btn.disabled=true;
+  btn.textContent='退貨處理中...';
+  try{
+    if(stockMode==='return') await returnCorderStock([{id:refs[0].id,qty:returnQty}],returnRefNo,returnRefNo);
+    await updatePage(id,{
+      '狀態':{select:{name:nextStatus}},
+      '備註':{rich_text:[{text:{content:noteParts.join(' / ')}}]},
+    });
+    logUserAction('C端訂單退貨',o.no||id,`${returnQty}/${orderQty} ${stockMode==='return'?'回補庫存':'不回補庫存'} / ${reason}`,ROLE);
+    Object.assign(o,{status:nextStatus,note:noteParts.join(' / ')});
+    closeModal();
+    await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端退貨與庫存資料已更新'});
+    renderTab('corders');
+    showToast(stockMode==='return'?`✅ 已退貨並回補庫存 ${returnQty}`:`✅ 已登記退貨，不回補庫存`,'ok',7000);
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent='確認退貨';
+    showToast('❌ C端退貨失敗：'+e.message,'err',9000);
+  }
+}
+
 function openEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
@@ -17641,7 +17724,7 @@ function openEditCorder(id){
   </div>
   <div class="form-row" style="margin-bottom:10px">
     <div><label class="field-label">買家帳號</label><input class="inp" id="eco_buyer" value="${(o.buyer||'').replace(/"/g,'&quot;')}"></div>
-    <div><label class="field-label">狀態</label><select class="inp" id="eco_status">${['出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div><label class="field-label">狀態</label><select class="inp" id="eco_status">${['出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
     <div><label class="field-label">蝦皮訂單號碼</label><input class="inp" id="eco_shopee_no" value="${(o.shopeeNo||'').replace(/"/g,'&quot;')}"></div>
@@ -19146,11 +19229,12 @@ function renderCorders(){
     return DIR*(av>bv?1:av<bv?-1:0);
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
-  const statusOpts=['','出貨中','已完成','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
+  const statusOpts=['','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
   const countShip=data.filter(o=>o.status==='出貨中').length;
   const countDone=data.filter(o=>o.status==='已完成').length;
   const countCancel=data.filter(o=>o.status==='已取消').length;
+  const countReturn=data.filter(o=>o.status==='部分退貨'||o.status==='已退貨').length;
   const countWarn=data.filter(o=>!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
   const nextNo=nextCorderInternalNo();
   const sequenceReady=corderSequenceReady();
@@ -19183,6 +19267,7 @@ function renderCorders(){
   <div class="corder-stats">
     <div class="corder-stat is-ship" data-icon="🛒"><span>待出貨</span><strong>${countShip}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
+    <div class="corder-stat is-cancel" data-icon="↩"><span>退貨</span><strong>${countReturn}</strong><small>部分 / 已退貨</small></div>
     <div class="corder-stat is-cancel" data-icon="□"><span>已取消</span><strong>${countCancel}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-warn" data-icon="!"><span>需確認</span><strong>${countWarn}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-filter" data-icon="🔎"><span>目前顯示</span><strong>${filtered.length}</strong><small>共 ${data.length} 筆</small></div>
@@ -19223,15 +19308,18 @@ function renderCorders(){
   }else{
     const isMobile=window.innerWidth<600;
     const rows=filtered.map(o=>{
-      const bg=o.status==='已完成'?'rgba(16,185,129,.15)':o.status==='已取消'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
-      const fg=o.status==='已完成'?'var(--green)':o.status==='已取消'?'var(--red)':'var(--amber)';
+      const statusColor=corderReturnStatusColor(o.status);
+      const bg=statusColor.bg;
+      const fg=statusColor.fg;
       const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
       const actions=canOperate&&o.status==='出貨中'?`<div class="corder-actions">
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
       </div>`:'';
+      const returnAction=canOperate&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
         ${actions}
+        ${returnAction}
         <button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
         <button class="btn btn-red btn-sm" onclick="deleteCorder('${o.id}','${o.matId||''}',${o.qty||0},'${o.status||''}')">刪除</button>
       </div>`:'';
