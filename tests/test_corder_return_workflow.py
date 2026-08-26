@@ -55,7 +55,7 @@ class CorderReturnWorkflowTest(unittest.TestCase):
 
     def test_completed_return_does_not_mark_order_cancelled(self):
         body = function_body("submitReturnCorder")
-        self.assertIn("const nextStatus=returnQty>=orderQty?'已退貨':'部分退貨';", body)
+        self.assertIn("const nextStatus=nextReturnedQty>=orderQty?'已退貨':'部分退貨';", body)
         self.assertNotIn("'已取消'", body)
 
     def test_return_statuses_are_filterable_but_fully_returned_is_not_active_recent(self):
@@ -66,6 +66,26 @@ class CorderReturnWorkflowTest(unittest.TestCase):
         recent_body = function_body("corderRecentFilter")
         self.assertIn("activeStatusFilter('狀態','已退貨')", recent_body)
         self.assertNotIn("activeStatusFilter('狀態','部分退貨')", recent_body)
+
+    def test_partial_return_remaining_quantity_is_enforced(self):
+        helper = function_body("getCorderReturnedQty")
+        self.assertIn("const re=/退貨\\s+(\\d+)\\s*\\/\\s*(\\d+)/g;", helper)
+        self.assertIn("total+=parseInt(m[1])||0;", helper)
+        open_body = function_body("openReturnCorder")
+        submit_body = function_body("submitReturnCorder")
+        self.assertIn("const remainingQty=Math.max(qty-returnedQty,0);", open_body)
+        self.assertIn('max="${remainingQty}" value="${remainingQty}"', open_body)
+        self.assertIn("const remainingQty=Math.max(orderQty-returnedQty,0);", submit_body)
+        self.assertIn("returnQty>remainingQty", submit_body)
+        self.assertIn("const nextReturnedQty=returnedQty+returnQty;", submit_body)
+
+    def test_return_workflow_uses_lock_and_notion_sync_queue(self):
+        body = function_body("submitReturnCorder")
+        self.assertIn("_corderReturnLocks.has(id)", body)
+        self.assertIn("_corderReturnLocks.add(id)", body)
+        self.assertIn("_corderReturnLocks.delete(id)", body)
+        self.assertIn("updateWorkflowPageAfterInventory(id,{", body)
+        self.assertIn("statusSync.pending", body)
 
 
 if __name__ == "__main__":
