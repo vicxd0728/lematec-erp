@@ -11213,15 +11213,50 @@ function analyticsTopEntries(map,limit=6){
 }
 function analyticsIsCompleted(status){
   const s=String(status||'');
-  return s.includes('完成')||s.includes('已出貨')||s.includes('結案');
+  return s.includes('完成')||s.includes('已出貨')||s.includes('結案')||s.includes('退貨');
 }
 function analyticsIsActive(status){
   const s=String(status||'');
-  return !analyticsIsCompleted(s)&&!s.includes('取消')&&!s.includes('刪除');
+  return !analyticsIsCompleted(s)&&!s.includes('取消')&&!s.includes('刪除')&&!s.includes('退貨');
 }
 function analyticsIsConsumptionLog(row){
   const t=String(row?.type||'');
   return stockLogIsInventoryMove(row)&&['領料','C端出貨'].some(x=>t.includes(x));
+}
+function analyticsReturnReasonLabel(reason=''){
+  const text=String(reason||'').trim();
+  if(!text)return '原因未填';
+  if(text.startsWith('其他：'))return '其他';
+  return text;
+}
+function analyticsCorderReturnEvents(order){
+  const note=String(order?.note||'');
+  const events=[];
+  const re=/退貨\s+(\d+)\s*\/\s*(\d+)\s*：(.+?)（(回補庫存|不回補庫存)）\s*(\d{4}-\d{2}-\d{2})/g;
+  let match;
+  while((match=re.exec(note))){
+    events.push({
+      order,
+      qty:parseInt(match[1])||0,
+      orderQty:parseInt(match[2])||Number(order?.qty)||0,
+      reason:String(match[3]||'').trim()||'原因未填',
+      reasonGroup:analyticsReturnReasonLabel(match[3]),
+      stockMode:match[4],
+      date:match[5]
+    });
+  }
+  if(!events.length&&['部分退貨','已退貨'].includes(order?.status)){
+    events.push({
+      order,
+      qty:typeof getCorderReturnedQty==='function'?getCorderReturnedQty(order):(Number(order?.qty)||0),
+      orderQty:Number(order?.qty)||0,
+      reason:'原因未填',
+      reasonGroup:'原因未填',
+      stockMode:'未判定',
+      date:analyticsDateValue(order)
+    });
+  }
+  return events.filter(e=>e.qty>0);
 }
 function analyticsJsArg(value){
   return `'${String(value??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ')}'`;
@@ -11323,6 +11358,8 @@ function buildOperationsAnalytics(){
   const customerTotals=new Map();
   const productTotals=new Map();
   const cProductTotals=new Map();
+  const cReturnReasons=new Map();
+  const cReturnProducts=new Map();
   const consumptionBySku=new Map();
   orderRows.forEach(o=>{
     analyticsAdd(orderStatus,o.status||'未填狀態');
@@ -11333,6 +11370,13 @@ function buildOperationsAnalytics(){
     analyticsAdd(corderStatus,o.status||'未填狀態');
     analyticsAdd(cProductTotals,o.matCode||o.matName||'未填料號',Number(o.qty)||1);
   });
+  const cReturnEvents=corderRows.flatMap(analyticsCorderReturnEvents);
+  cReturnEvents.forEach(e=>{
+    analyticsAdd(cReturnReasons,e.reasonGroup,e.qty);
+    analyticsAdd(cReturnProducts,e.order?.matCode||e.order?.matName||'未填料號',e.qty);
+  });
+  const cReturnQty=cReturnEvents.reduce((sum,e)=>sum+(Number(e.qty)||0),0);
+  const cSoldQty=corderRows.filter(o=>!String(o.status||'').includes('取消')).reduce((sum,o)=>sum+(Number(o.qty)||0),0);
   consumptionLogs.forEach(s=>analyticsAdd(consumptionBySku,s.matCode||stockLogDisplayName(s),Math.abs(Number(s.qty)||0)));
   const matBySku=new Map((mats||[]).map(m=>[String(m.code||m.name||'').trim(),m]));
   const lowStockRisk=analyticsTopEntries(consumptionBySku,20).map(([sku,used])=>{
@@ -11354,6 +11398,7 @@ function buildOperationsAnalytics(){
   return {
     range,orderRows,corderRows,logRows,doneOrders,activeOrders,doneCorders,activeCorders,overdue,
     consumptionLogs,manualAdjustments,orderStatus,corderStatus,customerTotals,productTotals,cProductTotals,
+    cReturnEvents,cReturnReasons,cReturnProducts,cReturnQty,cSoldQty,
     consumptionBySku,lowStockRisk,missingCorderSku,noBomFinished,audit
   };
 }
@@ -11361,16 +11406,19 @@ function renderAnalytics(){
   const a=buildOperationsAnalytics();
   const totalOrders=a.orderRows.length+a.corderRows.length;
   const totalDone=a.doneOrders.length+a.doneCorders.length;
+  const cReturnRate=a.cSoldQty?Math.round(a.cReturnQty*1000/a.cSoldQty)/10:0;
   const allRangeWarn=DATA_LOAD_MODE.corders!=='all'||DATA_LOAD_MODE.stocklog!=='all';
   const rangeButtons=['30','90','all'].map(r=>`<button class="btn ${a.range===r?'btn-blue':'btn-ghost'} btn-sm" onclick="setAnalyticsRange('${r}')">${escapeHtml(analyticsRangeLabel(r))}</button>`).join('');
   const orderKpis=[
     analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders),'orders'),
     analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0,'orders','status','已完成'),
     analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders','status','生產中'),
-    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue')
+    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
+    analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`退貨 ${analyticsNum(a.cReturnQty)} / 出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
   ].join('');
   const topRisk=a.lowStockRisk[0];
   const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
+  const topReturnReason=analyticsTopEntries(a.cReturnReasons,1)[0];
   const decisionCards=[
     analyticsDecisionCard({
       icon:'⏰',title:'先追交期',value:analyticsNum(a.overdue.length),
@@ -11391,6 +11439,11 @@ function renderAnalytics(){
       icon:'🛒',title:'C端品項',value:topUse?topUse[0]:'無資料',
       sub:topUse?`期間耗用 ${analyticsNum(topUse[1])} 件，可回 C端/異動查明細`:'期間內沒有扣庫耗用',
       action:'查看 C端品項',tab:'corders',nav:'product',filter:topUse?.[0]||'',color:'var(--cyan2)'
+    }),
+    analyticsDecisionCard({
+      icon:'↩',title:'退貨原因',value:topReturnReason?topReturnReason[0]:'正常',
+      sub:topReturnReason?`期間退貨 ${analyticsNum(topReturnReason[1])} 件，點回 C端查來源`:'期間內沒有 C端退貨',
+      action:'查看退貨訂單',tab:'corders',nav:'search',filter:topReturnReason?.[0]||'退貨',color:topReturnReason?'var(--red2)':'var(--green2)'
     })
   ].join('');
   const dataQualityRows=[
@@ -11426,6 +11479,10 @@ function renderAnalytics(){
   <div class="analytics-panel-grid">
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>用料耗用排行</h3><p>由領料與 C端出貨扣庫彙整，適合判斷常用料。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','consume')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件',tab:'stocklog',action:'consume'})}</div>
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>庫存決策提示</h3><p>高耗用、低庫存、缺主檔關聯會優先浮出。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('inventory','low')">看庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:r.hint,value:`耗用 ${analyticsNum(r.used)}`,hint:r.mat?'建議確認補料':'料號未對上主檔',color:r.stock<=0?'var(--red2)':'var(--amber)',tab:'inventory',nav:'sku',filter:r.sku})),{empty:'目前沒有明顯的高耗用低庫存項目',tab:'inventory'})}</div>
+  </div>
+  <div class="analytics-panel-grid">
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨原因</h3><p>由退貨流程的固定原因統計；點擊可回 C端訂單追來源。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看退貨訂單</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnReasons,8),{empty:'期間內沒有 C端退貨',unit:' 件',tab:'corders',action:'search'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨品項</h3><p>用來觀察容易退貨的品項，後續可搭配故障原因追品質。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看 C端來源</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnProducts,8),{empty:'期間內沒有退貨品項',unit:' 件',tab:'corders',action:'product'})}</div>
   </div>
   <div class="analytics-panel">
     <div class="analytics-panel-head">

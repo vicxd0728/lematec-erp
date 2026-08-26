@@ -48,5 +48,23 @@ def test_operations_analytics_has_actionable_sections():
     block = html[start:end]
     for label in ("訂單狀態", "C端狀態", "用料耗用排行", "庫存決策提示", "資料品質與半自動修正入口"):
         assert label in block
+    nav_start = html.index("function analyticsGo(")
+    nav_block = html[nav_start:end]
     for tab in ("orders", "corders", "inventory", "stocklog"):
-        assert f"switchTab('{tab}')" in block
+        assert f"switchTab(tab)" in nav_block
+        assert f"tab==='{tab}'" in nav_block
+
+
+def test_operations_analytics_includes_corder_return_analysis():
+    html = read_index()
+    start = html.index("function analyticsCorderReturnEvents")
+    end = html.index("function renderStockLog()", start)
+    block = html[start:end]
+    for label in ("C端退貨率", "C端退貨原因", "C端退貨品項", "退貨原因"):
+        assert label in block
+    for reason in ("買錯/不需要該產品", "故障", "寄錯產品", "其他"):
+        assert reason in html
+    assert "analyticsReturnReasonLabel" in block
+    assert "cReturnReasons" in block
+    assert "cReturnProducts" in block
+    assert "analyticsGo('corders','search','退貨')" in block
