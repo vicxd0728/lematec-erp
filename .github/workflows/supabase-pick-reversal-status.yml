@@ -37,15 +37,12 @@ jobs:
           if [ "${{ github.event.inputs.apply }}" = "true" ]; then
             psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$sql_path"
           else
-            psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<SQL
-            begin;
-            \i $sql_path
-            select conname || ':' || pg_get_constraintdef(oid)
-            from pg_constraint
-            where conrelid = 'public.pick_lists'::regclass
-              and conname = 'pick_lists_status_check';
-            rollback;
-SQL
+            {
+              echo "begin;"
+              cat "$sql_path"
+              echo "select conname || ':' || pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.pick_lists'::regclass and conname = 'pick_lists_status_check';"
+              echo "rollback;"
+            } | psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1
           fi
 
       - name: Verify constraint accepts reversal status
