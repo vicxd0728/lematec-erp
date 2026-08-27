@@ -43,6 +43,7 @@ def test_worker_allows_completed_picking_to_be_marked_reversed_only():
 
 def test_delete_audit_allows_fully_reversed_picking_logs():
     assert "orderDeleteAuditIsResolvedByPickingReversal" in INDEX
+    assert "orderAuditPickingIsResolvedByReversal" in INDEX
     assert "isOrderPickingDeductLog" in INDEX
     assert "isOrderPickingReversalLog" in INDEX
     assert "!orderDeleteAuditIsResolvedByPickingReversal(rows)" in INDEX
@@ -51,3 +52,23 @@ def test_delete_audit_allows_fully_reversed_picking_logs():
 def test_shopee_cancel_allowed_after_picking_reversal():
     assert "orderCanCancelAfterPickingReversal" in INDEX
     assert "if(orderCanCancelAfterPickingReversal(o?.id))" in INDEX
+
+
+def test_reversal_can_repair_stale_picking_status_before_blocking_again():
+    assert "repairOrderPickingStatusIfReversed" in INDEX
+    assert "await repairOrderPickingStatusIfReversed(id,order.no||id)" in INDEX
+    assert "const repaired=await repairOrderPickingStatusIfReversed(oid,no)" in INDEX
+
+
+def test_completed_shopee_stock_in_requires_own_reversal_before_delete():
+    assert "buildOrderStockInReversalRows" in INDEX
+    assert "reverseOrderStockInAndDelete" in INDEX
+    assert "入庫沖銷後刪除" in INDEX
+    assert "sourceType:'order_stockin_reversal'" in INDEX
+
+
+def test_picking_status_constraint_migration_accepts_reversal_states():
+    migration = (ROOT / "supabase/migrations/20260827_001_pick_reversal_status.sql").read_text(encoding="utf-8")
+    assert "pick_lists_status_check" in migration
+    assert "'已沖銷'" in migration
+    assert "'已退料'" in migration

@@ -2279,7 +2279,7 @@ async function erpPickingMigrate(request, env, cors) {
         .map((row) => [canonicalNotionId(row.notion_page_id), row])
     );
 
-    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消']);
+    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消', '已沖銷', '已退料']);
     const masterRows = [];
     const masterBySourceNotion = new Map();
     const masterHoldbacks = [];

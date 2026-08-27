@@ -1752,9 +1752,18 @@ html[data-theme="warm"] #themePanel{
 <button id="syncFloat" class="sync-float" type="button" onclick="refreshAll(true)" title="點一下立即同步">同步狀態</button>
 
 <script>
-function openStatusModal(id, cur){
+async function openStatusModal(id, cur){
   if(denyViewOnlyAction()) return;
   const order=orders.find(x=>x.id===id);
+  if(order){
+    try{
+      await loadPicks();
+      await repairOrderPickingStatusIfReversed(id,order.no||id);
+      cur=order.status||cur;
+    }catch(e){
+      console.warn('狀態視窗開啟前領料沖銷修復失敗',e);
+    }
+  }
   const statuses=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
   document.getElementById('modalInner').innerHTML=`<h3>📋 更新訂單狀態</h3>
   <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
@@ -20074,7 +20083,7 @@ function isStockImpactLog(row){
   const text=orderAuditLogText(row);
   const qty=Number(row?.quantity)||0;
   if(qty>0&&/(領料|扣料|入庫|出貨|退料|調整|C端|蝦皮完成)/.test(text)) return true;
-  return /(領料扣|蝦皮完成入庫|C端出貨|C端退料|訂單領料扣庫|訂單成品直接扣庫)/.test(text);
+  return /(領料扣|蝦皮完成入庫|入庫沖銷|C端出貨|C端退料|訂單領料扣庫|訂單成品直接扣庫)/.test(text);
 }
 function orderAuditMaterialKey(row){
   return String(row?.material_code||row?.material_name||row?.material_id||'').trim();
@@ -20085,16 +20094,25 @@ function isOrderPickingReversalLog(row){
 function isOrderPickingDeductLog(row){
   const text=orderAuditLogText(row);
   if(isOrderPickingReversalLog(row)) return false;
-  const qty=Number(row?.quantity)||0;
-  return qty<0&&/(領料|扣庫|訂單成品直接扣庫|訂單領料扣庫)/.test(text);
+  const before=Number(row?.before_stock??row?.before??0);
+  const after=Number(row?.after_stock??row?.after??0);
+  return before>after&&/(領料|扣庫|訂單成品直接扣庫|訂單領料扣庫)/.test(text);
 }
-function orderDeleteAuditIsResolvedByPickingReversal(rows){
+function isOrderStockInReversalLog(row){
+  return /入庫沖銷|蝦皮入庫沖銷|成品入庫沖銷/.test(orderAuditLogText(row));
+}
+function isOrderShopeeStockInLog(row){
+  const text=orderAuditLogText(row);
+  if(isOrderStockInReversalLog(row)) return false;
+  const before=Number(row?.before_stock??row?.before??0);
+  const after=Number(row?.after_stock??row?.after??0);
+  return after>before&&/蝦皮完成入庫|蝦皮生產完成入庫/.test(text);
+}
+function orderAuditPickingIsResolvedByReversal(rows){
   const impact=(rows||[]).filter(isStockImpactLog);
-  if(!impact.length) return false;
   const deducts=impact.filter(isOrderPickingDeductLog);
   const reversals=impact.filter(isOrderPickingReversalLog);
-  const unrelated=impact.filter(row=>!isOrderPickingDeductLog(row)&&!isOrderPickingReversalLog(row));
-  if(unrelated.length||!deducts.length) return false;
+  if(!deducts.length) return false;
   const need=new Map();
   const back=new Map();
   for(const row of deducts){
@@ -20108,6 +20126,47 @@ function orderDeleteAuditIsResolvedByPickingReversal(rows){
     back.set(key,(back.get(key)||0)+Math.abs(Number(row.quantity)||0));
   }
   return [...need.entries()].every(([key,qty])=>(back.get(key)||0)>=qty);
+}
+function buildOrderStockInReversalRows(rows){
+  const need=new Map();
+  const reversed=new Map();
+  for(const row of (rows||[]).filter(isOrderShopeeStockInLog)){
+    const key=orderAuditMaterialKey(row);
+    if(!key) continue;
+    const current=need.get(key)||{
+      key,
+      pageId:row.material_id||'',
+      code:row.material_code||'',
+      name:row.material_name||row.material_code||'',
+      qty:0,
+      refs:[]
+    };
+    current.qty+=Math.abs(Number(row.quantity)||Number(row.after_stock)-Number(row.before_stock)||0);
+    current.refs.push(row.ref_no||'');
+    need.set(key,current);
+  }
+  for(const row of (rows||[]).filter(isOrderStockInReversalLog)){
+    const key=orderAuditMaterialKey(row);
+    if(!key) continue;
+    reversed.set(key,(reversed.get(key)||0)+Math.abs(Number(row.quantity)||Number(row.before_stock)-Number(row.after_stock)||0));
+  }
+  return [...need.values()].map(row=>({
+    ...row,
+    qty:Math.max(0,row.qty-(reversed.get(row.key)||0))
+  })).filter(row=>row.qty>0);
+}
+function orderDeleteAuditIsResolvedByPickingReversal(rows){
+  const impact=(rows||[]).filter(isStockImpactLog);
+  if(!impact.length) return false;
+  const unrelated=impact.filter(row=>
+    !isOrderPickingDeductLog(row)&&
+    !isOrderPickingReversalLog(row)&&
+    !isOrderShopeeStockInLog(row)&&
+    !isOrderStockInReversalLog(row)
+  );
+  return !unrelated.length&&
+    orderAuditPickingIsResolvedByReversal(rows)&&
+    buildOrderStockInReversalRows(rows).length===0;
 }
 async function fetchOrderStockAuditRows(orderNo){
   const target=String(orderNo||'').trim();
@@ -20136,6 +20195,8 @@ async function fetchOrderStockAuditRows(orderNo){
 }
 function openOrderDeleteBlockedModal(oid,no,rows){
   const impact=rows.filter(isStockImpactLog);
+  const stockInRows=buildOrderStockInReversalRows(rows);
+  const canReverseStockIn=stockInRows.length&&stockInRows.every(row=>row.pageId||row.code);
   const list=rows.slice(-12).map(row=>`
     <tr>
       <td style="font-family:var(--f-mono);font-size:.75rem">${escapeHtml(String(row.created_at||row.change_date||'').replace('T',' ').slice(0,19))}</td>
@@ -20145,12 +20206,21 @@ function openOrderDeleteBlockedModal(oid,no,rows){
       <td style="font-family:var(--f-mono)">${escapeHtml(row.ref_no||'')}</td>
     </tr>`).join('');
   document.getElementById('modalInner').innerHTML=`
-    <h3>⚠️ 訂單已有庫存異動，禁止直接刪除</h3>
+    <h3>${canReverseStockIn?'成品入庫需要先沖銷':'訂單已有庫存異動，禁止直接刪除'}</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
-      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。
+      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。${canReverseStockIn?'這張單已完成 S- 成品入庫，刪除前需要先把成品庫存扣回。':'直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。'}
     </div>
+    ${canReverseStockIn?`<div class="order-reversal-summary">
+      <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">已入庫料號</div><div class="kpi-num" style="font-size:1.7rem">${stockInRows.length}</div><div class="kpi-sub">S- 成品</div></div>
+      <div class="kpi-card kpi-cyan" style="min-height:76px"><div class="kpi-label">需扣回數量</div><div class="kpi-num" style="font-size:1.7rem">${stockInRows.reduce((sum,row)=>sum+row.qty,0)}</div><div class="kpi-sub">系統已算好</div></div>
+      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">入庫沖銷後刪除</div><div class="kpi-sub">避免成品庫存多算</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:180px;margin-bottom:10px"><table>
+      <tr><th>要扣回料號</th><th>名稱</th><th>扣回數量</th></tr>
+      ${stockInRows.map(row=>`<tr><td style="font-family:var(--f-mono)">${escapeHtml(row.code||row.key)}</td><td>${escapeHtml(row.name||'')}</td><td style="font-family:var(--f-mono);color:var(--red2);font-weight:800">-${row.qty}</td></tr>`).join('')}
+    </table></div>`:''}
     <div style="font-size:.8125rem;color:var(--text2);margin-bottom:10px">
-      請改用「狀態」標記取消/作廢，必要時再用庫存調整或沖銷流程修正數量。
+      ${canReverseStockIn?'按下方按鈕後，系統會先扣回已入庫 S- 成品，再繼續刪除訂單。':'請改用「狀態」標記取消/作廢，必要時再用庫存調整或沖銷流程修正數量。'}
     </div>
     <div class="table-wrap" style="max-height:280px"><table>
       <tr><th>時間</th><th>動作</th><th>料號/內容</th><th>數量</th><th>單號</th></tr>
@@ -20158,9 +20228,94 @@ function openOrderDeleteBlockedModal(oid,no,rows){
     </table></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      ${canReverseStockIn?`<button class="btn btn-red" onclick='reverseOrderStockInAndDelete(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))})'>入庫沖銷後刪除</button>`:''}
       <button class="btn btn-yellow" onclick="closeModal();openStatusModal('${oid}',(orders.find(o=>o.id==='${oid}')||{}).status||'')">改狀態</button>
     </div>`;
   openModal();
+}
+const _orderStockInReversalLocks=new Set();
+async function reverseOrderStockInAndDelete(oid,no){
+  if(denyViewOnlyAction()) return;
+  const lockKey=canonicalPageId(oid)||oid||no;
+  if(_orderStockInReversalLocks.has(lockKey)){
+    showToast('這張訂單正在入庫沖銷，請勿重複點擊','warn');
+    return;
+  }
+  _orderStockInReversalLocks.add(lockKey);
+  closeModal();
+  showToast('檢查成品入庫紀錄...','warn');
+  try{
+    const rows=await fetchOrderStockAuditRows(no);
+    const stockInRows=buildOrderStockInReversalRows(rows);
+    if(!stockInRows.length){
+      showToast('已找不到未沖銷的成品入庫，重新執行刪除檢查','warn');
+      await deleteOrder(oid,no);
+      return;
+    }
+    const changes=stockInRows.map(row=>{
+      const mat=row.pageId
+        ? mats.find(m=>canonicalPageId(m.id)===canonicalPageId(row.pageId))
+        : mats.find(m=>String(m.code||m.name||'')===String(row.code||row.key));
+      const pageId=row.pageId||mat?.id||'';
+      if(!pageId) throw new Error(`找不到要沖銷的成品料號：${row.code||row.name||row.key}`);
+      return {...row,pageId,mat,delta:-row.qty};
+    });
+    const confirmText=[
+      `確認要沖銷訂單「${no||oid}」的成品入庫？`,
+      '',
+      ...changes.map(row=>`${row.code||row.mat?.code||row.name} -${row.qty}`),
+      '',
+      '完成後會接著刪除訂單。'
+    ].join('\n');
+    if(!confirm(confirmText)) return;
+    const result=await applyInventoryBatchAndMirror(
+      changes.map(row=>({pageId:row.pageId,delta:row.delta})),
+      {
+        reason:'訂單成品入庫沖銷',
+        refNo:no||oid,
+        sourceType:'order_stockin_reversal',
+        sourceId:oid||no
+      }
+    );
+    if(!result.duplicate){
+      for(const row of changes){
+        const move=result.items.find(item=>item.pageId===row.pageId);
+        await logStockChangeQuietly(
+          row.pageId,
+          row.mat?.name||row.name||'',
+          row.mat?.code||row.code||'',
+          '入庫沖銷',
+          -row.qty,
+          move?.before??0,
+          move?.after??0,
+          no||oid,
+          ROLE
+        );
+      }
+    }
+    await refreshAffectedData({core:true,tabs:['inventory','stocklog'],label:'成品入庫沖銷已更新'});
+    showToast('✅ 成品入庫已沖銷，接著刪除訂單','ok',5000);
+    await deleteOrder(oid,no);
+  }catch(e){
+    showToast('❌ 入庫沖銷失敗：'+e.message,'err',9000);
+    console.error('reverseOrderStockInAndDelete error:',e,{oid,no});
+  }finally{
+    _orderStockInReversalLocks.delete(lockKey);
+  }
+}
+async function repairOrderPickingStatusIfReversed(oid,no){
+  const active=orderActivePickingRecords(oid);
+  const completed=completedOrderPickingRows(active);
+  if(!completed.length) return false;
+  const auditRows=await fetchOrderStockAuditRows(no);
+  if(!orderAuditPickingIsResolvedByReversal(auditRows)) return false;
+  for(const pick of completed){
+    for(const item of pick.items||[]) item.status='已沖銷';
+    await updateSupabasePickingStatus(pick,'已沖銷',pick.items||[]);
+    pick.status='已沖銷';
+  }
+  await loadPicks();
+  return true;
 }
 function orderCanCancelAfterPickingReversal(orderId){
   if(!orderId) return false;
@@ -20403,6 +20558,11 @@ async function deleteOrder(oid, no, opts={}){
     try{
       const activePicks=await loadOrderPickingGuardRows(oid);
       if(activePicks.length){
+        const repaired=await repairOrderPickingStatusIfReversed(oid,no);
+        if(repaired){
+          showToast('已確認領料回料完成，重新檢查刪除條件...','warn',5000);
+          return deleteOrder(oid,no,opts);
+        }
         openOrderPickingBlockedModal(oid,no,activePicks,'刪除訂單');
         return;
       }
