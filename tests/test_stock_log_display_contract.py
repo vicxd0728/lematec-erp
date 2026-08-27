@@ -26,7 +26,7 @@ def function_body(name: str) -> str:
 def test_zero_quantity_rows_are_operation_records_not_inventory_moves():
     assert "function stockLogIsInventoryMove" in INDEX
     assert "Number(s?.qty||0)>0||Number(s?.before||0)!==Number(s?.after||0)" in function_body("stockLogIsInventoryMove")
-    assert "return stockLogIsInventoryMove(s)?(s?.type||'庫存異動'):'操作紀錄';" in function_body("stockLogDisplayType")
+    assert "if(!stockLogIsInventoryMove(s)) return '操作紀錄';" in function_body("stockLogDisplayType")
     assert "if(!stockLogIsInventoryMove(s)) return '紀錄';" in function_body("stockLogQtyLabel")
 
 
@@ -46,3 +46,18 @@ def test_stock_log_has_inventory_and_operation_filters():
     assert "只看操作紀錄" in body
     assert "if(viewVal==='inventory') data=data.filter(stockLogIsInventoryMove);" in body
     assert "if(viewVal==='operation') data=data.filter(s=>!stockLogIsInventoryMove(s));" in body
+
+
+def test_reversal_logs_use_human_action_labels_and_directional_quantity():
+    display_body = function_body("stockLogDisplayType")
+    qty_body = function_body("stockLogQtyLabel")
+    audit_body = function_body("stockLogAuditMathIssue")
+    for phrase in ("領料沖銷", "入庫沖銷", "C端退料", "蝦皮完成入庫"):
+        assert phrase in display_body
+    assert "if(after>before) return `+${q}`;" in qty_body
+    assert "if(after<before) return `-${q}`;" in qty_body
+    assert "displayType=stockLogDisplayType(s)" in audit_body
+    assert "領料沖銷" in audit_body
+    assert "入庫沖銷" in audit_body
+    assert "系統判定這筆應增加庫存" in audit_body
+    assert "系統判定這筆應扣除庫存" in audit_body

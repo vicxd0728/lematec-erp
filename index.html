@@ -10783,6 +10783,7 @@ function mapSupabaseStockRows(rows){
     matName: r.material_name||'',
     matCode: r.material_code||'',
     type: r.change_type||'',
+    originalAction: r.original_action||'',
     qty: Number(r.quantity||0),
     before: Number(r.before_stock||0),
     after: Number(r.after_stock||0),
@@ -10836,7 +10837,14 @@ function stockLogIsInventoryMove(s){
   return Number(s?.qty||0)>0||Number(s?.before||0)!==Number(s?.after||0);
 }
 function stockLogDisplayType(s){
-  return stockLogIsInventoryMove(s)?(s?.type||'庫存異動'):'操作紀錄';
+  if(!stockLogIsInventoryMove(s)) return '操作紀錄';
+  const action=String(s?.originalAction||s?.note||'').replace(/^原始動作：/,'');
+  if(/領料沖銷|回料沖銷|已沖銷/.test(action)) return '領料沖銷';
+  if(/入庫沖銷|蝦皮入庫沖銷|成品入庫沖銷/.test(action)) return '入庫沖銷';
+  if(/C端退料/.test(action)) return 'C端退料';
+  if(/C端出貨/.test(action)) return 'C端出貨';
+  if(/蝦皮完成入庫/.test(action)) return '蝦皮完成入庫';
+  return s?.type||'庫存異動';
 }
 function stockLogDisplayName(s){
   const name=String(s?.matName||'').trim();
@@ -10855,7 +10863,12 @@ function stockLogDisplaySubText(s){
 }
 function stockLogQtyLabel(s){
   if(!stockLogIsInventoryMove(s)) return '紀錄';
-  return `${s.type==='入料'?'+':''}${Number(s.qty)||0}`;
+  const q=Math.abs(Number(s.qty)||0);
+  const before=Number(s.before)||0;
+  const after=Number(s.after)||0;
+  if(after>before) return `+${q}`;
+  if(after<before) return `-${q}`;
+  return `${Number(s.qty)||0}`;
 }
 const STOCK_LOG_AUDIT_ACK_STORAGE='lematec_stock_log_audit_ack_v1';
 function readStockLogAuditAck(){
@@ -10884,12 +10897,14 @@ function stockLogAuditMathIssue(s){
   const before=Number(s.before)||0;
   const after=Number(s.after)||0;
   if(q<=0) return '';
-  const t=String(s.type||'');
-  if(['入料','C端退料','蝦皮完成入庫'].some(x=>t.includes(x))&&Math.abs((after-before)-q)>0.000001){
-    return `入庫/回庫數學不一致：${before} + ${q} 應為 ${before+q}，目前紀錄 ${after}`;
+  const displayType=stockLogDisplayType(s);
+  const isIncreaseType=['入料','C端退料','蝦皮完成入庫','領料沖銷'].some(x=>displayType.includes(x));
+  const isDecreaseType=['領料','C端出貨','入庫沖銷'].some(x=>displayType.includes(x))&&!displayType.includes('領料沖銷');
+  if(isIncreaseType&&Math.abs((after-before)-q)>0.000001){
+    return `系統判定這筆應增加庫存：原本 ${before}，增加 ${q} 後應為 ${before+q}，目前紀錄是 ${after}`;
   }
-  if(['領料','C端出貨'].some(x=>t.includes(x))&&Math.abs((before-after)-q)>0.000001){
-    return `扣庫數學不一致：${before} - ${q} 應為 ${before-q}，目前紀錄 ${after}`;
+  if(isDecreaseType&&Math.abs((before-after)-q)>0.000001){
+    return `系統判定這筆應扣除庫存：原本 ${before}，扣除 ${q} 後應為 ${before-q}，目前紀錄是 ${after}`;
   }
   if(after<0) return `庫存異動後為負數：${after}`;
   return '';
@@ -10960,7 +10975,7 @@ function buildStockLogAuditReport(logs=stockLogs){
       level:'error',
       category:'數量異常',
       title:'庫存異動前後數量不一致',
-      detail:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${mathIssue}`,
+      detail:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${stockLogDisplayType(s)}：${mathIssue}`,
       action:'manual',
       rows:[s]
     });
@@ -11573,7 +11588,7 @@ function renderStockLog(){
   const operationLogs=stockLogs.filter(s=>!stockLogIsInventoryMove(s));
   const adjTotal=inventoryMoves.filter(s=>s.type==='手動調整').length;
 
-  const typeColors={'入料':'var(--green)','領料':'var(--blue)','手動調整':'var(--yellow)','品管退回':'var(--red)','操作紀錄':'var(--text3)'};
+  const typeColors={'入料':'var(--green)','領料':'var(--blue)','領料沖銷':'var(--green)','入庫沖銷':'var(--red2)','C端出貨':'var(--blue)','C端退料':'var(--green)','蝦皮完成入庫':'var(--green)','手動調整':'var(--yellow)','品管退回':'var(--red)','操作紀錄':'var(--text3)'};
 
   const auditReport=buildStockLogAuditReport(stockLogs);
 
@@ -11637,8 +11652,9 @@ function renderStockLog(){
     ${data.map(s=>{
       const isMove=stockLogIsInventoryMove(s);
       const displayType=stockLogDisplayType(s);
-      const isIn=s.type==='入料';
-      const qtyColor=!isMove?'var(--text3)':isIn?'var(--green)':s.type==='領料'?'var(--blue)':'var(--yellow)';
+      const before=Number(s.before)||0;
+      const after=Number(s.after)||0;
+      const qtyColor=!isMove?'var(--text3)':after>before?'var(--green)':after<before?'var(--red2)':'var(--yellow)';
       return`<tr>
         <td style="font-family:monospace;font-size:0.6875rem;color:var(--text3)">${s.date||'—'}</td>
         <td style="font-size:0.75rem;font-weight:600">${escapeHtml(stockLogDisplayName(s))}${stockLogDisplaySubText(s)?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">${escapeHtml(stockLogDisplaySubText(s))}</div>`:''}</td>
