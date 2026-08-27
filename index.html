@@ -17668,6 +17668,167 @@ async function returnCorderStock(refs, refNo, operationKey=''){
     if(mat) mat.stock=stockMove.after;
   }
 }
+function isCorderShipLog(row){
+  const text=orderAuditLogText(row);
+  const before=Number(row?.before_stock??row?.before??0);
+  const after=Number(row?.after_stock??row?.after??0);
+  return before>after&&/C端出貨/.test(text);
+}
+function isCorderReturnLog(row){
+  const text=orderAuditLogText(row);
+  const before=Number(row?.before_stock??row?.before??0);
+  const after=Number(row?.after_stock??row?.after??0);
+  return after>before&&/C端退料/.test(text);
+}
+async function fetchCorderStockAuditRows(orderNo){
+  const target=String(orderNo||'').trim();
+  if(!target) return [];
+  const all=[];
+  let offset=0;
+  for(let guard=0;guard<8;guard++){
+    const res=await fetch(`${PROXY}/api/stock-log/list?mode=all&limit=995&offset=${offset}&corder_delete_audit=1`);
+    const data=await res.json().catch(()=>null);
+    if(!res.ok||data?.ok===false||data?.error) throw new Error(data?.error||`C端異動記錄查詢失敗 HTTP ${res.status}`);
+    const rows=Array.isArray(data?.rows)?data.rows:[];
+    all.push(...rows);
+    if(!data?.has_more) break;
+    offset=Number(data.next_offset)||offset+995;
+  }
+  return all.filter(row=>String(row?.ref_no||'')===target||orderAuditLogText(row).includes(target))
+    .sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+}
+function buildCorderInventoryOutstandingRows(rows,fallbackRefs=[]){
+  const shipped=new Map();
+  const returned=new Map();
+  for(const row of (rows||[]).filter(isCorderShipLog)){
+    const key=orderAuditMaterialKey(row);
+    if(!key) continue;
+    const current=shipped.get(key)||{
+      key,
+      pageId:row.material_id||'',
+      code:row.material_code||'',
+      name:row.material_name||row.material_code||'',
+      qty:0
+    };
+    current.qty+=Math.abs(Number(row.quantity)||Number(row.before_stock)-Number(row.after_stock)||0);
+    shipped.set(key,current);
+  }
+  for(const row of (rows||[]).filter(isCorderReturnLog)){
+    const key=orderAuditMaterialKey(row);
+    if(!key) continue;
+    returned.set(key,(returned.get(key)||0)+Math.abs(Number(row.quantity)||Number(row.after_stock)-Number(row.before_stock)||0));
+  }
+  const outstanding=[...shipped.values()].map(row=>({
+    ...row,
+    qty:Math.max(0,row.qty-(returned.get(row.key)||0))
+  })).filter(row=>row.qty>0);
+  if(outstanding.length||rows.some(row=>isCorderShipLog(row)||isCorderReturnLog(row))) return outstanding;
+  return (fallbackRefs||[]).map(ref=>{
+    const mat=mats.find(m=>m.id===ref.id);
+    return {
+      key:ref.id,
+      pageId:ref.id,
+      code:mat?.code||'',
+      name:mat?.name||mat?.code||ref.id,
+      qty:Number(ref.qty)||0
+    };
+  }).filter(row=>row.pageId&&row.qty>0);
+}
+const _corderDeleteLocks=new Set();
+function openCorderDeleteAuditModal(id,{mode='delete',rows=[],outstanding=[]}={}){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  const orderNo=o.no||id;
+  const isCompleted=['已完成','部分退貨','已退貨'].includes(o.status);
+  const actionText=mode==='cancel'?'取消':'刪除';
+  const rowHtml=outstanding.map(row=>`<tr>
+    <td style="font-family:var(--f-mono)">${escapeHtml(row.code||row.key)}</td>
+    <td>${escapeHtml(row.name||'')}</td>
+    <td style="font-family:var(--f-mono);color:var(--green2);font-weight:800">+${row.qty}</td>
+  </tr>`).join('');
+  const logHtml=(rows||[]).slice(-8).map(row=>`<tr>
+    <td style="font-family:var(--f-mono);font-size:.75rem">${escapeHtml(String(row.created_at||row.change_date||'').replace('T',' ').slice(0,19))}</td>
+    <td>${escapeHtml(row.original_action||row.change_type||'')}</td>
+    <td>${escapeHtml(row.material_code||row.material_name||'')}</td>
+    <td style="font-family:var(--f-mono)">${Number(row.quantity)||0}</td>
+  </tr>`).join('');
+  document.getElementById('modalInner').innerHTML=`
+    <h3>C端庫存檢查</h3>
+    <div class="info-box info-warn" style="margin-bottom:12px">
+      C端訂單 <b>${escapeHtml(orderNo)}</b> ${outstanding.length?`已扣除 S- 成品庫存，${actionText}前請先決定是否回庫。`:'目前沒有未回補的 C端出貨庫存影響。'}
+    </div>
+    ${isCompleted?`<div class="help-box" style="margin-bottom:12px">已完成訂單建議走「退貨」保留成交與退貨原因，之後才能統計退貨率與原因。只有建錯或測試資料才建議刪除。</div>`:''}
+    ${outstanding.length?`<div class="order-reversal-summary">
+      <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">需判斷料號</div><div class="kpi-num" style="font-size:1.7rem">${outstanding.length}</div><div class="kpi-sub">S- 成品</div></div>
+      <div class="kpi-card kpi-cyan" style="min-height:76px"><div class="kpi-label">可回庫數量</div><div class="kpi-num" style="font-size:1.7rem">${outstanding.reduce((sum,row)=>sum+row.qty,0)}</div><div class="kpi-sub">系統已算好</div></div>
+      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">建議</div><div style="font-weight:900;color:var(--green2);margin-top:7px">${isCompleted?'退貨保留紀錄':'回庫後'+actionText}</div><div class="kpi-sub">避免庫存少算</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:180px;margin-bottom:10px"><table>
+      <tr><th>回庫料號</th><th>名稱</th><th>回庫數量</th></tr>${rowHtml}
+    </table></div>`:''}
+    ${logHtml?`<div class="table-wrap" style="max-height:220px"><table>
+      <tr><th>時間</th><th>動作</th><th>料號</th><th>數量</th></tr>${logHtml}
+    </table></div>`:''}
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
+      ${isCompleted?`<button class="btn btn-yellow" onclick="closeModal();openReturnCorder('${id}')">改走退貨流程</button>`:''}
+      ${outstanding.length?`<button class="btn btn-green" onclick="processCorderDeleteDecision('${id}','${mode}','return')">回庫後${actionText}</button>`:''}
+      <button class="btn btn-red" onclick="processCorderDeleteDecision('${id}','${mode}','scrap')">報銷不回庫後${actionText}</button>
+    </div>`;
+  openModal();
+}
+async function openCorderCancelDeleteFlow(id,mode='delete'){
+  if(denyViewOnlyAction()) return;
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  showToast('檢查 C端庫存異動...','warn');
+  try{
+    const rows=await fetchCorderStockAuditRows(o.no||id);
+    const outstanding=buildCorderInventoryOutstandingRows(rows,parseCorderStockRefs(o.matId,o.qty||1));
+    openCorderDeleteAuditModal(id,{mode,rows,outstanding});
+  }catch(e){
+    showToast('❌ C端庫存檢查失敗，已停止操作：'+e.message,'err',9000);
+  }
+}
+async function processCorderDeleteDecision(id,mode,stockMode){
+  const o=(window.corders||[]).find(x=>x.id===id);
+  if(!o){showToast('找不到 C端訂單','err');return;}
+  const orderNo=o.no||id;
+  const lockKey=`${mode}:${id}`;
+  if(_corderDeleteLocks.has(lockKey)){showToast('這筆 C端訂單正在處理，請勿重複點擊','warn');return;}
+  const actionText=mode==='cancel'?'取消':'刪除';
+  const really=confirm(`確認要${stockMode==='return'?'回補庫存後':''}${actionText} C端訂單「${orderNo}」？\n\n${stockMode==='scrap'?'庫存不會回補，系統會記錄為報銷/不回庫。':'系統會先回補 S- 成品庫存。'}`);
+  if(!really) return;
+  closeModal();
+  _corderDeleteLocks.add(lockKey);
+  showToast(`${actionText}處理中...`,'warn');
+  try{
+    const rows=await fetchCorderStockAuditRows(orderNo);
+    const outstanding=buildCorderInventoryOutstandingRows(rows,parseCorderStockRefs(o.matId,o.qty||1));
+    if(stockMode==='return'&&outstanding.length){
+      await returnCorderStock(outstanding.map(row=>({id:row.pageId,qty:row.qty})),orderNo,`${mode}:${orderNo}:return`);
+    }
+    if(mode==='cancel'){
+      await updatePage(id,{'狀態':{select:{name:'已取消'}}});
+      o.status='已取消';
+      logUserAction('取消C端訂單',orderNo,stockMode==='return'?'取消並回庫':'取消報銷不回庫',ROLE);
+      await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端取消與庫存資料已更新'});
+      renderTab('corders');
+      showToast(stockMode==='return'?'✅ 已回庫並取消':'✅ 已取消（報銷不回庫）','ok');
+      return;
+    }
+    await archivePage(id);
+    window.corders=(window.corders||[]).filter(x=>x.id!==id);
+    logUserAction('刪除C端訂單',orderNo,stockMode==='return'?'刪除並回庫':'刪除報銷不回庫',ROLE);
+    await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端刪除與庫存資料已更新'});
+    renderTab('corders');
+    showToast(stockMode==='return'?'✅ 已回庫並刪除':'✅ 已刪除（報銷不回庫）','ok');
+  }catch(e){
+    showToast(`❌ C端${actionText}失敗：`+e.message,'err',9000);
+  }finally{
+    _corderDeleteLocks.delete(lockKey);
+  }
+}
 async function syncToDomesticTrade115({orderNo,custName,custCode,productName,qty,deadline,note}){
   if(!DB.domesticTrade) return;
   const d=new Date();
@@ -17688,17 +17849,7 @@ async function syncToDomesticTrade115({orderNo,custName,custCode,productName,qty
 }
 
 async function cancelCorder(id, matId, qty){
-  if(!confirm('確定要取消這筆 C端訂單嗎？\n\n按「取消」會保留訂單，不做任何變更。')) return;
-  const doReturn = confirm('請選擇取消後的庫存處理方式：\n\n確定 = 回料（加回庫存）\n取消 = 報銷／不回料（庫存不變）');
-  try{
-    const o = (window.corders||[]).find(x=>x.id===id);
-    if(doReturn) await returnCorderStock(parseCorderStockRefs(matId,qty), o?.no||id);
-    await updatePage(id,{'狀態':{select:{name:'已取消'}}});
-    logUserAction('取消C端訂單',o?.no||id,doReturn?'取消並回料':'取消報銷不回料',ROLE);
-    if(o) o.status='已取消';
-    await refreshAffectedData({core:true,tabs:['corders'],label:'取消與庫存資料已更新'}); renderTab(CURRENT_TAB);
-    showToast(doReturn?'✅ 已取消並回料':'✅ 已取消（報銷不回料）','ok');
-  }catch(e){ showToast('錯誤：'+e.message,'err'); }
+  await openCorderCancelDeleteFlow(id,'cancel');
 }
 
 async function completeCorder(id){
@@ -17943,16 +18094,7 @@ async function saveEditCorder(id){
 }
 
 async function deleteCorder(id, matId, qty, status){
-  if(!confirm('確定要刪除這筆 C端訂單嗎？\n\n會一併封存 Notion 資料，無法在 ERP 畫面復原。')) return;
-  const doReturn=status==='出貨中'&&confirm('這筆訂單仍是出貨中，刪除前是否回料？\n\n確定 = 回料後刪除\n取消 = 直接刪除不回料');
-  const o=(window.corders||[]).find(x=>x.id===id);
-  try{
-    if(doReturn) await returnCorderStock(parseCorderStockRefs(matId,qty),o?.no||id);
-    await archivePage(id);
-    window.corders=(window.corders||[]).filter(x=>x.id!==id);
-    renderTab('corders');
-    showToast(doReturn?'✅ 已回料並刪除':'✅ C端訂單已刪除','ok');
-  }catch(e){showToast('❌ 刪除失敗：'+e.message,'err');}
+  await openCorderCancelDeleteFlow(id,'delete');
 }
 
 async function loadLeaveStats(){

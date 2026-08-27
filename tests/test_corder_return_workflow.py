@@ -87,6 +87,35 @@ class CorderReturnWorkflowTest(unittest.TestCase):
         self.assertIn("updateWorkflowPageAfterInventory(id,{", body)
         self.assertIn("statusSync.pending", body)
 
+    def test_corder_cancel_delete_uses_stock_audit_modal(self):
+        cancel_body = function_body("cancelCorder")
+        delete_body = function_body("deleteCorder")
+        self.assertIn("openCorderCancelDeleteFlow(id,'cancel')", cancel_body)
+        self.assertIn("openCorderCancelDeleteFlow(id,'delete')", delete_body)
+        self.assertNotIn("confirm('請選擇取消後的庫存處理方式", cancel_body)
+        self.assertNotIn("status==='出貨中'&&confirm", delete_body)
+
+    def test_corder_delete_audit_distinguishes_ship_and_return_logs(self):
+        self.assertIn("function isCorderShipLog", INDEX)
+        self.assertIn("function isCorderReturnLog", INDEX)
+        self.assertIn("buildCorderInventoryOutstandingRows", INDEX)
+        self.assertIn("C端庫存檢查", INDEX)
+        self.assertIn("回庫後${actionText}", INDEX)
+        self.assertIn("報銷不回庫後${actionText}", INDEX)
+
+    def test_completed_corder_delete_modal_recommends_return_flow(self):
+        body = function_body("openCorderDeleteAuditModal")
+        self.assertIn("已完成訂單建議走", body)
+        self.assertIn("openReturnCorder('${id}')", body)
+        self.assertIn("改走退貨流程", body)
+
+    def test_corder_delete_decision_uses_corder_return_batch_before_archiving(self):
+        body = function_body("processCorderDeleteDecision")
+        self.assertIn("stockMode==='return'&&outstanding.length", body)
+        self.assertIn("returnCorderStock(outstanding.map", body)
+        self.assertIn("await archivePage(id)", body)
+        self.assertIn("刪除C端訂單", body)
+
 
 if __name__ == "__main__":
     unittest.main()
