@@ -724,6 +724,9 @@ body.modal-open{overflow:hidden;}
 .inventory-batch-preview tr.batch-error td{background:rgba(239,68,68,.06);}
 .inventory-batch-preview .batch-delta-plus{color:var(--green2);font-weight:700;}
 .inventory-batch-preview .batch-delta-minus{color:var(--red2);font-weight:700;}
+.picking-reversal-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 12px;}
+.picking-reversal-guide>div{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);font-size:.75rem;line-height:1.55;color:var(--text2);}
+.picking-focus-row td{background:rgba(34,211,238,.06)!important;box-shadow:inset 3px 0 0 var(--cyan2);}
 .preflight-detail-table tr.batch-error td{background:rgba(239,68,68,.08);}
 .preflight-detail-table tr.batch-warn td{background:rgba(245,158,11,.07);}
 .preflight-detail-table tr:target td{outline:2px solid var(--cyan2);outline-offset:-2px;}
@@ -755,6 +758,7 @@ body.modal-open{overflow:hidden;}
 @media(max-width:599px){
   .inventory-batch-help{grid-template-columns:1fr;}
   .inventory-batch-preview{max-height:34vh;}
+  .picking-reversal-guide{grid-template-columns:1fr;}
   .preflight-head{flex-direction:column;}
   .preflight-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .preflight-row{grid-template-columns:1fr;gap:5px;}
@@ -16257,21 +16261,23 @@ function renderPicking(){
   const allData=applySort('picking',applyDateFilter('pick',picks,'date'));
   const autoData=allData.filter(p=>p.orderId);
   const manualData=allData.filter(p=>!p.orderId);
-  const data=sub==='manual'?manualData:autoData;
+  const focusOrder=window._PICK_FOCUS_ORDER||'';
+  const data=sub==='manual'?manualData:(focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData);
   const canOperate=!isViewOnly();
   const tabs=`<div class="module-tabs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
     <button class="module-tab${sub==='auto'?' active':''}" onclick="window._PICK_SUB='auto';renderTab('picking')">🧾 訂單領料</button>
-    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';renderTab('picking')">🧰 臨時補料</button>
+    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';window._PICK_FOCUS_ORDER='';renderTab('picking')">🧰 臨時補料</button>
   </div>`;
   return _notionBar + tabs + `<div class="filter-bar">
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
     ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
+  ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="window._PICK_FOCUS_ORDER='';renderTab('picking')">顯示全部領料</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span></div>
   ${!data.length?`<div class="loading-row">${sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
-  ${data.map(p=>`<tr><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${p.no}</td><td class="hide-m" style="font-size:0.8125rem">${p.product||p.note||'—'}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${p.date||p.created||'—'}</td><td>${pill(p.status)}</td>${canOperate?`<td>${sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'?`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`:'—'}</td>`:''}</tr>`).join('')}
+  ${data.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${p.no}</td><td class="hide-m" style="font-size:0.8125rem">${p.product||p.note||'—'}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${p.date||p.created||'—'}</td><td>${pill(p.status)}</td>${canOperate?`<td>${sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'?`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`:canReverse?`<button class="btn btn-yellow btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify((orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'')},${JSON.stringify('修改或刪除訂單')})'>回料沖銷</button>`:'—'}</td>`:''}</tr>`}).join('')}
   </table></div>`}
   </div>`;
 }
@@ -20118,7 +20124,7 @@ function openOrderDeleteBlockedModal(oid,no,rows){
     </div>`;
   openModal();
 }
-const ORDER_PICKING_INACTIVE_STATUSES=new Set(['取消','已取消','作廢','封存','已封存']);
+const ORDER_PICKING_INACTIVE_STATUSES=new Set(['取消','已取消','作廢','封存','已封存','已沖銷','已退料']);
 function orderLinkedPickingRecords(orderId){
   const key=canonicalPageId(orderId);
   if(!key)return [];
@@ -20141,13 +20147,190 @@ function renderOrderPickingRows(rows){
       <td style="font-size:.75rem;color:var(--text3)">${escapeHtml(p.date||p.created||'')}</td>
     </tr>`).join('');
 }
+function completedOrderPickingRows(rows){
+  return (rows||[]).filter(p=>/已領料|已確認|完成/.test(String(p.status||''))&&!ORDER_PICKING_INACTIVE_STATUSES.has(String(p.status||'').trim()));
+}
+function buildPickingReversalRows(rows){
+  const grouped=new Map();
+  for(const pick of completedOrderPickingRows(rows)){
+    for(const item of pick.items||[]){
+      const matId=item.matId||'';
+      const qty=Number(item.pickedQty||item.qty||0);
+      if(!matId||!qty) continue;
+      const mat=mats.find(m=>canonicalPageId(m.id)===canonicalPageId(matId));
+      const row=grouped.get(matId)||{
+        pageId:matId,
+        code:item.code||mat?.code||mat?.name||'',
+        name:item.name||mat?.name||item.code||'',
+        qty:0,
+        picks:[]
+      };
+      row.qty+=qty;
+      row.picks.push(pick.no||pick.id);
+      grouped.set(matId,row);
+    }
+  }
+  return [...grouped.values()];
+}
+function renderPickingReversalPreview(rows){
+  const reversalRows=buildPickingReversalRows(rows);
+  return `<div class="picking-reversal-guide">
+    <div><b>1. 檢查領料</b><br>系統已找到完成領料單，不讓人員直接刪訂單。</div>
+    <div><b>2. 先回料沖銷</b><br>按下後會把已領出的料加回庫存，並留下異動紀錄。</div>
+    <div><b>3. 再修改或刪除</b><br>領料單標成已沖銷後，訂單才可安全處理。</div>
+  </div>
+  <div class="table-wrap" style="max-height:220px"><table>
+    <tr><th>要補回料號</th><th>名稱</th><th>補回數量</th><th>來源領料</th></tr>
+    ${reversalRows.map(row=>`<tr>
+      <td style="font-family:var(--f-mono)">${escapeHtml(row.code||row.pageId)}</td>
+      <td>${escapeHtml(row.name||'')}</td>
+      <td style="font-family:var(--f-mono);color:var(--green2);font-weight:800">+${row.qty}</td>
+      <td style="font-family:var(--f-mono);font-size:.72rem;color:var(--text3)">${escapeHtml([...new Set(row.picks)].join('、'))}</td>
+    </tr>`).join('')||'<tr><td colspan="4">找不到可沖銷明細，請先同步領料資料</td></tr>'}
+  </table></div>`;
+}
+function goToOrderPickingRows(orderId){
+  window._PICK_SUB='auto';
+  window._PICK_FOCUS_ORDER=canonicalPageId(orderId);
+  closeModal();
+  switchTab('picking');
+}
+function openOrderPickingReversalAssist(oid,no,actionLabel='處理訂單'){
+  const rows=orderActivePickingRecords(oid);
+  const reversalRows=buildPickingReversalRows(rows);
+  const completedRows=completedOrderPickingRows(rows);
+  const canReverse=reversalRows.length&&completedRows.every(p=>p.supabaseId);
+  document.getElementById('modalInner').innerHTML=`
+    <h3>↩ 領料回料 / 沖銷</h3>
+    <div class="info-box info-warn" style="margin-bottom:12px">
+      訂單 <b>${escapeHtml(no||oid)}</b> 要先把已領料補回庫存，才可以繼續「${escapeHtml(actionLabel)}」。人員不用手動算料，系統已在下方列出補回內容。
+    </div>
+    ${renderPickingReversalPreview(rows)}
+    <div style="font-size:.78rem;color:var(--text3);line-height:1.7;margin-top:10px">
+      執行後會寫入 Supabase 庫存異動「領料沖銷」，再把相關領料單標記為「已沖銷」。若 Notion 鏡像暫時失敗，會進補同步佇列，不會重複回料。
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick='goToOrderPickingRows(${JSON.stringify(String(oid||''))})'>只查看領料</button>
+      <button class="btn btn-blue" ${canReverse?'':'disabled'} onclick='reverseOrderPickingAndContinue(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))},false)'>只回料沖銷</button>
+      <button class="btn btn-red" ${canReverse&&/刪除/.test(actionLabel)?'':'disabled'} onclick='reverseOrderPickingAndContinue(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))},true)'>回料後刪除</button>
+    </div>`;
+  openModal();
+}
+const _orderPickReversalLocks=new Set();
+async function reverseOrderPickingAndContinue(oid,no,actionLabel='處理訂單',deleteAfter=false){
+  if(denyViewOnlyAction()) return;
+  const lockKey=canonicalPageId(oid)||oid;
+  if(_orderPickReversalLocks.has(lockKey)){
+    showToast('這張訂單正在回料沖銷，請勿重複點擊','warn');
+    return;
+  }
+  const rows=completedOrderPickingRows(orderActivePickingRecords(oid));
+  const reversalRows=buildPickingReversalRows(rows);
+  if(!rows.length||!reversalRows.length){
+    showToast('找不到可回料沖銷的已領料明細，請先重新同步領料資料','err',8000);
+    return;
+  }
+  if(rows.some(p=>!p.supabaseId)){
+    showToast('目前領料資料是備援讀取，請先恢復 Supabase 連線後再沖銷','err',8000);
+    return;
+  }
+  const message=[
+    `確認要回料沖銷訂單「${no||oid}」？`,
+    '',
+    ...reversalRows.map(row=>`${row.code||row.name||row.pageId} +${row.qty}`),
+    '',
+    deleteAfter?'完成回料後會接著刪除訂單。':'完成後領料單會標記為已沖銷，之後即可修改或刪除訂單。'
+  ].join('\n');
+  if(!confirm(message)) return;
+  _orderPickReversalLocks.add(lockKey);
+  closeModal();
+  showToast('領料回料沖銷中...','warn');
+  let inventoryCommitted=false;
+  let statusCommitted=false;
+  try{
+    const pickIds=rows.map(p=>p.supabaseId||p.id).sort().join(',');
+    const result=await applyInventoryBatchAndMirror(
+      reversalRows.map(row=>({pageId:row.pageId,delta:row.qty})),
+      {
+        reason:`領料沖銷：${actionLabel}`,
+        refNo:no||oid,
+        sourceType:'order_pick_reversal',
+        sourceId:`${oid}:${pickIds}`
+      }
+    );
+    inventoryCommitted=true;
+    if(!result.duplicate){
+      for(const row of reversalRows){
+        const move=result.items.find(item=>item.pageId===row.pageId);
+        await logStockChangeQuietly(
+          row.pageId,
+          row.name||'',
+          row.code||'',
+          '領料沖銷',
+          row.qty,
+          move?.before??0,
+          move?.after??0,
+          no||oid,
+          ROLE
+        );
+      }
+    }
+    let notionPending=false;
+    for(const pick of rows){
+      for(const item of pick.items||[]){
+        item.status='已沖銷';
+      }
+      await updateSupabasePickingStatus(pick,'已沖銷',pick.items||[]);
+      pick.status='已沖銷';
+      statusCommitted=true;
+      for(const item of pick.items||[]){
+        if(!item.notionId) continue;
+        const detailSync=await updateWorkflowPageAfterInventory(
+          item.notionId,
+          {'狀態':{select:{name:'已沖銷'}}},
+          `領料單 ${pick.no||pick.id} 明細沖銷狀態`
+        );
+        notionPending=notionPending||detailSync.pending;
+      }
+      if(pick.notionId){
+        const masterSync=await updateWorkflowPageAfterInventory(
+          pick.notionId,
+          {'狀態':{select:{name:'已沖銷'}}},
+          `領料單 ${pick.no||pick.id} 沖銷狀態`
+        );
+        notionPending=notionPending||masterSync.pending;
+      }
+    }
+    logUserAction('領料沖銷',no||oid,`${rows.length} 張領料單 / ${reversalRows.length} 項料件`,ROLE);
+    await refreshAffectedData({core:true,tabs:['picking','inventory'],label:'領料沖銷與庫存已更新'});
+    if(deleteAfter){
+      showToast('✅ 已完成回料沖銷，接著刪除訂單','ok',5000);
+      await deleteOrder(oid,no,{skipPickingGuard:true,skipAudit:true});
+      return;
+    }
+    window._PICK_SUB='auto';
+    window._PICK_FOCUS_ORDER=canonicalPageId(oid);
+    renderTab(CURRENT_TAB);
+    showToast(notionPending?'✅ Supabase 已完成回料沖銷；Notion 鏡像待自動補同步':'✅ 已完成回料沖銷，可回訂單修改或刪除',notionPending?'warn':'ok',8000);
+  }catch(e){
+    if(inventoryCommitted&&!statusCommitted){
+      showToast('⚠ 庫存已回料，但領料狀態尚未完成；請重新同步後再按一次，系統不會重複回料','warn',10000);
+    }else{
+      showToast('❌ 回料沖銷失敗：'+e.message,'err',9000);
+    }
+    console.error('reverseOrderPickingAndContinue error:',e,{oid,no,inventoryCommitted,statusCommitted});
+  }finally{
+    _orderPickReversalLocks.delete(lockKey);
+  }
+}
 function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
   const completed=rows.some(p=>/已領料|已確認|完成/.test(String(p.status||'')));
   document.getElementById('modalInner').innerHTML=`
     <h3>⚠️ 此訂單已有領料紀錄</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
-      訂單 <b>${escapeHtml(no||oid)}</b> 已有 ${rows.length} 筆領料單。${completed?'其中已有完成領料紀錄，請先走回料/沖銷流程，再修改或刪除訂單。':'請先取消或處理既有領料單，再修改品項、數量或刪除訂單。'}
+      訂單 <b>${escapeHtml(no||oid)}</b> 已有 ${rows.length} 筆領料單。${completed?'其中已有完成領料紀錄，請先按「回料沖銷」讓庫存補回，再修改或刪除訂單。':'請先取消或處理既有領料單，再修改品項、數量或刪除訂單。'}
     </div>
+    ${completed?renderPickingReversalPreview(rows):''}
     <div class="table-wrap" style="max-height:260px"><table>
       <tr><th>領料單</th><th>狀態</th><th>品項</th><th>數量</th><th>日期</th></tr>
       ${renderOrderPickingRows(rows)||'<tr><td colspan="5">無明細</td></tr>'}
@@ -20157,7 +20340,8 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
-      <button class="btn btn-blue" onclick="closeModal();renderTab('picking')">前往領料分頁</button>
+      <button class="btn btn-blue" onclick='goToOrderPickingRows(${JSON.stringify(String(oid||''))})'>查看領料單</button>
+      ${completed?`<button class="btn btn-green" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))})'>回料沖銷</button>`:''}
     </div>`;
   openModal();
 }

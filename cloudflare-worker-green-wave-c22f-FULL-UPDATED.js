@@ -2084,14 +2084,14 @@ async function erpPickingStatus(request, env, cors) {
     const body = await request.json();
     const pickId = cleanText(body?.pick_id);
     const status = cleanText(body?.status);
-    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消']);
+    const allowedStatuses = new Set(['待確認', '待領料', '已領料', '已確認扣料', '缺料待補', '取消', '已沖銷']);
     if (!pickId) return resp400(cors, 'Missing pick_id');
     if (!allowedStatuses.has(status)) return resp400(cors, 'Invalid picking status');
     const existing = await supabaseSingle(
       env,
       `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,status,picked_at,notion_page_id&limit=1`
     );
-    if (['已領料', '已確認扣料'].includes(cleanText(existing.status)) && !['已領料', '已確認扣料'].includes(status)) {
+    if (['已領料', '已確認扣料'].includes(cleanText(existing.status)) && !['已領料', '已確認扣料', '已沖銷'].includes(status)) {
       return new Response(JSON.stringify({ error: 'Completed picking cannot move back to an incomplete status' }), {
         status: 409,
         headers: jh(cors),

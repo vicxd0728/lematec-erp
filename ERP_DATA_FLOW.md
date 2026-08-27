@@ -177,6 +177,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 - 建立順序為：Supabase 建立/續接領料單 → Notion 建立查閱鏡像 → Supabase 原子批次扣庫存 → Supabase 更新已領料 → Notion 鏡像補狀態。
 - 缺料、BOM 缺件、Supabase 寫入失敗或 Notion 首次鏡像失敗時，不開始扣庫存；已扣庫後發生斷線則以固定 idempotency key 續跑，不得重扣。
 - Notion 鏡像會把主單與明細 page ID 回標至 Supabase。新流程建立但鏡像未完成的單據，領料頁載入後會限量自動補同步。
+- 訂單已完成領料後若要修改品項/數量或刪除訂單，必須先走「領料沖銷」：ERP 會預覽需補回的領料明細，透過 Supabase 批次庫存交易加回數量，寫入 `領料沖銷` 異動紀錄，再把領料主單與明細標為 `已沖銷`。`已沖銷`/`已退料` 領料單不再阻擋訂單修改或刪除；若 Notion 鏡像失敗，只排入補同步，不重跑庫存交易。
 
 ### 入料正式流程（2026-07-29）
 
