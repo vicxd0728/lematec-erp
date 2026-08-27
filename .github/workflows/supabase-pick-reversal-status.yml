@@ -10,7 +10,7 @@ on:
 
 jobs:
   migrate:
-    name: Pick reversal status migration
+    name: Pick return request status migration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          sql_path="supabase/migrations/20260827_001_pick_reversal_status.sql"
+          sql_path="supabase/migrations/20260827_002_pick_return_request_status.sql"
           if [ "${{ github.event.inputs.apply }}" = "true" ]; then
             psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$sql_path"
           else
@@ -45,7 +45,7 @@ jobs:
             } | psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1
           fi
 
-      - name: Verify constraint accepts reversal status
+      - name: Verify constraint accepts return request status
         if: ${{ github.event.inputs.apply == 'true' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
