@@ -49,6 +49,24 @@ def test_picking_tab_can_focus_related_order_and_offer_reversal_action():
     assert "顯示全部領料" in INDEX
 
 
+def test_picking_page_exposes_return_request_work_queue():
+    assert "PICKING_RETURN_REQUEST_BOARD_V1" in INDEX
+    assert "目前卡關待辦" in INDEX
+    assert "只看待回料" in INDEX
+    assert "pickingStatusChip('return','待回料確認'" in INDEX
+    assert "pickingStatusFilterLabel" in INDEX
+    assert "isPickingReturnRequest" in INDEX
+    assert "倉管可確認" in INDEX
+    assert "業務提出回料申請；倉管確認實物回來；系統才補庫存" in INDEX
+
+
+def test_order_picking_blocked_modal_has_role_specific_copy():
+    assert "業務端" in INDEX
+    assert "倉管端" in INDEX
+    assert "這一步只送申請，不會修改庫存。" in INDEX
+    assert "申請已送出，業務不用再調庫存" in INDEX
+
+
 def test_worker_allows_completed_picking_to_be_marked_reversed_only():
     assert "'已沖銷'" in WORKER
     assert "'待回料確認'" in WORKER

@@ -724,6 +724,16 @@ body.modal-open{overflow:hidden;}
 .inventory-batch-preview tr.batch-error td{background:rgba(239,68,68,.06);}
 .inventory-batch-preview .batch-delta-plus{color:var(--green2);font-weight:700;}
 .inventory-batch-preview .batch-delta-minus{color:var(--red2);font-weight:700;}
+.picking-workflow-board{display:grid;grid-template-columns:1.15fr repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px;}
+.picking-flow-card{position:relative;border:1px solid var(--border);border-radius:14px;background:linear-gradient(145deg,rgba(15,28,35,.78),rgba(7,13,18,.9));padding:13px 14px;min-height:96px;box-shadow:inset 0 1px 0 rgba(255,255,255,.035);}
+.picking-flow-card.is-action{border-color:rgba(245,185,66,.36);background:linear-gradient(145deg,rgba(38,27,9,.84),rgba(10,15,18,.92));}
+.picking-flow-label{font-size:.72rem;color:var(--text3);font-weight:800;letter-spacing:.4px;margin-bottom:7px;}
+.picking-flow-value{font-size:1.65rem;line-height:1;font-weight:900;color:var(--text);font-family:var(--f-mono);}
+.picking-flow-value.small{font-family:inherit;font-size:1rem;line-height:1.35;color:var(--cyan2);}
+.picking-flow-sub{font-size:.75rem;color:var(--text2);line-height:1.55;margin-top:8px;}
+.picking-flow-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
+.picking-role-note{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:11px 13px;margin:0 0 12px;border:1px solid rgba(94,234,212,.18);border-radius:14px;background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(79,140,255,.04));font-size:.8rem;color:var(--text2);line-height:1.6;}
+.picking-role-note b{color:var(--cyan2);}
 .picking-reversal-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 12px;}
 .picking-reversal-guide>div{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);font-size:.75rem;line-height:1.55;color:var(--text2);}
 .picking-focus-row td{background:rgba(34,211,238,.06)!important;box-shadow:inset 3px 0 0 var(--cyan2);}
@@ -759,6 +769,8 @@ body.modal-open{overflow:hidden;}
 @media(max-width:599px){
   .inventory-batch-help{grid-template-columns:1fr;}
   .inventory-batch-preview{max-height:34vh;}
+  .picking-workflow-board{grid-template-columns:1fr;}
+  .picking-flow-card{min-height:88px;}
   .picking-reversal-guide{grid-template-columns:1fr;}
   .order-reversal-summary{grid-template-columns:1fr;}
   .preflight-head{flex-direction:column;}
@@ -16192,6 +16204,7 @@ async function submitManualPick(){
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
 }
 const _manualPickLocks=new Set();
+const ORDER_RETURN_REQUEST_STATUS='待回料確認';
 async function completeManualPick(masterId){
   if(denyViewOnlyAction()) return;
   if(_manualPickLocks.has(masterId)){
@@ -16299,22 +16312,68 @@ async function completeManualPick(masterId){
 
 function renderPicking(){
   if(!window._PICK_SUB) window._PICK_SUB='auto';
+  if(!window._PICK_STATUS) window._PICK_STATUS='all';
   const sub=window._PICK_SUB;
+  const statusFilter=window._PICK_STATUS;
   const _notionBar='<div class="notion-bar"><span class="notion-bar-label">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" class="notion-link">📄 領料主單</a><a href="https://www.notion.so/267f16cfe88a41ed8049d39d618a1275" target="_blank" class="notion-link">📝 領料明細</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" class="notion-link">🔩 BOM清單</a></div>';
   const dateVal=document.getElementById('pickDateFilter')?.value||'6';
   const allData=applySort('picking',applyDateFilter('pick',picks,'date'));
   const autoData=allData.filter(p=>p.orderId);
   const manualData=allData.filter(p=>!p.orderId);
   const focusOrder=window._PICK_FOCUS_ORDER||'';
-  const data=sub==='manual'?manualData:(focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData);
+  const scopedAutoData=focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData;
+  const filteredAutoData=statusFilter==='return'?scopedAutoData.filter(isPickingReturnRequest):statusFilter==='picked'?scopedAutoData.filter(isPickingPicked):statusFilter==='reversed'?scopedAutoData.filter(isPickingReversed):statusFilter==='shortage'?scopedAutoData.filter(isPickingShortage):scopedAutoData;
+  const data=sub==='manual'?manualData:filteredAutoData;
   const canOperate=!isViewOnly();
+  const returnRequests=scopedAutoData.filter(isPickingReturnRequest);
+  const pickedRows=scopedAutoData.filter(isPickingPicked);
+  const reversedRows=scopedAutoData.filter(isPickingReversed);
+  const shortageRows=scopedAutoData.filter(isPickingShortage);
+  const returnQty=buildPickingReversalRows(returnRequests).reduce((sum,row)=>sum+Number(row.qty||0),0);
+  const roleAction=canConfirmOrderReturnRequest()?'倉管確認實物已回倉':'業務只需送出申請';
   const tabs=`<div class="module-tabs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
     <button class="module-tab${sub==='auto'?' active':''}" onclick="window._PICK_SUB='auto';renderTab('picking')">🧾 訂單領料</button>
-    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';window._PICK_FOCUS_ORDER='';renderTab('picking')">🧰 臨時補料</button>
+    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';window._PICK_FOCUS_ORDER='';window._PICK_STATUS='all';renderTab('picking')">🧰 臨時補料</button>
   </div>`;
-  return _notionBar + tabs + `<div class="filter-bar">
+  const workflowBoard=sub==='auto'?`<div class="picking-workflow-board" data-contract="PICKING_RETURN_REQUEST_BOARD_V1">
+    <div class="picking-flow-card is-action">
+      <div class="picking-flow-label">目前卡關待辦</div>
+      <div class="picking-flow-value">${returnRequests.length}</div>
+      <div class="picking-flow-sub">${returnRequests.length?`有 ${returnRequests.length} 張領料單等待倉管確認，預計回倉數量 ${returnQty}`:'目前沒有等待回料確認的領料單'}</div>
+      <div class="picking-flow-actions">
+        <button class="btn btn-yellow btn-xs" onclick="window._PICK_SUB='auto';window._PICK_STATUS='return';window._PICK_FOCUS_ORDER='';renderTab('picking')">只看待回料</button>
+        ${canConfirmOrderReturnRequest()?'<span class="pill" style="background:rgba(46,196,138,.12);color:var(--green2)">倉管可確認</span>':'<span class="pill" style="background:rgba(245,185,66,.12);color:var(--yellow)">等待倉管</span>'}
+      </div>
+    </div>
+    <div class="picking-flow-card">
+      <div class="picking-flow-label">角色下一步</div>
+      <div class="picking-flow-value small">${roleAction}</div>
+      <div class="picking-flow-sub">${canConfirmOrderReturnRequest()?'確認後才會補庫存、寫異動紀錄並放行訂單。':'送出申請後不改庫存，後續由倉管確認實物。'}</div>
+    </div>
+    <div class="picking-flow-card">
+      <div class="picking-flow-label">已領料未沖銷</div>
+      <div class="picking-flow-value">${pickedRows.length}</div>
+      <div class="picking-flow-sub">修改或刪除訂單時，這類單據會先被系統阻擋。</div>
+    </div>
+    <div class="picking-flow-card">
+      <div class="picking-flow-label">已完成沖銷</div>
+      <div class="picking-flow-value">${reversedRows.length}</div>
+      <div class="picking-flow-sub">已不再阻擋訂單修改、取消或刪除。</div>
+    </div>
+  </div>
+  <div class="picking-role-note">
+    <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
+    <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
+  </div>`:'';
+  return _notionBar + tabs + workflowBoard + `<div class="filter-bar">
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
+    ${sub==='auto'?`<span class="filter-label">狀態：</span>
+    ${pickingStatusChip('all','全部',statusFilter,scopedAutoData.length)}
+    ${pickingStatusChip('return','待回料確認',statusFilter,returnRequests.length)}
+    ${pickingStatusChip('picked','已領料',statusFilter,pickedRows.length)}
+    ${pickingStatusChip('reversed','已沖銷',statusFilter,reversedRows.length)}
+    ${pickingStatusChip('shortage','缺料待補',statusFilter,shortageRows.length)}`:''}
     ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="window._PICK_FOCUS_ORDER='';renderTab('picking')">顯示全部領料</button></div>`:''}
@@ -16324,6 +16383,18 @@ function renderPicking(){
   ${data.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${p.no}</td><td class="hide-m" style="font-size:0.8125rem">${p.product||p.note||'—'}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${p.date||p.created||'—'}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
   </div>`;
+}
+
+function isPickingReturnRequest(p){return String(p?.status||'').trim()===ORDER_RETURN_REQUEST_STATUS;}
+function isPickingPicked(p){return /已領料|已確認扣料/.test(String(p?.status||''));}
+function isPickingReversed(p){return /已沖銷|已退料/.test(String(p?.status||''));}
+function isPickingShortage(p){return /缺料/.test(String(p?.status||''));}
+function pickingStatusFilterLabel(v){
+  return ({all:'全部',return:'待回料確認',picked:'已領料',reversed:'已沖銷',shortage:'缺料待補'})[v]||'全部';
+}
+function pickingStatusChip(value,label,current,count){
+  const active=value===current;
+  return `<button class="filter-chip ${active?'active':''}" onclick="window._PICK_STATUS='${value}';renderTab('picking')">${label} <b>${count}</b></button>`;
 }
 
 function renderInbound(){
@@ -20715,7 +20786,6 @@ function goToOrderPickingRows(orderId){
   closeModal();
   switchTab('picking');
 }
-const ORDER_RETURN_REQUEST_STATUS='待回料確認';
 function canConfirmOrderReturnRequest(){
   return ROLE==='warehouse'||isAdminRole();
 }
@@ -20927,6 +20997,13 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
   const canReverse=reversalRows.length&&completedRows.every(p=>p.supabaseId);
   const isDelete=/刪除/.test(actionLabel);
   const hasReturnRequest=rows.some(p=>String(p.status||'')===ORDER_RETURN_REQUEST_STATUS);
+  const canConfirmReturn=canConfirmOrderReturnRequest();
+  const nextStep=hasReturnRequest
+    ? (canConfirmReturn?'確認實物已回倉':'等待倉管確認')
+    : '送出回料申請';
+  const roleHint=hasReturnRequest
+    ? (canConfirmReturn?'你可以在確認實物回來後，按下確認已回料並完成原動作。':'申請已送出，業務不用再調庫存；請等倉管確認。')
+    : '這一步只送申請，不會修改庫存。';
   document.getElementById('modalInner').innerHTML=`
     <h3>${hasReturnRequest?'等待倉管確認回料':isDelete?'刪除前需要先回料':'修改前需要先回料'}</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
@@ -20935,7 +21012,11 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
     ${completed?`<div class="order-reversal-summary">
       <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">領料單</div><div class="kpi-num" style="font-size:1.7rem">${rows.length}</div><div class="kpi-sub">已建立紀錄</div></div>
       <div class="kpi-card kpi-cyan" style="min-height:76px"><div class="kpi-label">需補回料號</div><div class="kpi-num" style="font-size:1.7rem">${reversalRows.length}</div><div class="kpi-sub">系統已算好</div></div>
-      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">${hasReturnRequest?'倉管確認回料':'送出回料申請'}</div><div class="kpi-sub">業務不用追後續</div></div>
+      <div class="kpi-card ${hasReturnRequest&&!canConfirmReturn?'kpi-amber':'kpi-green'}" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">${escapeHtml(nextStep)}</div><div class="kpi-sub">${escapeHtml(roleHint)}</div></div>
+    </div>`:''}
+    ${completed?`<div class="picking-role-note">
+      <span><b>業務端</b>：提出取消/刪除/修改需求，送出回料申請後不需要手動改庫存。</span>
+      <span><b>倉管端</b>：確認實物回來後，系統才補庫存並把領料單改成已沖銷。</span>
     </div>`:''}
     ${completed?renderPickingReversalPreview(rows):''}
     <div class="table-wrap" style="max-height:260px"><table>
@@ -20948,7 +21029,7 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
       ${completed&&canReverse&&!hasReturnRequest?`<button class="btn btn-blue" onclick='submitOrderReturnRequest(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))})'>送出回料申請</button>`:''}
-      ${completed&&canReverse&&hasReturnRequest&&canConfirmOrderReturnRequest()?`<button class="btn btn-green" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))})'>確認已回料並完成</button>`:''}
+      ${completed&&canReverse&&hasReturnRequest&&canConfirmReturn?`<button class="btn btn-green" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))})'>確認已回料並完成</button>`:''}
       <button class="btn btn-blue" onclick='goToOrderPickingRows(${JSON.stringify(String(oid||''))})'>查看領料明細</button>
     </div>`;
   openModal();
