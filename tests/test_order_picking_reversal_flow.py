@@ -70,6 +70,15 @@ def test_completed_shopee_stock_in_requires_own_reversal_before_delete():
     assert "sourceType:'order_stockin_reversal'" in INDEX
 
 
+def test_delete_audit_includes_related_pick_numbers_and_shortfall_repair():
+    assert "const pickRefs=new Set" in INDEX
+    assert "pickRefs.has(String(row?.ref_no||''))" in INDEX
+    assert "buildOrderPickingShortfallRows" in INDEX
+    assert "補回剩餘領料後刪除訂單" in INDEX
+    assert "reverseOrderPickingShortfallAndDelete" in INDEX
+    assert "sourceType:'order_pick_reversal_shortfall'" in INDEX
+
+
 def test_picking_status_constraint_migration_accepts_reversal_states():
     migration = (ROOT / "supabase/migrations/20260827_001_pick_reversal_status.sql").read_text(encoding="utf-8")
     assert "pick_lists_status_check" in migration
