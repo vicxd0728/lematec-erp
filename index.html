@@ -727,6 +727,7 @@ body.modal-open{overflow:hidden;}
 .picking-reversal-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 12px;}
 .picking-reversal-guide>div{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);font-size:.75rem;line-height:1.55;color:var(--text2);}
 .picking-focus-row td{background:rgba(34,211,238,.06)!important;box-shadow:inset 3px 0 0 var(--cyan2);}
+.order-reversal-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;}
 .preflight-detail-table tr.batch-error td{background:rgba(239,68,68,.08);}
 .preflight-detail-table tr.batch-warn td{background:rgba(245,158,11,.07);}
 .preflight-detail-table tr:target td{outline:2px solid var(--cyan2);outline-offset:-2px;}
@@ -759,6 +760,7 @@ body.modal-open{overflow:hidden;}
   .inventory-batch-help{grid-template-columns:1fr;}
   .inventory-batch-preview{max-height:34vh;}
   .picking-reversal-guide{grid-template-columns:1fr;}
+  .order-reversal-summary{grid-template-columns:1fr;}
   .preflight-head{flex-direction:column;}
   .preflight-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .preflight-row{grid-template-columns:1fr;gap:5px;}
@@ -1792,6 +1794,9 @@ function canMoveOrderStatus(oldStatus,newStatus,o){
       return {ok:false,msg:'蝦皮 S- 補庫單請按「完成」入庫 S- 成品，不可用狀態選單跳流程'};
     }
     if(newStatus==='取消'){
+      if(orderCanCancelAfterPickingReversal(o?.id)){
+        return {ok:true,msg:''};
+      }
       return {ok:false,msg:'蝦皮 S- 補庫單已領料或生產後不可直接取消；請先做庫存沖銷/作廢稽核'};
     }
     return {ok:false,msg:'蝦皮 S- 補庫單請使用「領料 / 完成 / 取消」流程'};
@@ -20071,6 +20076,39 @@ function isStockImpactLog(row){
   if(qty>0&&/(領料|扣料|入庫|出貨|退料|調整|C端|蝦皮完成)/.test(text)) return true;
   return /(領料扣|蝦皮完成入庫|C端出貨|C端退料|訂單領料扣庫|訂單成品直接扣庫)/.test(text);
 }
+function orderAuditMaterialKey(row){
+  return String(row?.material_code||row?.material_name||row?.material_id||'').trim();
+}
+function isOrderPickingReversalLog(row){
+  return /領料沖銷|回料沖銷|已沖銷/.test(orderAuditLogText(row));
+}
+function isOrderPickingDeductLog(row){
+  const text=orderAuditLogText(row);
+  if(isOrderPickingReversalLog(row)) return false;
+  const qty=Number(row?.quantity)||0;
+  return qty<0&&/(領料|扣庫|訂單成品直接扣庫|訂單領料扣庫)/.test(text);
+}
+function orderDeleteAuditIsResolvedByPickingReversal(rows){
+  const impact=(rows||[]).filter(isStockImpactLog);
+  if(!impact.length) return false;
+  const deducts=impact.filter(isOrderPickingDeductLog);
+  const reversals=impact.filter(isOrderPickingReversalLog);
+  const unrelated=impact.filter(row=>!isOrderPickingDeductLog(row)&&!isOrderPickingReversalLog(row));
+  if(unrelated.length||!deducts.length) return false;
+  const need=new Map();
+  const back=new Map();
+  for(const row of deducts){
+    const key=orderAuditMaterialKey(row);
+    if(!key) return false;
+    need.set(key,(need.get(key)||0)+Math.abs(Number(row.quantity)||0));
+  }
+  for(const row of reversals){
+    const key=orderAuditMaterialKey(row);
+    if(!key) continue;
+    back.set(key,(back.get(key)||0)+Math.abs(Number(row.quantity)||0));
+  }
+  return [...need.entries()].every(([key,qty])=>(back.get(key)||0)>=qty);
+}
 async function fetchOrderStockAuditRows(orderNo){
   const target=String(orderNo||'').trim();
   if(!target) return [];
@@ -20123,6 +20161,11 @@ function openOrderDeleteBlockedModal(oid,no,rows){
       <button class="btn btn-yellow" onclick="closeModal();openStatusModal('${oid}',(orders.find(o=>o.id==='${oid}')||{}).status||'')">改狀態</button>
     </div>`;
   openModal();
+}
+function orderCanCancelAfterPickingReversal(orderId){
+  if(!orderId) return false;
+  const linked=orderLinkedPickingRecords(orderId);
+  return linked.length>0&&orderActivePickingRecords(orderId).length===0&&linked.some(p=>ORDER_PICKING_INACTIVE_STATUSES.has(String(p.status||'').trim()));
 }
 const ORDER_PICKING_INACTIVE_STATUSES=new Set(['取消','已取消','作廢','封存','已封存','已沖銷','已退料']);
 function orderLinkedPickingRecords(orderId){
@@ -20325,11 +20368,20 @@ async function reverseOrderPickingAndContinue(oid,no,actionLabel='處理訂單',
 }
 function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
   const completed=rows.some(p=>/已領料|已確認|完成/.test(String(p.status||'')));
+  const reversalRows=buildPickingReversalRows(rows);
+  const completedRows=completedOrderPickingRows(rows);
+  const canReverse=reversalRows.length&&completedRows.every(p=>p.supabaseId);
+  const isDelete=/刪除/.test(actionLabel);
   document.getElementById('modalInner').innerHTML=`
-    <h3>⚠️ 此訂單已有領料紀錄</h3>
+    <h3>${isDelete?'刪除前需要先回料':'修改前需要先回料'}</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
-      訂單 <b>${escapeHtml(no||oid)}</b> 已有 ${rows.length} 筆領料單。${completed?'其中已有完成領料紀錄，請先按「回料沖銷」讓庫存補回，再修改或刪除訂單。':'請先取消或處理既有領料單，再修改品項、數量或刪除訂單。'}
+      訂單 <b>${escapeHtml(no||oid)}</b> 已經有領料紀錄，不能直接${isDelete?'刪除':'修改'}。${completed?'請先把已領出的料補回庫存，系統才會放行下一步。':'請先處理未完成領料單，再修改品項、數量或刪除訂單。'}
     </div>
+    ${completed?`<div class="order-reversal-summary">
+      <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">領料單</div><div class="kpi-num" style="font-size:1.7rem">${rows.length}</div><div class="kpi-sub">已建立紀錄</div></div>
+      <div class="kpi-card kpi-cyan" style="min-height:76px"><div class="kpi-label">需補回料號</div><div class="kpi-num" style="font-size:1.7rem">${reversalRows.length}</div><div class="kpi-sub">系統已算好</div></div>
+      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">${isDelete?'回料後刪除':'先回料沖銷'}</div><div class="kpi-sub">不用手動調庫存</div></div>
+    </div>`:''}
     ${completed?renderPickingReversalPreview(rows):''}
     <div class="table-wrap" style="max-height:260px"><table>
       <tr><th>領料單</th><th>狀態</th><th>品項</th><th>數量</th><th>日期</th></tr>
@@ -20340,8 +20392,8 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
-      <button class="btn btn-blue" onclick='goToOrderPickingRows(${JSON.stringify(String(oid||''))})'>查看領料單</button>
-      ${completed?`<button class="btn btn-green" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))})'>回料沖銷</button>`:''}
+      ${completed&&canReverse?`<button class="btn ${isDelete?'btn-red':'btn-green'}" onclick='reverseOrderPickingAndContinue(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))},${JSON.stringify(String(actionLabel||''))},${isDelete?'true':'false'})'>${isDelete?'回料後刪除訂單':'先回料沖銷'}</button>`:''}
+      <button class="btn btn-blue" onclick='goToOrderPickingRows(${JSON.stringify(String(oid||''))})'>查看領料明細</button>
     </div>`;
   openModal();
 }
@@ -20363,7 +20415,7 @@ async function deleteOrder(oid, no, opts={}){
     showToast('刪除前檢查庫存異動...','warn');
     try{
       const rows=await fetchOrderStockAuditRows(no);
-      if(rows.some(isStockImpactLog)){
+      if(rows.some(isStockImpactLog)&&!orderDeleteAuditIsResolvedByPickingReversal(rows)){
         openOrderDeleteBlockedModal(oid,no,rows);
         return;
       }

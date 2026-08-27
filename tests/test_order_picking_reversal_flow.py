@@ -10,6 +10,8 @@ def test_blocked_order_delete_offers_guided_picking_reversal():
     assert "openOrderPickingBlockedModal" in INDEX
     assert "renderPickingReversalPreview(rows)" in INDEX
     assert "openOrderPickingReversalAssist" in INDEX
+    assert "刪除前需要先回料" in INDEX
+    assert "order-reversal-summary" in INDEX
     assert "回料沖銷" in INDEX
     assert "回料後刪除" in INDEX
 
@@ -37,3 +39,15 @@ def test_picking_tab_can_focus_related_order_and_offer_reversal_action():
 def test_worker_allows_completed_picking_to_be_marked_reversed_only():
     assert "'已沖銷'" in WORKER
     assert "!['已領料', '已確認扣料', '已沖銷'].includes(status)" in WORKER
+
+
+def test_delete_audit_allows_fully_reversed_picking_logs():
+    assert "orderDeleteAuditIsResolvedByPickingReversal" in INDEX
+    assert "isOrderPickingDeductLog" in INDEX
+    assert "isOrderPickingReversalLog" in INDEX
+    assert "!orderDeleteAuditIsResolvedByPickingReversal(rows)" in INDEX
+
+
+def test_shopee_cancel_allowed_after_picking_reversal():
+    assert "orderCanCancelAfterPickingReversal" in INDEX
+    assert "if(orderCanCancelAfterPickingReversal(o?.id))" in INDEX
