@@ -63,7 +63,10 @@ def test_reversal_can_repair_stale_picking_status_before_blocking_again():
 def test_completed_shopee_stock_in_requires_own_reversal_before_delete():
     assert "buildOrderStockInReversalRows" in INDEX
     assert "reverseOrderStockInAndDelete" in INDEX
+    assert "reverseOrderStockInAndCancel" in INDEX
     assert "入庫沖銷後刪除" in INDEX
+    assert "入庫沖銷後取消訂單" in INDEX
+    assert "skipStockInAudit" in INDEX
     assert "sourceType:'order_stockin_reversal'" in INDEX
 
 

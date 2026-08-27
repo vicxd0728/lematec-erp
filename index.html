@@ -1825,7 +1825,7 @@ function canMoveOrderStatus(oldStatus,newStatus,o){
   return {ok:true,msg:''};
 }
 
-async function doUpdateStatus(id, s){
+async function doUpdateStatus(id, s, opts={}){
   if(denyViewOnlyAction()) return;
   const o = orders.find(x=>x.id===id);
   const oldStatus = o?.status||'';
@@ -1833,6 +1833,18 @@ async function doUpdateStatus(id, s){
   if(!rule.ok){
     showToast(rule.msg,'warn');
     return;
+  }
+  if(!opts.skipStockInAudit&&s==='取消'&&isShopeeProductionOrder(o)&&orderCanCancelAfterPickingReversal(o?.id)){
+    try{
+      const rows=await fetchOrderStockAuditRows(o?.no||id);
+      if(buildOrderStockInReversalRows(rows).length){
+        openOrderDeleteBlockedModal(id,o?.no||id,rows,'cancel');
+        return;
+      }
+    }catch(e){
+      showToast('❌ 取消前成品入庫檢查失敗，已停止取消：'+e.message,'err',9000);
+      return;
+    }
   }
   closeModal();
   if(o){ o.status=s; renderTab(CURRENT_TAB); }
@@ -20193,10 +20205,15 @@ async function fetchOrderStockAuditRows(orderNo){
     return true;
   }).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
 }
-function openOrderDeleteBlockedModal(oid,no,rows){
+function openOrderDeleteBlockedModal(oid,no,rows,mode='delete'){
   const impact=rows.filter(isStockImpactLog);
   const stockInRows=buildOrderStockInReversalRows(rows);
   const canReverseStockIn=stockInRows.length&&stockInRows.every(row=>row.pageId||row.code);
+  const actionText=mode==='cancel'?'取消訂單':'刪除訂單';
+  const stockInButtonText=mode==='cancel'?'入庫沖銷後取消訂單':'入庫沖銷後刪除訂單';
+  const stockInAction=mode==='cancel'
+    ? `reverseOrderStockInAndCancel(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))})`
+    : `reverseOrderStockInAndDelete(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))})`;
   const list=rows.slice(-12).map(row=>`
     <tr>
       <td style="font-family:var(--f-mono);font-size:.75rem">${escapeHtml(String(row.created_at||row.change_date||'').replace('T',' ').slice(0,19))}</td>
@@ -20208,19 +20225,19 @@ function openOrderDeleteBlockedModal(oid,no,rows){
   document.getElementById('modalInner').innerHTML=`
     <h3>${canReverseStockIn?'成品入庫需要先沖銷':'訂單已有庫存異動，禁止直接刪除'}</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
-      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。${canReverseStockIn?'這張單已完成 S- 成品入庫，刪除前需要先把成品庫存扣回。':'直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。'}
+      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。${canReverseStockIn?`這張單已完成 S- 成品入庫，${actionText}前需要先把成品庫存扣回。`:'直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。'}
     </div>
     ${canReverseStockIn?`<div class="order-reversal-summary">
       <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">已入庫料號</div><div class="kpi-num" style="font-size:1.7rem">${stockInRows.length}</div><div class="kpi-sub">S- 成品</div></div>
       <div class="kpi-card kpi-cyan" style="min-height:76px"><div class="kpi-label">需扣回數量</div><div class="kpi-num" style="font-size:1.7rem">${stockInRows.reduce((sum,row)=>sum+row.qty,0)}</div><div class="kpi-sub">系統已算好</div></div>
-      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">入庫沖銷後刪除</div><div class="kpi-sub">避免成品庫存多算</div></div>
+      <div class="kpi-card kpi-green" style="min-height:76px"><div class="kpi-label">下一步</div><div style="font-weight:900;color:var(--green2);margin-top:7px">${stockInButtonText}</div><div class="kpi-sub">避免成品庫存多算</div></div>
     </div>
     <div class="table-wrap" style="max-height:180px;margin-bottom:10px"><table>
       <tr><th>要扣回料號</th><th>名稱</th><th>扣回數量</th></tr>
       ${stockInRows.map(row=>`<tr><td style="font-family:var(--f-mono)">${escapeHtml(row.code||row.key)}</td><td>${escapeHtml(row.name||'')}</td><td style="font-family:var(--f-mono);color:var(--red2);font-weight:800">-${row.qty}</td></tr>`).join('')}
     </table></div>`:''}
     <div style="font-size:.8125rem;color:var(--text2);margin-bottom:10px">
-      ${canReverseStockIn?'按下方按鈕後，系統會先扣回已入庫 S- 成品，再繼續刪除訂單。':'請改用「狀態」標記取消/作廢，必要時再用庫存調整或沖銷流程修正數量。'}
+      ${canReverseStockIn?`按下方按鈕後，系統會先扣回已入庫 S- 成品，再繼續${actionText}。`:'請改用「狀態」標記取消/作廢，必要時再用庫存調整或沖銷流程修正數量。'}
     </div>
     <div class="table-wrap" style="max-height:280px"><table>
       <tr><th>時間</th><th>動作</th><th>料號/內容</th><th>數量</th><th>單號</th></tr>
@@ -20228,13 +20245,13 @@ function openOrderDeleteBlockedModal(oid,no,rows){
     </table></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
-      ${canReverseStockIn?`<button class="btn btn-red" onclick='reverseOrderStockInAndDelete(${JSON.stringify(String(oid||''))},${JSON.stringify(String(no||''))})'>入庫沖銷後刪除</button>`:''}
+      ${canReverseStockIn?`<button class="btn btn-red" onclick='${stockInAction}'>${stockInButtonText}</button>`:''}
       <button class="btn btn-yellow" onclick="closeModal();openStatusModal('${oid}',(orders.find(o=>o.id==='${oid}')||{}).status||'')">改狀態</button>
     </div>`;
   openModal();
 }
 const _orderStockInReversalLocks=new Set();
-async function reverseOrderStockInAndDelete(oid,no){
+async function reverseOrderStockInForOrder(oid,no,nextActionText){
   if(denyViewOnlyAction()) return;
   const lockKey=canonicalPageId(oid)||oid||no;
   if(_orderStockInReversalLocks.has(lockKey)){
@@ -20248,9 +20265,8 @@ async function reverseOrderStockInAndDelete(oid,no){
     const rows=await fetchOrderStockAuditRows(no);
     const stockInRows=buildOrderStockInReversalRows(rows);
     if(!stockInRows.length){
-      showToast('已找不到未沖銷的成品入庫，重新執行刪除檢查','warn');
-      await deleteOrder(oid,no);
-      return;
+      showToast('已找不到未沖銷的成品入庫，重新檢查訂單','warn');
+      return true;
     }
     const changes=stockInRows.map(row=>{
       const mat=row.pageId
@@ -20265,7 +20281,7 @@ async function reverseOrderStockInAndDelete(oid,no){
       '',
       ...changes.map(row=>`${row.code||row.mat?.code||row.name} -${row.qty}`),
       '',
-      '完成後會接著刪除訂單。'
+      `完成後會接著${nextActionText}。`
     ].join('\n');
     if(!confirm(confirmText)) return;
     const result=await applyInventoryBatchAndMirror(
@@ -20294,13 +20310,24 @@ async function reverseOrderStockInAndDelete(oid,no){
       }
     }
     await refreshAffectedData({core:true,tabs:['inventory','stocklog'],label:'成品入庫沖銷已更新'});
-    showToast('✅ 成品入庫已沖銷，接著刪除訂單','ok',5000);
-    await deleteOrder(oid,no);
+    showToast(`✅ 成品入庫已沖銷，接著${nextActionText}`,'ok',5000);
+    return true;
   }catch(e){
     showToast('❌ 入庫沖銷失敗：'+e.message,'err',9000);
-    console.error('reverseOrderStockInAndDelete error:',e,{oid,no});
+    console.error('reverseOrderStockInForOrder error:',e,{oid,no,nextActionText});
+    return false;
   }finally{
     _orderStockInReversalLocks.delete(lockKey);
+  }
+}
+async function reverseOrderStockInAndDelete(oid,no){
+  if(await reverseOrderStockInForOrder(oid,no,'刪除訂單')){
+    await deleteOrder(oid,no);
+  }
+}
+async function reverseOrderStockInAndCancel(oid,no){
+  if(await reverseOrderStockInForOrder(oid,no,'取消訂單')){
+    await doUpdateStatus(oid,'取消',{skipStockInAudit:true});
   }
 }
 async function repairOrderPickingStatusIfReversed(oid,no){
