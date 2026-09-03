@@ -8777,6 +8777,69 @@ function clearOrderSearch(){
   setOrderSearchDraft('');
   updateOrderFilter('q','','ordSearchQ');
 }
+function getCorderSearchDraft(){
+  if(window._CO_Q_DRAFT===undefined)window._CO_Q_DRAFT=window._CO_Q||'';
+  return window._CO_Q_DRAFT;
+}
+function setCorderSearchDraft(value){
+  window._CO_Q_DRAFT=String(value||'');
+}
+function applyCorderSearch(value){
+  const v=value!==undefined?value:(document.getElementById('co_search')?.value||'');
+  setCorderSearchDraft(v);
+  window._CO_Q=String(v||'').trim();
+  requestFullDataForSearch('corders',window._CO_Q);
+  renderTab('corders');
+}
+function clearCorderSearch(){
+  setCorderSearchDraft('');
+  window._CO_Q='';
+  renderTab('corders');
+}
+function getCustomerFilters(){
+  return window._CUSTOMER_FILTERS||(window._CUSTOMER_FILTERS={q:'',draft:'',type:'overseas'});
+}
+function setCustomerSearchDraft(value){
+  getCustomerFilters().draft=String(value||'');
+}
+function applyCustomerSearch(value){
+  const f=getCustomerFilters();
+  const v=value!==undefined?value:(document.getElementById('custSearch')?.value||f.draft||'');
+  f.draft=String(v||'');
+  f.q=String(v||'').trim();
+  renderTab('customers');
+}
+function clearCustomerSearch(){
+  const f=getCustomerFilters();
+  f.q='';
+  f.draft='';
+  renderTab('customers');
+}
+function updateCustomerFilter(key,value){
+  const f=getCustomerFilters();
+  f[key]=value;
+  renderTab('customers');
+}
+function getStockLogFilters(){
+  return window._STOCKLOG_FILTERS||(window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:''});
+}
+function setStockLogSearchDraft(value){
+  getStockLogFilters().draft=String(value||'');
+}
+function applyStockLogSearch(value){
+  const f=getStockLogFilters();
+  const v=value!==undefined?value:(document.getElementById('slSearch')?.value||f.draft||'');
+  f.draft=String(v||'');
+  f.q=String(v||'').trim();
+  requestFullDataForSearch('stocklog',f.q);
+  renderTab('stocklog');
+}
+function clearStockLogSearch(){
+  const f=getStockLogFilters();
+  f.q='';
+  f.draft='';
+  renderTab('stocklog');
+}
 function updateOrderFilter(key,value,focusId=''){
   const f=getOrderFilters();
   f[key]=value;
@@ -11134,7 +11197,8 @@ function stockLogAuditIssueCard(issue){
     <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${actions}</div>
   </div>`;
 }
-function renderStockLogAuditPanel(report=buildStockLogAuditReport()){
+function renderStockLogAuditPanel(report){
+  report=report||buildStockLogAuditReport();
   const hasIssues=report.issues.length>0;
   const statusColor=hasIssues?'var(--amber)':'var(--green2)';
   const statusText=hasIssues?`${report.issues.length} 筆待處理`:'正常';
@@ -11331,8 +11395,8 @@ function analyticsGo(tab,action='',value=''){
       else {f.status='all';f.q='';window._ORD_SUB='list';}
       setOrderSearchDraft(f.q||'');
     }else if(tab==='corders'){
-      if(action==='status'){window._CO_STATUS=value||'';window._CO_Q='';}
-      else if(action==='product'||action==='search'){window._CO_STATUS='';window._CO_Q=value||'';}
+      if(action==='status'){window._CO_STATUS=value||'';window._CO_Q='';window._CO_Q_DRAFT='';}
+      else if(action==='product'||action==='search'){window._CO_STATUS='';window._CO_Q=value||'';window._CO_Q_DRAFT=window._CO_Q;}
       else {window._CO_STATUS='';}
       window._CO_DAYS=analyticsRange()==='all'?'0':String(analyticsRange());
     }else if(tab==='stocklog'){
@@ -11564,11 +11628,12 @@ function renderStockLog(){
     </div>
     ${(stockLogLoadError||pendingCount)?`<button class="btn btn-ghost btn-xs" onclick="retryStockLogSync()">重新同步</button>`:''}
   </div>`;
-  const slState=window._STOCKLOG_FILTERS=window._STOCKLOG_FILTERS||{};
+  const slState=getStockLogFilters();
   const dateVal=document.getElementById('slDateFilter')?.value||slState.date||'month';
   const typeVal=document.getElementById('slTypeFilter')?.value||slState.type||'all';
   const viewVal=document.getElementById('slViewFilter')?.value||slState.view||'all';
-  const qVal=(document.getElementById('slSearch')?.value||slState.q||'').toLowerCase().trim();
+  const qVal=(slState.q||'').toLowerCase().trim();
+  const qDraft=slState.draft!==undefined?slState.draft:slState.q||'';
   slState.date=dateVal; slState.type=typeVal; slState.view=viewVal; slState.q=qVal;
 
   let data=[...stockLogs];
@@ -11643,8 +11708,13 @@ function renderStockLog(){
       <option value="inventory" ${viewVal==='inventory'?'selected':''}>只看庫存異動</option>
       <option value="operation" ${viewVal==='operation'?'selected':''}>只看操作紀錄</option>
     </select>
-    <input class="inp" id="slSearch" value="${escapeHtml(qVal)}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" oninput="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),q:this.value};requestFullDataForSearch('stocklog',this.value);renderTab('stocklog')">
-    ${(slState.q||slState.type!=='all'||slState.view!=='all'||slState.date!=='month')?`<button class="btn btn-ghost btn-xs" onclick="window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:''};renderTab('stocklog')">清除</button>`:''}
+    <input class="inp" id="slSearch" value="${escapeHtml(qDraft)}" placeholder="搜尋料件名稱/單號..." style="flex:1;min-width:140px;padding:5px 10px;font-size:0.75rem" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+      oncompositionstart="this._composing=true;this.dataset.composing='1'"
+      oncompositionend="this._composing=false;this.dataset.composing='0';setStockLogSearchDraft(this.value)"
+      oninput="setStockLogSearchDraft(this.value)"
+      onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyStockLogSearch(this.value)}">
+    <button class="btn btn-blue btn-xs" onclick="applyStockLogSearch()">搜尋</button>
+    ${(slState.q||slState.type!=='all'||slState.view!=='all'||slState.date!=='month')?`<button class="btn btn-ghost btn-xs" onclick="window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:''};renderTab('stocklog')">清除</button>`:''}
     <span style="font-size:0.6875rem;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
   </div>
   ${limitedDataHint('stocklog','異動紀錄')}
@@ -15548,8 +15618,10 @@ function renderVideoLibrary(){
 function renderCustomers(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a></div>';;
   const canAdd=!isViewOnly()&&(ROLE==='sales'||isAdminRole());
-  const q=(document.getElementById('custSearch')?.value||'').toLowerCase();
-  const tabType=document.getElementById('custTabType')?.value||'overseas';
+  const filters=getCustomerFilters();
+  const q=(filters.q||'').toLowerCase();
+  const qDraft=filters.draft!==undefined?filters.draft:filters.q||'';
+  const tabType=filters.type||'overseas';
   CUST_TYPE=tabType;
 
   // 篩選國內/國外
@@ -15564,14 +15636,19 @@ function renderCustomers(){
 
   const tabBtns=`
   <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-    <select class="inp" id="custTabType" style="padding:6px 10px;font-size:0.75rem;width:auto" onchange="renderTab('customers')">
+    <select class="inp" id="custTabType" style="padding:6px 10px;font-size:0.75rem;width:auto" onchange="updateCustomerFilter('type',this.value)">
       <option value="overseas" ${tabType==='overseas'?'selected':''}>🌍 國外客戶（${overseas}）</option>
       <option value="domestic" ${tabType==='domestic'?'selected':''}>🏭 國內客戶（${domestic}）</option>
       <option value="all" ${tabType==='all'?'selected':''}>全部（${customers.length}）</option>
     </select>
     <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:6px 10px;font-size:0.75rem"
-      placeholder="搜尋代號/名稱/地區..." value="${q}"
-      oninput="renderTab('customers')" onblur="renderTab('customers')">
+      placeholder="搜尋代號/名稱/地區..." value="${escapeHtml(qDraft)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+      oncompositionstart="this._composing=true;this.dataset.composing='1'"
+      oncompositionend="this._composing=false;this.dataset.composing='0';setCustomerSearchDraft(this.value)"
+      oninput="setCustomerSearchDraft(this.value)"
+      onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyCustomerSearch(this.value)}">
+    <button class="btn btn-blue btn-sm" onclick="applyCustomerSearch()">搜尋</button>
+    ${q?`<button class="btn btn-ghost btn-sm" onclick="clearCustomerSearch()">清除</button>`:''}
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">＋ 新增${tabType==='domestic'?'國內':'國外'}客戶</button>`:''}
   </div>`;
 
@@ -15605,20 +15682,6 @@ function renderCustomers(){
   ${!data.length?'<div style="padding:28px;text-align:center;color:var(--text3)">尚無資料</div>'
   :`<div class="table-wrap"><table>${tableHeader}${tableRows}</table></div>`}
   </div>`;
-  return`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-    <input class="inp" id="custSearch" style="flex:1;min-width:160px;padding:8px 12px;font-size:0.75rem" placeholder="搜尋客戶代號 / 名稱..." oninput="renderTab('customers')">
-    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newCustomer')">＋ 新增</button>`:''}
-  </div>
-  <div class="help-box">💡 客戶資料來源：國外業務客戶總檔（每次登入自動同步）。客戶編號格式：YY出貨狀態國碼流水號，如 <b>2602AU016</b> = 2026年·已出貨·AU·016。共 <b>${customers.length}</b> 筆。</div>
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">客戶主檔 <span class="badge">${data.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('customers','code','客戶代號')}${TH('customers','name','客戶名稱')}${TH('customers','region','國家','str','hide-m')}${TH('customers','shipped','出貨','str','hide-m')}</tr>
-  ${data.map(c=>`<tr>
-    <td style="font-family:monospace;color:var(--cyan);font-weight:700;font-size:0.6875rem">${c.code||'—'}</td>
-    <td style="color:var(--text);font-size:0.75rem">${c.name}</td>
-    <td class="hide-m" style="font-size:0.6875rem">${c.region||'—'}</td>
-    <td class="hide-m"><span style="font-size:0.625rem;color:${c.shipped?.includes('已')?'var(--green)':'var(--text3)'}">${c.shipped||'—'}</span></td>
-  </tr>`).join('')}
-  </table></div></div>`;
 }
 
 function renderInventory(){
@@ -19513,18 +19576,7 @@ async function applyCorderShippingNames(){
 }
 
 function updateCorderSearch(value){
-  window._CO_Q=value;
-  clearTimeout(window._corderSearchTimer);
-  window._corderSearchTimer=setTimeout(()=>{
-    requestFullDataForSearch('corders',value);
-    renderTab('corders');
-    setTimeout(()=>{
-      const el=document.getElementById('co_search');
-      if(!el) return;
-      el.focus();
-      try{el.setSelectionRange(el.value.length,el.value.length);}catch(_){}
-    },0);
-  },180);
+  setCorderSearchDraft(value);
 }
 function renderCorders(){
   const canAdd=!isViewOnly()&&(isAdminRole()||ROLE==='sales');
@@ -19544,6 +19596,7 @@ function renderCorders(){
   if(!window._CO_SHIP)   window._CO_SHIP='';
   const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS, SHIP=window._CO_SHIP;
   const SORT=window._CO_SORT, DIR=window._CO_DIR, Q=window._CO_Q;
+  const qDraft=getCorderSearchDraft();
   const notionBar=`<div class="notion-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
     <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
     <a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a>
@@ -19639,10 +19692,13 @@ function renderCorders(){
       ${(isAdminRole()||ROLE==='sales')?`<button class="btn btn-yellow btn-xs" onclick="openCorderSequenceAdmin()">設定共享下一號</button>`:''}
     </div>`:''}
     <div class="corder-toolbar">
-      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${Q.replace(/"/g,'&quot;')}"
-        oncompositionstart="this._composing=true"
-        oncompositionend="this._composing=false;updateCorderSearch(this.value)"
-        oninput="if(!this._composing)updateCorderSearch(this.value)" style="flex:1;min-width:150px">
+      <input class="inp" id="co_search" placeholder="🔍 內部單號/蝦皮單號/客戶/買家/品項/寄件編號..." value="${escapeHtml(qDraft)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        oncompositionstart="this._composing=true;this.dataset.composing='1'"
+        oncompositionend="this._composing=false;this.dataset.composing='0';setCorderSearchDraft(this.value)"
+        oninput="setCorderSearchDraft(this.value)"
+        onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyCorderSearch(this.value)}" style="flex:1;min-width:150px">
+      <button class="btn btn-blue btn-sm" onclick="applyCorderSearch()">搜尋</button>
+      ${Q?`<button class="btn btn-ghost btn-sm" onclick="clearCorderSearch()">清除</button>`:''}
       <select class="inp" style="width:140px" onchange="window._CO_STATUS=this.value;renderTab('corders')">${statusOpts}</select>
       <select class="inp" style="width:170px" onchange="window._CO_SHIP=this.value;renderTab('corders')">${shipOpts}</select>
       <select class="inp" style="width:120px" onchange="window._CO_DAYS=this.value;renderTab('corders')">${dayOpts}</select>
