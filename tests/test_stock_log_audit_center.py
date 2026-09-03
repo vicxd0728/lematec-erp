@@ -78,3 +78,14 @@ def test_stock_log_audit_panel_reports_auto_resolved_duplicates():
     assert "report.autoResolved" in body
     assert "系統已排除" in body
     assert "系統已自動排除" in body
+
+
+def test_stock_log_audit_uses_picking_master_before_flagging_missing_deduction():
+    assert "function stockLogAuditPickMasterConfirmsDeduction" in INDEX
+    lookup = function_body("stockLogAuditPickMasterForRef")
+    helper = function_body("stockLogAuditPickMasterConfirmsDeduction")
+    body = function_body("buildStockLogAuditReport")
+    assert "picks" in lookup
+    assert "pickedQty" in helper
+    assert "picking_master_confirmed" in body
+    assert body.index("stockLogAuditPickMasterConfirmsDeduction") < body.index("pick-op-no-move")

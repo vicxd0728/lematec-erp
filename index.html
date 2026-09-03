@@ -10968,6 +10968,19 @@ function stockLogAuditPickSourceNo(text=''){
   const value=String(parts[idx+1]||'').trim();
   return /^(ORD-[A-Z0-9-]+|[A-Z0-9][A-Z0-9._()/+-]*)$/i.test(value)?value:'';
 }
+function stockLogAuditPickMasterForRef(refNo){
+  const ref=String(refNo||'').trim();
+  if(!ref) return null;
+  return (Array.isArray(picks)?picks:[]).find(p=>String(p.no||p.pick_number||'').trim()===ref)||null;
+}
+function stockLogAuditPickMasterConfirmsDeduction(refNo){
+  const pick=stockLogAuditPickMasterForRef(refNo);
+  if(!pick||pick.fallback) return false;
+  const status=String(pick.status||'').trim();
+  const completed=/已領料|已確認扣料|待回料確認|已沖銷|已退料/.test(status);
+  const pickedQty=(pick.items||[]).reduce((sum,item)=>sum+Math.abs(Number(item.pickedQty??item.picked_quantity??0)||0),0);
+  return completed&&pickedQty>0;
+}
 function stockLogAuditMathIssue(s){
   if(!stockLogIsInventoryMove(s)) return '';
   const q=Math.abs(Number(s.qty)||0);
@@ -11107,6 +11120,17 @@ function buildStockLogAuditReport(logs=stockLogs){
   orders.forEach(order=>{
     order.pickRefs.forEach(pk=>(movesByPickRef.get(pk)||[]).forEach(s=>order.pickMoves.push(s)));
     if(order.pickOps.length&&!order.pickMoves.length){
+      const confirmedRefs=[...order.pickRefs].filter(stockLogAuditPickMasterConfirmsDeduction);
+      if(confirmedRefs.length){
+        autoResolvedDuplicates.push({
+          key:`pick-master-confirmed:${order.no}:${confirmedRefs.join(',')}`,
+          reason:'picking_master_confirmed',
+          count:confirmedRefs.length,
+          title:`${order.no} / ${confirmedRefs.join('、')} / Supabase 領料主單已完成`,
+          rows:order.pickOps
+        });
+        return;
+      }
       addIssue({
         key:`pick-op-no-move:${order.no}:${[...order.pickRefs].join(',')}`,
         level:'error',
@@ -11221,7 +11245,7 @@ function renderStockLogAuditPanel(report){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
   </div>`;
 }
 function ackStockLogAuditIssue(key){
