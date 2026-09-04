@@ -11017,6 +11017,25 @@ function stockLogAuditHasReversalBetween(a,b,moves){
     return t>start&&t<end&&Number(row.before)===after&&Number(row.after)===before;
   });
 }
+function stockLogAuditPickMovesReversed(orderNo,pickMoves,inventoryMoves){
+  if(!orderNo||!Array.isArray(pickMoves)||!pickMoves.length) return false;
+  const picked=new Map();
+  pickMoves.forEach(row=>{
+    const code=String(row.matCode||stockLogDisplayName(row)||'').trim();
+    if(!code) return;
+    picked.set(code,(picked.get(code)||0)+Math.abs(Number(row.qty)||0));
+  });
+  if(!picked.size) return false;
+  const reversed=new Map();
+  (inventoryMoves||[]).forEach(row=>{
+    if(String(row.ref||'')!==String(orderNo)) return;
+    if(!stockLogDisplayType(row).includes('領料沖銷')) return;
+    const code=String(row.matCode||stockLogDisplayName(row)||'').trim();
+    if(!code) return;
+    reversed.set(code,(reversed.get(code)||0)+Math.abs(Number(row.qty)||0));
+  });
+  return [...picked.entries()].every(([code,qty])=>(reversed.get(code)||0)>=qty);
+}
 function buildStockLogAuditReport(logs=stockLogs){
   const ack=readStockLogAuditAck();
   const rows=(Array.isArray(logs)?logs:[]).filter(Boolean);
@@ -11142,6 +11161,16 @@ function buildStockLogAuditReport(logs=stockLogs){
       });
     }
     if(order.created.length&&order.pickMoves.length&&!order.completeMoves.length){
+      if(stockLogAuditPickMovesReversed(order.no,order.pickMoves,inventoryMoves)){
+        autoResolvedDuplicates.push({
+          key:`shopee-picked-reversed:${order.no}:${order.sku}:${order.qty}`,
+          reason:'picking_reversed_before_stock_in',
+          count:order.pickMoves.length,
+          title:`${order.no} / ${order.sku||'未解析料號'} / 已領料沖銷，無需補入 S- 成品`,
+          rows:[...order.created,...order.pickOps,...order.pickMoves]
+        });
+        return;
+      }
       const canRepair=!!order.sku&&Number(order.qty)>0&&mats.some(m=>m.code===order.sku);
       addIssue({
         key:`shopee-picked-no-stock-in:${order.no}:${order.sku}:${order.qty}`,
@@ -11245,7 +11274,7 @@ function renderStockLogAuditPanel(report){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、已沖銷補庫單、同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
   </div>`;
 }
 function ackStockLogAuditIssue(key){

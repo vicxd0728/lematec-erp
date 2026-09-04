@@ -89,3 +89,15 @@ def test_stock_log_audit_uses_picking_master_before_flagging_missing_deduction()
     assert "pickedQty" in helper
     assert "picking_master_confirmed" in body
     assert body.index("stockLogAuditPickMasterConfirmsDeduction") < body.index("pick-op-no-move")
+
+
+def test_stock_log_audit_excludes_shopee_picks_that_were_reversed():
+    assert "function stockLogAuditPickMovesReversed" in INDEX
+    helper = function_body("stockLogAuditPickMovesReversed")
+    body = function_body("buildStockLogAuditReport")
+    panel = function_body("renderStockLogAuditPanel")
+    assert "領料沖銷" in helper
+    assert "picking_reversed_before_stock_in" in body
+    assert "已領料沖銷，無需補入 S- 成品" in body
+    assert body.index("stockLogAuditPickMovesReversed") < body.index("shopee-picked-no-stock-in")
+    assert "已沖銷補庫單" in panel
