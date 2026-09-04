@@ -54,6 +54,9 @@ def test_reversal_logs_use_human_action_labels_and_directional_quantity():
     audit_body = function_body("stockLogAuditMathIssue")
     for phrase in ("領料沖銷", "入庫沖銷", "C端退料", "蝦皮完成入庫"):
         assert phrase in display_body
+    assert "if(after>before&&/領料/.test(rawType)) return '領料沖銷';" in display_body
+    assert "if(after<before&&/蝦皮完成入庫|入料/.test(rawType)) return '入庫沖銷';" in display_body
+    assert "if(after>before&&/C端出貨/.test(rawType)) return 'C端退料';" in display_body
     assert "if(after>before) return `+${q}`;" in qty_body
     assert "if(after<before) return `-${q}`;" in qty_body
     assert "displayType=stockLogDisplayType(s)" in audit_body

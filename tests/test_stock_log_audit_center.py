@@ -80,6 +80,17 @@ def test_stock_log_audit_panel_reports_auto_resolved_duplicates():
     assert "系統已自動排除" in body
 
 
+def test_stock_log_audit_auto_resolves_legacy_reversal_labels_by_direction():
+    assert "function stockLogTypeWasDirectionCorrected" in INDEX
+    helper = function_body("stockLogTypeWasDirectionCorrected")
+    body = function_body("buildStockLogAuditReport")
+    panel = function_body("renderStockLogAuditPanel")
+    assert "rawType!==displayType" in helper
+    assert "semantic_direction_inferred" in body
+    assert "已依庫存方向判讀" in body
+    assert "舊名稱但數字方向正確的紀錄" in panel
+
+
 def test_stock_log_audit_uses_picking_master_before_flagging_missing_deduction():
     assert "function stockLogAuditPickMasterConfirmsDeduction" in INDEX
     lookup = function_body("stockLogAuditPickMasterForRef")

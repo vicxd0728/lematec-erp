@@ -10921,7 +10921,19 @@ function stockLogDisplayType(s){
   if(/C端退料/.test(action)) return 'C端退料';
   if(/C端出貨/.test(action)) return 'C端出貨';
   if(/蝦皮完成入庫/.test(action)) return '蝦皮完成入庫';
-  return s?.type||'庫存異動';
+  const rawType=String(s?.type||'庫存異動');
+  const before=Number(s?.before)||0;
+  const after=Number(s?.after)||0;
+  if(after>before&&/領料/.test(rawType)) return '領料沖銷';
+  if(after<before&&/蝦皮完成入庫|入料/.test(rawType)) return '入庫沖銷';
+  if(after>before&&/C端出貨/.test(rawType)) return 'C端退料';
+  return rawType;
+}
+function stockLogTypeWasDirectionCorrected(s){
+  if(!stockLogIsInventoryMove(s)) return false;
+  const rawType=String(s?.type||'庫存異動');
+  const displayType=stockLogDisplayType(s);
+  return rawType!==displayType&&/沖銷|退料/.test(displayType);
 }
 function stockLogDisplayName(s){
   const name=String(s?.matName||'').trim();
@@ -11074,6 +11086,17 @@ function buildStockLogAuditReport(logs=stockLogs){
       reversalExplained,
       title:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / ${s.type||'庫存異動'} ${Number(s.before)||0} → ${Number(s.after)||0}`,
       rows:group
+    });
+  });
+  inventoryMoves.forEach(s=>{
+    if(!stockLogTypeWasDirectionCorrected(s)) return;
+    const displayType=stockLogDisplayType(s);
+    autoResolvedDuplicates.push({
+      key:`semantic-direction:${s.id||s.clientTraceId||[s.ref,s.matCode,s.type,s.qty,s.before,s.after].join(':')}`,
+      reason:'semantic_direction_inferred',
+      count:1,
+      title:`${s.ref||'—'} / ${s.matCode||stockLogDisplayName(s)} / 已依庫存方向判讀為「${displayType}」`,
+      rows:[s]
     });
   });
   inventoryMoves.forEach(s=>{
@@ -11274,7 +11297,7 @@ function renderStockLogAuditPanel(report){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、已沖銷補庫單、同結果重複紀錄或合理退回再出貨循環。`:''}</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、已沖銷補庫單、同結果重複紀錄、舊名稱但數字方向正確的紀錄，或合理退回再出貨循環。`:''}</div>`}
   </div>`;
 }
 function ackStockLogAuditIssue(key){
