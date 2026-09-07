@@ -1816,7 +1816,8 @@ async function erpPickingList(request, env, cors) {
     const url = new URL(request.url);
     const requestedLimit = Number(url.searchParams.get('limit') || 5000);
     const orderId = cleanText(url.searchParams.get('order_id') || '');
-    if(orderId && !isUuid(orderId))return resp400(cors,'Invalid order_id');
+    // Notion page IDs include UUID v8; the inventory UUID helper is v1-v5 only.
+    if(orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId))return resp400(cors,'Invalid order_id');
     const orderFilter=orderId?`&source_order_notion_page_id=eq.${encodeURIComponent(orderId)}`:'';
     const limit = Math.max(1, Math.min(5000, Number.isFinite(requestedLimit) ? requestedLimit : 5000));
     const masters = await supabaseFetch(

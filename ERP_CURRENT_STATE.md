@@ -6,6 +6,8 @@ This is the single current-state entry point. Use it before reading older timeli
 
 ## Order Timeline Release 2026-09-07
 
+- Reported-order fix: picking order filters accept Notion UUID v8 (the inventory UUID helper incorrectly rejected these). Zero-quantity administrative logs display the original action without stock arrows; duplicate creation logs are omitted. Timestamp display uses Taiwan time. Regression coverage includes v8 and deployed read-only lookup of BUSA16-2-1156; actual browser acceptance follows deployment.
+
 - Orders list exposes a read-only `進度` button, including for viewer users with order access. It reads the current order page and displays creation, directly linked picking/QC records, exact order-number stock logs, and the recorded shipping date.
 - Picking links use the order page ID; legacy QC and stock-log number matches require a uniquely identified order number. Ambiguity, missing dates, source errors and read limits remain explicit. This is not a reconstructed audit of every status transition, and unrelated inbound receipts are not guessed into the order.
 - Worker GET picking list accepts `order_id`; GET stock-log list accepts exact `ref_no`. Opening the timeline never invokes repair queues or stock transactions.

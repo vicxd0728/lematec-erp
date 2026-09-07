@@ -2,6 +2,8 @@
 
 ## Read-Only Order Timeline 2026-09-07
 
+- User screenshot exposed a real-order gap: inventory isUuid rejected Notion v8 page IDs. Fixed the picking filter, administrative zero-stock log presentation, and Taiwan timestamps. Added real BUSA16-2-1156 read-only deployment smoke coverage. Before reporting acceptance, inspect this order in the authenticated production browser; fixture tests alone missed the original defect.
+
 - User accepted the order-timeline feature in the ongoing build/test/deploy workflow. Entry: Orders list -> `進度` under order number; viewer can read without gaining write controls.
 - `openOrderTimeline` refreshes the order and reads only related picking, QC and stock logs. Late responses cannot overwrite another modal. Partial failures remain visible; no automatic repair or mutation is called.
 - Data matching: picking by order page ID; QC `page-id|order-number` requires exact page ID; legacy number-only QC/logs require a uniquely identified order number. Dates describe source records, not inferred production transitions. Stock events use exact order references, not unverified product-code matches.

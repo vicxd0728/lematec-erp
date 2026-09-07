@@ -38,10 +38,21 @@ test('Worker picking filter is exact and rejects malformed order IDs',async()=>{
   getSupabaseInventoryContext:async()=>({organization:{id:'org'}}),supabaseFetch:async(e,url)=>{calls.push(url);return [];},
   respOK:(cors,data)=>data,resp400:()=>({status:400}),resp500:(cors,error)=>({error}),taipeiISOString:()=>'',normalizePickingItems:x=>x});
  vm.runInContext(worker.slice(worker.indexOf('async function erpPickingList'),worker.indexOf('async function erpPickingCreate')),w);
- const id='11111111-1111-4111-8111-111111111111';
+ const id='3c9ff6f4-24bb-81ad-9798-e0ebf3847f44'; // Real Notion v8 format, not an inventory UUID.
  await w.erpPickingList({url:'https://local/api/picking/list?order_id='+id},{},{});
  assert(calls[0].includes('source_order_notion_page_id=eq.'+id));
  const invalid=await w.erpPickingList({url:'https://local/api/picking/list?order_id=bad'},{},{});assert.equal(invalid.status,400);assert.equal(calls.length,1);
+});
+test('zero-quantity admin actions are not stock moves or duplicate creation',()=>{
+ const events=c.orderTimelineEvents(order,[],[],[
+  {id:'a',ref_no:order.no,quantity:0,before_stock:0,after_stock:0,original_action:'新增訂單'},
+  {id:'b',ref_no:order.no,quantity:0,before_stock:0,after_stock:0,original_action:'編輯訂單',operator_role:'sales'},
+ ]);
+ assert.equal(events.length,3);assert.equal(events.at(-1).title,'編輯訂單');assert(!events.at(-1).detail.includes('→'));
+});
+test('timestamp display uses Taiwan time',()=>{
+ assert(c.orderTimelineDate('2026-08-31T10:29:00.000Z').includes('18:29'));
+ assert.equal(c.orderTimelineDate('2026-08-31'),'2026-08-31');
 });
 test('partial failure still renders available order evidence',async()=>{
  const host={innerHTML:'',appendChild(x){this.marker=x;},contains(x){return this.marker===x;},querySelector(){return {};}};

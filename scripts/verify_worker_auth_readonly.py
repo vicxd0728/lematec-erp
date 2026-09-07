@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+from urllib.parse import urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -44,6 +45,25 @@ def main():
             if result.get('ok') is not True or result.get('rows') != []:
                 raise RuntimeError('Timeline exact-match filter verification failed')
         print('Timeline exact-match read filters: PASS')
+        # Read-only regression for the user's reported real order; emit counts only.
+        order_no='BUSA16-2-1156'
+        query=Request('https://api.notion.com/v1/databases/50b7ce68-437e-431f-9a4f-a0d0d65a7b25/query',
+            data=json.dumps({'filter':{'property':'訂單號','title':{'equals':order_no}},'page_size':100}).encode(),
+            headers={**headers,'Content-Type':'application/json'},method='POST')
+        with urlopen(query,timeout=30) as response:
+            matches=json.load(response)
+        if len(matches.get('results',[]))!=1 or matches.get('has_more'):
+            raise RuntimeError('Reported order is not uniquely identifiable')
+        order_id=matches['results'][0]['id']
+        path='/api/picking/list?'+urlencode({'order_id':order_id})
+        with urlopen(Request('https://green-wave-c22f.vic-e93.workers.dev'+path,headers={'User-Agent':user_agent}),timeout=30) as response:
+            picking=json.load(response)
+        rows=picking.get('rows')
+        if picking.get('ok') is not True or not isinstance(rows,list) or not rows:
+            raise RuntimeError('Reported real order picking read failed or empty')
+        if any(row.get('source_order_notion_page_id','').replace('-','')!=order_id.replace('-','') for row in rows):
+            raise RuntimeError('Unrelated picking appeared in reported order')
+        print(f'Reported order {order_no}: unique order and {len(rows)} linked picking records verified (read-only)')
 
 
 if __name__ == "__main__":

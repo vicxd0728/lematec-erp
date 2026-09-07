@@ -15536,8 +15536,12 @@ function orderTimelineEvents(order,picking=[],inspections=[],logs=[],allowNumber
   }
   for(const log of logs){
     if(!allowNumber||!order.no||log.ref_no!==order.no)continue;
-    add(`stock:${log.id}`,log.change_date,log.change_type||'庫存異動',
-      `${log.material_code||''} · ${log.before_stock??'—'} → ${log.after_stock??'—'} · ${log.operator_role||'未填人員'}${log.source==='notion_backfill'?' · 歷史匯入':''}`,
+    const quantityMove=Number(log.quantity)!==0&&Number(log.before_stock)!==Number(log.after_stock);
+    const action=log.original_action||log.change_type||'操作紀錄';
+    if(!quantityMove&&action==='新增訂單')continue; // Creation already has a dated order-page event.
+    add(`stock:${log.id}`,log.change_date,quantityMove?(log.change_type||'庫存異動'):action,
+      quantityMove?`${log.material_code||''} · ${log.before_stock??'—'} → ${log.after_stock??'—'} · ${log.operator_role||'未填人員'}${log.source==='notion_backfill'?' · 歷史匯入':''}`:
+      `${log.operator_role||'未填人員'} · ${log.note||'操作紀錄，無庫存數量變動'}`,
       log.notion_page_id?notionPageUrl(log.notion_page_id):'');
   }
   if(order.shipDate)add('shipped',order.shipDate,'訂單記載出貨日','日期取自訂單出貨欄位',notionPageUrl(order.id));
@@ -15546,6 +15550,11 @@ function orderTimelineEvents(order,picking=[],inspections=[],logs=[],allowNumber
     return time(a)-time(b)||a.id.localeCompare(b.id);
   });
 }
+function orderTimelineDate(value){
+  if(!value||!Number.isFinite(Date.parse(value)))return '日期未填';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;
+  return new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));
+}
 function renderOrderTimeline(order,events,issues=[]){
   const next={'待排程':'倉管／生管：確認物料並安排領料','生產中':'生管：確認生產進度與送檢安排','待檢驗':'品管：確認檢驗結果','待出貨':'業務／倉管：確認出貨安排','已完成':'目前訂單已完成，可查看履歷','取消':'目前訂單已取消，請確認相關退料紀錄'};
   return `<div data-contract="ORDER_TIMELINE_V1" style="overflow-wrap:anywhere">
@@ -15553,7 +15562,7 @@ function renderOrderTimeline(order,events,issues=[]){
     <div class="info-box info-tip">目前：<b>${escapeHtml(order.status||'未填狀態')}</b><br>${escapeHtml(next[order.status]||'請依目前狀態確認下一步')}<br>交期：${escapeHtml(order.deadline||'未填')} · 數量：${escapeHtml(String(order.qty??'—'))}</div>
     <p style="color:var(--text3);font-size:.8rem">依可查證日期排列；品檢結果及領料狀態顯示目前紀錄，不代表完整的歷次狀態變更。沒有紀錄不等於尚未執行。</p>
     ${issues.map(x=>`<div class="info-box info-warn">${escapeHtml(x)}</div>`).join('')}
-    <ol style="list-style:none;margin:16px 0;padding:0 0 0 14px;border-left:2px solid var(--border)">${events.map(e=>`<li style="position:relative;padding:0 0 20px 10px"><span style="position:absolute;left:-20px;top:5px;width:10px;height:10px;background:var(--blue);border-radius:50%"></span><div style="font-size:.75rem;color:var(--text3)">${escapeHtml(e.date?e.date.replace('T',' ').replace(/Z$/,' UTC'):'日期未填')}</div><b>${escapeHtml(e.title)}</b><div style="font-size:.85rem;margin-top:4px">${escapeHtml(e.detail)}</div>${e.url?`<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" class="notion-link">查看原始紀錄 ↗</a>`:''}</li>`).join('')}</ol>
+    <ol style="list-style:none;margin:16px 0;padding:0 0 0 14px;border-left:2px solid var(--border)">${events.map(e=>`<li style="position:relative;padding:0 0 20px 10px"><span style="position:absolute;left:-20px;top:5px;width:10px;height:10px;background:var(--blue);border-radius:50%"></span><div style="font-size:.75rem;color:var(--text3)">${escapeHtml(orderTimelineDate(e.date))}</div><b>${escapeHtml(e.title)}</b><div style="font-size:.85rem;margin-top:4px">${escapeHtml(e.detail)}</div>${e.url?`<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" class="notion-link">查看原始紀錄 ↗</a>`:''}</li>`).join('')}</ol>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-blue" data-timeline-refresh>重新載入</button><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>
   </div>`;
 }
