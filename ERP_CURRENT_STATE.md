@@ -4,6 +4,14 @@ Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
+## Conflict Resolution Safety Release 2026-09-07
+
+- Conflict resolution rereads both stores with unique cache keys before confirmation and immediately afterward. Changed values, versions, or material links stop the write.
+- Success requires a fresh per-material readback and a successful full conflict scan without remaining conflict/pending rows for the material.
+- Each confirmed operation uses a UUID persisted before writing. Original-browser retries retain the immutable operation and quantity delta. Acknowledged writes enter verification-only mode and cannot replay stock; unrelated subsequent changes require review.
+- Same-origin tabs use Web Locks where supported, with an in-tab duplicate-click guard. This does not provide a cross-device database compare-and-swap or an atomic Supabase/Notion transaction; concurrent changes after the final read can still occur and must be detected at readback. Do not claim global locking.
+- User authorized deployment for live testing. Verify Worker and Pages Actions against the release SHA and read back the published resolver before reporting completion.
+
 ## Authorization Hardening Release 2026-09-07
 
 - Protected Worker API authorization now verifies access to the fixed LEMATEC materials database, matching the existing frontend login, instead of accepting any valid Notion integration via `users/me`.

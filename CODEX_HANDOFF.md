@@ -1,5 +1,14 @@
 # LEMATEC ERP Codex Handoff
 
+## Conflict Resolution Safety Release 2026-09-07
+
+- User requested fixes for stale Supabase mirror snapshots and collisions between separate same-day corrections.
+- `readInventoryConflictNow` bypasses read caches and checks exact SKU/page relationships. The resolver rejects stale scans and changes during confirmation. Success requires both direct readback and the complete scan to pass.
+- Operation UUIDs persist per SKU under `lematec_inventory_conflict_operation_v1:` before any write. Retry keeps the ID and original delta; completed quantity writes are verification-only. Do not erase an unresolved record to force a new stock transaction.
+- Tests: `node --test tests/inventory_conflict_resolution.cjs` covers stale reads, confirmation changes, false success, unique operations, retry/reload identity, lost responses, storage failures, and duplicate clicks. Python suite: 243 passed + 47 subtests.
+- Scope is frontend optimistic checking, not a database CAS migration. Web Locks coordinate same-origin tabs only; another device may change data after the final check. No production stock mutations are used as deployment tests.
+- User explicitly requested deployment to test the corrections. Continue this repair-and-deploy workflow without asking again for the same authorized release. Check Worker/Pages Actions and published frontend readback before reporting success.
+
 ## Company Authorization Boundary Release 2026-09-07
 
 - User requirement: keep existing employee token + selected role login and the extra Vic/manager password step unchanged.

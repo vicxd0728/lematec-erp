@@ -10430,50 +10430,122 @@ function renderInventoryConflictCenter(){
     </div>
   </div>`;
 }
+const INVENTORY_CONFLICT_OPERATION_KEY='lematec_inventory_conflict_operation_v1:';
+const _inventoryConflictLocks=new Set();
+let _inventoryConflictReadEpoch=Date.now();
+function inventoryConflictSignature(row){
+  return JSON.stringify([canonicalPageId(row.notionId||row.id||''),row.code,
+    row.name||'',row.type||'',row.unit||'',Number(row.safe)||0,Number(row.stock)||0,row.note||'']);
+}
+async function readInventoryConflictNow(code,pageId){
+  // Unique read keys bypass both the inventory revision cache and Notion proxy cache.
+  const nonce=crypto.randomUUID();
+  _inventoryConflictReadEpoch=Math.max(Date.now(),_inventoryConflictReadEpoch+1);
+  const [rows,page]=await Promise.all([
+    fetchWorkerInventoryMaterials(`conflict-${nonce}`),
+    notionProxyRequest({token:TOKEN,role:ROLE,method:'GET',endpoint:`pages/${pageId}`,body:null,cacheEpoch:_inventoryConflictReadEpoch},'重新讀取庫存鏡像'),
+  ]);
+  if(!page||page.object!=='page'||page.archived||page.in_trash)throw new Error('Notion 鏡像無法讀取，已停止處理');
+  const matches=rows.filter(row=>row.code===code);
+  const notion=mapNotionMaterialPage(page);
+  if(matches.length!==1||notion.code!==code||canonicalPageId(matches[0].notionId)!==canonicalPageId(pageId))throw new Error('料號或鏡像關聯已變更，請重新比對並人工確認');
+  return {supabase:matches[0],notion,version:JSON.stringify([inventoryConflictSignature(matches[0]),matches[0].updatedAt||'',inventoryConflictSignature(notion),page.last_edited_time||''])};
+}
 async function resolveInventoryConflict(code,direction){
   if(!(isAdminRole()||ROLE==='warehouse')){showToast('此功能限 Vic、管理者或倉管使用','warn');return;}
+  if(!['supabase','notion'].includes(direction))return;
+  if(_inventoryConflictLocks.has(code)){showToast('此料號正在處理中，請勿重複點擊','warn');return;}
+  _inventoryConflictLocks.add(code);
+  try{
+    const run=()=>performInventoryConflictResolution(code,direction);
+    if(globalThis.navigator?.locks)await navigator.locks.request(`erp-conflict:${code}`,run);
+    else await run();
+  }finally{_inventoryConflictLocks.delete(code);}
+}
+async function performInventoryConflictResolution(code,direction){
   const item=(_inventoryConflictReport.conflicts||[]).find(row=>row.code===code);
   if(!item?.notion||item.manual){showToast('此差異需要在庫存主檔人工確認','warn');return;}
+  const storageKey=INVENTORY_CONFLICT_OPERATION_KEY+encodeURIComponent(code);
+  let operation;
+  try{
+    operation=JSON.parse(localStorage.getItem(storageKey)||'null');
+    const fresh=await readInventoryConflictNow(code,item.notion.id);
+    if(operation){
+      if(operation.direction!==direction||operation.pageId!==item.notion.id)throw new Error('此料號尚有上次操作待確認，請沿用原處理方向');
+      // After a write was acknowledged, retries may only verify, never reapply stock.
+      if(operation.phase==='verify'){
+        if(inventoryConflictDiff(fresh.supabase,fresh.notion).length)throw new Error('上次寫入已完成，但仍有差異；請先檢查補同步中心，不會再次調整庫存');
+        await loadSupabaseInventoryForPage(true);
+        const report=await scanInventoryNotionConflicts({quiet:true});
+        if(!report||report.error||[...(report.conflicts||[]),...(report.pending||[])].some(row=>row.code===code))throw new Error('回讀總檢尚未完成或仍有差異，請再次確認');
+        localStorage.removeItem(storageKey);
+        showToast(`✅ ${code} 回讀一致，上次操作已確認`,'ok');
+        return;
+      }
+      const partial={...operation.notion,stock:operation.supabase.stock,notionId:operation.supabase.notionId};
+      const allowed=direction==='notion'?[operation.supabase,partial,{...partial,stock:operation.notion.stock}]:[operation.supabase];
+      if(!allowed.some(row=>inventoryConflictSignature(row)===inventoryConflictSignature(fresh.supabase))||
+        ![operation.notion,operation.supabase].some(row=>inventoryConflictSignature(row)===inventoryConflictSignature(fresh.notion)))throw new Error('上次操作後資料另有變更，請先確認交易與補同步狀態；不會建立新的庫存交易');
+    }else if(inventoryConflictSignature(item.supabase)!==inventoryConflictSignature(fresh.supabase)||inventoryConflictSignature(item.notion)!==inventoryConflictSignature(fresh.notion)){
+      await scanInventoryNotionConflicts({quiet:true});
+      throw new Error('掃描後資料已變更，已重新比對，請確認最新差異再操作');
+    }
+    const diffs=inventoryConflictDiff(fresh.supabase,fresh.notion);
+    if(!diffs.length){
+      const report=await scanInventoryNotionConflicts({quiet:true});
+      if(!report||report.error||[...(report.conflicts||[]),...(report.pending||[])].some(row=>row.code===code))throw new Error('回讀總檢尚未完成或仍有差異，請再次確認');
+      localStorage.removeItem(storageKey);
+      showToast(`✅ ${code} 回讀已一致，無需寫入`,'ok');return;
+    }
   const choice=direction==='notion'?'採用 Notion 修改並寫入 Supabase正式主資料':'採用 Supabase 並覆蓋 Notion 鏡像';
   const directionLabel=direction==='notion'?'Supabase 目前值 → Notion 最新值':'Notion 目前值 → Supabase 正式值';
-  if(!confirm(`${code}\n${choice}\n\n${directionLabel}\n${item.diffs.map(diff=>direction==='notion'?`${diff.label}：${diff.supabase} → ${diff.notion}`:`${diff.label}：${diff.notion} → ${diff.supabase}`).join('\n')}`))return;
+  if(!confirm(`${code}\n${choice}\n\n${directionLabel}\n${diffs.map(diff=>direction==='notion'?`${diff.label}：${diff.supabase} → ${diff.notion}`:`${diff.label}：${diff.notion} → ${diff.supabase}`).join('\n')}`))return;
+  const checked=await readInventoryConflictNow(code,item.notion.id);
+  if(checked.version!==fresh.version)throw new Error('確認期間資料已變更，請重新比對後再操作');
+  if(!operation){
+    operation={id:crypto.randomUUID(),direction,pageId:item.notion.id,supabase:checked.supabase,notion:checked.notion,phase:'write'};
+    // Persist before the first write. Storage failure must prevent the operation.
+    localStorage.setItem(storageKey,JSON.stringify(operation));
+  }
   showToast('正在處理庫存鏡像差異...','warn');
-  try{
     if(direction==='supabase'){
-      await updatePage(item.notion.id,{
-        '料件名稱':{title:[{text:{content:item.supabase.name||item.supabase.code}}]},
-        '料件編號':{rich_text:[{text:{content:item.supabase.code||''}}]},
-        '類型':{select:{name:item.supabase.type||'零件'}},
-        '單位':{select:{name:item.supabase.unit||'個'}},
-        '安全庫存':{number:Number(item.supabase.safe)||0},
-        '目前庫存':{number:Number(item.supabase.stock)||0},
-        '備註':{rich_text:[{text:{content:item.supabase.note||''}}]},
-      },{skipInventorySync:true});
+      const current=checked.supabase;
+      assertNotionPage(await updatePage(item.notion.id,{
+        '料件名稱':{title:[{text:{content:current.name||current.code}}]},
+        '料件編號':{rich_text:[{text:{content:current.code||''}}]},
+        '類型':{select:{name:current.type||'零件'}},
+        '單位':{select:{name:current.unit||'個'}},
+        '安全庫存':{number:Number(current.safe)||0},
+        '目前庫存':{number:Number(current.stock)||0},
+        '備註':{rich_text:[{text:{content:current.note||''}}]},
+      },{skipInventorySync:true}),'庫存鏡像更新');
     }else{
-      const freshPages=await notionAPI('GET',`pages/${item.notion.id}`);
-      if(freshPages?.object==='error')throw new Error(freshPages.message||'無法重新讀取 Notion 料件');
-      const notion=mapNotionMaterialPage(freshPages);
-      const currentMats=await fetchWorkerInventoryMaterials();
-      const current=currentMats.find(row=>row.code===code);
-      if(!current)throw new Error('Supabase 已找不到此料號，請重新同步');
-      if(notion.code!==code)throw new Error('Notion 料號已變更，為避免關聯錯誤，請在庫存主檔使用正式改號流程');
+      const notion=operation.notion;
+      const current=checked.supabase;
       await postInventoryMirrorTask(buildInventoryMirrorTask('update_material',{
         notion_page_id:notion.id,sku:code,name:notion.name,type:notion.type,unit:notion.unit,safe:notion.safe,note:notion.note,stock:current.stock
       }));
-      const delta=Number(notion.stock)-Number(current.stock);
-      if(delta){
+      const delta=Number(notion.stock)-Number(operation.supabase.stock);
+      if(delta&&Number(current.stock)!==Number(notion.stock)){
         const materialPageId=current.notionId||item.notion.id;
         const stateIndex=mats.findIndex(row=>normalizeSku(row.code||row.name)===code);
         const currentState={...current,id:materialPageId,notionId:materialPageId};
         if(stateIndex>=0)mats[stateIndex]={...mats[stateIndex],...currentState};
         else mats.push(currentState);
-        const refNo=`NOTION-CONFLICT-${new Date().toISOString().slice(0,10)}-${code}`;
+        const refNo=`NOTION-CONFLICT-${operation.id}`;
         const move=await applyInventoryDeltaAndMirror(materialPageId,{delta,reason:'採用 Notion 人工庫存修改',refNo,sourceType:'notion_conflict_resolution',sourceId:refNo});
         if(!move.duplicate)await logStockChangeQuietly(materialPageId,current.name,current.code,'手動調整',delta,move.before,move.after,refNo,ROLE);
       }
     }
+    operation.phase='verify';
+    localStorage.setItem(storageKey,JSON.stringify(operation));
+    const readback=await readInventoryConflictNow(code,item.notion.id);
+    if(inventoryConflictDiff(readback.supabase,readback.notion).length)throw new Error('寫入後仍有鏡像差異，請檢查補同步中心；不會再次調整庫存');
     await loadSupabaseInventoryForPage(true);
-    await scanInventoryNotionConflicts({quiet:true});
+    const report=await scanInventoryNotionConflicts({quiet:true});
+    if(!report||report.error)throw new Error('寫入後總檢未完成，請重新比對確認結果');
+    if([...(report.conflicts||[]),...(report.pending||[])].some(row=>row.code===code))throw new Error('回讀仍有差異或待補同步，尚未完成');
+    localStorage.removeItem(storageKey);
     if(CURRENT_TAB==='health')renderTab('health');
     showToast(`✅ ${code} 差異已處理`,'ok');
   }catch(e){showToast('❌ 差異處理失敗：'+(e.message||e),'err',9000);}
