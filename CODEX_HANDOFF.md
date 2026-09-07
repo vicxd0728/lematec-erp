@@ -6,6 +6,7 @@
 - Incomplete legacy before/after balances remain searchable under `歷史資料參考`; they no longer appear as current errors and never trigger automatic inventory changes.
 - Read-only production evidence at implementation time: 7,253 total rows, 1,475 current rows, 5,778 historical rows, 0 current quantity-math issues, and 270 historical unverifiable references.
 - Focused audit tests and the full 226-test suite passed before deployment work.
+- GitHub workflows owned by this repository now use Node 24 compatible `actions/checkout@v5`; the picking migration artifact step uses `actions/upload-artifact@v6`.
 
 ## Context Guard 2026-08-03
 
