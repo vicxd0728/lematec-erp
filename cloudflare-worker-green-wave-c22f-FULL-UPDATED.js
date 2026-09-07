@@ -1436,6 +1436,7 @@ async function erpInventoryList(request, env, cors) {
         note: cleanText(row.notes || ''),
         status: cleanText(row.status || ''),
         updated_at: main.updated_at || row.updated_at || '',
+        balance_version: main.updated_at || '',
         source: 'supabase',
       };
     }).filter((row) => row.sku || row.name);
@@ -1613,7 +1614,7 @@ async function erpInventoryAdjust(request, env, cors) {
     }
 
     const context = await getSupabaseInventoryContext(env);
-    const shouldCreateMaterial = Number.isFinite(delta) ? delta > 0 : Number.isFinite(requestedStock);
+    const shouldCreateMaterial = payload.source_type !== 'notion_conflict_resolution' && (Number.isFinite(delta) ? delta > 0 : Number.isFinite(requestedStock));
     const material = await resolveSupabaseMaterial(
       env,
       context.organization.id,
@@ -1627,6 +1628,12 @@ async function erpInventoryAdjust(request, env, cors) {
 
     let adjusted;
     const idempotencyKey = cleanText(payload.idempotency_key || '');
+    const conflictAdjustment = payload.source_type === 'notion_conflict_resolution';
+    if (conflictAdjustment && (!idempotencyKey || !Number.isFinite(delta) || payload.allow_negative === true ||
+      typeof payload.expected_stock !== 'number' || !Number.isFinite(payload.expected_stock) ||
+      !cleanText(payload.expected_balance_version) || !Number.isFinite(Date.parse(payload.expected_balance_version)))) {
+      return resp400(cors, 'Conflict adjustment requires original operation ID, quantity and balance version; refresh ERP');
+    }
     if (Number.isFinite(delta) && idempotencyKey && payload.allow_negative !== true) {
       const existingTx = await supabaseSingle(
         env,
@@ -1634,7 +1641,7 @@ async function erpInventoryAdjust(request, env, cors) {
         true
       );
       const sourceId = cleanText(payload.source_id || '');
-      const rpcData = await supabaseFetch(env, '/rest/v1/rpc/apply_inventory_transaction', {
+      const rpcData = await supabaseFetch(env, conflictAdjustment ? '/rest/v1/rpc/apply_inventory_conflict_transaction' : '/rest/v1/rpc/apply_inventory_transaction', {
         method: 'POST',
         body: JSON.stringify({
           p_organization_id: context.organization.id,
@@ -1647,6 +1654,7 @@ async function erpInventoryAdjust(request, env, cors) {
           p_source_type: cleanText(payload.source_type || 'erp'),
           p_source_id: isUuid(sourceId) ? sourceId : null,
           p_source_number: cleanText(payload.ref_no || sourceId || sku),
+          ...(conflictAdjustment ? {p_expected_quantity: payload.expected_stock, p_expected_updated_at: payload.expected_balance_version} : {}),
         }),
       });
       const tx = Array.isArray(rpcData) ? rpcData[0] : rpcData;
@@ -1681,6 +1689,7 @@ async function erpInventoryAdjust(request, env, cors) {
       adjusted_at: taipeiISOString(),
     });
   } catch (e) {
+    if (String(e.message).includes('ERP_INVENTORY_CONFLICT')) return new Response(JSON.stringify({error:'庫存已由其他操作更新，請重新比對後確認',code:'inventory_conflict'}),{status:409,headers:jh(cors)});
     return resp500(cors, e.message);
   }
 }

@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Atomic Conflict Adjustment And Deployment Gate 2026-09-07
+
+- User approved the next repair-and-deploy round: cross-device quantity protection, SKU-only difference detection, and fewer version-propagation false deployment failures.
+- Additive migration `20260907_016_inventory_conflict_cas.sql` defines a service-role-only wrapper around the existing quantity RPC. It locks the balance and checks expected quantity plus timestamp; original idempotent retries return their accepted transaction before checking the changed version.
+- `notion_conflict_resolution` requests without a valid expected version are rejected. HTTP 409 is a definitive no-stock-change rejection; the browser clears only that rejected attempt and rescans. Unknown failures preserve their original operation ID.
+- Worker CI uses isolated PostgreSQL for real concurrent requests, applies the function-only migration with rollback dry-run before deployment, and keeps production verification read-only. Pages alignment now precedes publication. Local suite: 244 passed + 47 subtests.
+- Scope: quantity correction is atomic. Notion mirror and material metadata updates remain separate and are verified by readback, not falsely described as a cross-store transaction.
+
 ## Conflict Resolution Safety Release 2026-09-07
 
 - User requested fixes for stale Supabase mirror snapshots and collisions between separate same-day corrections.

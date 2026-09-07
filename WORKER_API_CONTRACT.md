@@ -109,6 +109,8 @@ Routes that should support or preserve dry-run semantics for future hardening:
 
 ## Idempotency Requirements
 
+`POST /api/inventory/adjust` with `source_type: notion_conflict_resolution` additionally requires numeric `expected_stock` and `expected_balance_version` from inventory reads. It uses the service-only `apply_inventory_conflict_transaction` RPC; the balance row lock covers the version check and quantity mutation. HTTP 409 with `code: inventory_conflict` means the quantity was rejected; rescan before a new confirmation. Original accepted operation IDs return their existing transaction on retry. Other adjustment sources keep the existing behavior. Deploy migration `20260907_016_inventory_conflict_cas.sql` before the Worker release.
+
 | Workflow | Stable key |
 |---|---|
 | Stock log sync | `client_trace_id` |

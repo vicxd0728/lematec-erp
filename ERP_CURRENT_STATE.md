@@ -4,12 +4,19 @@ Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
+## Atomic Conflict Adjustment Release 2026-09-07
+
+- Notion-to-Supabase quantity corrections now require `expected_stock` and `expected_balance_version`. The new service-role-only `apply_inventory_conflict_transaction` RPC locks the balance, checks original operation identity, compares quantity and timestamp, and calls the existing atomic transaction within the same transaction. HTTP 409 means no stock adjustment was accepted and a new confirmation is required.
+- Inventory reads expose `balance_version`; other quantity workflows retain their existing RPC path. Pure Notion mirror writes and material metadata are not part of a cross-store atomic transaction; direct readback remains necessary.
+- SKU-only mirror differences are now detected before the manual-only rule is applied.
+- Worker deployment runs an isolated PostgreSQL concurrency test, then rollback dry-run and application of the additive function migration before releasing code. Pages waits for Worker SHA alignment before publishing; Worker health retries use unique URLs and a longer wait window.
+
 ## Conflict Resolution Safety Release 2026-09-07
 
 - Conflict resolution rereads both stores with unique cache keys before confirmation and immediately afterward. Changed values, versions, or material links stop the write.
 - Success requires a fresh per-material readback and a successful full conflict scan without remaining conflict/pending rows for the material.
 - Each confirmed operation uses a UUID persisted before writing. Original-browser retries retain the immutable operation and quantity delta. Acknowledged writes enter verification-only mode and cannot replay stock; unrelated subsequent changes require review.
-- Same-origin tabs use Web Locks where supported, with an in-tab duplicate-click guard. This does not provide a cross-device database compare-and-swap or an atomic Supabase/Notion transaction; concurrent changes after the final read can still occur and must be detected at readback. Do not claim global locking.
+- Same-origin tabs use Web Locks where supported, with an in-tab duplicate-click guard. The later atomic conflict adjustment release above adds a database quantity/version check for Notion adoption. It does not create an atomic Supabase/Notion transaction; mirror and metadata races still require readback.
 - User authorized deployment for live testing. Verify Worker and Pages Actions against the release SHA and read back the published resolver before reporting completion.
 
 ## Authorization Hardening Release 2026-09-07

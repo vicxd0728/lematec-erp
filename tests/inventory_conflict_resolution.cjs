@@ -7,7 +7,7 @@ const {webcrypto}=require('node:crypto');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const cut=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 function setup(){
-  const base={id:'page1',notionId:'page1',code:'Y-A',name:'Part',type:'零件',unit:'個',safe:0,note:''};
+  const base={id:'page1',notionId:'page1',code:'Y-A',name:'Part',type:'零件',unit:'個',safe:0,note:'',balanceVersion:'2026-09-07T00:00:00Z'};
   const state={s:{...base,stock:10},n:{...base,stock:15},writes:[],moves:[],toasts:[],storage:new Map(),failMove:false,scanFail:false};
   const clone=x=>JSON.parse(JSON.stringify(x));
   const c=vm.createContext({crypto:webcrypto,globalThis:undefined,ROLE:'vic',TOKEN:'mock',CURRENT_TAB:'health',mats:[],
@@ -86,4 +86,15 @@ test('persisted operation survives reload and retains its ID',async()=>{
 test('unrelated stock movement after failed attempt blocks retry',async()=>{
   const {state,c}=setup();state.failMove=true;await c.resolveInventoryConflict('Y-A','notion');
   state.s.stock=8;await c.resolveInventoryConflict('Y-A','notion');assert.equal(state.moves.length,1);assert.equal(state.s.stock,8);
+});
+test('SKU-only differences are detected',()=>{
+  const {c,state}=setup();assert.equal(c.inventoryConflictDiff(state.s,{...state.s,code:'Y-B'})[0].key,'code');
+});
+test('quantity request carries the original expected stock and version',async()=>{
+  const {c,state}=setup();await c.resolveInventoryConflict('Y-A','notion');
+  assert.equal(state.moves[0].expectedStock,10);assert.equal(state.moves[0].expectedBalanceVersion,'2026-09-07T00:00:00Z');
+});
+test('definitive database conflict permits fresh confirmation; unknown failures retain ID',async()=>{
+  const {c,state}=setup();c.applyInventoryDeltaAndMirror=async()=>{const e=Error('stale');e.code='inventory_conflict';throw e;};
+  await c.resolveInventoryConflict('Y-A','notion');assert.equal(state.storage.size,0);assert.equal(state.s.stock,10);
 });

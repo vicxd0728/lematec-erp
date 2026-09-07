@@ -36,3 +36,10 @@ def test_pages_deploy_requires_worker_dependency_alignment():
         "/api/video-library/list?limit=1",
     ):
         assert route in PAGES_WORKFLOW
+
+
+def test_pages_publishes_only_after_worker_alignment():
+    assert PAGES_WORKFLOW.index('Verify Worker dependency matches this commit') < PAGES_WORKFLOW.index('name: Deploy to Cloudflare Pages')
+    assert 'time.time_ns()' in WORKER_WORKFLOW
+    assert 'range(1, 61)' in WORKER_WORKFLOW
+    assert WORKER_WORKFLOW.index('Test concurrent conflict transactions') < WORKER_WORKFLOW.index('Dry-run and apply additive conflict RPC') < WORKER_WORKFLOW.index('name: Deploy green-wave-c22f Worker')

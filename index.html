@@ -7507,6 +7507,7 @@ function mapSupabaseInventoryMaterial(row){
     note:row.note||row.notes||'',
     created:'',
     updatedAt:row.updated_at||row.updatedAt||'',
+    balanceVersion:row.balance_version||'',
     url:'',
     source:'supabase',
     editable:!!notionId,
@@ -9388,7 +9389,11 @@ async function postInventoryAdjustTask(payload){
   const text=await res.text();
   let data;
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
-  if(!res.ok||data?.error) throw new Error(data?.error||text||`HTTP ${res.status}`);
+  if(!res.ok||data?.error){
+    const error=new Error(data?.error||text||`HTTP ${res.status}`);
+    if(res.status===409&&data?.code==='inventory_conflict')error.code='inventory_conflict';
+    throw error;
+  }
   return data;
 }
 async function postInventoryBatchAdjustTask(payload){
@@ -9477,7 +9482,7 @@ async function inventoryBatchIdempotencyKey({sourceType='',sourceId='',refNo='',
   const hex=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
   return `erp-batch:${String(sourceType||'erp').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,40)}:${hex}`;
 }
-async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sourceType='',sourceId='',allowNegative=false}={}){
+async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sourceType='',sourceId='',allowNegative=false,expectedStock,expectedBalanceVersion}={}){
   const snap=materialSnapshotFromState(pageId,null);
   if(!snap.sku) throw new Error('無法辨識料號，已停止庫存異動');
   const qty=Number(delta);
@@ -9496,6 +9501,7 @@ async function applyInventoryDeltaAndMirror(pageId,{delta,reason='',refNo='',sou
       display_name:localStorage.getItem('ldn')||'',
       allow_negative:allowNegative===true,
       idempotency_key:idempotencyKey,
+      ...(sourceType==='notion_conflict_resolution'?{expected_stock:expectedStock,expected_balance_version:expectedBalanceVersion}:{}),
       client_trace_id:`inv-adj-${sourceType||'erp'}-${refNo||pageId}-${pageId}-${qty}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
       source_url:location.href,
     });
@@ -10343,7 +10349,7 @@ function renderHealthRepairCenter(h){
 }
 function inventoryConflictDiff(supabase,notion){
   const fields=[
-    ['name','名稱'],['type','類型'],['unit','單位'],['safe','安全庫存'],['stock','目前庫存'],['note','備註']
+    ['code','料號'],['name','名稱'],['type','類型'],['unit','單位'],['safe','安全庫存'],['stock','目前庫存'],['note','備註']
   ];
   return fields.filter(([key])=>{
     if(key==='safe'||key==='stock')return Number(supabase[key]||0)!==Number(notion[key]||0);
@@ -10533,7 +10539,7 @@ async function performInventoryConflictResolution(code,direction){
         if(stateIndex>=0)mats[stateIndex]={...mats[stateIndex],...currentState};
         else mats.push(currentState);
         const refNo=`NOTION-CONFLICT-${operation.id}`;
-        const move=await applyInventoryDeltaAndMirror(materialPageId,{delta,reason:'採用 Notion 人工庫存修改',refNo,sourceType:'notion_conflict_resolution',sourceId:refNo});
+        const move=await applyInventoryDeltaAndMirror(materialPageId,{delta,reason:'採用 Notion 人工庫存修改',refNo,sourceType:'notion_conflict_resolution',sourceId:refNo,expectedStock:operation.supabase.stock,expectedBalanceVersion:operation.supabase.balanceVersion});
         if(!move.duplicate)await logStockChangeQuietly(materialPageId,current.name,current.code,'手動調整',delta,move.before,move.after,refNo,ROLE);
       }
     }
@@ -10548,7 +10554,15 @@ async function performInventoryConflictResolution(code,direction){
     localStorage.removeItem(storageKey);
     if(CURRENT_TAB==='health')renderTab('health');
     showToast(`✅ ${code} 差異已處理`,'ok');
-  }catch(e){showToast('❌ 差異處理失敗：'+(e.message||e),'err',9000);}
+  }catch(e){
+    if(e.code==='inventory_conflict'){
+      // Server definitively rejected stock under its row lock; a fresh confirmation
+      // may start a new operation. Unknown/network failures must retain their ID.
+      localStorage.removeItem(storageKey);
+      await scanInventoryNotionConflicts({quiet:true});
+    }
+    showToast('❌ 差異處理失敗：'+(e.message||e),'err',9000);
+  }
 }
 function notesHealthTime(value){
   if(!value)return '尚無紀錄';
