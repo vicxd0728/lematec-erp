@@ -1,5 +1,15 @@
 # LEMATEC ERP Codex Handoff
 
+## Company Authorization Boundary Release 2026-09-07
+
+- User requirement: keep existing employee token + selected role login and the extra Vic/manager password step unchanged.
+- `erpClientAuthorized` now performs the same fixed materials-database read used by frontend login. Valid tokens from unrelated Notion workspaces cannot authorize Supabase-backed ERP operations merely by passing `users/me`.
+- Caller-supplied `system` is accepted only for the configured Worker integration token. Existing no-role automation using that token is preserved.
+- No frontend, password, session, or database changes were made. Shared-token holders can still use the legacy automation path; this patch does not claim to provide server-verified administrator PIN sessions.
+- Offline behavioral tests: `node --test tests/worker_auth_boundary.cjs` (11 passed), including all allowed role/route combinations, unrelated tokens, malformed responses, automation compatibility, and viewer denial. The Python suite invokes these tests through `tests/test_worker_auth_boundary.py`.
+- User explicitly authorized deployment. Worker workflow runs offline authorization tests and `scripts/verify_worker_auth_readonly.py --stage preflight` before release, then `--stage deployed` after release using the existing GitHub token secret. All live authorization probes are GET-only; no inventory or Notion rows are written.
+- Local suite: 242 tests and 47 subtests passed. Verify successful Worker/Pages Actions for the release SHA plus `/api/version` before reporting deployment completion.
+
 ## Reliability Controls Upgrade 2026-09-07
 
 - Worker mutating ERP routes enforce the current operational role matrix through bearer-token validation and `X-ERP-Role`; generic Notion writes and file uploads block the viewer role. This is role-mistake prevention under the current shared integration token, not individual-user authentication.

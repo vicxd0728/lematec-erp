@@ -3137,13 +3137,19 @@ async function erpClientAuthorized(request) {
     const match = String(request.headers.get('Authorization') || '').match(/^Bearer\s+(\S+)$/i);
     if (!match) return false;
     try {
-      const response = await fetch('https://api.notion.com/v1/users/me', {
+      // Match the existing ERP login boundary: a valid Notion integration alone
+      // is not enough. It must be able to read our fixed materials database.
+      const response = await fetch(`https://api.notion.com/v1/databases/${BOARD_DB.materials}`, {
         headers: {
           Authorization: `Bearer ${match[1]}`,
           'Notion-Version': '2022-06-28',
         },
       });
-      return response.ok;
+      if (!response.ok) return false;
+      const database = await response.json();
+      return database?.object === 'database' &&
+        cleanText(database.id).replace(/-/g, '').toLowerCase() ===
+        BOARD_DB.materials.replace(/-/g, '').toLowerCase();
     } catch {
       return false;
     }
@@ -3191,9 +3197,10 @@ async function enforceErpRouteRole(request, env, cors, pathname, method) {
   if (!allowed) return null;
   const token = erpBearerToken(request);
   let role = cleanText(request.headers.get('X-ERP-Role') || '').toLowerCase();
-  if (!role && token && token === cleanText(env.NOTION_TOKEN || env.ERP_NOTION_TOKEN || '')) role = 'system';
+  const trustedAutomation = !!token && token === cleanText(env.NOTION_TOKEN || env.ERP_NOTION_TOKEN || '');
+  if (!role && trustedAutomation) role = 'system';
   if (!token || !(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
-  if (role === 'system') return null;
+  if (role === 'system' && trustedAutomation) return null;
   if (!role || !allowed.includes(role)) {
     return new Response(JSON.stringify({
       error: 'ERP role is not allowed for this operation',

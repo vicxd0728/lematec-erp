@@ -130,9 +130,12 @@ Repeated retries must return or repair the existing accepted truth; they must no
 ## Operational Role Enforcement
 
 - Mutating `/api/...` routes validate the ERP bearer token and `X-ERP-Role` before route execution.
+- Authorization hardening (2026-09-07 release): protected API bearer validation requires a successful read of the fixed `BOARD_DB.materials` database with the expected database ID. A valid Notion token alone is insufficient. This matches the existing frontend login boundary and preserves authorized integrations with access to that database.
+- Explicit `system` roles must match the Worker's configured integration token, just like the legacy omitted-role automation path. Unconfigured or unrelated tokens cannot self-assign `system`.
 - The generic Notion proxy and Notion file-upload path block viewer writes.
 - Trusted automation using the Worker's configured integration token may omit the role header and is treated as `system` so existing workflows remain compatible.
 - Because staff currently share an integration token and select a frontend role, this matrix prevents accidental or ordinary out-of-role operations; it is not cryptographic proof of an individual employee. Individual authorization requires a future Supabase Auth or company SSO cutover.
+- Administrator PINs remain frontend-verified. Possession of the shared configured integration token still permits legacy automation; closing that boundary requires separate automation credentials and server-side PIN/session verification, rather than changing a role header alone.
 
 ## When Updating This File
 

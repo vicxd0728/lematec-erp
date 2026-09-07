@@ -16,6 +16,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Verify authorization behavior offline
+        run: node --test tests/worker_auth_boundary.cjs
+
+      - name: Verify existing login token before deployment
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python scripts/verify_worker_auth_readonly.py --stage preflight
+
       - name: Deploy green-wave-c22f Worker
         shell: bash
         env:
@@ -95,3 +103,8 @@ jobs:
           print(last)
           sys.exit(1)
           PY
+
+      - name: Verify existing token on deployed protected API
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python scripts/verify_worker_auth_readonly.py --stage deployed

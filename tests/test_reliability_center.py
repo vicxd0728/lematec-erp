@@ -34,7 +34,7 @@ def test_reliability_worker_routes_require_valid_notion_login():
         "/api/reliability/summary",
     ):
         assert route in WORKER
-    assert "https://api.notion.com/v1/users/me" in WORKER
+    assert "https://api.notion.com/v1/databases/${BOARD_DB.materials}" in WORKER
     assert "await erpClientAuthorized(request)" in WORKER
 
 

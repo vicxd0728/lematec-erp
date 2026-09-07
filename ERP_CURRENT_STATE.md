@@ -4,6 +4,14 @@ Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
+## Authorization Hardening Release 2026-09-07
+
+- Protected Worker API authorization now verifies access to the fixed LEMATEC materials database, matching the existing frontend login, instead of accepting any valid Notion integration via `users/me`.
+- Explicit `system` claims require the Worker's configured integration token. Existing configured-token automation may still omit its role header.
+- Frontend token entry, role selection, Vic/manager PIN prompts, saved passwords, and browser session behavior are unchanged.
+- This is a company-access boundary improvement, not server-side PIN authentication. Holders of the shared configured token retain the legacy automation capability; individual role proof requires a separate migration of automation credentials and PIN storage/verification.
+- Deployment authorized by the user. Worker workflow now checks existing-token access to the login database before deployment and performs a protected read after deployment. Treat the release as verified only when Worker/Pages Actions succeed and `/api/version` matches this commit.
+
 ## Reliability And Conflict Controls 2026-09-07
 
 - Worker mutating ERP routes now enforce an operational role matrix using the ERP bearer token plus `X-ERP-Role`. Viewer writes are also blocked in the generic Notion proxy and direct Notion file upload path. The current login still uses a shared Notion integration token, so this prevents role mistakes but is not a substitute for individual identity authentication; Supabase Auth or company SSO remains the future security boundary.
