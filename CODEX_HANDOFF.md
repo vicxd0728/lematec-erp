@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Stock Log Audit Upgrade 2026-09-07
+
+- Stock-log audit now separates current operational records from `notion_backfill` historical evidence.
+- Incomplete legacy before/after balances remain searchable under `歷史資料參考`; they no longer appear as current errors and never trigger automatic inventory changes.
+- Read-only production evidence at implementation time: 7,253 total rows, 1,475 current rows, 5,778 historical rows, 0 current quantity-math issues, and 270 historical unverifiable references.
+- Focused audit tests and the full 226-test suite passed before deployment work.
+
 ## Context Guard 2026-08-03
 
 - Recommendation: start a new Codex chat before the next ERP code/data change.

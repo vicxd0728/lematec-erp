@@ -91,6 +91,19 @@ def test_stock_log_audit_auto_resolves_legacy_reversal_labels_by_direction():
     assert "舊名稱但數字方向正確的紀錄" in panel
 
 
+def test_stock_log_audit_separates_notion_backfill_from_current_errors():
+    assert "function stockLogIsHistoricalReference" in INDEX
+    helper = function_body("stockLogIsHistoricalReference")
+    body = function_body("buildStockLogAuditReport")
+    panel = function_body("renderStockLogAuditPanel")
+    assert "notion_backfill" in helper
+    assert "historicalRows" in body
+    assert "currentRows" in body
+    assert "historicalReferences" in body
+    assert "歷史資料參考" in panel
+    assert "不列為目前待處理" in panel
+
+
 def test_stock_log_audit_uses_picking_master_before_flagging_missing_deduction():
     assert "function stockLogAuditPickMasterConfirmsDeduction" in INDEX
     lookup = function_body("stockLogAuditPickMasterForRef")

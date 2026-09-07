@@ -1,6 +1,6 @@
 # LEMATEC ERP Current State
 
-Updated: 2026-08-04
+Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
@@ -10,8 +10,7 @@ This is the single current-state entry point. Use it before reading older timeli
 - Worker: `https://green-wave-c22f.vic-e93.workers.dev`
 - GitHub repo: `vicxd0728/lematec-erp`
 - Current repo head: use `git log -1 --oneline` for the exact latest commit.
-- Latest Worker code deploy: Health v2 Worker route from `11c195b Add ERP Health v2 current state`; no Worker code is required for the local Preflight/C-order/BOM/mobile v1 frontend batch.
-- Latest Pages deploy: verify the current GitHub Actions Pages run after each frontend commit.
+- Latest Worker and Pages deploy: use `GET /api/version` and the current GitHub Actions runs; both must match the same Git SHA.
 - Worker deploy workflow: `Deploy ERP Worker`
 - Pages deploy workflow: `Deploy ERP to Cloudflare Pages`
 - Worker deployment integrity: every `main` push redeploys the Worker and stamps
@@ -74,6 +73,13 @@ Done locally in the current optimization batch: Preflight Center v1 / Preflight 
 3. BOM maintenance v2: simplified Excel format, missing-material pre-create review, direct-component rule guard, BOM diff summary, and self/duplicate checks.
 4. Mobile high-frequency v2: orders, Notes, C-order, and inventory adjustment quick-entry cards.
 5. ERP Health repair center: separate safe auto-repair queues, one-click repair candidates, and manual follow-up items.
+
+## Stock Log Audit Semantics 2026-09-07
+
+- Current operational rows are audited for quantity math, duplicate moves, picking deduction, inbound stock-in, and Shopee finished-goods stock-in.
+- Rows whose source is `notion_backfill` remain searchable historical evidence, but incomplete legacy before/after balances are shown under `歷史資料參考` instead of current actionable errors.
+- The audit never changes inventory while classifying historical rows.
+- Live read-only verification on 2026-09-07 loaded 7,253 rows: 1,475 current operational rows and 5,778 historical Notion backfill rows. Current quantity-math issues were 0; 270 unverifiable legacy rows were retained as historical references.
 
 ## Known Cleanup
 

@@ -46,3 +46,24 @@ def test_stock_audit_still_flags_real_quantity_math_error():
 
     assert report["issue_count"] == 1
     assert report["issues"][0]["category"] == "數量異常"
+
+
+def test_stock_audit_keeps_unverifiable_notion_backfill_as_history_only():
+    row = {
+        "id": "legacy-row",
+        "source": "notion_backfill",
+        "ref_no": "PK-260701-001",
+        "material_code": "Y-LEGACY",
+        "change_type": "領料",
+        "quantity": 100,
+        "before_stock": 1,
+        "after_stock": 0,
+    }
+
+    report = audit.audit_stock_logs([row])
+
+    assert report["issue_count"] == 0
+    assert report["historical_rows"] == 1
+    assert report["current_rows"] == 0
+    assert report["historical_reference_count"] == 1
+    assert report["historical_references"][0]["reason"] == "notion_backfill_unverifiable_balance"

@@ -251,11 +251,44 @@ def stock_display_type(row: dict) -> str:
     return kind
 
 
+def stock_is_historical_reference(row: dict) -> bool:
+    return text(row.get("source")).lower() == "notion_backfill"
+
+
 def audit_stock_logs(rows: list[dict]) -> dict:
     issues = []
     auto_resolved = []
-    moves = [r for r in rows if stock_is_move(r)]
-    operations = [r for r in rows if not stock_is_move(r)]
+    historical_rows = [r for r in rows if stock_is_historical_reference(r)]
+    current_rows = [r for r in rows if not stock_is_historical_reference(r)]
+    moves = [r for r in current_rows if stock_is_move(r)]
+    operations = [r for r in current_rows if not stock_is_move(r)]
+    historical_references = []
+
+    for row in historical_rows:
+        if not stock_is_move(row):
+            continue
+        qty = abs(float(row.get("quantity") or 0))
+        before = float(row.get("before_stock") or 0)
+        after = float(row.get("after_stock") or 0)
+        kind = stock_display_type(row)
+        is_increase = any(k in kind for k in ("入料", "C端退料", "蝦皮完成入庫", "領料沖銷"))
+        is_decrease = any(k in kind for k in ("領料", "C端出貨", "入庫沖銷")) and "領料沖銷" not in kind
+        math_unverifiable = (
+            (qty > 0 and is_increase and abs((after - before) - qty) > 0.000001)
+            or (qty > 0 and is_decrease and abs((before - after) - qty) > 0.000001)
+            or after < 0
+        )
+        if math_unverifiable:
+            historical_references.append(
+                {
+                    "category": "歷史資料參考",
+                    "reason": "notion_backfill_unverifiable_balance",
+                    "ref_no": row.get("ref_no"),
+                    "sku": row.get("material_code") or row.get("material_name"),
+                    "detail": f"Notion 搬遷舊紀錄：{before} / {qty} / {after}，不作目前庫存異常判定",
+                    "row_id": row.get("id"),
+                }
+            )
 
     exact_groups = group_duplicates(
         [r for r in moves if text(r.get("source")) == "erp_frontend"],
@@ -333,12 +366,16 @@ def audit_stock_logs(rows: list[dict]) -> dict:
 
     return {
         "checked": len(rows),
+        "current_rows": len(current_rows),
+        "historical_rows": len(historical_rows),
         "moves": len(moves),
         "operations": len(operations),
         "exact_duplicate_move_groups": len(exact_groups),
         "exact_duplicate_move_samples": exact_groups[:20],
         "auto_resolved_count": len(auto_resolved),
         "auto_resolved": auto_resolved[:50],
+        "historical_reference_count": len(historical_references),
+        "historical_references": historical_references[:80],
         "issues": issues[:80],
         "issue_count": len(issues),
     }

@@ -1,5 +1,15 @@
 # LEMATEC ERP Data Flow
 
+## Current Effective Summary 2026-09-07
+
+This section overrides older dated timeline sections below when they conflict.
+
+- Supabase-primary: inventory master and balances, BOM, stock logs, picking, inbound/QC, and Notes structured data.
+- Notion-primary: B2B orders, customers, leave, schedule, C-end/Shopee order pages, and Notes attachment/detail blocks.
+- Supabase-primary writes must succeed before the ERP reports success. Notion mirror failures become retry work and must never replay a stock transaction.
+- `notion_backfill` stock-log rows are historical evidence. Their incomplete legacy before/after balances are not actionable current errors and must not trigger automatic inventory repair.
+- Direct Notion edits are not a verified two-way write path unless a current module-specific sync contract says otherwise.
+
 ## C-order Primary Write 2026-07-31
 
 - New C-end/Shopee orders write only to the Notion `C端訂單` database.
@@ -24,7 +34,7 @@
 - Supabase is the Notes list/read-model source, but does not become the formal
   attachment source in this release.
 
-## Notes Supabase-Primary Read 2026-07-30
+## Notes Supabase-Primary Read 2026-07-30 (Historical Stage)
 
 - Notes list, calendar, reminders, filters, and board counts read Supabase
   `erp_notes_shadow` first.
@@ -122,7 +132,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Audit: inventory quantity mode creates inventory transactions under the same batch idempotency prefix. Safety-stock mode writes material edit logs.
 - Mirror: Notion is updated after Supabase commits. Temporary mirror failures remain in the retry queue.
 
-最後更新：2026-07-28
+以下是 2026-07-28 的歷史基線；若與本文件頂端的 Current Effective Summary 衝突，以頂端摘要與 `ERP_CURRENT_STATE.md` 為準。
 
 本文件定義 ERP 前端、Notion、Supabase 之間的資料責任。實際程式仍以 `index.html` 為準；若程式改變，需同步更新本文件。
 
@@ -143,7 +153,7 @@ This section overrides older Supabase inventory notes below if they conflict.
 - key 名稱：`lematec_supabase_anon_key`
 - 設定入口：健康檢查或庫存資料來源區
 
-行為：
+歷史行為（已由 Worker / Supabase 正式路徑取代）：
 
 - 沒有 anon public key：不讀 Supabase REST，庫存頁使用 Notion 正式資料。
 - 有 anon public key：可啟用 Supabase 優先的只讀快照。
@@ -154,10 +164,10 @@ This section overrides older Supabase inventory notes below if they conflict.
 | 模組 | 目前主資料 | 前端讀取 | 前端寫入 | Notion 角色 | Supabase 角色 |
 |---|---|---|---|---|---|
 | 庫存主檔 | Supabase | Worker 讀 Supabase；失敗才回退 Notion | Worker 先寫 Supabase；成功後鏡像 Notion | 查閱、鏡像與備援 | 正式主資料 |
-| BOM / 子母件 | Supabase | Worker 優先讀 Supabase；驗證失敗才回退 Notion | ERP 維護 Notion 鏡像後，必須把完整驗證快照同步到 Supabase 才算成功 | 查閱、鏡像與緊急備援 | 正式領料、扣料、關聯與封存安全檢查 |
+| BOM / 子母件 | Supabase | Worker 優先讀 Supabase；驗證失敗才回退 Notion | Worker 先寫 Supabase；成功後鏡像 Notion | 查閱、鏡像與緊急備援 | 正式領料、扣料、關聯與封存安全檢查 |
 | 異動紀錄 | Supabase | Worker 讀 Supabase，預設近 30 天並支援分頁 | Worker 先寫 Supabase；成功後鏡像 Notion | 人員查閱鏡像，不作正式 fallback | 正式唯一主資料 |
 | 影片庫 | Supabase | Supabase 優先；失敗回備援清單 | 目前非前端日常寫入 | 可作資料備援 | 主資料與快速搜尋 |
-| 記事 | Notion | Notion / 前端快取 | Notion | 正式紀錄、客戶頁關聯 | 未切換 |
+| 記事 | Supabase | Worker 讀 Supabase；失敗才回退 Notion | Worker 先寫 Supabase 結構資料；成功後鏡像 Notion | 附件、詳情與人員查閱鏡像 | 正式結構資料 |
 | 訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | C端訂單 | Notion | Notion | Notion | 正式紀錄 | 未切換 |
 | 領料 | Supabase | Worker 讀 Supabase；失敗時 Notion 僅作唯讀備援 | Worker 先寫 Supabase；成功後建立或更新 Notion 鏡像 | 人員查閱鏡像與緊急唯讀備援 | 正式主單、明細、狀態與防重依據 |

@@ -10935,6 +10935,9 @@ function stockLogTypeWasDirectionCorrected(s){
   const displayType=stockLogDisplayType(s);
   return rawType!==displayType&&/沖銷|退料/.test(displayType);
 }
+function stockLogIsHistoricalReference(s){
+  return String(s?.source||'').trim().toLowerCase()==='notion_backfill';
+}
 function stockLogDisplayName(s){
   const name=String(s?.matName||'').trim();
   const code=String(s?.matCode||'').trim();
@@ -11051,8 +11054,14 @@ function stockLogAuditPickMovesReversed(orderNo,pickMoves,inventoryMoves){
 function buildStockLogAuditReport(logs=stockLogs){
   const ack=readStockLogAuditAck();
   const rows=(Array.isArray(logs)?logs:[]).filter(Boolean);
-  const inventoryMoves=rows.filter(stockLogIsInventoryMove);
-  const operationLogs=rows.filter(s=>!stockLogIsInventoryMove(s));
+  const historicalRows=rows.filter(stockLogIsHistoricalReference);
+  const currentRows=rows.filter(s=>!stockLogIsHistoricalReference(s));
+  const inventoryMoves=currentRows.filter(stockLogIsInventoryMove);
+  const operationLogs=currentRows.filter(s=>!stockLogIsInventoryMove(s));
+  const historicalReferences=historicalRows
+    .filter(stockLogIsInventoryMove)
+    .map(s=>({row:s,detail:stockLogAuditMathIssue(s)}))
+    .filter(item=>item.detail);
   const issues=[];
   const autoResolvedDuplicates=[];
   const addIssue=issue=>{
@@ -11250,7 +11259,18 @@ function buildStockLogAuditReport(logs=stockLogs){
   const warnings=issues.filter(i=>i.level!=='error').length;
   const repairable=issues.filter(i=>i.action==='stockIn').length;
   const manual=issues.filter(i=>i.action==='manual').length;
-  return {issues,errors,warnings,repairable,manual,autoResolvedDuplicates,autoResolved:autoResolvedDuplicates.length,checked:rows.length,moves:inventoryMoves.length,operations:operationLogs.length};
+  return {
+    issues,errors,warnings,repairable,manual,
+    autoResolvedDuplicates,
+    autoResolved:autoResolvedDuplicates.length,
+    historicalReferences,
+    historicalReferenceCount:historicalReferences.length,
+    historicalRows:historicalRows.length,
+    currentRows:currentRows.length,
+    checked:rows.length,
+    moves:inventoryMoves.length,
+    operations:operationLogs.length
+  };
 }
 function stockLogAuditIssueCard(issue){
   const border=issue.level==='error'?'rgba(239,68,68,.32)':'rgba(245,158,11,.3)';
@@ -11284,7 +11304,7 @@ function renderStockLogAuditPanel(report){
         <div style="font-size:.8rem;color:var(--text3);font-weight:700;margin-bottom:4px">異動記錄稽核</div>
         <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
           <b style="font-size:1.35rem;color:${statusColor}">${statusText}</b>
-          <span style="font-size:.76rem;color:var(--text2)">檢查 ${report.checked} 筆；庫存異動 ${report.moves} 筆；操作紀錄 ${report.operations} 筆</span>
+          <span style="font-size:.76rem;color:var(--text2)">檢查 ${report.checked} 筆；正式流程 ${report.currentRows??report.checked} 筆；歷史搬遷 ${report.historicalRows||0} 筆</span>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -11297,7 +11317,12 @@ function renderStockLogAuditPanel(report){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${report.issues.slice(0,12).map(stockLogAuditIssueCard).join('')}</div>
     ${report.issues.length>12?`<div style="font-size:.72rem;color:var(--text3);margin-top:8px">另有 ${report.issues.length-12} 筆，請用搜尋或載入全部後分批處理。</div>`:''}`:
-    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、已沖銷補庫單、同結果重複紀錄、舊名稱但數字方向正確的紀錄，或合理退回再出貨循環。`:''}</div>`}
+    `<div style="margin-top:10px;font-size:.78rem;color:var(--text2)">目前正式流程沒有發現需人工處理的重複庫存異動、數量前後不一致、領料未扣庫、入料品管未入庫，或補庫扣料後未入 S- 成品的異常。${report.autoResolved?`系統已自動排除 ${report.autoResolved} 組已確認領料主單、已沖銷補庫單、同結果重複紀錄、舊名稱但數字方向正確的紀錄，或合理退回再出貨循環。`:''}</div>`}
+    ${report.historicalReferenceCount?`<details style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <summary style="cursor:pointer;color:var(--text2);font-size:.76rem;font-weight:700">歷史資料參考 ${report.historicalReferenceCount} 筆</summary>
+      <div style="margin-top:7px;font-size:.72rem;line-height:1.55;color:var(--text3)">這些是切換 Supabase 前由 Notion 搬入的舊紀錄，異動前後欄位不足以驗證數學關係，不列為目前待處理，也不會自動修改庫存。</div>
+      <div style="margin-top:7px;font-size:.68rem;color:var(--text3);font-family:var(--f-mono)">${report.historicalReferences.slice(0,5).map(item=>escapeHtml(`${item.row.date||'—'} ${item.row.ref||'—'} ${item.row.matCode||stockLogDisplayName(item.row)}：${item.detail}`)).join('<br>')}${report.historicalReferenceCount>5?`<br>另有 ${report.historicalReferenceCount-5} 筆，可在下方異動表搜尋查看。`:''}</div>
+    </details>`:''}
   </div>`;
 }
 function ackStockLogAuditIssue(key){
