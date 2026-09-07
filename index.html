@@ -20377,21 +20377,21 @@ async function loadQCInspections(options={}){
   return _qcInspectionsPromise;
 }
 
-function qcInspectionLinkedToOrder(ins,orderId='',orderNo=''){
-  const raw=ins?.orderRefRaw||'';
-  const ref=ins?.orderRef||'';
-  return !!ins&&(
-    (orderId&&raw.includes(orderId))||
-    (orderNo&&(ref===orderNo||raw.endsWith('|'+orderNo)||raw===orderNo))
-  );
+function qcInspectionLinkedToOrder(ins,orderId='',orderNo='',allowNumber=false){
+  if(!ins)return false;
+  const raw=String(ins.orderRefRaw||ins.orderRef||'').trim();
+  if(raw.includes('|'))return !!orderId&&canonicalPageId(raw.split('|')[0].trim())===canonicalPageId(orderId);
+  return !!allowNumber&&!!orderNo&&raw===orderNo.trim();
 }
 async function syncLinkedOrderPendingInspections(order,result='通過',sourceInspectionId=''){
   if(!order||!(result==='通過'||result==='條件通過'))return 0;
+  const matches=order.no?await orderTimelineQuery(DB.orders,{property:'訂單號',title:{equals:order.no}}).catch(()=>null):null;
+  const allowNumber=matches?.length===1&&canonicalPageId(matches[0].id)===canonicalPageId(order.id);
   await loadQCInspections({scope:'recent'});
   const targets=(window._qcInspections||[]).filter(ins=>
     ins.id!==sourceInspectionId&&
     (ins.result==='待檢驗'||!ins.result)&&
-    qcInspectionLinkedToOrder(ins,order.id,order.no)
+    qcInspectionLinkedToOrder(ins,order.id,order.no,allowNumber)
   );
   for(const ins of targets){
     await updatePage(ins.id,{'檢驗結果':{select:{name:'通過'}}});

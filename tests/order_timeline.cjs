@@ -5,6 +5,27 @@ const c=vm.createContext({canonicalPageId:x=>String(x||'').replace(/-/g,''),noti
   getRichText:(p,k)=>p[k]||'',getTitle:(p,k)=>p[k]||'',escapeHtml:x=>String(x).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))});
 vm.runInContext(html.slice(html.indexOf('function orderTimelineEvents'),html.indexOf('async function orderTimelineNotion')),c);
 const order={id:'abc-def',no:'ORDER-100',created:'2026-09-01',shipDate:'2026-09-07',deadline:'2026-09-08',status:'待出貨',qty:120};
+vm.runInContext(html.slice(html.indexOf('function qcInspectionLinkedToOrder'),html.indexOf('// ── 檢驗結果：通過')),c);
+test('QC synchronization never falls back from a different explicit ID to the same number',()=>{
+ assert.equal(c.qcInspectionLinkedToOrder({orderRefRaw:'other|ORDER-100'},order.id,order.no,true),false);
+ assert.equal(c.qcInspectionLinkedToOrder({orderRefRaw:'abcdef|OLD-NUMBER'},order.id,order.no,false),true);
+ assert.equal(c.qcInspectionLinkedToOrder({orderRefRaw:'ORDER-100'},order.id,order.no),false);
+ assert.equal(c.qcInspectionLinkedToOrder({orderRefRaw:'ORDER-100'},order.id,order.no,true),true);
+});
+test('QC writes require exact ID or a fresh unique-number match; lookup failures fail closed',async()=>{
+ for(const mode of ['unique','duplicate','failed']){
+  const writes=[];
+  const rows=[{id:'exact',orderRefRaw:'abcdef|ORDER-100',result:'待檢驗'},
+   {id:'wrong',orderRefRaw:'other|ORDER-100',result:'待檢驗'},
+   {id:'legacy',orderRefRaw:'ORDER-100',result:'待檢驗'}];
+  const ctx=vm.createContext({canonicalPageId:x=>String(x||'').replace(/-/g,''),DB:{orders:'db'},window:{_qcInspections:rows},
+   loadQCInspections:async()=>{},updatePage:async id=>writes.push(id),
+   orderTimelineQuery:async()=>{if(mode==='failed')throw Error('offline');return mode==='unique'?[order]:[order,{id:'other'}];}});
+  vm.runInContext(html.slice(html.indexOf('function qcInspectionLinkedToOrder'),html.indexOf('// ── 檢驗結果：通過')),ctx);
+  await ctx.syncLinkedOrderPendingInspections(order);
+  assert.deepEqual(writes,mode==='unique'?['exact','legacy']:['exact']);
+ }
+});
 const pick={id:'pick1',source_order_notion_page_id:order.id,pick_number:'PICK-20',created_at:'2026-09-02',picked_at:'2026-09-03',status:'已領料'};
 const qc=(ref)=>({id:'qc1',properties:{'關聯訂單號':ref,'檢驗單號':'QC-20','檢驗結果':{select:{name:'通過'}},'檢驗日期':{date:{start:'2026-09-04'}}}});
 test('timeline includes dated source records without inventing production milestones',()=>{

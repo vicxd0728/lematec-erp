@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## QC Association And Full Deployment Gate 2026-09-07
+
+- User approved findings 1 and 3 only; finding 2 (completed order with shortage picking) remains under user review.
+- Explicit QC order IDs never fall back to equal order numbers. Legacy references require a fresh unique order query; lookup failure permits only exact ID matching. Tests simulate writes for unique, duplicate and failed queries without touching production records.
+- Pages waits on the latest main-branch Worker workflow for its exact commit, rejects failed/cancelled runs and timeouts, then verifies the live Worker version and health before publishing.
+
 ## Read-Only Order Timeline 2026-09-07
 
 - User screenshot exposed a real-order gap: inventory isUuid rejected Notion v8 page IDs. Fixed the picking filter, administrative zero-stock log presentation, and Taiwan timestamps. Added real BUSA16-2-1156 read-only deployment smoke coverage. Before reporting acceptance, inspect this order in the authenticated production browser; fixture tests alone missed the original defect.

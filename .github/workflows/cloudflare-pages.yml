@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       deployments: write
 
     steps:
@@ -43,6 +44,13 @@ jobs:
             mkdir -p _publish/lematec-erp
             cp lematec-erp/index.html _publish/lematec-erp/index.html
           fi
+
+      - name: Wait for complete Worker acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: python scripts/wait_worker_acceptance.py
 
       - name: Verify Worker dependency matches this commit
         shell: bash

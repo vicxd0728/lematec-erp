@@ -2,6 +2,8 @@
 
 Updated: 2026-09-07
 
+QC synchronization now treats explicit order page IDs as authoritative; legacy number-only records require a fresh unique Notion order lookup. Failed or ambiguous lookups cannot permit number-based writes. Pages publication waits for the latest exact-commit Worker workflow to finish successfully, including deployed authorization and real-order read checks, before its existing version/health gate. Order/picking status discrepancies remain under user review and are not repaired by this release.
+
 This is the single current-state entry point. Use it before reading older timeline notes.
 
 ## Order Timeline Release 2026-09-07
