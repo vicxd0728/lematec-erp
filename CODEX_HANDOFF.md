@@ -342,3 +342,10 @@ GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.d
 - `supabase\INBOUND_RUNBOOK.md`
 - `ERP_OPEN_SOURCE_REFERENCES.md`
 - `ERP_REGRESSION_CHECKLIST.md`
+
+## 2026-09-07 Reliability GRILL Follow-up
+
+- Health v2 now separates stock retry work into `庫存操作明細` and `庫存異動 Notion 鏡像`.
+- A pending operation detail does not mean stock was not changed: the accepted quantity transaction remains evidenced in Supabase `inventory_transactions`.
+- The `可自動修復` summary action now calls the complete non-transactional retry path, so Notes and stock-log queues are included instead of retrying mirror queues only.
+- Retry actions must remain non-transactional. Do not add `/api/inventory/adjust`, `/api/inbound/action`, C-order number reservation, or any stock mutation to the reliability retry functions.

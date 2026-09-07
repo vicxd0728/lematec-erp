@@ -89,6 +89,31 @@ def test_reliability_center_all_retry_is_non_transactional():
     assert "/api/inbound/action" not in block
 
 
+def test_stock_log_retry_levels_are_visible_and_use_the_full_safe_retry():
+    reliability = function_block(
+        INDEX,
+        "function pendingStockLogCounts",
+        "async function loadReliabilitySummary",
+    )
+    center = function_block(
+        INDEX,
+        "function renderReliabilityCenter",
+        "function renderHealthRepairCenter",
+    )
+    retry = function_block(
+        INDEX,
+        "async function retryReliabilityModule",
+        "async function retryReliabilityMirrors",
+    )
+    assert "stock_log_detail" in reliability
+    assert "stock_log_notion" in reliability
+    assert "操作明細待補" in reliability
+    assert "Supabase 操作明細已存在" in reliability
+    assert 'card(\'auto\',\'可自動修復\',\'kpi-green\',"retryAllReliabilityWork()")' in reliability
+    assert "操作明細 ${stockLogPending.detail}" in center
+    assert "['stock_log','stock_log_detail','stock_log_notion'].includes(module)" in retry
+
+
 def test_inventory_adjustment_remains_supabase_first():
     block = function_block(
         INDEX,

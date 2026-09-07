@@ -7,10 +7,16 @@
 - ERP frontend still mirrors each stock operation log to Notion for backup and staff browsing.
 - ERP frontend reads stock operation logs from the Worker/Supabase first.
 - Notion is a readable mirror, not a frontend fallback or performance source.
-- If Supabase log writing fails, the ERP operation must surface an error instead of pretending success.
+- Every accepted quantity change is recorded atomically in Supabase
+  `inventory_transactions`; this is the formal stock-transaction evidence.
+- `erp_stock_logs` is the staff-readable operation timeline. If this secondary
+  detail write fails after the quantity transaction commits, the ERP must show
+  `操作明細待補`, retain a retry item, and must not repeat the quantity change.
 - If Supabase succeeds but Notion mirror fails, the log remains valid in Supabase and the Notion mirror is treated as pending repair.
 - Normal staff devices do not need a Supabase anon public key for stock logs.
-- If the Worker/Supabase write fails, the Notion mirror is not written first and the ERP operation reports failure.
+- If the Worker/Supabase `erp_stock_logs` write fails, the Notion mirror is not
+  written first. The committed inventory transaction remains valid and the
+  operation-detail retry stays visible in the reliability center.
 - If Supabase succeeds but the immediate Notion mirror fails, the frontend stores a visible retry task and the scheduled repair job completes the mirror.
 
 ## Frontend / Worker Routes
@@ -46,8 +52,12 @@ Local pending storage:
 lematec_stock_log_pending_v1
 ```
 
-This localStorage queue is the immediate delivery retry layer. Supabase remains
-the source of truth. Mirror-related retry tasks are additionally persisted in
+This localStorage queue is the immediate delivery retry layer. A row at stage
+`supabase` means the quantity transaction is already evidenced by
+`inventory_transactions`, while its staff-readable operation detail is pending.
+A row at stage `notion` or `mark_notion` means the Supabase operation detail is
+already valid and only the Notion mirror remains. Supabase remains the source of
+truth. Mirror-related retry tasks are additionally persisted in
 `public.erp_mirror_jobs`, so unfinished Notion mirror work can recover after a
 browser restart or from another signed-in device. The queue is retried when the
 device reconnects, when the stock-log page loads, and when the user presses the

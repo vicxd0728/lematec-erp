@@ -9983,6 +9983,14 @@ function localReliabilityQueueCounts(){
   counts.total=Object.values(counts).reduce((sum,value)=>sum+Number(value||0),0);
   return counts;
 }
+function pendingStockLogCounts(){
+  return readPendingStockLogs().reduce((counts,row)=>{
+    if(row?.stage==='supabase') counts.detail++;
+    else counts.notion++;
+    counts.total++;
+    return counts;
+  },{detail:0,notion:0,total:0});
+}
 function collectReliabilityCenterRows(){
   const rows=[];
   const addLocal=(source,module,label,items=[],hint='')=>{
@@ -10005,7 +10013,9 @@ function collectReliabilityCenterRows(){
   addLocal('本機','bom_notion','BOM Notion 鏡像',readPendingBomNotionMirrors(),'Supabase BOM 已接受後補 Notion 鏡像');
   addLocal('本機','notes_notion','記事 Notion 鏡像',readNotesNotionMirrorQueue(),'記事結構已寫入後補 Notion 鏡像');
   addLocal('本機','notes_shadow','記事 Supabase 影子',readNotesShadowRetryQueue(),'Notion 操作完成後補 Supabase read model');
-  addLocal('本機','stock_log','庫存異動記錄',readPendingStockLogs(),'Supabase/Notion 異動記錄補同步');
+  const pendingStockLogs=readPendingStockLogs();
+  addLocal('本機','stock_log_detail','庫存操作明細',pendingStockLogs.filter(row=>row?.stage==='supabase'),'庫存交易已留存；操作明細待補同步');
+  addLocal('本機','stock_log_notion','庫存異動 Notion 鏡像',pendingStockLogs.filter(row=>row?.stage!=='supabase'),'Supabase 操作明細已存在；Notion 鏡像待補同步');
   const jobs=Array.isArray(_reliabilityReport?.data?.jobs)?_reliabilityReport.data.jobs:[];
   jobs.slice(0,80).forEach(job=>{
     rows.push({
@@ -10032,6 +10042,8 @@ function reliabilityModuleLabel(module=''){
     notes_notion:'記事 Notion 鏡像',
     notes_shadow:'記事 Supabase 影子',
     stock_log:'庫存異動記錄',
+    stock_log_detail:'庫存操作明細',
+    stock_log_notion:'庫存異動 Notion 鏡像',
   })[module]||module||'補同步工作';
 }
 function reliabilityRowResolution(row={}){
@@ -10045,6 +10057,12 @@ function reliabilityRowResolution(row={}){
   }
   if(row.module==='inventory_notion'&&(/valid uuid|path\.page_id|^supabase:/i.test(err)||/^supabase:/i.test(id))){
     return {kind:'auto',label:'可自動修復',detail:'會先把 Supabase 料件 ID 解析成 Notion page ID 再補同步。'};
+  }
+  if(row.module==='stock_log_detail'){
+    return {kind:'auto',label:'操作明細待補',detail:'庫存交易已由 Supabase 留存，不會重複扣料；可補回人員易讀的操作明細。'};
+  }
+  if(row.module==='stock_log_notion'){
+    return {kind:'auto',label:'鏡像待補',detail:'Supabase 操作明細已存在，只需補 Notion 查閱鏡像。'};
   }
   if(['inventory_supabase','inventory_notion','workflow_notion','bom_notion','notes_notion','notes_shadow','stock_log'].includes(row.module)){
     return {kind:'auto',label:'可自動修復',detail:'可由補同步按鈕重試，不會重複已完成的庫存交易。'};
@@ -10066,7 +10084,7 @@ function renderReliabilityV2Summary(rows=[],missing={}){
   </div>`;
   return `<div style="margin-bottom:12px" data-contract="RELIABILITY_CENTER_V2">
     <div class="dash-kpi-grid">
-      ${card('auto','可自動修復','kpi-green',"retryReliabilityMirrors()")}
+      ${card('auto','可自動修復','kpi-green',"retryAllReliabilityWork()")}
       ${card('missing','缺資料 / 缺鏡像','kpi-amber',"loadReliabilitySummary()")}
       ${card('manual','需人工處理','kpi-red',"loadReliabilitySummary()")}
       <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div><div style="margin-top:9px"><button class="btn btn-ghost btn-xs" onclick="loadReliabilitySummary()">重新檢查</button></div></div>
@@ -10212,11 +10230,11 @@ function renderReliabilityCenter(){
   const jobs=data.mirror_jobs||{};
   const missing=data.missing_notion_mirrors||{};
   const notesShadowPending=readNotesShadowRetryQueue().length;
-  const stockLogPending=readPendingStockLogs().length;
+  const stockLogPending=pendingStockLogCounts();
   const missingTotal=Object.values(missing).reduce((sum,value)=>sum+Number(value||0),0);
   const pending=Number(jobs.pending||0);
   const failed=Number(jobs.failed||0);
-  const allPending=local.total+notesShadowPending+stockLogPending+pending+failed+missingTotal;
+  const allPending=local.total+notesShadowPending+stockLogPending.total+pending+failed+missingTotal;
   const level=report.error?'err':failed||rows.some(row=>row.status==='failed'||row.attempts>=5)?'err':allPending?'warn':'ok';
   const label=report.running?'檢查中':report.error?'ERROR':level==='ok'?'OK':level==='err'?'ERROR':'WARN';
   const oldest=jobs.oldest_created_at?new Date(jobs.oldest_created_at).toLocaleString('zh-TW',{hour12:false}):'—';
@@ -10227,13 +10245,13 @@ function renderReliabilityCenter(){
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        Supabase 是庫存、BOM、領料、入料、記事結構與異動記錄的主資料；Notion 是人工查閱鏡像與附件來源。主流程成功後若鏡像暫時失敗，系統會保留補同步工作，不會回滾或重複已完成的庫存交易。
+        Supabase 是庫存、BOM、領料、入料、記事結構與異動記錄的主資料；Notion 是人工查閱鏡像與附件來源。庫存交易會先留下正式交易證據，再補人員易讀的操作明細與 Notion 鏡像；補同步不會重複扣料。
       </div>
       ${renderReliabilityV2Summary(rows,missing)}
       <div class="dash-kpi-grid">
         <div class="kpi-card ${pending?'kpi-amber':'kpi-green'}"><div class="kpi-label">伺服器待補同步</div><div class="kpi-num">${pending}</div><div class="kpi-sub">最早 ${oldest}</div></div>
         <div class="kpi-card ${failed?'kpi-red':'kpi-green'}"><div class="kpi-label">重試失敗</div><div class="kpi-num">${failed}</div><div class="kpi-sub">達 5 次需人工處理</div></div>
-        <div class="kpi-card ${local.total+notesShadowPending+stockLogPending?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total+notesShadowPending+stockLogPending}</div><div class="kpi-sub">鏡像 ${local.total} / 記事 ${notesShadowPending} / 異動 ${stockLogPending}</div></div>
+        <div class="kpi-card ${local.total+notesShadowPending+stockLogPending.total?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total+notesShadowPending+stockLogPending.total}</div><div class="kpi-sub">鏡像 ${local.total+stockLogPending.notion} / 記事 ${notesShadowPending} / 操作明細 ${stockLogPending.detail}</div></div>
         <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">Notion 鏡像缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -10324,7 +10342,7 @@ async function retryReliabilityModule(module=''){
     else if(module==='bom_notion') await flushPendingBomNotionMirrors();
     else if(module==='notes_notion') await flushNotesNotionMirrorQueue({quiet:true});
     else if(module==='notes_shadow') await retryNotesShadowQueue({force:true,quiet:true});
-    else if(module==='stock_log') await flushPendingStockLogs({quiet:true,max:50});
+    else if(['stock_log','stock_log_detail','stock_log_notion'].includes(module)) await flushPendingStockLogs({quiet:true,max:50});
     else await flushReliableMirrorQueues({quiet:true});
     await loadReliabilitySummary({quiet:true});
     showToast(`✅ ${label} 已重試`,'ok');
@@ -11720,12 +11738,14 @@ function renderAnalytics(){
 
 function renderStockLog(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
-  const pendingCount=readPendingStockLogs().length;
+  const pendingCounts=pendingStockLogCounts();
+  const pendingCount=pendingCounts.total;
   const syncStatus=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:${stockLogLoadError?'rgba(255,91,112,.08)':'rgba(61,220,151,.07)'};border:1px solid ${stockLogLoadError?'rgba(255,91,112,.32)':'rgba(61,220,151,.22)'};border-radius:8px">
     <div style="font-size:.72rem;color:${stockLogLoadError?'var(--red2)':'var(--text2)'}">
       <b>${stockLogLoadError?'異動紀錄暫時無法讀取':'Supabase 主資料已連線'}</b>
       <span style="margin-left:7px">${stockLogLoadError?escapeHtml(stockLogLoadError):`近 ${FIRST_LOAD_DAYS} 天優先載入；Notion 為查閱鏡像。`}</span>
-      ${pendingCount?`<span style="margin-left:7px;color:var(--yellow)">待補同步 ${pendingCount} 筆</span>`:''}
+      ${pendingCounts.detail?`<span style="margin-left:7px;color:var(--yellow)">操作明細待補 ${pendingCounts.detail} 筆</span>`:''}
+      ${pendingCounts.notion?`<span style="margin-left:7px;color:var(--text3)">Notion 鏡像待補 ${pendingCounts.notion} 筆</span>`:''}
     </div>
     ${(stockLogLoadError||pendingCount)?`<button class="btn btn-ghost btn-xs" onclick="retryStockLogSync()">重新同步</button>`:''}
   </div>`;

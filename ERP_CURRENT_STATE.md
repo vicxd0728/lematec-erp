@@ -81,6 +81,13 @@ Done locally in the current optimization batch: Preflight Center v1 / Preflight 
 - The audit never changes inventory while classifying historical rows.
 - Live read-only verification on 2026-09-07 loaded 7,253 rows: 1,475 current operational rows and 5,778 historical Notion backfill rows. Current quantity-math issues were 0; 270 unverifiable legacy rows were retained as historical references.
 
+## Stock Evidence And Retry Semantics 2026-09-07
+
+- Accepted quantity changes are recorded atomically in Supabase `inventory_transactions`; this is the formal evidence that stock changed.
+- `erp_stock_logs` is the staff-readable operation timeline. If its Supabase write is temporarily unavailable after a stock transaction, the ERP shows `操作明細待補` and retains a local retry item.
+- If `erp_stock_logs` already exists and only Notion is missing, the ERP shows `Notion 鏡像待補` separately.
+- Health v2's `可自動修復` action now runs the complete safe retry set, including mirror queues, Notes shadow, and stock operation details. It does not invoke inventory adjustment, inbound approval, C-order reservation, or any other quantity-changing endpoint.
+
 ## Known Cleanup
 
 - `CODEX_HANDOFF.md` remains a timeline and contains older resolved blocker text. Prefer this file for current state.

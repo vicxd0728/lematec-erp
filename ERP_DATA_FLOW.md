@@ -7,6 +7,7 @@ This section overrides older dated timeline sections below when they conflict.
 - Supabase-primary: inventory master and balances, BOM, stock logs, picking, inbound/QC, and Notes structured data.
 - Notion-primary: B2B orders, customers, leave, schedule, C-end/Shopee order pages, and Notes attachment/detail blocks.
 - Supabase-primary writes must succeed before the ERP reports success. Notion mirror failures become retry work and must never replay a stock transaction.
+- For quantity changes, `inventory_transactions` is written atomically with the balance and is the formal transaction evidence. `erp_stock_logs` is the staff-readable operation timeline; a delayed timeline row is shown as `操作明細待補`, not as a missing quantity transaction.
 - `notion_backfill` stock-log rows are historical evidence. Their incomplete legacy before/after balances are not actionable current errors and must not trigger automatic inventory repair.
 - Direct Notion edits are not a verified two-way write path unless a current module-specific sync contract says otherwise.
 
