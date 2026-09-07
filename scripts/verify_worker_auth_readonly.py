@@ -59,11 +59,18 @@ def main():
         with urlopen(Request('https://green-wave-c22f.vic-e93.workers.dev'+path,headers={'User-Agent':user_agent}),timeout=30) as response:
             picking=json.load(response)
         rows=picking.get('rows')
-        if picking.get('ok') is not True or not isinstance(rows,list) or not rows:
-            raise RuntimeError('Reported real order picking read failed or empty')
+        if picking.get('ok') is not True or not isinstance(rows,list):
+            raise RuntimeError('Reported real order picking read failed')
         if any(row.get('source_order_notion_page_id','').replace('-','')!=order_id.replace('-','') for row in rows):
             raise RuntimeError('Unrelated picking appeared in reported order')
         print(f'Reported order {order_no}: unique order and {len(rows)} linked picking records verified (read-only)')
+        positive_id='3c9ff6f4-24bb-81ad-9798-e0ebf3847f44'
+        with urlopen(Request('https://green-wave-c22f.vic-e93.workers.dev/api/picking/list?'+urlencode({'order_id':positive_id}),headers={'User-Agent':user_agent}),timeout=30) as response:
+            positive=json.load(response)
+        if positive.get('ok') is not True or not positive.get('rows') or any(row.get('source_order_notion_page_id')!=positive_id for row in positive['rows']):
+            raise RuntimeError('Known v8 order positive picking regression failed')
+        print(f"Known v8 order: {len(positive['rows'])} directly linked picking records verified (read-only)")
+
 
 
 if __name__ == "__main__":

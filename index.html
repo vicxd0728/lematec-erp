@@ -15538,7 +15538,7 @@ function orderTimelineEvents(order,picking=[],inspections=[],logs=[],allowNumber
     if(!allowNumber||!order.no||log.ref_no!==order.no)continue;
     const quantityMove=Number(log.quantity)!==0&&Number(log.before_stock)!==Number(log.after_stock);
     const action=log.original_action||log.change_type||'操作紀錄';
-    if(!quantityMove&&action==='新增訂單')continue; // Creation already has a dated order-page event.
+    if(!quantityMove&&['新增訂單','建立訂單'].includes(action))continue; // Creation already has a dated order-page event.
     add(`stock:${log.id}`,log.change_date,quantityMove?(log.change_type||'庫存異動'):action,
       quantityMove?`${log.material_code||''} · ${log.before_stock??'—'} → ${log.after_stock??'—'} · ${log.operator_role||'未填人員'}${log.source==='notion_backfill'?' · 歷史匯入':''}`:
       `${log.operator_role||'未填人員'} · ${log.note||'操作紀錄，無庫存數量變動'}`,

@@ -45,7 +45,7 @@ test('Worker picking filter is exact and rejects malformed order IDs',async()=>{
 });
 test('zero-quantity admin actions are not stock moves or duplicate creation',()=>{
  const events=c.orderTimelineEvents(order,[],[],[
-  {id:'a',ref_no:order.no,quantity:0,before_stock:0,after_stock:0,original_action:'新增訂單'},
+  {id:'a',ref_no:order.no,quantity:0,before_stock:0,after_stock:0,original_action:'建立訂單'},
   {id:'b',ref_no:order.no,quantity:0,before_stock:0,after_stock:0,original_action:'編輯訂單',operator_role:'sales'},
  ]);
  assert.equal(events.length,3);assert.equal(events.at(-1).title,'編輯訂單');assert(!events.at(-1).detail.includes('→'));
