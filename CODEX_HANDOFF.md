@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Inspection Quantity And Freshness Guards 2026-09-07
+
+- User approved quantity validation and stale-QC synchronization fixes only. Missing-material completion and the order/picking discrepancy remain outside this release.
+- Inspection quantities require safe nonnegative integers, defective <= inspected, and positive net quantity for manual stock-in. Validation occurs before creating records.
+- QC sync forces a fresh list, rereads each page and compares result, reference and last-edited time before writing, then verifies the saved result/reference. Changed records are skipped; readback failures stop without retry. Notion read-then-write is not atomic CAS; concurrent edits between read and write remain a limitation.
+- Tests cover negative/fractional/invalid quantities, zero net stock-in, fresh failures, changed versions and conflicting readback without production mutations.
+
 ## QC Association And Full Deployment Gate 2026-09-07
 
 - User approved findings 1 and 3 only; finding 2 (completed order with shortage picking) remains under user review.

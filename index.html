@@ -14958,9 +14958,9 @@ async function submitInspection(){
   const selectedMat = mats.find(m=>m.id===selectedMatId);
   const matName = (document.getElementById('ins_mat').value.trim() || selectedMat?.name || selectedMat?.code || '');
   const matCode = (document.getElementById('ins_code').value.trim() || selectedMat?.code || '');
-  const qtyReq  = parseInt(document.getElementById('ins_qtyreq').value)||0;
-  const qtyAct  = parseInt(document.getElementById('ins_qtyact').value)||0;
-  const qtyBad  = parseInt(document.getElementById('ins_qtybad').value)||0;
+  const qtyReq  = Number(document.getElementById('ins_qtyreq').value);
+  const qtyAct  = Number(document.getElementById('ins_qtyact').value);
+  const qtyBad  = Number(document.getElementById('ins_qtybad').value);
   const type     = document.getElementById('ins_type').value;
   const date     = document.getElementById('ins_date').value;
   const result   = document.getElementById('ins_result').value;
@@ -14975,6 +14975,13 @@ async function submitInspection(){
 
   if(!matName){ showToast('請填入品項名稱','warn'); return; }
   if(!date){ showToast('請填入檢驗日期','warn'); return; }
+  if(![qtyReq,qtyAct,qtyBad].every(n=>Number.isSafeInteger(n)&&n>=0)){
+    showToast('檢驗數量必須是零或正整數','warn');return;
+  }
+  if(qtyBad>qtyAct){showToast('不良數量不得超過實檢數量','warn');return;}
+  if(!orderId&&toStock&&(result==='通過'||result==='條件通過')&&qtyAct-qtyBad<=0){
+    showToast('入庫數量必須大於零；請確認實檢與不良數量','warn');return;
+  }
 
   // 手動新增且勾選料號入庫：需選料件
   const isManual = !orderId;
@@ -20346,6 +20353,7 @@ async function loadQCInspections(options={}){
       id:       p.id,
       no:       p.properties?.['檢驗單號']?.title?.[0]?.plain_text||'',
       orderRefRaw: p.properties?.['關聯訂單號']?.rich_text?.[0]?.plain_text||'',
+      lastEditedTime:p.last_edited_time||'',
       get orderRef(){ const r=this.orderRefRaw; return r.includes('|')?r.split('|')[1]:r; },
       get orderId(){ const r=this.orderRefRaw; return r.includes('|')?r.split('|')[0]:''; },
       matName:  p.properties?.['品項名稱']?.rich_text?.[0]?.plain_text||
@@ -20387,17 +20395,34 @@ async function syncLinkedOrderPendingInspections(order,result='通過',sourceIns
   if(!order||!(result==='通過'||result==='條件通過'))return 0;
   const matches=order.no?await orderTimelineQuery(DB.orders,{property:'訂單號',title:{equals:order.no}}).catch(()=>null):null;
   const allowNumber=matches?.length===1&&canonicalPageId(matches[0].id)===canonicalPageId(order.id);
-  await loadQCInspections({scope:'recent'});
+  await loadQCInspections({scope:'recent',force:true});
+  if(window._qcInspectionsError)throw new Error('品檢重新讀取失敗，未執行同步');
   const targets=(window._qcInspections||[]).filter(ins=>
     ins.id!==sourceInspectionId&&
     (ins.result==='待檢驗'||!ins.result)&&
     qcInspectionLinkedToOrder(ins,order.id,order.no,allowNumber)
   );
+  let updated=0;
   for(const ins of targets){
+    const page=await orderTimelineNotion('GET',`pages/${ins.id}`);
+    const currentResult=page.properties?.['檢驗結果']?.select?.name||'';
+    const currentRef=getRichText(page.properties||{},'關聯訂單號');
+    if(page.object!=='page'||page.archived||page.in_trash||
+      (ins.lastEditedTime&&page.last_edited_time!==ins.lastEditedTime)||
+      !qcInspectionLinkedToOrder({orderRefRaw:currentRef},order.id,order.no,allowNumber)||
+      currentRef.trim()!==String(ins.orderRefRaw||ins.orderRef||'').trim()||
+      (currentResult!=='待檢驗'&&currentResult!==''))continue;
     await updatePage(ins.id,{'檢驗結果':{select:{name:'通過'}}});
+    const saved=await orderTimelineNotion('GET',`pages/${ins.id}`);
+    if(saved.object!=='page'||saved.archived||saved.in_trash||
+      saved.properties?.['檢驗結果']?.select?.name!=='通過'||
+      getRichText(saved.properties||{},'關聯訂單號')!==currentRef){
+      throw new Error('品檢同步回讀不一致，請重新確認；未自動重試');
+    }
     ins.result='通過';
+    updated++;
   }
-  return targets.length;
+  return updated;
 }
 
 

@@ -19,7 +19,9 @@ test('QC writes require exact ID or a fresh unique-number match; lookup failures
    {id:'wrong',orderRefRaw:'other|ORDER-100',result:'待檢驗'},
    {id:'legacy',orderRefRaw:'ORDER-100',result:'待檢驗'}];
   const ctx=vm.createContext({canonicalPageId:x=>String(x||'').replace(/-/g,''),DB:{orders:'db'},window:{_qcInspections:rows},
-   loadQCInspections:async()=>{},updatePage:async id=>writes.push(id),
+   getRichText:(p,k)=>p[k]||'',
+   orderTimelineNotion:async(method,endpoint)=>{const row=rows.find(r=>endpoint==='pages/'+r.id);return {object:'page',properties:{'關聯訂單號':row.orderRefRaw,'檢驗結果':{select:{name:writes.includes(row.id)?'通過':row.result}}}};},
+   loadQCInspections:async opts=>assert.equal(opts.force,true),updatePage:async id=>writes.push(id),
    orderTimelineQuery:async()=>{if(mode==='failed')throw Error('offline');return mode==='unique'?[order]:[order,{id:'other'}];}});
   vm.runInContext(html.slice(html.indexOf('function qcInspectionLinkedToOrder'),html.indexOf('// ── 檢驗結果：通過')),ctx);
   await ctx.syncLinkedOrderPendingInspections(order);
@@ -27,6 +29,29 @@ test('QC writes require exact ID or a fresh unique-number match; lookup failures
  }
 });
 const pick={id:'pick1',source_order_notion_page_id:order.id,pick_number:'PICK-20',created_at:'2026-09-02',picked_at:'2026-09-03',status:'已領料'};
+test('QC rechecks results and versions; readback mismatch is not counted as success',async()=>{
+ for(const mode of ['failed-result','changed-version','readback-mismatch']){
+  const writes=[];let reads=0;
+  const ctx=vm.createContext({canonicalPageId:x=>String(x||'').replace(/-/g,''),DB:{orders:'db'},
+   window:{_qcInspections:[{id:'q',orderRefRaw:'abcdef|ORDER-100',result:'待檢驗',lastEditedTime:'v1'}]},
+   getRichText:(p,k)=>p[k]||'',loadQCInspections:async()=>{},orderTimelineQuery:async()=>[order],
+   updatePage:async id=>writes.push(id),orderTimelineNotion:async()=>({object:'page',last_edited_time:mode==='changed-version'?'v2':'v1',properties:{'關聯訂單號':'abcdef|ORDER-100','檢驗結果':{select:{name:++reads>1||mode==='failed-result'?'不通過':'待檢驗'}}}})});
+  vm.runInContext(html.slice(html.indexOf('function qcInspectionLinkedToOrder'),html.indexOf('// ── 檢驗結果：通過')),ctx);
+  if(mode==='readback-mismatch')await assert.rejects(ctx.syncLinkedOrderPendingInspections(order),/回讀不一致/);
+  else assert.equal(await ctx.syncLinkedOrderPendingInspections(order),0);
+  assert.equal(writes.length,mode==='readback-mismatch'?1:0);
+ }
+});
+test('invalid inspection quantities stop before creating records or inventory writes',async()=>{
+ const src=html.slice(html.indexOf('async function submitInspection(){'),html.indexOf('function renderDashboard(){'));
+ for(const [actual,bad] of [['10','15'],['-1','0'],['1.5','0'],['NaN','0'],['10','10']]){
+  let closed=false;const notices=[];
+  const values={ins_mat:'part',ins_date:'2026-09-07',ins_qtyreq:'10',ins_qtyact:actual,ins_qtybad:bad,ins_result:'通過'};
+  const ctx=vm.createContext({document:{getElementById:id=>({value:values[id]||'',checked:id==='ins_to_stock'})},
+   mats:[],_qcPhotoFiles:[],showToast:x=>notices.push(x),closeModal:()=>{closed=true;throw Error('must not reach write phase');}});
+  vm.runInContext(src,ctx);await ctx.submitInspection();assert.equal(closed,false);assert.equal(notices.length,1);
+ }
+});
 const qc=(ref)=>({id:'qc1',properties:{'關聯訂單號':ref,'檢驗單號':'QC-20','檢驗結果':{select:{name:'通過'}},'檢驗日期':{date:{start:'2026-09-04'}}}});
 test('timeline includes dated source records without inventing production milestones',()=>{
  const events=c.orderTimelineEvents(order,[pick],[qc('abcdef|ORDER-100')],[]);
