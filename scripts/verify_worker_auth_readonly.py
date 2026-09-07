@@ -14,7 +14,8 @@ def main():
     if not token:
         raise RuntimeError("Existing NOTION_TOKEN secret is required for compatibility verification")
     database_id = "43d801b4-a787-4101-bd12-d8b8199385c7"
-    headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28"}
+    user_agent = "lematec-erp-auth-check/1.0"
+    headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28", "User-Agent": user_agent}
     with urlopen(Request(f"https://api.notion.com/v1/databases/{database_id}", headers=headers), timeout=30) as response:
         data = json.load(response)
     if data.get("object") != "database" or data.get("id", "").replace("-", "") != database_id.replace("-", ""):
@@ -22,13 +23,13 @@ def main():
     print("Existing integration can read the ERP login database: PASS")
     if args.stage == "deployed":
         url = "https://green-wave-c22f.vic-e93.workers.dev/api/reliability/summary"
-        with urlopen(Request(url, headers={"Authorization": f"Bearer {token}"}), timeout=30) as response:
+        with urlopen(Request(url, headers={"Authorization": f"Bearer {token}", "User-Agent": user_agent}), timeout=30) as response:
             data = json.load(response)
         if data.get("error") or data.get("ok") is False:
             raise RuntimeError("Protected Worker read rejected the existing integration")
         print("Deployed protected Worker read with existing integration: PASS")
         try:
-            urlopen(Request(url), timeout=30).close()
+            urlopen(Request(url, headers={"User-Agent": user_agent}), timeout=30).close()
         except HTTPError as error:
             if error.code != 401:
                 raise RuntimeError(f"Anonymous protected read returned HTTP {error.code}") from None
@@ -42,5 +43,6 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         # Do not log response bodies, headers, or credential-bearing objects.
-        print(f"Authorization compatibility verification failed: {type(error).__name__}")
+        status = f" HTTP {error.code}" if isinstance(error, HTTPError) else ""
+        print(f"Authorization compatibility verification failed: {type(error).__name__}{status}")
         raise SystemExit(1)
