@@ -1,6 +1,6 @@
 # LEMATEC ERP Worker API Contract
 
-Updated: 2026-08-04
+Updated: 2026-09-07
 
 Worker source: `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`.
 
@@ -47,6 +47,8 @@ This file classifies Worker routes by side effect and production safety. Before 
 | POST | `/api/stock-log/sync` | Mutating | Writes stock log to Supabase | Dedupes by `client_trace_id`; do not write test logs to production casually. |
 | GET | `/api/stock-log/list` | Read-only | Reads stock logs | Safe read. Supports recent/all/pending modes. |
 | POST | `/api/stock-log/mark-notion` | Migration / repair | Marks Notion mirror page ID on Supabase log | Mirror repair only. |
+| GET | `/api/stock-log/reconcile` | Read-only | Compares recent inventory transactions with operation-detail rows | Authorized read; does not change stock or logs. |
+| POST | `/api/stock-log/reconcile` | Migration / repair | Inserts missing staff-readable operation-detail rows derived from formal transactions | Requires `apply: true`; never changes inventory balances. |
 | POST | `/api/notes/shadow/sync` | Migration / repair / Mutating | Syncs Notion Notes into Supabase shadow | Use with care; can update shadow rows. |
 | GET | `/api/notes/shadow/list` | Read-only | Reads Notes read model | Safe read. |
 | GET | `/api/notes/shadow/summary` | Read-only | Reads Notes summary/counts | Safe read. |
@@ -124,6 +126,13 @@ Repeated retries must return or repair the existing accepted truth; they must no
 - Do not put PostgreSQL URLs, service role keys, Notion tokens, or Cloudflare tokens in frontend code, reports, commits, screenshots, or chat output.
 - Normal ERP devices do not need Supabase anon keys for inventory, BOM, picking, inbound, or stock log operation.
 - Device-local Supabase anon key is only for optional diagnostic comparisons.
+
+## Operational Role Enforcement
+
+- Mutating `/api/...` routes validate the ERP bearer token and `X-ERP-Role` before route execution.
+- The generic Notion proxy and Notion file-upload path block viewer writes.
+- Trusted automation using the Worker's configured integration token may omit the role header and is treated as `system` so existing workflows remain compatible.
+- Because staff currently share an integration token and select a frontend role, this matrix prevents accidental or ordinary out-of-role operations; it is not cryptographic proof of an individual employee. Individual authorization requires a future Supabase Auth or company SSO cutover.
 
 ## When Updating This File
 

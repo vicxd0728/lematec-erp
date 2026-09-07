@@ -33,6 +33,8 @@ Required Worker routes:
 POST /api/stock-log/sync
 GET  /api/stock-log/list
 POST /api/stock-log/mark-notion
+GET  /api/stock-log/reconcile
+POST /api/stock-log/reconcile
 ```
 
 `POST /api/stock-log/sync` accepts one stock log item from the ERP frontend and
@@ -45,6 +47,12 @@ the recent 30-day window first and only requests the full history when needed.
 `POST /api/stock-log/mark-notion` is used by the repair job after a Supabase log
 has been mirrored to Notion. It writes the Notion page id back to
 `erp_stock_logs.notion_page_id`, so future repair runs do not duplicate pages.
+
+`GET /api/stock-log/reconcile?days=60` performs an authorized dry comparison of
+formal `inventory_transactions` against `erp_stock_logs`. `POST` with
+`{"apply":true}` inserts only missing staff-readable detail rows using stable
+transaction trace keys. It does not call inventory adjustment RPCs, does not
+change balances, and can be retried from another device without replaying stock.
 
 Local pending storage:
 

@@ -3,11 +3,13 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-ERP-Role',
     };
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
     const url = new URL(request.url);
+    const roleDenied = await enforceErpRouteRole(request, env, cors, url.pathname, request.method);
+    if (roleDenied) return roleDenied;
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
@@ -86,6 +88,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/stock-log/mark-notion') {
       return erpStockLogMarkNotion(request, env, cors);
     }
+    if ((request.method === 'GET' || request.method === 'POST') && url.pathname === '/api/stock-log/reconcile') {
+      return erpStockLogReconcile(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/notes/shadow/sync') {
       return erpNotesShadowSync(request, env, cors);
     }
@@ -148,6 +153,7 @@ export default {
       try {
         const fd = await request.formData();
         const action = fd.get('action') || '';
+        const uploadRole = cleanText(request.headers.get('X-ERP-Role') || fd.get('role') || '').toLowerCase();
 
         // ── 品檢照片上傳到 Notion ──
         if (action === 'notionFileUpload') {
@@ -155,6 +161,9 @@ export default {
           const file = fd.get('file');
 
           if (!token) return resp400(cors, 'Missing token');
+          if (uploadRole === 'viewer') {
+            return new Response(JSON.stringify({error: '檢視角色僅供查看，Worker 已阻擋檔案寫入'}), {status: 403, headers: jh(cors)});
+          }
           if (!file) return resp400(cors, 'No file provided');
           if (typeof file.size !== 'number' || file.size <= 0) {
             return resp400(cors, 'Empty file is not allowed');
@@ -253,7 +262,7 @@ export default {
 
     // ── Notion API 代理 ──
     try {
-      const { token, method, endpoint, body, downloadUrl, notionVersion, cacheEpoch } = await request.json();
+      const { token, role, method, endpoint, body, downloadUrl, notionVersion, cacheEpoch } = await request.json();
       const notionVersionHeader = notionVersion || '2022-06-28';
 
       if (downloadUrl) {
@@ -273,6 +282,11 @@ export default {
       }
 
       const normalizedMethod = String(method || 'GET').toUpperCase();
+      if (['PATCH', 'DELETE'].includes(normalizedMethod) || (normalizedMethod === 'POST' && !/\/query(?:\?|$)/.test(endpoint || '') && endpoint !== 'search')) {
+        if (cleanText(role).toLowerCase() === 'viewer') {
+          return new Response(JSON.stringify({error: '檢視角色僅供查看，Worker 已阻擋寫入'}), {status: 403, headers: jh(cors)});
+        }
+      }
       const cacheable = normalizedMethod === 'GET' || (normalizedMethod === 'POST' && /\/query(?:\?|$)/.test(endpoint || ''));
       const cacheKey = cacheable
         ? await notionReadCacheKey(request.url, token, normalizedMethod, endpoint, body, notionVersionHeader, cacheEpoch)
@@ -2588,6 +2602,133 @@ async function erpStockLogMarkNotion(request, env, cors) {
   }
 }
 
+function stockLogNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Number(number.toFixed(4)) : 0;
+}
+
+function stockLogTransactionKey(refNo, sku, beforeStock, afterStock, quantity) {
+  return [
+    cleanText(refNo).toUpperCase(),
+    cleanSku(sku).toUpperCase(),
+    stockLogNumber(beforeStock),
+    stockLogNumber(afterStock),
+    Math.abs(stockLogNumber(quantity)),
+  ].join('|');
+}
+
+function transactionDisplayType(transactionType, delta) {
+  const type = cleanText(transactionType);
+  if (type === '取消回料') return 'C端退料';
+  if (type === '入料入庫' || type === '生產完成') return '入料';
+  if (type === '領料扣除') return '領料';
+  if (type === 'C端出貨') return 'C端出貨';
+  if (type === '盤點調整' || type === '合併料號') return '手動調整';
+  return Number(delta) < 0 ? '領料' : Number(delta) > 0 ? '入料' : '手動調整';
+}
+
+function taipeiDateFromTimestamp(value) {
+  const date = new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return taipeiDateString();
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+}
+
+async function buildStockLogReconcilePlan(env, days = 60) {
+  const context = await getSupabaseInventoryContext(env);
+  const organizationId = context.organization.id;
+  const since = new Date(Date.now() - Math.max(1, Math.min(180, days)) * 86400000).toISOString();
+  const sinceDate = since.slice(0, 10);
+  const [transactions, materials, logs] = await Promise.all([
+    supabaseAll(env, `/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organizationId)}&occurred_at=gte.${encodeURIComponent(since)}&select=id,material_id,transaction_type,quantity_delta,quantity_before,quantity_after,source_number,reason,occurred_at,created_at&order=occurred_at.asc`),
+    supabaseAll(env, `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id,sku,name`),
+    supabaseAll(env, `/rest/v1/erp_stock_logs?change_date=gte.${encodeURIComponent(sinceDate)}&select=id,material_code,ref_no,before_stock,after_stock,quantity,client_trace_id`),
+  ]);
+  const materialById = new Map(materials.map(row => [cleanText(row.id), row]));
+  const existingTraces = new Set(logs.map(row => cleanText(row.client_trace_id)).filter(Boolean));
+  const existingKeys = new Set(logs.map(row => stockLogTransactionKey(
+    row.ref_no, row.material_code, row.before_stock, row.after_stock, row.quantity
+  )));
+  const missing = [];
+  for (const tx of transactions) {
+    const material = materialById.get(cleanText(tx.material_id));
+    if (!material?.sku) continue;
+    const trace = `inventory-tx:${tx.id}`;
+    const refNo = cleanText(tx.source_number || tx.id);
+    const key = stockLogTransactionKey(refNo, material.sku, tx.quantity_before, tx.quantity_after, tx.quantity_delta);
+    if (existingTraces.has(trace) || existingKeys.has(key)) continue;
+    const changeType = transactionDisplayType(tx.transaction_type, tx.quantity_delta);
+    const date = taipeiDateFromTimestamp(tx.occurred_at || tx.created_at);
+    missing.push({
+      transaction_id: tx.id,
+      client_trace_id: trace,
+      notion_page_id: null,
+      item_title: `${date} ${changeType} ${material.name || material.sku}`,
+      material_id: cleanText(material.notion_page_id || material.id),
+      material_name: cleanText(material.name || material.sku),
+      material_code: cleanSku(material.sku),
+      change_type: changeType,
+      original_action: cleanText(tx.reason || tx.transaction_type || changeType),
+      quantity: Math.abs(stockLogNumber(tx.quantity_delta)),
+      before_stock: stockLogNumber(tx.quantity_before),
+      after_stock: stockLogNumber(tx.quantity_after),
+      change_date: date,
+      ref_no: refNo,
+      operator_role: '系統修復',
+      note: `由 Supabase 正式庫存交易 ${tx.id} 重建`,
+      source: 'inventory_reconcile',
+    });
+  }
+  return {days, checked: transactions.length, missing};
+}
+
+async function erpStockLogReconcile(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const url = new URL(request.url);
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+    const days = Math.max(1, Math.min(180, Number(body?.days || url.searchParams.get('days') || 60)));
+    const apply = request.method === 'POST' && body?.apply === true;
+    const max = Math.max(1, Math.min(500, Number(body?.max || 200)));
+    const plan = await buildStockLogReconcilePlan(env, days);
+    const selected = plan.missing.slice(0, max);
+    let repaired = 0;
+    if (apply && selected.length) {
+      for (const row of selected) {
+        const {transaction_id, ...insertRow} = row;
+        try {
+          await supabaseFetch(env, '/rest/v1/erp_stock_logs?select=id', {
+            method: 'POST', headers: {Prefer: 'return=representation'}, body: JSON.stringify(insertRow),
+          });
+          repaired++;
+        } catch (error) {
+          if (!/duplicate|unique/i.test(String(error?.message || error))) throw error;
+        }
+      }
+    }
+    return respOK(cors, {
+      ok: true,
+      dry_run: !apply,
+      days,
+      checked_transactions: plan.checked,
+      missing_count: plan.missing.length,
+      repaired_count: repaired,
+      remaining_count: Math.max(0, plan.missing.length - repaired),
+      items: selected.slice(0, 50).map(row => ({
+        transaction_id: row.transaction_id,
+        ref_no: row.ref_no,
+        material_code: row.material_code,
+        quantity: row.quantity,
+        change_date: row.change_date,
+      })),
+      checked_at: taipeiISOString(),
+    });
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
 function normalizeNotesShadowRow(item, organizationId) {
   const notionPageId = cleanText(item?.notion_page_id || item?.notionPageId || item?.id || '');
   if (!notionPageId) throw new Error('Missing note notion_page_id');
@@ -2989,20 +3130,78 @@ async function erpPublicHealth(request, env, cors) {
   });
 }
 
+const ERP_AUTH_REQUEST_CACHE = new WeakMap();
 async function erpClientAuthorized(request) {
-  const match = String(request.headers.get('Authorization') || '').match(/^Bearer\s+(\S+)$/i);
-  if (!match) return false;
-  try {
-    const response = await fetch('https://api.notion.com/v1/users/me', {
-      headers: {
-        Authorization: `Bearer ${match[1]}`,
-        'Notion-Version': '2022-06-28',
-      },
-    });
-    return response.ok;
-  } catch {
-    return false;
+  if (ERP_AUTH_REQUEST_CACHE.has(request)) return ERP_AUTH_REQUEST_CACHE.get(request);
+  const check = (async () => {
+    const match = String(request.headers.get('Authorization') || '').match(/^Bearer\s+(\S+)$/i);
+    if (!match) return false;
+    try {
+      const response = await fetch('https://api.notion.com/v1/users/me', {
+        headers: {
+          Authorization: `Bearer ${match[1]}`,
+          'Notion-Version': '2022-06-28',
+        },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  })();
+  ERP_AUTH_REQUEST_CACHE.set(request, check);
+  return check;
+}
+
+const ERP_ROUTE_ROLES = {
+  '/api/inventory/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
+  '/api/inventory/adjust': ['vic', 'manager', 'sales', 'warehouse'],
+  '/api/inventory/adjust-batch': ['vic', 'manager', 'sales', 'warehouse'],
+  '/api/inventory/material/archive': ['vic', 'manager', 'warehouse'],
+  '/api/inventory/bom/migrate': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/inventory/bom/upsert': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/picking/migrate': ['vic', 'manager'],
+  '/api/picking/create': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/picking/status': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/picking/link-notion': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/inbound/migrate': ['vic', 'manager'],
+  '/api/inbound/create': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/inbound/action': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
+  '/api/inbound/link-notion': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
+  '/api/stock-log/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/stock-log/mark-notion': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/stock-log/reconcile': ['vic', 'manager', 'warehouse'],
+  '/api/notes/shadow/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/notes/shadow/delete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/orders/create': ['vic', 'manager', 'sales'],
+  '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/corder/number-reserve': ['vic', 'manager', 'sales'],
+  '/api/corder/number-set': ['vic', 'manager', 'sales'],
+};
+
+function erpBearerToken(request) {
+  return String(request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+}
+
+async function enforceErpRouteRole(request, env, cors, pathname, method) {
+  if (String(method || '').toUpperCase() !== 'POST') return null;
+  const allowed = ERP_ROUTE_ROLES[pathname];
+  if (!allowed) return null;
+  const token = erpBearerToken(request);
+  let role = cleanText(request.headers.get('X-ERP-Role') || '').toLowerCase();
+  if (!role && token && token === cleanText(env.NOTION_TOKEN || env.ERP_NOTION_TOKEN || '')) role = 'system';
+  if (!token || !(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+  if (role === 'system') return null;
+  if (!role || !allowed.includes(role)) {
+    return new Response(JSON.stringify({
+      error: 'ERP role is not allowed for this operation',
+      role: role || 'missing',
+      route: pathname,
+    }), {status: 403, headers: jh(cors)});
   }
+  return null;
 }
 
 function unauthorizedErpClient(cors) {

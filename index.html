@@ -2475,6 +2475,14 @@ function renderLeaveTypeOptions(current=''){return LEAVE_TYPE_OPTIONS.map(t=>`<o
 const ANN_COUNT_KEY='lm_ann_count';
 const SORT={};
 const PROXY='https://green-wave-c22f.vic-e93.workers.dev';
+function erpWorkerHeaders(extra={}){
+  return {
+    Accept:'application/json',
+    ...(TOKEN?{Authorization:`Bearer ${TOKEN}`}:{ }),
+    ...(ROLE?{'X-ERP-Role':ROLE}:{ }),
+    ...extra,
+  };
+}
 const OPTIONAL_SCRIPT_URLS={
   xlsx:'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
   pdf:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
@@ -6435,7 +6443,7 @@ async function notionAPI(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const result=await notionProxyRequest({token:TOKEN,method,endpoint,body,cacheEpoch:_notionCacheEpoch},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,cacheEpoch:_notionCacheEpoch},`${method} ${endpoint}`);
   if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
   return result;
 }
@@ -6443,7 +6451,7 @@ async function notionAPI2026(method,endpoint,body=null){
   if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const result=await notionProxyRequest({token:TOKEN,method,endpoint,body,cacheEpoch:_notionCacheEpoch,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,cacheEpoch:_notionCacheEpoch,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
   if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
   return result;
 }
@@ -7606,7 +7614,7 @@ async function postBomRowsToSupabase(plan){
     try{
       const res=await fetch(`${PROXY}/api/inventory/bom/upsert`,{
         method:'POST',
-        headers:{'Content-Type':'application/json',Authorization:`Bearer ${TOKEN}`},
+        headers:erpWorkerHeaders({'Content-Type':'application/json'}),
         body:JSON.stringify({rows:plan.rows,materials:plan.materials}),
       });
       const text=await res.text();
@@ -8137,7 +8145,7 @@ async function refreshAll(manual=false){
   }
 }
 async function pickingWorkerRequest(path,{method='GET',body=null}={}){
-  const options={method,headers:{Accept:'application/json'}};
+  const options={method,headers:erpWorkerHeaders()};
   if(body!==null){
     options.headers['Content-Type']='application/json';
     options.body=JSON.stringify(body);
@@ -9031,6 +9039,8 @@ let _supabaseReadReport={checked:false,running:false,level:'info',message:'尚�
 let _reliabilityReport={checked:false,running:false,error:'',data:null};
 let _supabaseUsageReport={checked:false,running:false,error:'',data:null};
 let _publicHealthReport={checked:false,running:false,error:'',data:null};
+let _stockLogReconcileReport={checked:false,running:false,error:'',data:null};
+let _inventoryConflictReport={checked:false,running:false,error:'',conflicts:[],pending:[],scannedAt:''};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -9169,7 +9179,7 @@ async function reliabilityWorker(path,{method='GET',body=null}={}){
   if(!TOKEN)throw new Error('尚未登入，無法使用可靠性補同步');
   const res=await fetch(`${PROXY}${path}`,{
     method,
-    headers:{Accept:'application/json',Authorization:`Bearer ${TOKEN}`,...(body?{'Content-Type':'application/json'}:{})},
+    headers:erpWorkerHeaders(body?{'Content-Type':'application/json'}:{}),
     ...(body?{body:JSON.stringify(body)}:{}),
   });
   const text=await res.text();
@@ -9360,7 +9370,7 @@ function scheduleInventoryMirrorSync(task){
 async function postInventoryMirrorTask(task){
   const res=await fetch(`${PROXY}/api/inventory/sync`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({task})
   });
   const text=await res.text();
@@ -9372,7 +9382,7 @@ async function postInventoryMirrorTask(task){
 async function postInventoryAdjustTask(payload){
   const res=await fetch(`${PROXY}/api/inventory/adjust`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({payload})
   });
   const text=await res.text();
@@ -9384,7 +9394,7 @@ async function postInventoryAdjustTask(payload){
 async function postInventoryBatchAdjustTask(payload){
   const res=await fetch(`${PROXY}/api/inventory/adjust-batch`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({payload})
   });
   const text=await res.text();
@@ -9396,7 +9406,7 @@ async function postInventoryBatchAdjustTask(payload){
 async function postInventoryMaterialArchive(payload){
   const res=await fetch(`${PROXY}/api/inventory/material/archive`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({payload})
   });
   const text=await res.text();
@@ -10136,6 +10146,38 @@ async function loadReliabilitySummary({quiet=false}={}){
     if(CURRENT_TAB==='health')renderTab('health');
   }
 }
+async function loadStockLogReconcile({quiet=false}={}){
+  if(!TOKEN)return null;
+  _stockLogReconcileReport={..._stockLogReconcileReport,running:true,error:''};
+  if(CURRENT_TAB==='health')renderTab('health');
+  try{
+    const data=await reliabilityWorker('/api/stock-log/reconcile?days=60');
+    _stockLogReconcileReport={checked:true,running:false,error:'',data};
+    if(!quiet)showToast(data.missing_count?`發現 ${data.missing_count} 筆操作明細可由正式交易重建`:'✅ 正式交易與操作明細一致',data.missing_count?'warn':'ok');
+    return data;
+  }catch(e){
+    _stockLogReconcileReport={checked:true,running:false,error:e.message||String(e),data:null};
+    if(!quiet)showToast('⚠ 操作明細比對失敗：'+_stockLogReconcileReport.error,'warn');
+    return null;
+  }finally{
+    if(CURRENT_TAB==='health')renderTab('health');
+  }
+}
+async function repairStockLogDetails(){
+  if(!(isAdminRole()||ROLE==='warehouse')){
+    showToast('此修復限 Vic、管理者或倉管執行','warn');
+    return;
+  }
+  showToast('正在依正式庫存交易補回操作明細...','warn');
+  try{
+    const data=await reliabilityWorker('/api/stock-log/reconcile',{method:'POST',body:{apply:true,days:60,max:200}});
+    await Promise.all([loadStockLogReconcile({quiet:true}),loadReliabilitySummary({quiet:true})]);
+    if(CURRENT_TAB==='health')renderTab('health');
+    showToast(data.remaining_count?`已補 ${data.repaired_count} 筆，尚有 ${data.remaining_count} 筆待下一批`:`✅ 已補回 ${data.repaired_count} 筆操作明細`,data.remaining_count?'warn':'ok',8000);
+  }catch(e){
+    showToast('⚠ 操作明細修復未完成：'+(e.message||e),'warn',8000);
+  }
+}
 function formatUsageBytes(value){
   const bytes=Number(value||0);
   if(!Number.isFinite(bytes)||bytes<0)return '—';
@@ -10231,10 +10273,11 @@ function renderReliabilityCenter(){
   const missing=data.missing_notion_mirrors||{};
   const notesShadowPending=readNotesShadowRetryQueue().length;
   const stockLogPending=pendingStockLogCounts();
+  const transactionDetailMissing=Number(_stockLogReconcileReport?.data?.missing_count||0);
   const missingTotal=Object.values(missing).reduce((sum,value)=>sum+Number(value||0),0);
   const pending=Number(jobs.pending||0);
   const failed=Number(jobs.failed||0);
-  const allPending=local.total+notesShadowPending+stockLogPending.total+pending+failed+missingTotal;
+  const allPending=local.total+notesShadowPending+stockLogPending.total+pending+failed+missingTotal+transactionDetailMissing;
   const level=report.error?'err':failed||rows.some(row=>row.status==='failed'||row.attempts>=5)?'err':allPending?'warn':'ok';
   const label=report.running?'檢查中':report.error?'ERROR':level==='ok'?'OK':level==='err'?'ERROR':'WARN';
   const oldest=jobs.oldest_created_at?new Date(jobs.oldest_created_at).toLocaleString('zh-TW',{hour12:false}):'—';
@@ -10253,12 +10296,14 @@ function renderReliabilityCenter(){
         <div class="kpi-card ${failed?'kpi-red':'kpi-green'}"><div class="kpi-label">重試失敗</div><div class="kpi-num">${failed}</div><div class="kpi-sub">達 5 次需人工處理</div></div>
         <div class="kpi-card ${local.total+notesShadowPending+stockLogPending.total?'kpi-amber':'kpi-green'}"><div class="kpi-label">本機待送</div><div class="kpi-num">${local.total+notesShadowPending+stockLogPending.total}</div><div class="kpi-sub">鏡像 ${local.total+stockLogPending.notion} / 記事 ${notesShadowPending} / 操作明細 ${stockLogPending.detail}</div></div>
         <div class="kpi-card ${missingTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">Notion 鏡像缺漏</div><div class="kpi-num">${missingTotal}</div><div class="kpi-sub">異動 ${missing.stock_logs||0} / 領料 ${Number(missing.pick_masters||0)+Number(missing.pick_items||0)} / 入料 ${missing.inbound_receipts||0}</div></div>
+        <div class="kpi-card ${transactionDetailMissing?'kpi-amber':'kpi-green'}"><div class="kpi-label">跨電腦操作明細</div><div class="kpi-num">${transactionDetailMissing}</div><div class="kpi-sub">依 Supabase 正式交易比對，不改庫存</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="btn btn-blue btn-sm" onclick="retryAllReliabilityWork()">全部補同步</button>
         <button class="btn btn-ghost btn-sm" onclick="retryReliabilityMirrors()">鏡像補同步</button>
         <button class="btn btn-ghost btn-sm" onclick="retryNotesShadowQueue({force:true,quiet:false})">記事補同步</button>
         <button class="btn btn-ghost btn-sm" onclick="retryStockLogSync()">異動記錄補同步</button>
+        <button class="btn btn-ghost btn-sm" onclick="${transactionDetailMissing?'repairStockLogDetails()':'loadStockLogReconcile()'}">${transactionDetailMissing?'補回操作明細':'比對操作明細'}</button>
         <button class="btn btn-ghost btn-sm" onclick="loadReliabilitySummary()">重新檢查</button>
       </div>
       ${renderReliabilityQueueTable(rows)}
@@ -10295,6 +10340,143 @@ function renderHealthRepairCenter(h){
       </div>
     </div>
   </div>`;
+}
+function inventoryConflictDiff(supabase,notion){
+  const fields=[
+    ['name','名稱'],['type','類型'],['unit','單位'],['safe','安全庫存'],['stock','目前庫存'],['note','備註']
+  ];
+  return fields.filter(([key])=>{
+    if(key==='safe'||key==='stock')return Number(supabase[key]||0)!==Number(notion[key]||0);
+    return String(supabase[key]||'').trim()!==String(notion[key]||'').trim();
+  }).map(([key,label])=>({key,label,supabase:supabase[key]??'',notion:notion[key]??''}));
+}
+function inventoryConflictPendingKeys(serverJobs=[]){
+  const pageIds=new Set();
+  const codes=new Set();
+  const collect=task=>{
+    const payload=task?.payload||task?.task?.payload||{};
+    const pageId=task?.page_id||task?.notion_page_id||payload?.notion_page_id||payload?.page_id||'';
+    const code=task?.sku||payload?.sku||'';
+    if(pageId)pageIds.add(canonicalPageId(pageId));
+    if(code)codes.add(normalizeSku(code));
+  };
+  readInventoryNotionMirrorQueue().forEach(collect);
+  readInventoryMirrorQueue().forEach(collect);
+  serverJobs.filter(job=>['inventory_notion','inventory_supabase'].includes(job?.module)).forEach(job=>{
+    collect(job?.payload?.task||job?.payload||{});
+    if(job?.entity_id){
+      const entity=String(job.entity_id);
+      if(/^[0-9a-f-]{32,36}$/i.test(entity))pageIds.add(canonicalPageId(entity));
+      else codes.add(normalizeSku(entity));
+    }
+  });
+  return {pageIds,codes};
+}
+async function scanInventoryNotionConflicts({quiet=false}={}){
+  if(!TOKEN)return null;
+  _inventoryConflictReport={..._inventoryConflictReport,running:true,error:''};
+  if(CURRENT_TAB==='health')renderTab('health');
+  try{
+    const [pages,supabaseRows,mirrorJobsData]=await Promise.all([
+      dbQueryAll(DB.materials),
+      fetchWorkerInventoryMaterials(),
+      reliabilityWorker('/api/reliability/mirror/list?limit=300').catch(()=>({jobs:[]})),
+    ]);
+    const notionRows=pages.map(mapNotionMaterialPage);
+    const byNotionId=new Map(notionRows.map(row=>[canonicalPageId(row.id),row]));
+    const pendingKeys=inventoryConflictPendingKeys(mirrorJobsData?.jobs||[]);
+    const conflicts=[];
+    const pending=[];
+    for(const supabase of supabaseRows.filter(row=>row.notionId)){
+      const notion=byNotionId.get(canonicalPageId(supabase.notionId));
+      if(!notion){
+        conflicts.push({code:supabase.code,supabase,notion:null,diffs:[{key:'notion',label:'Notion 鏡像',supabase:'已連結',notion:'找不到頁面'}],manual:true});
+        continue;
+      }
+      const diffs=inventoryConflictDiff(supabase,notion);
+      if(!diffs.length)continue;
+      const item={code:supabase.code,supabase,notion,diffs,manual:String(supabase.code||'')!==String(notion.code||'')};
+      if(pendingKeys.pageIds.has(canonicalPageId(supabase.notionId))||pendingKeys.codes.has(normalizeSku(supabase.code)))pending.push(item);
+      else conflicts.push(item);
+    }
+    _inventoryConflictReport={checked:true,running:false,error:'',conflicts,pending,scannedAt:new Date().toISOString()};
+    if(!quiet)showToast(conflicts.length?`發現 ${conflicts.length} 筆需確認的庫存鏡像差異`:'✅ Supabase 與 Notion 庫存鏡像一致',conflicts.length?'warn':'ok');
+    return _inventoryConflictReport;
+  }catch(e){
+    _inventoryConflictReport={..._inventoryConflictReport,checked:true,running:false,error:e.message||String(e)};
+    if(!quiet)showToast('⚠ 庫存鏡像差異檢查失敗：'+_inventoryConflictReport.error,'warn');
+    return null;
+  }finally{
+    if(CURRENT_TAB==='health')renderTab('health');
+  }
+}
+function renderInventoryConflictCenter(){
+  const report=_inventoryConflictReport;
+  const conflicts=report.conflicts||[];
+  const canResolve=isAdminRole()||ROLE==='warehouse';
+  return `<div class="panel" style="margin-bottom:14px" data-contract="INVENTORY_NOTION_CONFLICT_CENTER_V1">
+    <div class="panel-hdr"><span class="panel-title">庫存鏡像差異 <span class="badge">${conflicts.length}</span></span>${healthBadge(report.error?'err':conflicts.length?'warn':report.checked?'ok':'info',report.running?'檢查中':report.error?'ERROR':conflicts.length?'ACTION':report.checked?'OK':'READY')}</div>
+    <div style="padding:12px">
+      <div class="info-box info-tip" style="margin-bottom:10px">Supabase 是正式主資料；這裡只比對 Notion 料件鏡像。已排入補同步的 ${report.pending?.length||0} 筆不列為衝突，避免重複處理。</div>
+      ${report.running?'<div class="loading-row"><div class="spin"></div>正在比對 Notion 料件主檔...</div>':''}
+      ${report.error?`<div class="info-box info-warn">${escapeHtml(report.error)}</div>`:''}
+      ${!report.running&&!conflicts.length?`<div style="padding:12px;color:var(--text3)">${report.checked?'目前沒有需要人工確認的鏡像差異。':'尚未執行差異檢查。'}</div>`:''}
+      ${conflicts.slice(0,20).map(item=>`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg3)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><div><b>${escapeHtml(item.code||'未識別料號')}</b><div style="font-size:.74rem;color:var(--text3);margin-top:4px">${item.diffs.map(diff=>`${escapeHtml(diff.label)}：Supabase「${escapeHtml(String(diff.supabase))}」／Notion「${escapeHtml(String(diff.notion))}」`).join('<br>')}</div></div>${item.manual?healthBadge('warn','需人工判斷'):healthBadge('warn','有差異')}</div>
+        ${canResolve&&!item.manual&&item.notion?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><button class="btn btn-blue btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','supabase')">採用 Supabase</button><button class="btn btn-yellow btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','notion')">採用 Notion 修改</button></div>`:`<div style="font-size:.72rem;color:var(--amber);margin-top:8px">料號或鏡像關聯異常不自動修改，請到庫存主檔確認。</div>`}
+      </div>`).join('')}
+      ${conflicts.length>20?`<div style="font-size:.72rem;color:var(--text3)">另有 ${conflicts.length-20} 筆未顯示，請先處理前 20 筆後重新檢查。</div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="scanInventoryNotionConflicts()">${report.checked?'重新比對':'開始比對'}</button><button class="btn btn-ghost btn-sm" onclick="switchTab('inventory')">前往庫存主檔</button></div>
+    </div>
+  </div>`;
+}
+async function resolveInventoryConflict(code,direction){
+  if(!(isAdminRole()||ROLE==='warehouse')){showToast('此功能限 Vic、管理者或倉管使用','warn');return;}
+  const item=(_inventoryConflictReport.conflicts||[]).find(row=>row.code===code);
+  if(!item?.notion||item.manual){showToast('此差異需要在庫存主檔人工確認','warn');return;}
+  const choice=direction==='notion'?'採用 Notion 修改並寫入 Supabase正式主資料':'採用 Supabase 並覆蓋 Notion 鏡像';
+  const directionLabel=direction==='notion'?'Supabase 目前值 → Notion 最新值':'Notion 目前值 → Supabase 正式值';
+  if(!confirm(`${code}\n${choice}\n\n${directionLabel}\n${item.diffs.map(diff=>direction==='notion'?`${diff.label}：${diff.supabase} → ${diff.notion}`:`${diff.label}：${diff.notion} → ${diff.supabase}`).join('\n')}`))return;
+  showToast('正在處理庫存鏡像差異...','warn');
+  try{
+    if(direction==='supabase'){
+      await updatePage(item.notion.id,{
+        '料件名稱':{title:[{text:{content:item.supabase.name||item.supabase.code}}]},
+        '料件編號':{rich_text:[{text:{content:item.supabase.code||''}}]},
+        '類型':{select:{name:item.supabase.type||'零件'}},
+        '單位':{select:{name:item.supabase.unit||'個'}},
+        '安全庫存':{number:Number(item.supabase.safe)||0},
+        '目前庫存':{number:Number(item.supabase.stock)||0},
+        '備註':{rich_text:[{text:{content:item.supabase.note||''}}]},
+      },{skipInventorySync:true});
+    }else{
+      const freshPages=await notionAPI('GET',`pages/${item.notion.id}`);
+      if(freshPages?.object==='error')throw new Error(freshPages.message||'無法重新讀取 Notion 料件');
+      const notion=mapNotionMaterialPage(freshPages);
+      const currentMats=await fetchWorkerInventoryMaterials();
+      const current=currentMats.find(row=>row.code===code);
+      if(!current)throw new Error('Supabase 已找不到此料號，請重新同步');
+      if(notion.code!==code)throw new Error('Notion 料號已變更，為避免關聯錯誤，請在庫存主檔使用正式改號流程');
+      await postInventoryMirrorTask(buildInventoryMirrorTask('update_material',{
+        notion_page_id:notion.id,sku:code,name:notion.name,type:notion.type,unit:notion.unit,safe:notion.safe,note:notion.note,stock:current.stock
+      }));
+      const delta=Number(notion.stock)-Number(current.stock);
+      if(delta){
+        const materialPageId=current.notionId||item.notion.id;
+        const stateIndex=mats.findIndex(row=>normalizeSku(row.code||row.name)===code);
+        const currentState={...current,id:materialPageId,notionId:materialPageId};
+        if(stateIndex>=0)mats[stateIndex]={...mats[stateIndex],...currentState};
+        else mats.push(currentState);
+        const refNo=`NOTION-CONFLICT-${new Date().toISOString().slice(0,10)}-${code}`;
+        const move=await applyInventoryDeltaAndMirror(materialPageId,{delta,reason:'採用 Notion 人工庫存修改',refNo,sourceType:'notion_conflict_resolution',sourceId:refNo});
+        if(!move.duplicate)await logStockChangeQuietly(materialPageId,current.name,current.code,'手動調整',delta,move.before,move.after,refNo,ROLE);
+      }
+    }
+    await loadSupabaseInventoryForPage(true);
+    await scanInventoryNotionConflicts({quiet:true});
+    if(CURRENT_TAB==='health')renderTab('health');
+    showToast(`✅ ${code} 差異已處理`,'ok');
+  }catch(e){showToast('❌ 差異處理失敗：'+(e.message||e),'err',9000);}
 }
 function notesHealthTime(value){
   if(!value)return '尚無紀錄';
@@ -10366,9 +10548,13 @@ async function retryAllReliabilityWork(){
   try{await flushReliableMirrorQueues({quiet:true});}catch(e){errors.push('鏡像：'+(e.message||e));}
   try{await retryNotesShadowQueue({force:true,quiet:true});}catch(e){errors.push('記事：'+(e.message||e));}
   try{await flushPendingStockLogs({quiet:true,max:50});}catch(e){errors.push('異動記錄：'+(e.message||e));}
+  if(isAdminRole()||ROLE==='warehouse'){
+    try{await reliabilityWorker('/api/stock-log/reconcile',{method:'POST',body:{apply:true,days:60,max:200}});}catch(e){errors.push('操作明細：'+(e.message||e));}
+  }
   await Promise.all([
     loadReliabilitySummary({quiet:true}).catch(()=>null),
     loadNotesShadowHealth({quiet:true}).catch(()=>null),
+    loadStockLogReconcile({quiet:true}).catch(()=>null),
   ]);
   if(CURRENT_TAB==='health')renderTab('health');
   if(errors.length)showToast('⚠ 部分補同步未完成：'+errors.slice(0,2).join('；'),'warn');
@@ -10795,6 +10981,7 @@ function renderHealthCheck(){
   ${renderMobileHighFrequencyAudit()}
   ${renderHealthRepairCenter(h)}
   ${renderReliabilityCenter()}
+  ${renderInventoryConflictCenter()}
   ${renderNotesShadowHealth()}
   ${renderSupabaseUsageHealth()}
   ${renderSupabaseReadCheck()}
@@ -10837,6 +11024,8 @@ async function runHealthCheck(manual=false){
   _healthReport={running:true,schemaRows:_healthReport?.schemaRows||[]}; if(CURRENT_TAB==='health')renderTab('health');
   const publicHealthPromise=loadPublicHealth({quiet:true});
   const reliabilityPromise=loadReliabilitySummary({quiet:true});
+  const stockLogReconcilePromise=loadStockLogReconcile({quiet:true});
+  const inventoryConflictPromise=manual?scanInventoryNotionConflicts({quiet:true}):Promise.resolve(null);
   const notesHealthPromise=loadNotesShadowHealth({quiet:true});
   const supabaseUsagePromise=loadSupabaseUsage({quiet:true});
   const rows=[];
@@ -10855,7 +11044,7 @@ async function runHealthCheck(manual=false){
       });
     }catch(e){rows.push({db:key,level:'err',msg:e.message});}
   }
-  await Promise.all([publicHealthPromise,reliabilityPromise,notesHealthPromise,supabaseUsagePromise]);
+  await Promise.all([publicHealthPromise,reliabilityPromise,stockLogReconcilePromise,inventoryConflictPromise,notesHealthPromise,supabaseUsagePromise]);
   _healthReport={running:false,schemaRows:rows};
   if(CURRENT_TAB==='health')renderTab('health');
   if(manual)showToast('✅ 健康檢查完成','ok');
@@ -14486,8 +14675,9 @@ async function uploadNotionFileViaProxy(file){
   const fd=new FormData();
   fd.append('action','notionFileUpload');
   fd.append('token',TOKEN);
+  fd.append('role',ROLE);
   fd.append('file',file,file.name);
-  const res=await fetch(PROXY,{method:'POST',body:fd});
+  const res=await fetch(PROXY,{method:'POST',headers:ROLE?{'X-ERP-Role':ROLE}:{},body:fd});
   const text=await res.text();
   let data;
   try{data=JSON.parse(text);}catch{throw new Error('Worker 回應不是 JSON：'+text.slice(0,80));}
@@ -17744,7 +17934,7 @@ async function reserveCorderNumbers(count){
   if(!corderSequenceReady()) await ensureCorderSequenceReady({silent:true});
   const res=await fetch(`${PROXY}/api/corder/number-reserve`,{
     method:'POST',
-    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({count})
   });
   const data=await res.json().catch(()=>({}));
@@ -17755,7 +17945,7 @@ async function reserveCorderNumbers(count){
 async function setCorderNextSerial(nextNumber,{notify=true}={}){
   const res=await fetch(`${PROXY}/api/corder/number-set`,{
     method:'POST',
-    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({next_number:Number(nextNumber),role:ROLE})
   });
   const data=await res.json().catch(()=>({}));
@@ -22032,7 +22222,7 @@ async function writeSupabaseStockLog(item,today,safeType){
   item.client_trace_id=payload.client_trace_id;
   const res=await fetch(`${PROXY}/api/stock-log/sync`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({item:payload})
   });
   const text=await res.text();
@@ -22080,7 +22270,7 @@ async function markStockLogNotion(item){
   if(!id||!notionPageId) throw new Error('異動紀錄鏡像回標資料不完整');
   const res=await fetch(`${PROXY}/api/stock-log/mark-notion`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({id,notion_page_id:notionPageId})
   });
   const text=await res.text();

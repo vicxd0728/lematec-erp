@@ -4,6 +4,12 @@ Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
+## Reliability And Conflict Controls 2026-09-07
+
+- Worker mutating ERP routes now enforce an operational role matrix using the ERP bearer token plus `X-ERP-Role`. Viewer writes are also blocked in the generic Notion proxy and direct Notion file upload path. The current login still uses a shared Notion integration token, so this prevents role mistakes but is not a substitute for individual identity authentication; Supabase Auth or company SSO remains the future security boundary.
+- `GET /api/stock-log/reconcile` compares recent formal `inventory_transactions` with staff-readable `erp_stock_logs`. `POST /api/stock-log/reconcile` can rebuild only missing operation-detail rows; it never changes inventory balances or replays quantity transactions.
+- ERP Health manual full check now compares the latest Supabase inventory master with the Notion material mirror. Browser and server `erp_mirror_jobs` pending work is excluded from conflicts. Authorized staff can explicitly adopt Supabase into Notion or adopt a verified Notion edit into Supabase; SKU/relationship mismatches stay manual-only.
+
 ## Live Deployment
 
 - Frontend: `https://lematec-erp.pages.dev/`
@@ -87,6 +93,7 @@ Done locally in the current optimization batch: Preflight Center v1 / Preflight 
 - `erp_stock_logs` is the staff-readable operation timeline. If its Supabase write is temporarily unavailable after a stock transaction, the ERP shows `操作明細待補` and retains a local retry item.
 - If `erp_stock_logs` already exists and only Notion is missing, the ERP shows `Notion 鏡像待補` separately.
 - Health v2's `可自動修復` action now runs the complete safe retry set, including mirror queues, Notes shadow, and stock operation details. It does not invoke inventory adjustment, inbound approval, C-order reservation, or any other quantity-changing endpoint.
+- Cross-device operation-detail recovery is derived from `inventory_transactions` and uses stable transaction trace keys. It only inserts absent `erp_stock_logs` rows and is safe to retry.
 
 ## Known Cleanup
 

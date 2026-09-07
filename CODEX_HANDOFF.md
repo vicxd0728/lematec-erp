@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Reliability Controls Upgrade 2026-09-07
+
+- Worker mutating ERP routes enforce the current operational role matrix through bearer-token validation and `X-ERP-Role`; generic Notion writes and file uploads block the viewer role. This is role-mistake prevention under the current shared integration token, not individual-user authentication.
+- Health v2 can rebuild missing cross-device stock operation details from formal Supabase inventory transactions through `/api/stock-log/reconcile`. Rebuild never adjusts inventory.
+- Manual full Health check compares current Supabase inventory data with Notion mirrors, excludes local and server-side pending mirror jobs, and requires an explicit direction before reconciling. SKU or missing-link conflicts are not auto-fixed.
+
 ## Stock Log Audit Upgrade 2026-09-07
 
 - Stock-log audit now separates current operational records from `notion_backfill` historical evidence.
