@@ -29,6 +29,9 @@ jobs:
       - name: Verify authorization behavior offline
         run: node --test tests/worker_auth_boundary.cjs
 
+      - name: Verify read-only order timeline behavior
+        run: node --test tests/order_timeline.cjs
+
       - name: Verify existing login token before deployment
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

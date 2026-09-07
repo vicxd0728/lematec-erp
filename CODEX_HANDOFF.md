@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Read-Only Order Timeline 2026-09-07
+
+- User accepted the order-timeline feature in the ongoing build/test/deploy workflow. Entry: Orders list -> `進度` under order number; viewer can read without gaining write controls.
+- `openOrderTimeline` refreshes the order and reads only related picking, QC and stock logs. Late responses cannot overwrite another modal. Partial failures remain visible; no automatic repair or mutation is called.
+- Data matching: picking by order page ID; QC `page-id|order-number` requires exact page ID; legacy number-only QC/logs require a uniquely identified order number. Dates describe source records, not inferred production transitions. Stock events use exact order references, not unverified product-code matches.
+- Tests: 245 passed + 47 subtests; `node --test tests/order_timeline.cjs` covers 8 behaviors. Mock-data browser previews inspected at 390px and 1280px; screenshots are local under `output/timeline-qa/` and are not deployment inputs.
+
 ## Atomic Conflict Adjustment And Deployment Gate 2026-09-07
 
 - User approved the next repair-and-deploy round: cross-device quantity protection, SKU-only difference detection, and fewer version-propagation false deployment failures.

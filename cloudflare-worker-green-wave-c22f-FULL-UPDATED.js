@@ -1815,17 +1815,20 @@ async function erpPickingList(request, env, cors) {
     const organizationId = context.organization.id;
     const url = new URL(request.url);
     const requestedLimit = Number(url.searchParams.get('limit') || 5000);
+    const orderId = cleanText(url.searchParams.get('order_id') || '');
+    if(orderId && !isUuid(orderId))return resp400(cors,'Invalid order_id');
+    const orderFilter=orderId?`&source_order_notion_page_id=eq.${encodeURIComponent(orderId)}`:'';
     const limit = Math.max(1, Math.min(5000, Number.isFinite(requestedLimit) ? requestedLimit : 5000));
     const masters = await supabaseFetch(
       env,
-      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null&select=id,pick_number,pick_type,status,production_quantity,picked_at,notes,notion_page_id,product_display,picker_display,source_order_notion_page_id,source,source_payload,created_at,updated_at&order=created_at.desc&limit=${limit}`
+      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null${orderFilter}&select=id,pick_number,pick_type,status,production_quantity,picked_at,notes,notion_page_id,product_display,picker_display,source_order_notion_page_id,source,source_payload,created_at,updated_at&order=created_at.desc&limit=${limit}`
     );
     const masterIds = (Array.isArray(masters) ? masters : []).map((row) => cleanText(row.id)).filter(Boolean);
     let itemRows = [];
     if (masterIds.length) {
       itemRows = await supabaseAll(
         env,
-        `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notes,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload,created_at,updated_at`
+        `/rest/v1/pick_items?organization_id=eq.${encodeURIComponent(organizationId)}${orderId?`&pick_list_id=in.(${masterIds.map(encodeURIComponent).join(',')})`:''}&select=id,pick_list_id,material_id,required_quantity,picked_quantity,notes,notion_page_id,item_display,item_type,status,source_material_notion_page_id,source_payload,created_at,updated_at`
       );
     }
     const grouped = new Map();
@@ -2549,6 +2552,8 @@ async function erpStockLogList(request, env, cors) {
     const pendingNotion = url.searchParams.get('pending_notion') === 'true';
     const fields = 'id,notion_page_id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at';
     const filters = [`select=${fields}`];
+    const refNo=cleanText(url.searchParams.get('ref_no')||'');
+    if(refNo)filters.push(`ref_no=eq.${encodeURIComponent(refNo)}`);
     if (mode !== 'all') {
       const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
       filters.push(`change_date=gte.${since}`);

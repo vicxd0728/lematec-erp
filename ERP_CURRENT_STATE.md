@@ -4,6 +4,13 @@ Updated: 2026-09-07
 
 This is the single current-state entry point. Use it before reading older timeline notes.
 
+## Order Timeline Release 2026-09-07
+
+- Orders list exposes a read-only `進度` button, including for viewer users with order access. It reads the current order page and displays creation, directly linked picking/QC records, exact order-number stock logs, and the recorded shipping date.
+- Picking links use the order page ID; legacy QC and stock-log number matches require a uniquely identified order number. Ambiguity, missing dates, source errors and read limits remain explicit. This is not a reconstructed audit of every status transition, and unrelated inbound receipts are not guessed into the order.
+- Worker GET picking list accepts `order_id`; GET stock-log list accepts exact `ref_no`. Opening the timeline never invokes repair queues or stock transactions.
+- Validation: 245 Python tests + 47 subtests; 8 timeline runtime cases; desktop and 390px mock-data browser preview inspected without horizontal overflow. Production release is verified by Worker/Pages Actions, frontend readback, and exact-match read probes.
+
 ## Atomic Conflict Adjustment Release 2026-09-07
 
 - Notion-to-Supabase quantity corrections now require `expected_stock` and `expected_balance_version`. The new service-role-only `apply_inventory_conflict_transaction` RPC locks the balance, checks original operation identity, compares quantity and timestamp, and calls the existing atomic transaction within the same transaction. HTTP 409 means no stock adjustment was accepted and a new confirmation is required.

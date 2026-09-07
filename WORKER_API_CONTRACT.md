@@ -69,6 +69,8 @@ This file classifies Worker routes by side effect and production safety. Before 
 
 ## No-Side-Effect Production Checks
 
+Order timeline filters (2026-09-07): `GET /api/picking/list?order_id=<uuid>` returns only masters linked by `source_order_notion_page_id`, and limits item reads to those masters. Invalid UUIDs return 400. `GET /api/stock-log/list?mode=all&ref_no=<exact-reference>` retains pagination and returns exact reference matches. Both remain read-only; omitting the filters preserves existing list behavior.
+
 Preferred production checks:
 
 ```text

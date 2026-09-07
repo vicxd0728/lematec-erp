@@ -15499,7 +15499,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
   <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
-    <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${o.no||'—'}</td>
+    <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button></div></td>
     <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
     <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
@@ -15516,6 +15516,102 @@ function _renderOrdersList(tabs, soonOrders=[]){
 // ══════════════════════════════════════
 // 交期提醒 Tab
 // ══════════════════════════════════════
+function orderTimelineEvents(order,picking=[],inspections=[],logs=[],allowNumber=true){
+  const events=[];
+  const add=(id,date,title,detail,url='')=>events.push({id,date:date||'',title,detail,url});
+  add('created',order.created,'訂單建立',order.no);
+  for(const p of picking){
+    if(canonicalPageId(p.source_order_notion_page_id)!==canonicalPageId(order.id))continue;
+    const link=p.notion_page_id?notionPageUrl(p.notion_page_id):'';
+    add(`pick:${p.id}`,p.created_at,'建立領料單',`${p.pick_number||'未編號'} · 目前${p.status||'未填狀態'}`,link);
+    if(p.picked_at)add(`picked:${p.id}`,p.picked_at,'領料完成',p.pick_number||'',link);
+  }
+  for(const p of inspections){
+    const ref=getRichText(p.properties,'關聯訂單號').trim();
+    const parts=ref.split('|');
+    const matches=parts.length>1?canonicalPageId(parts[0])===canonicalPageId(order.id):allowNumber&&ref===order.no;
+    if(!matches)continue;
+    add(`qc:${p.id}`,p.properties?.['檢驗日期']?.date?.start,'品檢紀錄',
+      `${getTitle(p.properties,'檢驗單號')||'未編號'} · ${p.properties?.['檢驗結果']?.select?.name||'未填結果'} · ${getRichText(p.properties,'檢驗人員')||'未填檢驗人員'}`,notionPageUrl(p.id));
+  }
+  for(const log of logs){
+    if(!allowNumber||!order.no||log.ref_no!==order.no)continue;
+    add(`stock:${log.id}`,log.change_date,log.change_type||'庫存異動',
+      `${log.material_code||''} · ${log.before_stock??'—'} → ${log.after_stock??'—'} · ${log.operator_role||'未填人員'}${log.source==='notion_backfill'?' · 歷史匯入':''}`,
+      log.notion_page_id?notionPageUrl(log.notion_page_id):'');
+  }
+  if(order.shipDate)add('shipped',order.shipDate,'訂單記載出貨日','日期取自訂單出貨欄位',notionPageUrl(order.id));
+  return events.sort((a,b)=>{
+    const time=x=>x.date&&Number.isFinite(Date.parse(x.date))?Date.parse(x.date):Infinity;
+    return time(a)-time(b)||a.id.localeCompare(b.id);
+  });
+}
+function renderOrderTimeline(order,events,issues=[]){
+  const next={'待排程':'倉管／生管：確認物料並安排領料','生產中':'生管：確認生產進度與送檢安排','待檢驗':'品管：確認檢驗結果','待出貨':'業務／倉管：確認出貨安排','已完成':'目前訂單已完成，可查看履歷','取消':'目前訂單已取消，請確認相關退料紀錄'};
+  return `<div data-contract="ORDER_TIMELINE_V1" style="overflow-wrap:anywhere">
+    <h3>訂單進度 · ${escapeHtml(order.no||'未編號')}</h3>
+    <div class="info-box info-tip">目前：<b>${escapeHtml(order.status||'未填狀態')}</b><br>${escapeHtml(next[order.status]||'請依目前狀態確認下一步')}<br>交期：${escapeHtml(order.deadline||'未填')} · 數量：${escapeHtml(String(order.qty??'—'))}</div>
+    <p style="color:var(--text3);font-size:.8rem">依可查證日期排列；品檢結果及領料狀態顯示目前紀錄，不代表完整的歷次狀態變更。沒有紀錄不等於尚未執行。</p>
+    ${issues.map(x=>`<div class="info-box info-warn">${escapeHtml(x)}</div>`).join('')}
+    <ol style="list-style:none;margin:16px 0;padding:0 0 0 14px;border-left:2px solid var(--border)">${events.map(e=>`<li style="position:relative;padding:0 0 20px 10px"><span style="position:absolute;left:-20px;top:5px;width:10px;height:10px;background:var(--blue);border-radius:50%"></span><div style="font-size:.75rem;color:var(--text3)">${escapeHtml(e.date?e.date.replace('T',' ').replace(/Z$/,' UTC'):'日期未填')}</div><b>${escapeHtml(e.title)}</b><div style="font-size:.85rem;margin-top:4px">${escapeHtml(e.detail)}</div>${e.url?`<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" class="notion-link">查看原始紀錄 ↗</a>`:''}</li>`).join('')}</ol>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-blue" data-timeline-refresh>重新載入</button><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>
+  </div>`;
+}
+async function orderTimelineNotion(method,endpoint,body=null){
+  // This helper is deliberately limited to read operations.
+  if(method!=='GET'&&!(method==='POST'&&endpoint.endsWith('/query')))throw new Error('時間軸只允許讀取');
+  const data=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,cacheEpoch:Date.now()},'讀取訂單進度');
+  if(!data||data.object==='error')throw new Error('資料來源暫時無法讀取');
+  return data;
+}
+async function orderTimelineQuery(db,filter){
+  const rows=[];let cursor;
+  do{
+    const data=await orderTimelineNotion('POST',`databases/${db}/query`,{filter,page_size:100,...(cursor?{start_cursor:cursor}:{})});
+    if(!Array.isArray(data.results))throw new Error('資料格式異常');
+    rows.push(...data.results);cursor=data.has_more?data.next_cursor:null;
+    if(data.has_more&&!cursor)throw new Error('資料分頁未完成');
+  }while(cursor);
+  return rows;
+}
+async function openOrderTimeline(id){
+  if(!TOKEN||!orders.some(o=>o.id===id))return;
+  const host=document.getElementById('modalInner');
+  const ticket=crypto.randomUUID();
+  host.innerHTML='<h3>訂單進度</h3><div class="loading-row">正在讀取相關紀錄…</div><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';
+  const marker=document.createElement('span');marker.dataset.timelineTicket=ticket;host.appendChild(marker);openSharedModal();
+  const active=()=>host.contains(marker)&&document.getElementById('modalBg').classList.contains('open');
+  try{
+    const page=await orderTimelineNotion('GET',`pages/${id}`);
+    if(page.object!=='page'||page.archived||page.in_trash)throw new Error('訂單已不存在或已封存');
+    const props=page.properties||{};
+    const order={id,no:getTitle(props,'訂單號'),status:props['狀態']?.select?.name||'',created:page.created_time,deadline:props['交期']?.date?.start||'',shipDate:props['實際出貨日']?.date?.start||props['出貨日']?.date?.start||'',qty:props['訂購數量']?.number};
+    const api=async path=>{
+      const res=await fetch(`${PROXY}${path}`,{headers:erpWorkerHeaders(),cache:'no-store'});
+      const data=await res.json();if(!res.ok||data.error||data.ok===false)throw new Error('服務暫時無法讀取');return data;
+    };
+    const numberCheck=order.no?await orderTimelineQuery(DB.orders,{property:'訂單號',title:{equals:order.no}}).catch(()=>null):null;
+    const allowNumber=numberCheck?.length===1&&canonicalPageId(numberCheck[0].id)===canonicalPageId(id);
+    const [picking,qc,stock]=await Promise.allSettled([
+      api(`/api/picking/list?order_id=${encodeURIComponent(id)}&limit=5000`),
+      orderTimelineQuery(DB.qcInspection,{or:[{property:'關聯訂單號',rich_text:{contains:id}},{property:'關聯訂單號',rich_text:{contains:canonicalPageId(id)}},...(allowNumber?[{property:'關聯訂單號',rich_text:{equals:order.no}}]:[])]}),
+      (async()=>{if(!allowNumber)return [];const rows=[];let offset=0;do{const data=await api(`/api/stock-log/list?mode=all&ref_no=${encodeURIComponent(order.no)}&limit=995&offset=${offset}`);if(!Array.isArray(data.rows))throw new Error('格式異常');rows.push(...data.rows);if(!data.has_more)break;if(!(data.next_offset>offset))throw new Error('分頁未完成');offset=data.next_offset;}while(true);return rows;})(),
+    ]);
+    const issues=[];
+    if(!allowNumber)issues.push('訂單號未能確認為唯一，僅顯示能以訂單連結確認的紀錄；未合併單號型庫存紀錄。');
+    const sources=[picking,qc,stock],labels=['領料','品檢','庫存異動'];
+    sources.forEach((r,i)=>{if(r.status==='rejected')issues.push(`${labels[i]}載入失敗，請重新載入；這不表示沒有執行。`);});
+    const picks=picking.status==='fulfilled'&&Array.isArray(picking.value.rows)?picking.value.rows:[];
+    if(picking.status==='fulfilled'&&!Array.isArray(picking.value.rows))issues.push('領料回傳格式異常，無法確認紀錄是否齊全。');
+    if(picks.length>=5000)issues.push('領料紀錄達讀取上限，可能尚有更早紀錄。');
+    if(picking.status==='fulfilled'&&!picks.length)issues.push('未找到直接關聯的領料紀錄。');
+    if(qc.status==='fulfilled'&&!qc.value.length)issues.push('未找到直接關聯的品檢紀錄。');
+    const events=orderTimelineEvents(order,picks,qc.status==='fulfilled'?qc.value:[],stock.status==='fulfilled'?stock.value:[],allowNumber);
+    if(!active())return;
+    host.innerHTML=renderOrderTimeline(order,events,issues);
+    host.querySelector('[data-timeline-refresh]').onclick=()=>openOrderTimeline(id);
+  }catch(e){if(active()){host.innerHTML='<h3>訂單進度暫時無法載入</h3><p>請稍後重新開啟進度，原有訂單作業不受影響。</p><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';}}
+}
 function _renderDeadlineTab(tabs, soonOrders, warnDays){
   const _notionBar='';
 

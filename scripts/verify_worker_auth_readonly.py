@@ -36,6 +36,14 @@ def main():
         else:
             raise RuntimeError("Anonymous protected read was unexpectedly accepted")
         print("Anonymous protected Worker read denied: PASS")
+        # Nonexistent exact-match references prove filtering without creating test data.
+        for path in ('/api/picking/list?order_id=00000000-0000-4000-8000-000000000000',
+                     '/api/stock-log/list?mode=all&ref_no=ERP_READONLY_ABSENT_20260907'):
+            with urlopen(Request('https://green-wave-c22f.vic-e93.workers.dev'+path, headers={'User-Agent':user_agent}),timeout=30) as response:
+                result=json.load(response)
+            if result.get('ok') is not True or result.get('rows') != []:
+                raise RuntimeError('Timeline exact-match filter verification failed')
+        print('Timeline exact-match read filters: PASS')
 
 
 if __name__ == "__main__":
