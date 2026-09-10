@@ -5,6 +5,23 @@ const c=vm.createContext({canonicalPageId:x=>String(x||'').replace(/-/g,''),noti
   getRichText:(p,k)=>p[k]||'',getTitle:(p,k)=>p[k]||'',escapeHtml:x=>String(x).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))});
 vm.runInContext(html.slice(html.indexOf('function orderTimelineEvents'),html.indexOf('async function orderTimelineNotion')),c);
 const order={id:'abc-def',no:'ORDER-100',created:'2026-09-01',shipDate:'2026-09-07',deadline:'2026-09-08',status:'待出貨',qty:120};
+test('sales order creation reuses live BOM without BOM writes and refuses missing or invalid BOM',async()=>{
+ const parent={id:'parent',code:'S-Z-DTCG-15K'},child={id:'child',code:'Z-DTCG-15K'};
+ for(const mode of ['existing','missing','invalid','offline']){
+  let writes=0;
+  const ctx=vm.createContext({mats:[parent,child],boms:[{parentId:'parent',childId:'old',qty:99}],_bomDataReady:false,
+   normalizeSku:x=>String(x||'').trim().toUpperCase(),canImportBomRole:()=>false,
+   fetchWorkerInventoryBomRows:async revision=>{assert(revision);if(mode==='offline')throw Error('offline');return mode==='missing'?[]:[{parent_sku:parent.code,child_sku:child.code,quantity:mode==='invalid'?0:1}];},
+   commitBomPlanSupabaseFirst:async()=>{writes++;},mirrorBomPlanToNotion:async()=>{writes++;}});
+  vm.runInContext(html.slice(html.indexOf('function mapSupabaseInventoryBomRows'),html.indexOf('function mapNotionInventoryBomRows')),ctx);
+  vm.runInContext(html.slice(html.indexOf('async function ensureShopeeBomRows'),html.indexOf('async function auditShopeeBomInventory')),ctx);
+  if(mode==='existing'){
+   assert.equal((await ctx.ensureShopeeBomRows(parent)).reused,true);
+   assert.equal(ctx.boms.length,1);assert.equal(ctx.boms[0].childId,'child');assert.equal(ctx.boms[0].qty,1);
+  }else await assert.rejects(ctx.ensureShopeeBomRows(parent));
+  assert.equal(writes,0);
+ }
+});
 vm.runInContext(html.slice(html.indexOf('function qcInspectionLinkedToOrder'),html.indexOf('// ── 檢驗結果：通過')),c);
 test('QC synchronization never falls back from a different explicit ID to the same number',()=>{
  assert.equal(c.qcInspectionLinkedToOrder({orderRefRaw:'other|ORDER-100'},order.id,order.no,true),false);

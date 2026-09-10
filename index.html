@@ -18005,6 +18005,17 @@ async function ensureShopeeParentMaterial(sku){
 }
 async function ensureShopeeBomRows(parentMat){
   const sku=parentMat.code||parentMat.name;
+  // Order creation consumes the authoritative BOM; it must not rewrite an existing one.
+  const liveRows=await fetchWorkerInventoryBomRows(Date.now());
+  const existing=liveRows.filter(row=>normalizeSku(row.parent_sku)===normalizeSku(sku));
+  if(existing.length){
+    const mapped=mapSupabaseInventoryBomRows(existing,mats);
+    if(mapped.some(row=>row.parentId!==parentMat.id))throw new Error(`${sku} BOM 母件關聯不一致，請由倉管確認`);
+    boms=boms.filter(row=>row.parentId!==parentMat.id).concat(mapped);
+    _bomDataReady=true;
+    return {created:0,updated:0,total:mapped.length,source:'supabase',reused:true};
+  }
+  if(!canImportBomRole())throw new Error(`${sku} 尚無正式 BOM，請由倉管／採購建立後再新增訂單；料號不需重建`);
   const rows=shopeeBomRowsForSku(sku);
   if(!rows.length) return {created:0,missing:0,total:0};
   const plan=normalizeBomWritePlan(
@@ -24768,7 +24779,7 @@ async function submitShopeeOrdersV2(){
   window._shopeeOrderItems=[];
   await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});
   showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}；下一步請由倉管/採購按「領料」才會扣 BOM 直接子件`,fail?'warn':'ok',9000);
-  if(messages.length) alert('以下 S-料號未完成建立：\n\n'+messages.join('\n'));
+  if(messages.length) alert('以下蝦皮訂單未完成建立（不代表料號未建立）：\n\n'+messages.join('\n'));
 }
 
 async function submitShopeeOrder(){

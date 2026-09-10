@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Sales Shopee Existing BOM Fix 2026-09-10
+
+- User reported sales blocked on S-Z-DTCG-15K despite existing material and Supabase BOM (Z-DTCG-15K x 1). Order creation unconditionally upserted BOM, which sales correctly cannot edit.
+- ensureShopeeBomRows now fetches fresh Supabase rows, validates and installs the selected parent's existing BOM in local state, and returns without any BOM writes. Missing BOM for sales stops with an actionable message. Invalid/unavailable reads stop rather than use stale defaults. Existing BOM is preserved for all roles; authorized creation remains for missing BOM only.
+- Error wording now identifies failed orders rather than claiming materials were not created. No Worker role permissions changed and no production orders/stock were created for testing.
+
 ## Inspection Quantity And Freshness Guards 2026-09-07
 
 - User approved quantity validation and stale-QC synchronization fixes only. Missing-material completion and the order/picking discrepancy remain outside this release.
