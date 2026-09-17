@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Customer Stock Versus Production Picking 2026-09-17
+
+- User authorized customer orders to deduct exactly the ordered SKU, including semi-finished goods and parts. Production assembly orders still consume direct BOM components and retain their completion stock-in workflow. This supersedes earlier blanket general-order BOM deduction rules.
+- Both picking preview entry points and execution now use resolveOrderPickPlan. Explicit customer types override S-/SFG- prefixes for production classification and completion stock-in eligibility. Legacy untyped production markers remain supported.
+- Insufficient stock stops deduction; no component fallback. Missing/invalid production BOM stops before creating a picking record. Existing atomic inventory keys and Worker picking fingerprint guards remain unchanged; pre-existing conflicting picking details need reconciliation, not an automatic rewrite.
+- Validation: 15 behavioral cases exercise preview and actual simulated deduction, customer vs production, stock shortages, invalid BOM, completed retries and server conflicts. Production stock is not mutated by acceptance tests.
+
 ## C-order Edit Number Preservation 2026-09-17
 
 - User authorized fixing and deploying only the C-order edit issue. Semi-finished sales picking remains outside this release.

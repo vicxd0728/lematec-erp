@@ -53,7 +53,7 @@ their values into source files or command history that will be committed.
 
 Order picking:
 
-1. Resolve the direct BOM only.
+1. Resolve picking purpose from the order type. Customer orders deduct the ordered SKU itself (including semi-finished goods, parts and finished goods); semi-finished assembly and Shopee replenishment production orders deduct direct BOM components only. Explicit customer order types override SKU/order-number prefixes. Legacy prefixes apply only when type is blank. Insufficient customer stock never falls back to components.
 2. Create or resume the Supabase picking master/items using the order Notion
    page ID as the stable source key.
 3. Create the Notion mirror and write its page IDs back to Supabase.

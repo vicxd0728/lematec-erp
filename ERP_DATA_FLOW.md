@@ -323,3 +323,6 @@ This section overrides older Supabase inventory notes below if they conflict.
 - Supabase：上述模組的主資料與交易來源。
 - Notion：由同步機制維持人工查閱鏡像；直接修改不保證回寫 Supabase。
 - 其他尚未遷移的模組仍依本文件上方資料主從表執行。
+# Picking purpose update 2026-09-17
+
+Customer orders deduct the ordered SKU itself, including semi-finished goods and parts. Only semi-finished assembly and Shopee replenishment production orders consume direct BOM components. Stock shortages require replenishment or assembly; they do not switch the deduction to components. Existing production completion stock-in remains in place. This rule supersedes older general-order BOM descriptions below.
