@@ -18652,13 +18652,12 @@ function openEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
   const mi=document.getElementById('modalInner');
-  const serial=normalizeCorderSerialInput(o.no||'');
+  const orderNo=String(o.no||'').trim();
   mi.innerHTML=`<h3>✏️ 編輯 C端訂單</h3>
   <div style="margin-bottom:12px">
     <label class="field-label">內部單號</label>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2);font-size:1rem">${CORDER_PREFIX}</span>
-      <input class="inp" id="eco_order_serial" inputmode="numeric" maxlength="12" value="${serial}" oninput="this.value=normalizeCorderSerialInput(this.value)" style="width:150px;font-family:var(--f-mono);font-weight:800">
+      <input class="inp" id="eco_order_no" value="${escapeHtml(orderNo)}" style="font-family:var(--f-mono);font-weight:800">
     </div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
@@ -18700,9 +18699,9 @@ async function corderInternalNoExists(orderNo,currentId=''){
 
 async function saveEditCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
-  const serial=normalizeCorderSerialInput(document.getElementById('eco_order_serial')?.value||'');
-  if(!serial){showToast('請輸入 C端內部單號數字','warn');return;}
-  const orderNo=formatCorderNo(serial);
+  if(!o){showToast('找不到 C端訂單，請重新同步後再編輯','err');return;}
+  const orderNo=String(document.getElementById('eco_order_no')?.value||'').trim();
+  if(!orderNo){showToast('請輸入完整 C端內部單號','warn');return;}
   const originalOrderNo=String(o?.no||'').trim().toUpperCase();
   const orderNoChanged=orderNo.toUpperCase()!==originalOrderNo;
   if(orderNoChanged){

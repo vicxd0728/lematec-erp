@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## C-order Edit Number Preservation 2026-09-17
+
+- User authorized fixing and deploying only the C-order edit issue. Semi-finished sales picking remains outside this release.
+- Editing now displays and saves the complete existing internal number (including CYB and legacy SHPTW numbers). It no longer strips prefixes or applies the new-order minimum sequence. Explicit number changes still run duplicate checks; unchanged numbers skip them to preserve existing multi-line orders.
+- New-order SHPTW allocation and stock/status edit protections are unchanged. Eight Node behavioral cases cover preservation, intentional renumbering, duplicate/empty rejection, stock-sensitive fields, and unchanged new-order formatting; pytest invokes them in CI.
+- Production verification must read the deployed edit code and Worker SHA; do not modify real customer orders to test this fix.
+
 ## Sales Shopee Existing BOM Fix 2026-09-10
 
 - User reported sales blocked on S-Z-DTCG-15K despite existing material and Supabase BOM (Z-DTCG-15K x 1). Order creation unconditionally upserted BOM, which sales correctly cannot edit.
