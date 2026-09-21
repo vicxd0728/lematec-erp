@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Sales Picking Return Request 2026-09-21
+
+- Fixed the sales UI calling warehouse-only `/api/picking/status` when requesting order material returns. It now calls `/api/picking/return-request`, allowed for sales, warehouse, purchase and administrators.
+- Request-only endpoint accepts pick_id and notes; only completed picks may become 待回料確認. Repeated requests preserve existing notes; conditional status updates reject stale requests. No item quantities, stock balances, or picker attribution are changed.
+- Frontend updates local state and the Notion mirror only after Supabase accepts the request. Generic picking status and warehouse confirmation permissions stay unchanged. No login changes.
+- Regression coverage in `tests/worker_auth_boundary.cjs` includes sales authorization, forbidden status/quantity changes, retries, concurrent status changes, and frontend failure state preservation. No production order deletion or inventory adjustment is part of deployment verification.
+- Rollback: revert this frontend/Worker change together; no schema or business-data migration is required.
+
 ## C-end Sales Kit Component Deduction 2026-09-21
 
 - User clarified S- items hold stock allocated to C-end: replenishment deducts non-S warehouse stock and adds S stock. C-end sales kits now deduct their component S stocks, while standalone S items consume themselves. General customer-order picking and replenishment remain unchanged.

@@ -34,6 +34,101 @@ function request(role, token = 'company-test-token', method = 'POST') {
 
 const env = { NOTION_TOKEN: 'company-test-token' };
 
+test('sales can request returns but cannot use unrestricted picking status', async () => {
+  const { context: c } = harness();
+  assert.equal(await c.enforceErpRouteRole(request('sales'), env, {}, '/api/picking/return-request', 'POST'), null);
+  assert.equal((await c.enforceErpRouteRole(request('sales'), env, {}, '/api/picking/status', 'POST')).status, 403);
+  for (const role of ['viewer', 'qc', 'unknown']) {
+    assert.equal((await c.enforceErpRouteRole(request(role), env, {}, '/api/picking/return-request', 'POST')).status, 403);
+  }
+});
+
+function returnHarness(status, raced = false) {
+  const { context: c } = harness();
+  const writes = [];
+  const id = '11111111-1111-1111-1111-111111111111';
+  c.supabaseSingle = async () => ({id, status, notes:'original'});
+  c.supabaseFetch = async (env, path, options) => {
+    writes.push({path, patch:JSON.parse(options.body)});
+    return raced ? [] : [{id, ...JSON.parse(options.body)}];
+  };
+  c.taipeiISOString = () => '2026-09-21T00:00:00+08:00';
+  c.respOK = (cors, data) => Response.json(data);
+  c.resp400 = (cors, error) => Response.json({error}, {status:400});
+  c.resp500 = (cors, error) => Response.json({error}, {status:500});
+  vm.runInContext(source.slice(source.indexOf('async function erpPickingReturnRequest('), source.indexOf('async function erpPickingStatus(')), c);
+  const run = extra => c.erpPickingReturnRequest(new Request('https://offline.invalid/api/picking/return-request', {
+    method:'POST', body:JSON.stringify({pick_id:id, notes:'return requested', ...extra}),
+  }), env, {});
+  return {run, writes};
+}
+
+test('sales UI uses request-only route and updates state and mirror only after acceptance', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const code = html.slice(html.indexOf('async function submitOrderReturnRequest('), html.indexOf('function openOrderPickingReversalAssist('));
+  for (const failed of [true, false]) {
+    const pick = {id:'pick', supabaseId:'pick', notionId:'mirror', status:'已領料', note:'original', items:[{id:'item', pickedQty:3, status:'足夠'}]};
+    const calls = [], mirrors = [];
+    const c = vm.createContext({
+      ROLE:'sales', ORDER_RETURN_REQUEST_STATUS:'待回料確認',
+      denyViewOnlyAction:()=>false, orderActivePickingRecords:()=>[pick], completedOrderPickingRows:rows=>rows,
+      confirm:()=>true, closeModal:()=>{}, showToast:()=>{}, logUserAction:()=>{}, refreshAffectedData:async()=>{},
+      orderReturnRequestNote:()=> 'new request',
+      pickingWorkerRequest:async(route, options)=>{
+        calls.push({route, body:options.body});
+        assert.equal(pick.note, 'original');
+        assert.equal(pick.status, '已領料');
+        if (failed) throw new Error('denied');
+        return {row:{notes:'server accepted note'}};
+      },
+      updateWorkflowPageAfterInventory:async(...args)=>mirrors.push(args),
+    });
+    vm.runInContext(code, c);
+    await c.submitOrderReturnRequest('order', 'ORD-test', '刪除訂單');
+    assert.equal(calls[0].route, '/api/picking/return-request');
+    assert.deepEqual(Object.keys(calls[0].body).sort(), ['notes','pick_id']);
+    assert.equal(pick.status, failed ? '已領料' : '待回料確認');
+    assert.equal(pick.note, failed ? 'original' : 'server accepted note');
+    assert.equal(mirrors.length, failed ? 0 : 1);
+    assert.equal(pick.items[0].pickedQty, 3);
+    assert.equal(pick.items[0].status, '足夠');
+  }
+});
+
+test('return request changes only master status and notes, preserving all inventory and item quantities', async () => {
+  for (const status of ['已領料', '已確認扣料']) {
+    const {run, writes} = returnHarness(status);
+    assert.equal((await run()).status, 200);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].path, /^\/rest\/v1\/pick_lists\?/);
+    assert.ok(writes[0].path.includes(`&status=eq.${encodeURIComponent(status)}`));
+    assert.deepEqual(Object.keys(writes[0].patch).sort(), ['notes','status','updated_at']);
+    assert.equal(writes[0].patch.status, '待回料確認');
+  }
+});
+
+test('retries preserve original request and cannot reopen incomplete or reversed picks', async () => {
+  const retry = returnHarness('待回料確認');
+  const result = await (await retry.run()).json();
+  assert.equal(result.already_requested, true);
+  assert.equal(result.row.notes, 'original');
+  assert.equal(retry.writes.length, 0);
+  for (const status of ['待領料','待確認','缺料待補','已沖銷','已退料','取消']) {
+    const h = returnHarness(status);
+    assert.equal((await h.run()).status, 409);
+    assert.equal(h.writes.length, 0);
+  }
+  assert.equal((await returnHarness('已領料', true).run()).status, 409);
+});
+
+test('return request rejects attempts to set status, quantities, items or picker', async () => {
+  for (const extra of [{status:'已沖銷'}, {items:[{picked_quantity:999}]}, {picked_quantity:999}, {picker_display:'vic'}, {pick_id:'invalid'}]) {
+    const h = returnHarness('已領料');
+    assert.equal((await h.run(extra)).status, 400);
+    assert.equal(h.writes.length, 0);
+  }
+});
+
 test('existing token and all allowed role/route combinations still pass', async () => {
   const { context: c } = harness();
   for (const [route, roles] of Object.entries(c.matrix)) {

@@ -55,6 +55,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/picking/create') {
       return erpPickingCreate(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/picking/return-request') {
+      return erpPickingReturnRequest(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/picking/status') {
       return erpPickingStatus(request, env, cors);
     }
@@ -2106,6 +2109,32 @@ async function erpPickingCreate(request, env, cors) {
   }
 }
 
+async function erpPickingReturnRequest(request, env, cors) {
+  try {
+    const body = await request.json();
+    const pickId = cleanText(body?.pick_id);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pickId)) return resp400(cors, 'Invalid pick_id');
+    // Request-only boundary: never accept quantities, item updates or arbitrary status.
+    if (Object.keys(body).some(key => !['pick_id', 'notes'].includes(key))) return resp400(cors, 'Only pick_id and notes are allowed');
+    const path = `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}`;
+    const existing = await supabaseSingle(env, `${path}&select=id,status,notes&limit=1`);
+    const conflict = () => new Response(JSON.stringify({error:'領料狀態已變更，請同步後重試'}), {status:409, headers:jh(cors)});
+    if (!existing?.id) return conflict();
+    if (existing.status === '待回料確認') return respOK(cors, {ok:true, row:existing, already_requested:true});
+    if (!['已領料', '已確認扣料'].includes(existing.status)) return conflict();
+    // Compare-and-set prevents a stale request from reopening an already reversed pick.
+    const data = await supabaseFetch(env, `${path}&status=eq.${encodeURIComponent(existing.status)}&select=id,status,notes`, {
+      method:'PATCH', headers:{Prefer:'return=representation'},
+      body:JSON.stringify({status:'待回料確認', notes:cleanText(body.notes || existing.notes || ''), updated_at:taipeiISOString()}),
+    });
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) return conflict();
+    return respOK(cors, {ok:true, row:saved});
+  } catch (e) {
+    return resp500(cors, e.message);
+  }
+}
+
 async function erpPickingStatus(request, env, cors) {
   try {
     const body = await request.json();
@@ -3183,6 +3212,7 @@ const ERP_ROUTE_ROLES = {
   '/api/picking/migrate': ['vic', 'manager'],
   '/api/picking/create': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/picking/status': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/picking/return-request': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
   '/api/picking/link-notion': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/inbound/migrate': ['vic', 'manager'],
   '/api/inbound/create': ['vic', 'manager', 'warehouse', 'purchase'],

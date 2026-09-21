@@ -37,6 +37,7 @@ This file classifies Worker routes by side effect and production safety. Before 
 | GET | `/api/picking/list` | Read-only | Reads picking masters/items | Safe read; fallback data must be read-only. |
 | POST | `/api/picking/create` | Dry-run capable / Mutating | Creates or resumes picking and may stage deduction workflow | Production test only with `dry_run: true`; never deduct just to test. |
 | POST | `/api/picking/status` | Mutating | Updates picking status and may complete workflow | High-risk. Must not run from Notion fallback data. |
+| POST | `/api/picking/return-request` | Mutating | Sales, warehouse, purchase and administrators may request return of a completed pick | Accepts only pick_id and notes. Conditional master-only transition to 待回料確認; never changes stock or picked quantities. Retries preserve original request. Generic status remains unavailable to sales. |
 | POST | `/api/picking/link-notion` | Migration / repair | Links Notion mirror IDs to Supabase picking rows | Repair only; avoid duplicate mirrors. |
 | POST | `/api/inbound/migrate` | Migration / repair | Migrates inbound records | Dry-run/report before apply. Historical stock must not replay. |
 | GET | `/api/inbound/summary` | Read-only | Reads inbound counts/source | Safe production verification. |

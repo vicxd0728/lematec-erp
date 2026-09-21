@@ -21495,9 +21495,11 @@ async function submitOrderReturnRequest(oid,no,actionLabel='處理訂單'){
   showToast('送出回料申請中...','warn');
   try{
     for(const pick of rows){
-      pick.note=orderReturnRequestNote(pick,no,actionLabel);
-      for(const item of pick.items||[]) item.status=ORDER_RETURN_REQUEST_STATUS;
-      await updateSupabasePickingStatus(pick,ORDER_RETURN_REQUEST_STATUS,pick.items||[]);
+      const result=await pickingWorkerRequest('/api/picking/return-request',{
+        method:'POST',
+        body:{pick_id:pick.supabaseId,notes:orderReturnRequestNote(pick,no,actionLabel)}
+      });
+      pick.note=result.row.notes||'';
       pick.status=ORDER_RETURN_REQUEST_STATUS;
       if(pick.notionId){
         await updateWorkflowPageAfterInventory(
