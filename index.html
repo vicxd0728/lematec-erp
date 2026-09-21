@@ -6352,7 +6352,7 @@ function openModal(type,data){
     const shopeeMats=mats.filter(m=>isShopeeMat(m)).sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
     const today=new Date().toISOString().slice(0,10);
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
-    <div class="help-box" style="margin-bottom:14px">建立後狀態會是「出貨中」，系統會立即扣除選擇的 S- 成品庫存。BOM 直接子件扣料請使用「訂單 > 蝦皮」生產領料流程。</div>
+    <div class="help-box" style="margin-bottom:14px">建立後狀態為「出貨中」。套組依銷售 BOM 扣各個 S- 配件；單品扣該 S- 庫存。補貨用的非 S- 關聯不在出貨時扣除。</div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label class="field-label">訂單號碼</label><input class="inp" id="co_no" placeholder="留空由系統保留下一張 ${nextCorderInternalNo()}"></div>
       <div><label class="field-label">買家帳號</label><input class="inp" id="co_buyer" placeholder="蝦皮買家帳號"></div>
@@ -18303,6 +18303,49 @@ function corderStockRef(id, qty){return id?`${id}:${parseInt(qty)||1}`:'';}
 function corderStockRefs(items){
   return (items||[]).map(x=>corderStockRef(x.id,x.qty??x.needed)).filter(Boolean).join(';');
 }
+function resolveCorderShipPlan(mat,qty){
+  if(!_bomDataReady)throw new Error('BOM 尚未成功載入，請同步後重試');
+  const need=Number(qty),result=new Map();
+  if(!Number.isSafeInteger(need)||need<=0)throw new Error('數量必須是正整數');
+  function visit(id,n,path){
+    const m=mats.find(x=>x.id===id);
+    if(!m||!normalizeSku(m.code||m.name).startsWith('S-'))throw new Error('C端出貨只能扣 S- 庫存，請確認套組子件');
+    if(path.includes(id))throw new Error('銷售 BOM 循環關聯：'+(m.code||m.name));
+    const edges=boms.filter(b=>b.parentId===id);
+    const children=edges.map(b=>{
+      const child=mats.find(x=>x.id===b.childId);
+      if(!child||!Number.isSafeInteger(Number(b.qty))||Number(b.qty)<=0)throw new Error('BOM 子件或用量無效：'+(m.code||m.name));
+      return {child,qty:Number(b.qty)};
+    });
+    const sales=children.filter(x=>normalizeSku(x.child.code||x.child.name).startsWith('S-'));
+    if(sales.length&&sales.length!==children.length)throw new Error('套組 '+(m.code||m.name)+' 混用倉庫與 S- 子件，請先指定 C端主機料號');
+    if(sales.length){for(const c of sales)visit(c.child.id,n*c.qty,[...path,id]);return;}
+    // Non-S children describe replenishment only. Shipping consumes this S SKU.
+    const total=(result.get(id)?.needed||0)+n;
+    if(!Number.isSafeInteger(total)||total<=0)throw new Error('BOM 展開數量無效');
+    result.set(id,{...m,needed:total});
+  }
+  visit(mat?.id,need,[]);
+  const items=[...result.values()];
+  return {mode:items.length===1&&items[0].id===mat.id?'direct':'bundle',items,refs:items.map(x=>({id:x.id,qty:x.needed}))};
+}
+function corderReturnRefsForQty(o,qty){
+  const total=Number(o?.qty),n=Number(qty),refs=parseCorderStockRefs(o?.matId,total);
+  if(!refs.length||!Number.isSafeInteger(total)||total<=0||!Number.isSafeInteger(n)||n<=0||n>total)throw new Error('原始扣料紀錄或退貨數量無效');
+  const seen=new Set();
+  return refs.map(r=>{
+    const amount=Number(r.qty)*n/total;
+    if(!r.id||seen.has(r.id)||!Number.isSafeInteger(amount)||amount<=0)throw new Error('原始扣料紀錄無法按退貨數量回補');
+    seen.add(r.id);return {id:r.id,qty:amount};
+  });
+}
+function corderSavedOutstandingRows(o){
+  if(['已取消','已退貨'].includes(o.status))return [];
+  if(!['出貨中','已完成','部分退貨'].includes(o.status))throw new Error('扣庫狀態尚未確認，請先核對交易');
+  const qty=Number(o.qty)-getCorderReturnedQty(o);
+  if(qty<=0)return [];
+  return corderReturnRefsForQty(o,qty).map(r=>{const m=mats.find(x=>x.id===r.id);return {pageId:r.id,key:r.id,qty:r.qty,code:m?.code||'',name:m?.name||r.id};});
+}
 function filterCorderMatOptions(q){
   const sel=document.getElementById('co_mat');
   if(!sel) return;
@@ -18319,10 +18362,10 @@ function previewCorderMatStock(){
   if(!sel||!hint) return;
   const opt=sel.options[sel.selectedIndex];
   if(!opt||!opt.value){hint.textContent='目前只列出類型為「蝦皮用 / 蝦皮用(S-)」或料號 S- 開頭的料件。';return;}
-  const stock=parseInt(opt.dataset.stock)||0;
-  const qty=parseInt(document.getElementById('co_qty')?.value)||1;
-  const after=stock-qty;
-  hint.innerHTML=`庫存 ${stock}，本次扣 ${qty}，建立後剩 <b style="color:${after<0?'var(--red)':'var(--green)'}">${after}</b>`;
+  try{
+    const plan=resolveCorderShipPlan(mats.find(m=>m.id===opt.value),Number(document.getElementById('co_qty')?.value||1));
+    hint.textContent=plan.items.map(x=>`${x.code||x.name}：庫存 ${x.stock}，扣 ${x.needed}，剩 ${Number(x.stock)-x.needed}`).join('；');
+  }catch(e){hint.textContent=e.message;}
 }
 async function deductCorderStock(mat, qty, refNo, operator, operationKey=''){
   const need=parseInt(qty)||1;
@@ -18339,12 +18382,22 @@ async function deductCorderStock(mat, qty, refNo, operator, operationKey=''){
   mat.stock=stockMove.after;
   return {before:stockMove.before,after:stockMove.after,duplicate:stockMove.duplicate===true};
 }
-async function deductCorderStockByBom(mat, qty, refNo, operator, operationKey=''){
-  const need=parseInt(qty)||1;
-  // C端訂單是現貨出貨：扣除被出貨的 S- 成品庫存本身。
-  // BOM 直接子件扣料只保留在「訂單 > 蝦皮」的生產/領料流程中，完成後再增加 S- 庫存。
-  await deductCorderStock(mat,need,refNo,operator,operationKey);
-  return {mode:'direct',refs:[{id:mat.id,qty:need}],items:[{...mat,needed:need}]};
+async function deductCorderStockByBom(mat, qty, refNo, operator, operationKey='',expected=null){
+  const plan=resolveCorderShipPlan(mat,qty);
+  if(expected&&corderStockRefs(expected.refs)!==corderStockRefs(plan.refs))throw new Error('BOM 已變更，請重新預覽');
+  const short=plan.items.filter(x=>Number(x.stock)<x.needed);
+  if(short.length)throw new Error('C端庫存不足：'+short.map(x=>x.code||x.name).join('、'));
+  if(plan.mode==='direct'){await deductCorderStock(plan.items[0],qty,refNo,operator,operationKey);return plan;}
+  const batch=await applyInventoryBatchAndMirror(plan.items.map(x=>({pageId:x.id,delta:-x.needed})),{
+    reason:'C端出貨套組拆扣',refNo,sourceType:'corder_ship_bundle',sourceId:operationKey||refNo
+  });
+  for(const item of plan.items){
+    const move=batch.items.find(x=>x.pageId===item.id);
+    if(!move)throw new Error('C端套組批次回傳缺少料號：'+item.code);
+    if(!move.duplicate)await logStockChangeQuietly(item.id,item.name||'',item.code||'','C端出貨',-item.needed,move.before,move.after,refNo,operator||ROLE);
+    const m=mats.find(x=>x.id===item.id);if(m)m.stock=move.after;
+  }
+  return plan;
 }
 async function returnCorderStock(refs, refNo, operationKey=''){
   const valid=(refs||[]).map(r=>({
@@ -18488,7 +18541,7 @@ async function openCorderCancelDeleteFlow(id,mode='delete'){
   showToast('檢查 C端庫存異動...','warn');
   try{
     const rows=await fetchCorderStockAuditRows(o.no||id);
-    const outstanding=buildCorderInventoryOutstandingRows(rows,parseCorderStockRefs(o.matId,o.qty||1));
+    const outstanding=o.matId?corderSavedOutstandingRows(o):buildCorderInventoryOutstandingRows(rows,[]);
     openCorderDeleteAuditModal(id,{mode,rows,outstanding});
   }catch(e){
     showToast('❌ C端庫存檢查失敗，已停止操作：'+e.message,'err',9000);
@@ -18508,9 +18561,9 @@ async function processCorderDeleteDecision(id,mode,stockMode){
   showToast(`${actionText}處理中...`,'warn');
   try{
     const rows=await fetchCorderStockAuditRows(orderNo);
-    const outstanding=buildCorderInventoryOutstandingRows(rows,parseCorderStockRefs(o.matId,o.qty||1));
+    const outstanding=o.matId?corderSavedOutstandingRows(o):buildCorderInventoryOutstandingRows(rows,[]);
     if(stockMode==='return'&&outstanding.length){
-      await returnCorderStock(outstanding.map(row=>({id:row.pageId,qty:row.qty})),orderNo,`${mode}:${orderNo}:return`);
+      await returnCorderStock(outstanding.map(row=>({id:row.pageId,qty:row.qty})),orderNo,`cancel-delete:${id}:return`);
     }
     if(mode==='cancel'){
       await updatePage(id,{'狀態':{select:{name:'已取消'}}});
@@ -18600,8 +18653,9 @@ function openReturnCorder(id){
     showToast('只有已完成或部分退貨的 C端訂單可走退貨流程','warn');
     return;
   }
-  const refs=parseCorderStockRefs(o.matId,o.qty||1);
-  const mat=refs.length===1?mats.find(m=>m.id===refs[0].id):null;
+  let refs;
+  try{refs=corderReturnRefsForQty(o,1);}catch(e){showToast(e.message,'err');return;}
+  const returnLabel=refs.map(r=>`${mats.find(m=>m.id===r.id)?.code||r.id} × ${r.qty}`).join('、');
   const qty=Number(o.qty)||0;
   const returnedQty=getCorderReturnedQty(o);
   const remainingQty=Math.max(qty-returnedQty,0);
@@ -18613,9 +18667,9 @@ function openReturnCorder(id){
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
       <div style="font-family:var(--f-mono);font-weight:800;color:var(--cyan2)">${escapeHtml(o.no||id)}</div>
       <div style="font-size:.82rem;color:var(--text2);margin-top:4px">${escapeHtml(o.matCode||o.matName||'—')} × ${qty}</div>
-      <div style="font-size:.75rem;color:var(--text3);margin-top:4px">目前狀態：${escapeHtml(o.status||'—')}；已退 ${returnedQty}；剩餘可退 ${remainingQty}；回庫料號：${mat?escapeHtml(mat.code||mat.name||''):'未對上料件'}</div>
+      <div style="font-size:.75rem;color:var(--text3);margin-top:4px">目前狀態：${escapeHtml(o.status||'—')}；已退 ${returnedQty}；剩餘可退 ${remainingQty}；每退 1 件／組回補：${escapeHtml(returnLabel)}</div>
     </div>
-    ${refs.length!==1?`<div class="info-box info-warn" style="margin-bottom:12px">此 C端訂單沒有單一可回庫料號，請先檢查料件關聯後再退貨。</div>`:''}
+    <div class="hint">依原始扣料紀錄回補，不使用目前 BOM；套組以完整組數退貨。</div>
     <div class="form-row" style="margin-bottom:10px">
       <div><label class="field-label">退貨數量 *</label><input class="inp" id="corder_return_qty" type="number" min="1" max="${remainingQty}" value="${remainingQty}"></div>
       <div><label class="field-label">庫存處理 *</label><select class="inp" id="corder_return_stock"><option value="return">回補 S- 庫存</option><option value="scrap">不回補 / 報銷</option></select></div>
@@ -18627,7 +18681,7 @@ function openReturnCorder(id){
     <div class="hint">退貨數量小於剩餘可退數量時，狀態會改為「部分退貨」；退完剩餘數量時改為「已退貨」。</div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-red" id="corder_return_submit" onclick="submitReturnCorder('${id}')" ${refs.length===1?'':'disabled'}>確認退貨</button>
+      <button class="btn btn-red" id="corder_return_submit" onclick="submitReturnCorder('${id}')">確認退貨</button>
     </div>`;
   openModal();
 }
@@ -18640,19 +18694,20 @@ async function submitReturnCorder(id){
   const orderQty=Number(o.qty)||0;
   const returnedQty=getCorderReturnedQty(o);
   const remainingQty=Math.max(orderQty-returnedQty,0);
-  const returnQty=parseInt(document.getElementById('corder_return_qty')?.value)||0;
+  const returnQty=Number(document.getElementById('corder_return_qty')?.value)||0;
   const stockMode=document.getElementById('corder_return_stock')?.value||'return';
   const reasonType=(document.getElementById('corder_return_reason_type')?.value||'').trim();
   const reasonOther=(document.getElementById('corder_return_reason_other')?.value||'').trim();
   const reason=reasonType==='其他'?`其他：${reasonOther}`:reasonType;
   if(orderQty<=0){showToast('此 C端訂單數量異常，請先修正訂單數量','err');return;}
   if(remainingQty<=0){showToast('此 C端訂單已無剩餘可退數量','warn');return;}
-  if(returnQty<=0||returnQty>remainingQty){showToast(`退貨數量需介於 1 到 ${remainingQty}`,'warn');return;}
+  if(!Number.isSafeInteger(returnQty)||returnQty<=0||returnQty>remainingQty){showToast(`退貨數量需介於 1 到 ${remainingQty}`,'warn');return;}
   if(!reasonType){showToast('請選擇退貨原因','warn');return;}
   if(reasonType==='其他'&&reasonOther.length<2){showToast('選其他時請填寫原因','warn');return;}
-  const refs=parseCorderStockRefs(o.matId,o.qty||1);
-  if(refs.length!==1){showToast('此 C端訂單沒有單一可回庫料號，已停止退貨','err');return;}
-  const returnRefNo=`${o.no||id}-RET-${Date.now()}`;
+  let refs;
+  try{refs=corderReturnRefsForQty(o,returnQty);}catch(e){showToast(e.message,'err');return;}
+  const returnRefNo=`${o.no||id}-RET-${returnedQty}-${returnedQty+returnQty}`;
+  const returnKey=`${id}:return:${returnedQty}:${returnedQty+returnQty}`;
   const nextReturnedQty=returnedQty+returnQty;
   const nextStatus=nextReturnedQty>=orderQty?'已退貨':'部分退貨';
   const noteParts=[o.note||'',`退貨 ${returnQty}/${orderQty}：${reason}${stockMode==='return'?'（回補庫存）':'（不回補庫存）'} ${new Date().toISOString().slice(0,10)}`].filter(Boolean);
@@ -18660,7 +18715,7 @@ async function submitReturnCorder(id){
   btn.textContent='退貨處理中...';
   _corderReturnLocks.add(id);
   try{
-    if(stockMode==='return') await returnCorderStock([{id:refs[0].id,qty:returnQty}],returnRefNo,returnRefNo);
+    if(stockMode==='return') await returnCorderStock(refs,returnRefNo,returnKey);
     const statusSync=await updateWorkflowPageAfterInventory(id,{
       '狀態':{select:{name:nextStatus}},
       '備註':{rich_text:[{text:{content:noteParts.join(' / ')}}]},
@@ -20256,7 +20311,7 @@ function renderCorders(){
       <div class="corder-sort-group" style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
     ${limitedDataHint('corders','C端訂單')}
-    <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位目前固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。C端出貨扣除該 S- 成品庫存本身；BOM 直接子件扣料只在「訂單 > 蝦皮」生產領料流程執行。</div>`;
+    <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。套組扣各個 S- 子件；單品扣本身 S- 庫存。取消與退貨依原始扣料清單回補。</div>`;
   if(!filtered.length){
     html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
   }else{
@@ -23650,7 +23705,7 @@ async function submitCorder(){
   const buyer=(document.getElementById('co_buyer')?.value||'').trim();
   const trackingNo=(document.getElementById('co_tracking')?.value||'').trim();
   const matId=(document.getElementById('co_mat')?.value||'').trim();
-  const qty=parseInt(document.getElementById('co_qty')?.value)||1;
+  const qty=Number(document.getElementById('co_qty')?.value)||1;
   const shipMethod=(document.getElementById('co_ship')?.value||'').trim();
   const shipDate=(document.getElementById('co_ship_date')?.value||'').trim();
   const payDate=(document.getElementById('co_pay_date')?.value||'').trim();
@@ -23670,8 +23725,12 @@ async function submitCorder(){
   let stockDeduct=null;
   let stagedOrder=null;
   let committed=false;
+  let stockAttempted=false;
   closeModal(); showToast('建立 C端訂單中...','warn');
   try{
+    await loadCoreEssentials({force:true});
+    const shipPlan=resolveCorderShipPlan(mat,qty);
+    if(shipPlan.items.some(x=>Number(x.stock)<x.needed))throw new Error('C端子件庫存不足，請重新預覽');
     if(!orderNo){
       const reserved=await reserveCorderNumbers(1);
       orderNo=formatCorderNo(reserved.start_number);
@@ -23687,7 +23746,7 @@ async function submitCorder(){
       '出貨方式':   {rich_text:[{text:{content:shipMethod||''}}]},
       '狀態':       {select:{name:'需確認'}},
       '來源':       {select:{name:'手動'}},
-      '料件ID':     {rich_text:[]},
+      '料件ID':     {rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]},
       '備註':       {rich_text:[{text:{content:[note,'庫存交易處理中'].filter(Boolean).join(' / ')}}]},
     };
     if(shipDate) stagedProps['出日']={date:{start:shipDate}};
@@ -23696,7 +23755,8 @@ async function submitCorder(){
     if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error('C端訂單暫存建檔失敗：'+(stagedOrder?.message||'未回傳訂單'));
 
     const operationKey=`manual:${orderNo}:${shopeeNo||'-'}:${mat.id}`;
-    stockDeduct=await deductCorderStockByBom(mat,qty,orderNo,ROLE,operationKey);
+    stockAttempted=true;
+    stockDeduct=await deductCorderStockByBom(mat,qty,orderNo,ROLE,operationKey,shipPlan);
     committed=true;
     const stockRef=corderStockRefs(stockDeduct.refs);
     const finalNote=[note].filter(Boolean).join(' / ');
@@ -23720,9 +23780,11 @@ async function submitCorder(){
       statusSync.pending?'warn':'ok'
     );
   }catch(e){
-    if(!committed){
+    if(!committed&&!stockAttempted){
       await archiveNotionPageQuietly(stagedOrder?.id);
       showToast('❌ '+e.message,'err');
+    }else if(!committed){
+      showToast('⚠ 扣庫結果需確認，已保留訂單與扣料清單；請先核對交易，勿重複建立：'+e.message,'err',10000);
     }else{
       console.error('submitCorder post-commit error:',e);
       showToast(`⚠ C端訂單 ${orderNo} 已扣庫，但後續同步未完成；請按同步鍵確認，勿重複建立`,'warn',9000);
@@ -23755,20 +23817,28 @@ function buildCorderImportPreflight(incoming){
       newOrderKeys.push(orderKey);
     }
     const mat=sku?findMatBySku(sku):null;
-    const parsedQty=parseInt(item.qty);
+    const parsedQty=Number(item.qty);
     const qty=Number.isFinite(parsedQty)?parsedQty:0;
-    const usedBefore=stockUse.get(mat?.id||sku)||0;
     const before=Number(mat?.stock)||0;
-    const after=mat?before-usedBefore-qty:null;
-    if(mat&&qty>0) stockUse.set(mat.id,usedBefore+qty);
+    let after=null,shipPlan=null;
     let error='',warn='';
     if(!sku) error='商品選項貨號空白';
     else if(!item.buyer) error='買家帳號空白，無法判斷是否沿用同一內部單號';
-    else if(!Number.isFinite(qty)||qty<=0) error='數量需大於 0';
+    else if(!Number.isSafeInteger(qty)||qty<=0) error='數量需為正整數';
     else if(!mat) error='庫存主檔找不到料號';
-    else if(after<0) error='庫存不足，確認後會扣成負數';
     if(!error&&existingKeys.has(pairKey)) warn='ERP 已有相同蝦皮訂單/買家/料號，確認時會略過';
-    return {...item,orderKey,pairKey,existingNo,previewNo:existingNo||'',sku,mat,before,after,impact:mat?-qty:0,error,warn,duplicateInFile:false};
+    if(!error&&!warn){
+      try{
+        shipPlan=resolveCorderShipPlan(mat,qty);
+        for(const part of shipPlan.items){
+          const used=(stockUse.get(part.id)||0)+part.needed;
+          stockUse.set(part.id,used);
+          if(Number(part.stock)<used)error='C端子件庫存不足：'+(part.code||part.name);
+        }
+        after=shipPlan.mode==='direct'?before-(stockUse.get(mat.id)||0):null;
+      }catch(e){error=e.message;}
+    }
+    return {...item,orderKey,pairKey,existingNo,previewNo:existingNo||'',sku,mat,before,after,shipPlan,impact:shipPlan?-shipPlan.items.reduce((n,x)=>n+x.needed,0):0,error,warn,duplicateInFile:false};
   });
   rows.forEach(row=>{
     const duplicateCount=incomingPairs.get(row.pairKey)||0;
@@ -23879,6 +23949,11 @@ async function applyCorderImportPreflight(){
   const report=window._corderImportPreflight;
   if(!report?.incoming?.length){showToast('沒有可匯入的 C-order 預覽資料','warn');return;}
   if(report.errors){showToast('仍有錯誤列，請先修正 Excel 後重新匯入','err');return;}
+  try{await loadCoreEssentials({force:true});}catch(e){showToast('同步失敗，已停止匯入：'+e.message,'err');return;}
+  const freshReport=buildCorderImportPreflight(report.incoming);
+  if(freshReport.errors||JSON.stringify(freshReport.stockImpact)!==JSON.stringify(report.stockImpact)){
+    openCorderImportPreflightModal(freshReport);showToast('庫存或 BOM 已更新，請確認新的扣料預覽','warn');return;
+  }
   const incoming=report.incoming;
   closeModal();
   showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
@@ -23905,7 +23980,7 @@ async function applyCorderImportPreflight(){
     );
     if(dup){skip++;continue;}
 
-    let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false;
+    let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false, stockAttempted=false;
     if(!item.sku){
       warnList.push((item.shopeeNo||item.no)+'：無料號');
       failed++;
@@ -23937,11 +24012,15 @@ async function applyCorderImportPreflight(){
     if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
     if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
     try{
+      const shipPlan=resolveCorderShipPlan(mat,item.qty);
+      if(shipPlan.items.some(x=>Number(x.stock)<x.needed))throw new Error('C端子件庫存不足');
+      cProps['料件ID']={rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]};
       stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
       if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
 
       const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
-      stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey);
+      stockAttempted=true;
+      stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey,shipPlan);
       committed=true;
       stockRef=corderStockRefs(stockDeduct.refs);
       const statusSync=await updateWorkflowPageAfterInventory(
@@ -23959,10 +24038,13 @@ async function applyCorderImportPreflight(){
         warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
       }
     }catch(eCreate){
-      if(!committed){
+      if(!committed&&!stockAttempted){
         failed++;
         await archiveNotionPageQuietly(stagedOrder?.id);
         warnList.push((item.shopeeNo||item.no)+'：未扣庫，訂單暫存已取消 '+eCreate.message);
+      }else if(!committed){
+        failed++;
+        warnList.push((item.shopeeNo||item.no)+'：交易結果需確認，已保留訂單與扣料清單，勿重複匯入');
       }else{
         warn++;
         warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');

@@ -326,3 +326,6 @@ This section overrides older Supabase inventory notes below if they conflict.
 # Picking purpose update 2026-09-17
 
 Customer orders deduct the ordered SKU itself, including semi-finished goods and parts. Only semi-finished assembly and Shopee replenishment production orders consume direct BOM components. Stock shortages require replenishment or assembly; they do not switch the deduction to components. Existing production completion stock-in remains in place. This rule supersedes older general-order BOM descriptions below.
+# C-end sales kit update 2026-09-21
+
+C-end S- stock is allocated inventory. Replenishment moves stock from non-S to S; C-end kit sales deduct their component S stocks. Standalone S goods stop at the S layer even when a non-S replenishment BOM exists. All-S kit relations may expand recursively; mixed warehouse/S relations require explicit mapping and block shipping until resolved. Refunds return the original saved deduction lines, not today's BOM. No historic stock migration is included.

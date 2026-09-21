@@ -46,7 +46,7 @@ class CorderExcelImportContractTests(unittest.TestCase):
         self.assertIn("duplicateInFile", preflight)
         self.assertIn("firstErrorRow", preflight)
         self.assertIn("買家帳號空白", preflight)
-        self.assertIn("數量需大於 0", preflight)
+        self.assertIn("數量需為正整數", preflight)
         self.assertIn("可匯入 / 會略過", modal)
         self.assertIn("跳到第一個錯誤", modal)
         self.assertIn("id=\"corder-import-row-${row.sourceRow}\"", modal)

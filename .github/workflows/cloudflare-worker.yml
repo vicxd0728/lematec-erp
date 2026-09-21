@@ -32,6 +32,9 @@ jobs:
       - name: Verify read-only order timeline behavior
         run: node --test tests/order_timeline.cjs
 
+      - name: Verify C-end kit stock and return behavior
+        run: node --test tests/corder_bundle.cjs tests/corder_edit_number.cjs tests/order_pick_purpose.cjs
+
       - name: Verify existing login token before deployment
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

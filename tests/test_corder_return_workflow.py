@@ -48,8 +48,8 @@ class CorderReturnWorkflowTest(unittest.TestCase):
 
     def test_return_inventory_uses_unique_return_batch_key(self):
         body = function_body("submitReturnCorder")
-        self.assertIn("RET-${Date.now()}", body)
-        self.assertIn("returnCorderStock([{id:refs[0].id,qty:returnQty}],returnRefNo,returnRefNo)", body)
+        self.assertIn("${id}:return:${returnedQty}:${returnedQty+returnQty}", body)
+        self.assertIn("returnCorderStock(refs,returnRefNo,returnKey)", body)
         return_body = function_body("returnCorderStock")
         self.assertIn("sourceId:operationKey||refNo", return_body)
 

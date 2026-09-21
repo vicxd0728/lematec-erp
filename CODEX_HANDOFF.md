@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end Sales Kit Component Deduction 2026-09-21
+
+- User clarified S- items hold stock allocated to C-end: replenishment deducts non-S warehouse stock and adds S stock. C-end sales kits now deduct their component S stocks, while standalone S items consume themselves. General customer-order picking and replenishment remain unchanged.
+- resolveCorderShipPlan follows all-S sales edges recursively, aggregates shared leaves, and stops at S items whose edges are replenishment-only non-S. Cycles, missing children, invalid quantities and mixed S/non-S sales edges block. The supplied BOM includes mixed-edge kits; their C-end main-unit SKU awaits user clarification. Do not infer a replacement SKU or deduct non-S warehouse stock.
+- Manual and import previews share the resolver, import sums component demand across rows and excludes existing rows. Fresh core data and changed-preview checks precede import. Bundle deduction uses the atomic batch path. Staged orders save planned refs before dispatch; uncertain transactions retain the staged record for reconciliation.
+- Returns use saved per-order refs, proportional to returned sales quantity, never current BOM. Legacy direct refs return the original kit. Cancellation prefers the order's saved refs rather than logs shared by several lines under one number. Existing S-kit balances are not migrated or zeroed.
+- Local behavior tests cover kit/standalone/nested sales, shared stock, malformed/mixed BOM, shortage, idempotent batch retry, legacy and proportional returns. Production acceptance must be read-only.
+
 ## Customer Stock Versus Production Picking 2026-09-17
 
 - User authorized customer orders to deduct exactly the ordered SKU, including semi-finished goods and parts. Production assembly orders still consume direct BOM components and retain their completion stock-in workflow. This supersedes earlier blanket general-order BOM deduction rules.
