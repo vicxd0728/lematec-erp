@@ -48,6 +48,16 @@ test('legacy production markers still identify untyped assembly orders',()=>{
  const t=setup('');t.order.no='SFG-123';assert(t.ctx.isSfgProductionOrder(t.order));
  t.order.no='123';t.order.product='S-Z-ABC';assert(t.ctx.isShopeeProductionOrder(t.order));
 });
+
+test('Shopee preview shows both stock legs and confirmation uses one transfer without a pick',async()=>{
+ const t=setup('蝦皮');t.parent.code='S-F-GAB-03D-B';t.order.product=t.parent.code;
+ t.ctx.mats.push({id:'source',code:'F-GAB-03D-B',stock:12});t.ctx.canCompleteShopeeProductionRole=()=>true;
+ vm.runInContext(html.slice(html.indexOf('function getShopeeBomItems'),html.indexOf('async function deductShopeeBom')),t.ctx);
+ t.ctx.openPickPreview('order');assert.equal(t.preview.rows.length,2);assert.equal(t.preview.rows[0].impact,-1);assert.equal(t.preview.rows[1].impact,1);
+ await t.ctx.doPick('order');const b=t.calls.find(x=>x.batch);assert(b,JSON.stringify(t.toast));
+ assert.equal(JSON.stringify(b.batch),JSON.stringify([{pageId:'source',delta:-1},{pageId:'parent',delta:1}]));
+ assert.equal(b.opts.sourceType,'shopee_transfer');assert(!t.calls.some(x=>x.path));assert.equal(t.order.status,'已完成');
+});
 test('insufficient customer stock blocks deduction without falling back to available parts',async()=>{
  const t=setup('國外',0);t.ctx.openPickPreview('order');assert.equal(t.preview.errors,1);assert(t.field.innerHTML.includes('disabled'));
  await t.ctx.doPick('order');assert(!t.calls.some(x=>x.batch));assert(t.calls.some(x=>x.status==='缺料待補'));

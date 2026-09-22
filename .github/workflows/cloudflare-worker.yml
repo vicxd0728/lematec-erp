@@ -53,6 +53,7 @@ jobs:
           python -m pip install 'psycopg[binary]>=3.2,<4'
           python tests/run_inventory_cas_postgres.py
           python tests/run_corder_bom_postgres.py
+          python tests/run_shopee_transfer_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
