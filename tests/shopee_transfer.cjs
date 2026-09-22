@@ -7,12 +7,12 @@ function setup(opts={}){
  const target={id:'s',sku:'S-LEI-18',notion_page_id:'sp'},source={id:'w',sku:'LEI-18',notion_page_id:'wp'};
  const order={object:'page',parent:{database_id:'orders'},properties:{'訂單類型':{select:{name:'蝦皮'}},'狀態':{select:{name:opts.status||'待排程'}},'訂購數量':{number:3},'成品':{relation:[{id:'sp'}]}}};
  let calls=0,balance=opts.short?2:10,sbalance=2;const tx=[];
- const c=vm.createContext({Request,Response,encodeURIComponent,BOARD_DB:{orders:'orders'},canonicalNotionId:x=>x,cleanText:x=>String(x||'').trim(),erpBearerToken:()=>'',fetch:async()=>Response.json(order),getSupabaseInventoryContext:async()=>({organization:{id:'org'}}),
+ const c=vm.createContext({Request,Response,encodeURIComponent,BOARD_DB:{orders:'orders'},canonicalNotionId:x=>x,cleanText:x=>String(x||'').trim(),erpBearerToken:()=>'',fetch:async()=>Response.json(order),getSupabaseInventoryContext:async()=>({organization:{id:'org'},warehouse:{id:'wh'}}),getSupabaseBalance:async(e,o,w,id)=>({quantity:id==='w'?balance:sbalance}),
   supabaseSingle:async(e,url)=>url.includes('notion_page_id=eq.')?target:opts.missing?null:source,
   supabaseFetch:async(e,url)=>url.includes('/pick_lists?')?(opts.picked?[{status:'已領料'}]:[]):tx,
-  erpInventoryBatchAdjust:async req=>{const p=(await req.json()).payload;assert.equal(p.idempotency_key,'shopee_transfer:'+id);assert.equal(p.source_type,'shopee_transfer');assert.equal(p.items.reduce((s,x)=>s+x.delta,0),0);calls++;
+  erpInventoryBatchAdjust:async req=>{const p=(await req.json()).payload;assert.equal(p.idempotency_key,'shopee_transfer:'+id);assert.equal(p.source_type,'shopee_transfer');assert.equal(p.items.reduce((s,x)=>s+x.delta,0),0);calls++;const duplicate=tx.length>0;
    if(!tx.length){if(balance<3)throw Error('short');balance-=3;sbalance+=3;tx.push({material_id:'w',quantity_delta:-3},{material_id:'s',quantity_delta:3});}
-   return Response.json({ok:true,items:tx.map(x=>({...x,delta:x.quantity_delta}))});},respOK:(c,data)=>Response.json(data),resp400:(c,error)=>Response.json({error},{status:400})});
+   return Response.json({ok:true,duplicate,items:tx.map(x=>({...x,delta:x.quantity_delta}))});},respOK:(c,data)=>Response.json(data),resp400:(c,error)=>Response.json({error},{status:400})});
  vm.runInContext(worker.slice(worker.indexOf('async function erpShopeeTransfer('),worker.indexOf('async function erpAssemblyComplete(')),c);
  const run=(items=[{sku:'LEI-18',delta:-3},{sku:'S-LEI-18',delta:3}])=>c.erpShopeeTransfer(new Request('https://test/api/shopee/transfer',{method:'POST',body:JSON.stringify({payload:{source_id:id,items,idempotency_key:'caller-changed'}})}),{},{});
  return {run,order,tx,get calls(){return calls},get balances(){return [balance,sbalance]}};

@@ -6213,8 +6213,8 @@ function openModal(type,data){
     <!-- 蝦皮 block -->
     <div id="blockShopee" style="display:none">
       <div style="padding:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:10px;margin-bottom:14px">
-        <div style="font-size:0.6875rem;font-weight:700;color:var(--blue);margin-bottom:4px">🛒 蝦皮組裝單</div>
-        <div style="font-size:0.625rem;color:var(--text3)">選擇商品後自動讀取 BOM，領料時扣除主料＋配件，完成後增加 S- 成品庫存</div>
+        <div style="font-size:0.6875rem;font-weight:700;color:var(--blue);margin-bottom:4px">🛒 蝦皮補庫單</div>
+        <div style="font-size:0.625rem;color:var(--text3)">選擇要補入的 S- 料號，確認轉庫時扣除同料號的一般倉庫庫存，並增加等量 S- 庫存。例：LEI-18 → S-LEI-18。</div>
       </div>
       <div style="margin-bottom:10px">
         <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">🔍 搜尋商品（輸入料號或名稱）</label>
@@ -6229,17 +6229,17 @@ function openModal(type,data){
       <div style="margin-bottom:12px;padding:10px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.18);border-radius:10px">
         <label style="font-size:0.625rem;color:var(--cyan2);display:block;margin-bottom:5px">手動新增 S-料號</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input class="inp" id="m_shopee_manual" placeholder="例如 S-FLT-B-C4；若主檔沒有會自動建檔，預設庫存 20">
+          <input class="inp" id="m_shopee_manual" placeholder="例如 S-LEI-18；新料號以庫存 0 建檔">
           <button type="button" class="btn btn-cyan btn-sm" onclick="addShopeeOrderItem(true)">建立/加入</button>
         </div>
-        <div style="font-size:0.6875rem;color:var(--text3);margin-top:6px">若 Excel BOM 有這個 S-料號，系統會自動補 BOM 關係。</div>
+        <div style="font-size:0.6875rem;color:var(--text3);margin-top:6px">相同料號會沿用；補庫不需要 BOM，來源為移除 S- 前綴後的倉庫料號。</div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
         <div style="width:110px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">數量</label><input class="inp" type="number" id="m_shopee_qty" value="1" min="1"></div>
         <button type="button" class="btn btn-green" onclick="addShopeeOrderItem()">＋ 加入清單</button>
       </div>
       <div id="shopeeSkuInfo" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
-        <div style="font-size:0.625rem;color:var(--text3);margin-bottom:6px">📦 BOM 組成</div>
+        <div style="font-size:0.625rem;color:var(--text3);margin-bottom:6px">📦 一對一轉庫來源</div>
         <div id="shopeeSkuBom" style="font-size:0.6875rem;color:var(--text2)"></div>
       </div>
       <div style="margin-bottom:12px">
@@ -17810,7 +17810,7 @@ function buildBomImportPreflight(parsed){
       if(!childMat) missingMaterials.set(childSku,{sku:childSku,type:bomImportChildType(childSku),role:'子件'});
       let error='',warn='';
       if(!parentSku||!childSku) error='母件或子件料號空白';
-      else if(parentSku===childSku){error='BOM 不可自我關聯';selfRefs++;}
+      else if(parentSku===childSku&&!parentSku.startsWith('S-')){error='生產 BOM 不可自我關聯';selfRefs++;}
       else if(pairs.has(pair)){error='同一批 BOM 母件/子件重複';duplicatePairs++;}
       else if(!Number.isFinite(Number(part.qty))||Number(part.qty)<=0) error='用量必須大於 0';
       else if(/[,，、;；\n]/.test(part.raw||'')||String(part.code||'').includes('+')){
@@ -23420,7 +23420,8 @@ function onShopeeSkuChange(matId){
   const mat = mats.find(m=>m.id===matId);
   if(!mat){info.style.display='none';return;}
   const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
-  const items=getShopeeBomItems(mat,qty);
+  let items;
+  try{items=getShopeeBomItems(mat,qty);}catch(e){bom.textContent=e.message;info.style.display='';return;}
   let html = items.length
     ? items.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
         <span>${x.missing?'⚠ ':''}${x.code||x.name}</span>
