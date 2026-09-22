@@ -29,7 +29,7 @@ for(const type of ['國外','國內','overseas','domestic','']){
   assert.equal(b.opts.sourceId,'order');assert.equal(b.opts.sourceType,'order_pick_batch');
  });
 }
-for(const type of ['半成品','sfg','蝦皮','shopee']){
+for(const type of ['半成品','sfg']){
  test('production '+type+' deducts direct components only',async()=>{
   const t=setup(type);t.ctx.boms.push({parentId:'c0',childId:'c1',qty:99});
   t.ctx.openPickModal('order');assert.equal(t.preview.rows.length,4);

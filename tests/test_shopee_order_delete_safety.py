@@ -27,7 +27,7 @@ def function_body(name: str) -> str:
 class ShopeeOrderDeleteSafetyTests(unittest.TestCase):
     def test_shopee_order_creation_explains_pick_step(self):
         body = function_body("submitShopeeOrdersV2")
-        self.assertIn("按「領料」才會扣 BOM 直接子件", body)
+        self.assertIn("扣一般倉庫，同時增加 S- 庫存", body)
 
     def test_delete_order_audits_stock_logs_before_confirm_and_archive(self):
         body = function_body("deleteOrder")

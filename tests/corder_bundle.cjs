@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),{te
 const html=fs.readFileSync(require('path').join(__dirname,'../index.html'),'utf8');
 function setup(){
  const mats=[{id:'kit',code:'S-KIT',stock:50},{id:'tube',code:'S-TUBE',stock:10},{id:'chuck',code:'S-CHUCK',stock:8},{id:'raw',code:'TUBE',stock:500},{id:'nested',code:'S-NESTED',stock:0}].map(m=>({...m,name:m.code}));
- const boms=[{parentId:'kit',childId:'tube',qty:1},{parentId:'kit',childId:'chuck',qty:2},{parentId:'tube',childId:'raw',qty:1},{parentId:'nested',childId:'kit',qty:2}];
+ const boms=[{parentId:'kit',childId:'tube',qty:1},{parentId:'kit',childId:'chuck',qty:2},{parentId:'tube',childId:'tube',qty:1},{parentId:'nested',childId:'kit',qty:2}];
  const moves=[],logs=[],seen=new Map();
  const c=vm.createContext({mats,boms,_bomDataReady:true,ROLE:'sales',window:{corders:[]},CORDER_SEQUENCE_STATE:{next_number:18000},
  normalizeSku:s=>String(s||'').trim().toUpperCase(),findMatBySku:s=>mats.find(m=>m.code===s),corderSameOrderKey:(s,b)=>s+'|'+b,formatCorderNo:n=>'SHPTW'+n,
@@ -24,12 +24,13 @@ test('bundle consumes S components, never kit or warehouse; repeats are idempote
  assert.equal(t.mats[0].stock,50);assert.equal(t.mats[3].stock,500);assert.equal(t.moves.length,1);
  await t.c.deductCorderStockByBom(kit,2,'O','sales','op');assert.equal(t.moves.length,1);assert.equal(t.logs.length,2);
 });
-test('single S stock stops at replenishment edges; nested sales kits aggregate quantities',()=>{
+test('sales deducts direct S components and self references without expanding child recipes',()=>{
  const t=setup();assert.equal(t.c.resolveCorderShipPlan(t.mats[1],1).refs[0].id,'tube');
- const p=t.c.resolveCorderShipPlan(t.mats[4],2);assert.equal(p.refs[0].qty,4);assert.equal(p.refs[1].qty,8);
+ const p=t.c.resolveCorderShipPlan(t.mats[4],2);assert.equal(p.refs.length,1);assert.equal(p.refs[0].id,'kit');assert.equal(p.refs[0].qty,4);
+ t.boms[0].childId='kit';const self=t.c.resolveCorderShipPlan(t.mats[0],2);assert.equal(self.refs[0].id,'kit');assert.equal(self.refs[0].qty,2);assert.equal(self.refs[1].qty,4);
 });
-test('mixed warehouse edges, cycles, missing child and invalid BOM fail closed',()=>{
- for(const mode of ['mixed','cycle','missing','qty','unloaded']){
+test('warehouse edges, missing child and invalid BOM fail closed',()=>{
+ for(const mode of ['mixed','missing','qty','unloaded']){
   const t=setup();
   if(mode==='mixed')t.boms[0].childId='raw';if(mode==='cycle')t.boms[0].childId='kit';
   if(mode==='missing')t.boms[0].childId='absent';if(mode==='qty')t.boms[0].qty=0;

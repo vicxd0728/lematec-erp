@@ -18,7 +18,7 @@ class InventoryMasterSafetyTest(unittest.TestCase):
         self.assertIn("/rest/v1/rpc/archive_inventory_materials", WORKER)
         section = WORKER[
             WORKER.index("async function erpInventoryMaterialArchive") :
-            WORKER.index("async function erpInventoryAdjust")
+            WORKER.index("async function erpShopeeTransfer")
         ]
         self.assertNotIn("method: 'PATCH'", section)
         self.assertNotIn("/rest/v1/bom_headers?id=in.", section)

@@ -1817,7 +1817,12 @@ function resolveOrderPickPlan(o){
   if(!prod)throw new Error('訂單未關聯有效料件，無法扣庫存');
   const qty=Number(o.qty);
   if(!Number.isSafeInteger(qty)||qty<=0)throw new Error('訂單數量必須為正整數');
-  const production=isSfgProductionOrder(o)||isShopeeProductionOrder(o);
+  if(isShopeeProductionOrder(o)){
+    const items=getShopeeBomItems(prod,qty);
+    if(items.some(x=>x.missing||!x.id))throw new Error('一般倉庫來源尚未建檔：'+items.map(x=>x.code).join('、'));
+    return {prod,production:false,transfer:true,items};
+  }
+  const production=isSfgProductionOrder(o);
   if(!production)return {prod,production:false,items:[{...prod,needed:qty}]};
   if(!_bomDataReady)throw new Error('BOM 資料尚未成功載入，已停止生產領料');
   const direct=boms.filter(b=>b.parentId===o.productId);
@@ -7626,7 +7631,7 @@ function normalizeBomWritePlan(label,rows,materials=[]){
     const child_sku=normalizeSku(row.child_sku||row.child);
     const quantity=Number(row.quantity??row.qty);
     if(!parent_sku||!child_sku)throw new Error('BOM 母件或子件料號空白');
-    if(parent_sku===child_sku)throw new Error(`BOM 不可自我關聯：${parent_sku}`);
+    if(parent_sku===child_sku&&!parent_sku.startsWith('S-'))throw new Error(`BOM 不可自我關聯：${parent_sku}`);
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error(`BOM 用量錯誤：${parent_sku} → ${child_sku}`);
     const pair=`${parent_sku}|${child_sku}`;
     if(pairSet.has(pair))throw new Error(`BOM 關聯重複：${parent_sku} → ${child_sku}`);
@@ -7816,7 +7821,7 @@ function mapSupabaseInventoryBomRows(rows,materialRows){
     const child=byNotionId.get(String(row.child_notion_page_id||'').trim())||bySku.get(normalizeSku(row.child_sku));
     const qty=Number(row.quantity);
     const pair=parent&&child?`${parent.id}|${child.id}`:'';
-    if(!parent||!child||!Number.isFinite(qty)||qty<=0||parent.id===child.id||pairs.has(pair)){
+    if(!parent||!child||!Number.isFinite(qty)||qty<=0||(parent.id===child.id&&!normalizeSku(parent.code||parent.name).startsWith('S-'))||pairs.has(pair)){
       invalid.push(`${row.parent_sku||row.parent_notion_page_id||'?'}>${row.child_sku||row.child_notion_page_id||'?'}`);
       return;
     }
@@ -8740,28 +8745,12 @@ function getShopeeBomRows(mat){
   }
   return parsed.length?parsed:shopeeBomRowsForSku(mat.code||mat.name);
 }
-function getShopeeBomItems(mat, qty){
-  const orderQty=parseInt(qty)||1;
-  const fromNotion=explodeBOM(mat.id,orderQty);
-  if(fromNotion.length) return fromNotion.map(x=>({...x,source:x.missing?'missing':'bom'}));
-
-  const parsed=[];
-  const note=mat.note||'';
-  const main=note.match(/主料:([^\s|]+)/);
-  const acc=note.match(/配件:([^|]+)/);
-  if(main) parsed.push({code:main[1].trim(),qty:1});
-  if(acc){
-    acc[1].split(',').map(s=>s.trim()).filter(Boolean).forEach(raw=>{
-      const m=raw.match(/^(.+?)(?:[xX×*](\d+))?$/);
-      parsed.push({code:(m?.[1]||raw).trim(),qty:parseInt(m?.[2])||1});
-    });
-  }
-  const fallback=shopeeBomRowsForSku(mat.code||mat.name);
-  const rows=parsed.length?parsed:fallback;
-  return rows.map(r=>{
-    const child=findMatBySku(r.code);
-    return child?{...child,needed:(parseInt(r.qty)||1)*orderQty,source:parsed.length?'note':'fallback'}:{id:'',code:r.code,name:r.code,stock:0,needed:(parseInt(r.qty)||1)*orderQty,missing:true,source:parsed.length?'note':'fallback'};
-  });
+function getShopeeBomItems(mat,qty){
+  const code=String(mat?.code||mat?.name||'').trim(),need=Number(qty);
+  if(!code.startsWith('S-')||code.startsWith('S-S-')||!Number.isSafeInteger(need)||need<=0)throw new Error('蝦皮轉庫料號或數量無效');
+  const sourceCode=code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim()===sourceCode);
+  if(matches.length>1)throw new Error('一般倉庫來源料號重複：'+sourceCode);
+  return [{...(matches[0]||{id:'',code:sourceCode,name:sourceCode,stock:0,missing:true}),needed:need,source:'transfer'}];
 }
 async function deductShopeeBom(mat, qty, orderNo){
   const items=getShopeeBomItems(mat,qty);
@@ -9451,7 +9440,8 @@ async function postInventoryAdjustTask(payload){
   return data;
 }
 async function postInventoryBatchAdjustTask(payload){
-  const res=await fetch(`${PROXY}/api/inventory/adjust-batch`,{
+  const endpoint=payload.source_type==='shopee_transfer'?'/api/shopee/transfer':'/api/inventory/adjust-batch';
+  const res=await fetch(`${PROXY}${endpoint}`,{
     method:'POST',
     headers:erpWorkerHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({payload})
@@ -15579,7 +15569,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
     ${canOperate?`<td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">🗂 領料</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">${isShopeeProductionOrder(o)?'轉入蝦皮庫存':'🗂 領料'}</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>`:''}
   </tr>`;}).join('')}
   </table></div></div></div>`;
@@ -17475,6 +17465,7 @@ function findMatBySku(sku){
 }
 
 async function importShopeeBomToNotion(){
+  showToast('舊版蝦皮套組補庫匯入已停用，請使用最新 C端 BOM Excel','warn',9000);return;
   if(!isAdminRole()){showToast('權限不足，無法匯入 BOM','warn');return;}
   const totalRows=SHOPEE_BOM_EXCEL.reduce((sum,row)=>sum+(row.children||[]).length,0);
   showToast('⏳ 重新同步 Notion 資料中...','warn',6000);
@@ -18064,50 +18055,13 @@ async function ensureShopeeParentMaterial(sku){
   let mat=findMatBySku(code);
   if(mat) return mat;
   showToast('⏳ 建立蝦皮料號 '+code+'...','warn',5000);
-  mat=await createMaterialFromSku(code,'蝦皮用',20,10,shopeeBomNoteForSku(code));
+  mat=await createMaterialFromSku(code,'蝦皮用',0,0,'一對一蝦皮轉庫來源：'+code.slice(2));
   return mat;
 }
 async function ensureShopeeBomRows(parentMat){
-  const sku=parentMat.code||parentMat.name;
-  // Order creation consumes the authoritative BOM; it must not rewrite an existing one.
-  const liveRows=await fetchWorkerInventoryBomRows(Date.now());
-  const existing=liveRows.filter(row=>normalizeSku(row.parent_sku)===normalizeSku(sku));
-  if(existing.length){
-    const mapped=mapSupabaseInventoryBomRows(existing,mats);
-    if(mapped.some(row=>row.parentId!==parentMat.id))throw new Error(`${sku} BOM 母件關聯不一致，請由倉管確認`);
-    boms=boms.filter(row=>row.parentId!==parentMat.id).concat(mapped);
-    _bomDataReady=true;
-    return {created:0,updated:0,total:mapped.length,source:'supabase',reused:true};
-  }
-  if(!canImportBomRole())throw new Error(`${sku} 尚無正式 BOM，請由倉管／採購建立後再新增訂單；料號不需重建`);
-  const rows=shopeeBomRowsForSku(sku);
-  if(!rows.length) return {created:0,missing:0,total:0};
-  const plan=normalizeBomWritePlan(
-    `蝦皮料號 ${sku} 自動建立 BOM`,
-    rows.map(row=>({
-      parent_sku:sku,
-      child_sku:normalizeBomChildSku(row.code),
-      quantity:Number(row.qty)||1,
-      notes:'Shopee Excel BOM 自動建立',
-    })),
-    [
-      {sku,name:sku,material_type:'蝦皮用',stock:Number(parentMat.stock??parentMat.qty??20)||20,safety_stock:Number(parentMat.safe??10)||10,notes:shopeeBomNoteForSku(sku)},
-      ...rows.map(row=>{
-        const childCode=normalizeBomChildSku(row.code);
-        return {sku:childCode,name:childCode,material_type:bomImportChildType(childCode),stock:0,safety_stock:0,notes:'Shopee Excel BOM 自動建檔'};
-      }),
-    ]
-  );
-  await commitBomPlanSupabaseFirst(plan);
-  try{
-    const mirrored=await mirrorBomPlanToNotion(plan);
-    completeBomNotionMirror(plan.id);
-    return {created:mirrored.created,updated:mirrored.updated,childCreated:0,total:rows.length,source:'supabase'};
-  }catch(e){
-    console.warn(`蝦皮料號 ${sku} 的 Notion BOM 鏡像待補同步：`,e);
-    showToast(`⚠️ ${sku} BOM 已寫入 Supabase；Notion 鏡像將背景補同步`,'warn',9000);
-    return {created:rows.length,updated:0,childCreated:0,total:rows.length,source:'supabase',mirrorPending:true};
-  }
+  const rows=getShopeeBomItems(parentMat,1);
+  if(rows.some(x=>x.missing))throw new Error('一般倉庫來源尚未建檔：'+rows[0].code);
+  return {created:0,updated:0,total:0,source:'transfer',reused:true};
 }
 async function auditShopeeBomInventory(){
   await refreshAll(true);
@@ -18338,26 +18292,18 @@ function corderStockRefs(items){
 function resolveCorderShipPlan(mat,qty){
   if(!_bomDataReady)throw new Error('BOM 尚未成功載入，請同步後重試');
   const need=Number(qty),result=new Map();
+  if(!mat||!normalizeSku(mat.code||mat.name).startsWith('S-'))throw new Error('C端出貨只能選 S- 料號');
   if(!Number.isSafeInteger(need)||need<=0)throw new Error('數量必須是正整數');
-  function visit(id,n,path){
-    const m=mats.find(x=>x.id===id);
-    if(!m||!normalizeSku(m.code||m.name).startsWith('S-'))throw new Error('C端出貨只能扣 S- 庫存，請確認套組子件');
-    if(path.includes(id))throw new Error('銷售 BOM 循環關聯：'+(m.code||m.name));
-    const edges=boms.filter(b=>b.parentId===id);
-    const children=edges.map(b=>{
-      const child=mats.find(x=>x.id===b.childId);
-      if(!child||!Number.isSafeInteger(Number(b.qty))||Number(b.qty)<=0)throw new Error('BOM 子件或用量無效：'+(m.code||m.name));
-      return {child,qty:Number(b.qty)};
-    });
-    const sales=children.filter(x=>normalizeSku(x.child.code||x.child.name).startsWith('S-'));
-    if(sales.length&&sales.length!==children.length)throw new Error('套組 '+(m.code||m.name)+' 混用倉庫與 S- 子件，請先指定 C端主機料號');
-    if(sales.length){for(const c of sales)visit(c.child.id,n*c.qty,[...path,id]);return;}
-    // Non-S children describe replenishment only. Shipping consumes this S SKU.
-    const total=(result.get(id)?.needed||0)+n;
-    if(!Number.isSafeInteger(total)||total<=0)throw new Error('BOM 展開數量無效');
-    result.set(id,{...m,needed:total});
+  const edges=boms.filter(b=>b.parentId===mat.id);
+  const direct=edges.length?edges:[{childId:mat.id,qty:1}];
+  for(const edge of direct){
+    const child=mats.find(x=>x.id===edge.childId),amount=need*Number(edge.qty);
+    if(!child||!normalizeSku(child.code||child.name).startsWith('S-'))throw new Error('C端 BOM 必須全部使用 S- 料號，已停止扣一般倉庫');
+    if(!Number.isSafeInteger(Number(edge.qty))||Number(edge.qty)<=0||!Number.isSafeInteger(amount)||amount<=0)throw new Error('BOM 子件或用量無效');
+    const total=(result.get(child.id)?.needed||0)+amount;
+    if(!Number.isSafeInteger(total))throw new Error('BOM 扣料數量無效');
+    result.set(child.id,{...child,needed:total});
   }
-  visit(mat?.id,need,[]);
   const items=[...result.values()];
   return {mode:items.length===1&&items[0].id===mat.id?'direct':'bundle',items,refs:items.map(x=>({id:x.id,qty:x.needed}))};
 }
@@ -20411,24 +20357,25 @@ function openPickModal(orderId){
       impact:-need,
     };
   });
+  if(plan.transfer)rows.push({lineLabel:prod.code,title:prod.name||prod.code,detail:`庫存 ${Number(prod.stock)||0} -> ${(Number(prod.stock)||0)+Number(o.qty)}`,impact:Number(o.qty),error:''});
   const errors=rows.filter(r=>r.error).length;
   const mi = document.getElementById('modalInner');
-  mi.innerHTML=`<h3>🗂️ 開立領料單</h3>
+  mi.innerHTML=`<h3>${plan.transfer?'蝦皮庫存轉入':'🗂️ 開立領料單'}</h3>
     <div style="padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:14px;font-size:0.8125rem">
       <div>訂單：<b>${o.no||''}</b></div>
       <div>客戶：${o.cust||o.customer||'—'}</div>
       <div>品項：${o.product||o.matCode||'—'} × ${o.qty||0}</div>
     </div>
     ${renderPreflightCenter({
-      title:'執行前檢查 - 領料扣庫',
-      subtitle:hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
+      title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',
+      subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
       errors,
       warnings:0,
       kpis:[
-        {label:'扣庫項目',value:rows.length},
-        {label:'扣庫模式',value:hasBOM?'生產子件':'訂購料號本身'},
+        {label:'扣庫項目',value:items.length},
+        {label:'扣庫模式',value:plan.transfer?'一般倉庫 → S-':hasBOM?'生產子件':'訂購料號本身'},
         {label:'阻擋',value:errors},
-        {label:'來源',value:_bomDataSource||'not-loaded'},
+        {label:'來源',value:plan.transfer?'同料號庫存':_bomDataSource||'not-loaded'},
       ],
       sections:[
         {title:'防呆',lines:[
@@ -20440,7 +20387,7 @@ function openPickModal(orderId){
     })}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" ${errors?'disabled':''} onclick="doPick('${orderId}')">🗂️ 確認領料</button>
+      <button class="btn btn-blue" ${errors?'disabled':''} onclick="doPick('${orderId}')">${plan.transfer?'確認轉入蝦皮庫存':'🗂️ 確認領料'}</button>
     </div>`;
   openModal();
 }
@@ -22124,6 +22071,7 @@ async function doEditOrder(orderId){
     const productChanged=canonicalPageId(oldOrder?.productId)!==canonicalPageId(productId);
     const qtyChanged=Number(oldOrder?.qty||0)!==Number(qty);
     if(productChanged||qtyChanged){
+      if(isShopeeProductionOrder(oldOrder)&&oldOrder.status==='已完成')throw new Error('已完成轉庫的蝦皮單不可修改品項或數量，請另開補庫單');
       showToast('檢查此訂單是否已有領料紀錄...','warn');
       const activePicks=await loadOrderPickingGuardRows(orderId);
       if(activePicks.length){
@@ -22180,6 +22128,22 @@ async function logStockChangeQuietly(...args){
     return null;
   }
 }
+async function executeShopeeTransfer(order){
+  if(!canCompleteShopeeProductionRole())throw new Error('蝦皮轉庫限倉管、採購或管理者');
+  const plan=resolveOrderPickPlan(order),source=plan.items[0],target=plan.prod,qty=Number(order.qty);
+  const result=await applyInventoryBatchAndMirror([{pageId:source.id,delta:-qty},{pageId:target.id,delta:qty}],{
+    reason:'一般倉庫轉入蝦皮庫存',refNo:order.no,sourceType:'shopee_transfer',sourceId:order.id
+  });
+  for(const move of result.items){
+    if(!move.duplicate)await logStockChangeQuietly(move.pageId,move.sku,move.sku,move.delta<0?'蝦皮轉庫領料':'蝦皮轉庫入庫',Math.abs(move.delta),move.before,move.after,order.no,ROLE);
+  }
+  try{
+    const sync=await updateWorkflowPageAfterInventory(order.id,{'狀態':{select:{name:'已完成'}}},`蝦皮轉庫 ${order.no}`);
+    order.status='已完成';
+    await refreshAffectedData({core:true,label:'蝦皮轉庫已完成'});
+    showToast(sync.pending?'轉庫已完成，訂單狀態待同步':'✅ 一般倉庫已扣除，S- 庫存已增加，轉庫完成',sync.pending?'warn':'ok',9000);
+  }catch(e){showToast('庫存轉移已完成，但訂單狀態或畫面尚未同步；重新整理後可重試，不會重複轉庫：'+e.message,'warn',12000);}
+}
 async function doPick(orderId){
   if(_orderPickLocks.has(orderId)){
     showToast('此訂單正在領料處理中，請勿重複點擊','warn');
@@ -22200,6 +22164,7 @@ async function doPick(orderId){
   try{
     if(!o) throw new Error('找不到訂單，請同步後重試');
     if(isSfgProductionOrder(o)&&o.status&&o.status!=='待排程')throw new Error('組立單目前狀態不可重新領料，請同步後確認');
+    if(isShopeeProductionOrder(o)){await executeShopeeTransfer(o);return;}
     const {items,production:hasBOM}=resolveOrderPickPlan(o);
     if(!items.length) throw new Error('訂單未關聯成品料件，無法扣庫存');
     const missing=items.filter(item=>item.missing||!item.id);
@@ -23448,10 +23413,7 @@ function onShopeeSkuChange(matId){
   if(!matId){info.style.display='none';return;}
   if(matId.startsWith('NEW::')){
     const sku=matId.slice(5);
-    const rows=shopeeBomRowsForSku(sku);
-    bom.innerHTML=rows.length
-      ? rows.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${x.code}</span><b style="color:var(--amber)">扣 ${x.qty}</b></div>`).join('')+'<div style="font-size:0.625rem;color:var(--text3);margin-top:6px">來源：Excel BOM，建立時會自動補進 Notion</div>'
-      : `<div style="color:var(--red)">Excel BOM 找不到 ${sku}，建立後需手動補 BOM。</div>`;
+    bom.innerHTML=`<div>一對一轉庫：扣 ${escapeHtml(sku.slice(2))}，增加 ${escapeHtml(sku)}；建檔庫存為 0，確認轉庫才異動數量。</div>`;
     info.style.display='';
     return;
   }
@@ -23465,7 +23427,7 @@ function onShopeeSkuChange(matId){
         <b style="color:${x.missing?'var(--red)':'var(--amber)'}">扣 ${x.needed}</b>
       </div>`).join('')
     : `<div style="color:var(--red)">未找到 BOM。請在 Notion BOM 或程式對照表建立 ${mat.code||mat.name} 的扣料規則。</div>`;
-  const source=items[0]?.source==='notion'?'Notion BOM':items[0]?.source==='note'?'料件備註':'程式暫存對照';
+  const source='一般倉庫一對一轉入 S- 庫存';
   html+=items.length?`<div style="font-size:0.625rem;color:var(--text3);margin-top:6px">來源：${source}</div>`:'';
   bom.innerHTML=html;
   info.style.display='';
@@ -23494,7 +23456,7 @@ async function addShopeeOrderItem(manual=false){
   if(!matId){showToast('請先選擇或輸入 S-料號','warn');return;}
   mat=mat||mats.find(m=>m.id===matId)||findMatBySku(matId);
   if(!mat){showToast('找不到料件','err');return;}
-  try{await ensureShopeeBomRows(mat);}catch(e){showToast('⚠ BOM補建失敗：'+e.message,'warn',7000);}
+  try{await ensureShopeeBomRows(mat);}catch(e){showToast('來源檢查失敗：'+e.message,'warn',7000);return;}
   window._shopeeOrderItems=window._shopeeOrderItems||[];
   const ex=window._shopeeOrderItems.find(x=>x.matId===matId);
   if(ex) ex.qty+=qty;
@@ -24797,10 +24759,6 @@ async function submitAllOrders(){
 }
 
 async function submitShopeeOrdersV2(){
-  if(!_bomDataReady){
-    showToast('❌ BOM 資料尚未成功載入，已停止建立蝦皮生產訂單。請同步後重試。','err',8000);
-    return;
-  }
   const note=document.getElementById('m_shopee_note')?.value?.trim()||'';
   let items=window._shopeeOrderItems||[];
   const selected=document.getElementById('m_shopee_sku')?.value;
@@ -24829,7 +24787,7 @@ async function submitShopeeOrdersV2(){
     const orderNo=`ORD-${yr}${mo}-S${String(i+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
     try{
       await ensureShopeeBomRows(mat);
-      const bomItems=explodeBOM(mat.id,it.qty);
+      const bomItems=getShopeeBomItems(mat,it.qty);
       if(!bomItems.length) throw new Error('此 S-料號尚未設定 BOM 或主料/配件備註，無法建立可領料訂單');
       const missing=bomItems.filter(x=>x.missing||!x.id);
       if(missing.length) throw new Error('BOM 子料號未建檔：'+missing.map(x=>x.code||x.name).join('、'));
@@ -24854,7 +24812,7 @@ async function submitShopeeOrdersV2(){
   }
   window._shopeeOrderItems=[];
   await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});
-  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}；下一步請由倉管/採購按「領料」才會扣 BOM 直接子件`,fail?'warn':'ok',9000);
+  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}；下一步請由倉管/採購確認轉庫：扣一般倉庫，同時增加 S- 庫存`,fail?'warn':'ok',9000);
   if(messages.length) alert('以下蝦皮訂單未完成建立（不代表料號未建立）：\n\n'+messages.join('\n'));
 }
 

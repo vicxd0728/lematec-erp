@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Shopee Replenishment / C-end Direct Recipes 2026-09-22
+
+- Orders of type 蝦皮 now transfer one exact non-S SKU to its S- counterpart in one atomic batch. No BOM expansion. New materials start at zero. `/api/shopee/transfer` re-reads the order, fixes the idempotency key to its page ID, rejects legacy picking and changed demand, and allows warehouse/purchase/admin roles. New transfers finish immediately after accepted inventory changes; old production orders remain separately guarded.
+- C-end recipes use direct S- children only, including an S parent itself plus accessories. Never recurse into a child's recipe or deduct non-S stock. Production BOM self-reference remains prohibited. Migration 20260922_017 changes only the validator function; no stock DML.
+- Latest source workbooks: LEMATEC_BOM_訂單用.xlsx and LEMATEC_BOM_C端用.xlsx, sheet 蝦皮用. Preflight: 179 transfer SKUs; 214 sales parents / 366 relations; 11 non-S component entries normalized to S- with user confirmation. Data apply/readback artifacts: output/shopee-0922. Double-S children S-S-Y-L-27 / S-S-Z-FLT require explicit clarification before their parent recipes are changed. Warehouse Z-SP-1 is missing; do not invent its stock.
+- Code tests: full existing pytest suite plus tests/shopee_transfer.cjs, C-end direct/self-reference behavior, and disposable PostgreSQL validator checks in CI. No production stock test is authorized/needed. Preserve historical cancelled assembly orders and existing balances.
+- Rollback must coordinate frontend and sales recipes: do not deploy the old recursive C-end resolver over self-containing recipes. Use saved BOM snapshots for any approved data rollback.
+
 ## Assembly Completion Flow 2026-09-22
 
 - User scope: fix future assembly workflow, do not reconcile or adjust existing cancelled orders.

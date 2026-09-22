@@ -109,6 +109,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/notes/write') {
       return erpNotesPrimaryWrite(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/shopee/transfer') {
+      return erpShopeeTransfer(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/assembly/complete') {
       return erpAssemblyComplete(request, env, cors);
     }
@@ -1227,7 +1230,7 @@ async function erpInventoryBomUpsert(request, env, cors) {
       const childSku = cleanSku(source.child_sku || source.child || '');
       const quantity = Number(source.quantity ?? source.qty);
       if (!parentSku || !childSku) throw new Error('BOM row is missing parent or child SKU');
-      if (parentSku === childSku) throw new Error(`Self-referencing BOM is not allowed: ${parentSku}`);
+      if (parentSku === childSku && !parentSku.startsWith('S-')) throw new Error(`Self-referencing production BOM is not allowed: ${parentSku}`);
       if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`Invalid BOM quantity: ${parentSku} -> ${childSku}`);
       const pair = `${parentSku}|${childSku}`;
       if (desiredPairs.has(pair)) throw new Error(`Duplicate BOM parent/component pair: ${pair}`);
@@ -1605,6 +1608,47 @@ async function erpInventoryMaterialArchive(request, env, cors) {
   } catch (e) {
     return resp500(cors, e.message);
   }
+}
+
+async function erpShopeeTransfer(request, env, cors) {
+  try {
+    const body=await request.json(), payload=body.payload||body;
+    const orderId=cleanText(payload.source_id);
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId))return resp400(cors,'Invalid transfer order ID');
+    const response=await fetch(`https://api.notion.com/v1/pages/${orderId}`,{headers:{Authorization:`Bearer ${erpBearerToken(request)}`,'Notion-Version':'2022-06-28'}});
+    const order=await response.json(),p=order.properties||{};
+    if(!response.ok||order.object!=='page'||order.archived||order.in_trash||canonicalNotionId(order.parent?.database_id)!==canonicalNotionId(BOARD_DB.orders))throw new Error('無法確認蝦皮補庫單');
+    const qty=Number(p['訂購數量']?.number),status=p['狀態']?.select?.name,refs=p['成品']?.relation||[];
+    if(!['蝦皮','shopee'].includes(p['訂單類型']?.select?.name)||!['待排程','已完成'].includes(status)||refs.length!==1||!Number.isSafeInteger(qty)||qty<=0)throw new Error('此單不適用一對一轉庫；已領料舊單請先核對，不可重扣');
+    const ctx=await getSupabaseInventoryContext(env),org=ctx.organization.id;
+    const target=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&notion_page_id=eq.${refs[0].id}&archived_at=is.null&select=id,sku,notion_page_id&limit=1`);
+    if(!target.sku.startsWith('S-')||target.sku.startsWith('S-S-'))throw new Error('蝦皮補庫目標須為單一 S- 前綴料號');
+    const source=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&sku=eq.${encodeURIComponent(target.sku.slice(2))}&archived_at=is.null&select=id,sku,notion_page_id&limit=1`,true);
+    if(!source?.notion_page_id)throw new Error('一般倉庫來源尚未建檔：'+target.sku.slice(2));
+    const expected=[{...source,delta:-qty},{...target,delta:qty}];
+    if(!Array.isArray(payload.items)||payload.items.length!==2||expected.some(m=>!payload.items.some(x=>x.sku===m.sku&&Number(x.delta)===m.delta)))throw new Error('訂單料號或數量已變更，請重新預覽轉庫');
+    const key=`shopee_transfer:${orderId}`;
+    const prior=await supabaseFetch(env,`/rest/v1/inventory_transactions?organization_id=eq.${org}&idempotency_key=like.${encodeURIComponent(key+':*')}&select=id,material_id,quantity_delta`);
+    if(prior.length&&(prior.length!==2||expected.some(m=>!prior.some(tx=>tx.material_id===m.id&&Number(tx.quantity_delta)===m.delta))))throw new Error('既有轉庫交易與訂單不一致，已停止重複轉庫');
+    if(status==='已完成'&&!prior.length)throw new Error('舊完成單不可直接轉庫，請先核對');
+    const picks=await supabaseFetch(env,`/rest/v1/pick_lists?organization_id=eq.${org}&source_order_notion_page_id=eq.${orderId}&archived_at=is.null&select=id,status`);
+    if(picks.some(x=>!['取消','已取消','已沖銷','已退料'].includes(x.status)))throw new Error('此單已有舊領料紀錄，請先核對，不可再次扣來源庫存');
+    const adjusted=await erpInventoryBatchAdjust(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify({payload:{
+      items:expected.map(m=>({sku:m.sku,notion_page_id:m.notion_page_id,delta:m.delta})),idempotency_key:key,
+      source_type:'shopee_transfer',source_id:orderId,ref_no:cleanText(payload.ref_no)||orderId,reason:'一般倉庫轉入蝦皮庫存',
+    }})}),env,cors);
+    if(!adjusted.ok)return adjusted;
+    const result=await adjusted.json();
+    if(!Array.isArray(result.items)||result.items.length!==2||expected.some(m=>!result.items.some(x=>x.material_id===m.id&&Number(x.delta)===m.delta)))throw new Error('既有轉庫交易與目前訂單不符，請核對；未重複轉庫');
+    if(result.duplicate){
+      for(const row of result.items){
+        const balance=await getSupabaseBalance(env,org,ctx.warehouse.id,row.material_id);
+        if(!balance)throw new Error('轉庫已完成，但最新庫存讀取失敗，請重新整理');
+        row.after_stock=Number(balance.quantity);
+      }
+    }
+    return respOK(cors,result);
+  } catch(e) { return resp400(cors,e.message); }
 }
 
 async function erpAssemblyComplete(request, env, cors) {
@@ -3277,6 +3321,7 @@ const ERP_ROUTE_ROLES = {
   '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/orders/create': ['vic', 'manager', 'sales', 'purchase'],
   '/api/assembly/complete': ['vic', 'manager', 'qc'],
+  '/api/shopee/transfer': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],

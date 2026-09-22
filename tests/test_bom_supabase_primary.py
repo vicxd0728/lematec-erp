@@ -22,7 +22,8 @@ class BomSupabasePrimaryTest(unittest.TestCase):
         self.assertIn("/api/inventory/bom/upsert", WORKER)
         section = function_section(WORKER, "erpInventoryBomUpsert")
         self.assertIn("migrationAuthorized(request, env)", section)
-        self.assertIn("Self-referencing BOM is not allowed", section)
+        self.assertIn("Self-referencing production BOM is not allowed", section)
+        self.assertIn("!parentSku.startsWith('S-')", section)
         self.assertIn("Duplicate BOM parent/component pair", section)
         self.assertIn("Invalid BOM quantity", section)
         self.assertIn("bom_row_count: itemRows.length", section)
@@ -39,7 +40,7 @@ class BomSupabasePrimaryTest(unittest.TestCase):
         general_import = function_section(INDEX, "importGeneralBomExcel")
         automatic = function_section(INDEX, "ensureShopeeBomRows")
 
-        for section in (shopee, general, automatic):
+        for section in (shopee, general):
             self.assertIn("commitBomPlanSupabaseFirst", section)
 
         self.assertIn("openBomImportPreflightModal(preflight)", general_import)
@@ -52,10 +53,8 @@ class BomSupabasePrimaryTest(unittest.TestCase):
             general.index("commitBomPlanSupabaseFirst"),
             general.index("ensureBomImportMaterial"),
         )
-        self.assertLess(
-            automatic.index("commitBomPlanSupabaseFirst"),
-            automatic.index("mirrorBomPlanToNotion"),
-        )
+        self.assertNotIn("commitBomPlanSupabaseFirst", automatic)
+        self.assertIn("getShopeeBomItems", automatic)
 
     def test_notion_mirror_is_retryable(self):
         self.assertIn("BOM_NOTION_MIRROR_QUEUE_KEY", INDEX)
