@@ -1790,7 +1790,7 @@ async function openStatusModal(id, cur){
 }
 
 function canCompleteShipmentRole(){
-  return ROLE==='sales'||ROLE==='warehouse'||isAdminRole();
+  return ROLE==='sales'||ROLE==='warehouse'||ROLE==='purchase'||isAdminRole();
 }
 function canProductionToQcRole(){
   return ROLE==='warehouse'||ROLE==='purchase'||isAdminRole();
@@ -2012,7 +2012,7 @@ async function doEditStock(id, name, oldStock){
 
 function openInventoryBatchAdjust(){
   if(denyViewOnlyAction()) return;
-  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||ROLE==='sales'||isAdminRole());
   if(!canEdit){showToast('此角色無法批量調整庫存','warn');return;}
   if(getInventoryReadSource()!=='supabase'){
     showToast('批量調整只允許在 Supabase 主資料模式執行','warn');
@@ -10743,7 +10743,7 @@ function clearInvSelection(){
 }
 function openSelectedSafetyStockBatch(){
   if(denyViewOnlyAction()) return;
-  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
+  const canEdit=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||ROLE==='sales'||isAdminRole());
   if(!canEdit){showToast('此角色無法批量設定安全庫存','warn');return;}
   if(getInventoryReadSource()!=='supabase'){
     showToast('勾選批量設定只允許在 Supabase 主資料模式執行','warn');
@@ -15430,7 +15430,7 @@ function orderCustomerLabel(o){
 // ══════════════════════════════════════
 function _renderOrdersList(tabs, soonOrders=[]){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
-  const canAdd=!isViewOnly()&&(ROLE==='sales'||isAdminRole());
+  const canAdd=!isViewOnly()&&(ROLE==='sales'||ROLE==='purchase'||isAdminRole());
   const canOperate=!isViewOnly();
   
   const filters=getOrderFilters();
@@ -16240,8 +16240,8 @@ function renderInventory(){
   const bomChildIds=new Set(boms.map(b=>b.childId).filter(Boolean));
   const sLayer=invMats.filter(m=>normalizeSku(m.code||m.name).startsWith('S-')).length;
   const yParts=invMats.filter(m=>normalizeSku(m.code||m.name).startsWith('Y-')).length;
-  const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='sales'||isAdminRole());
-  const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||isAdminRole());
+  const canEditStock=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||ROLE==='sales'||isAdminRole());
+  const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
   const INV = window._invState = window._invState||{
@@ -21465,7 +21465,7 @@ function goToOrderPickingRows(orderId){
   switchTab('picking');
 }
 function canConfirmOrderReturnRequest(){
-  return ROLE==='warehouse'||isAdminRole();
+  return ROLE==='warehouse'||ROLE==='purchase'||isAdminRole();
 }
 function orderReturnRequestActionFromPick(pick){
   const note=String(pick?.note||'');

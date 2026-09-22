@@ -19,7 +19,7 @@ class InventoryBatchUiTest(unittest.TestCase):
         self.assertIn("function openInventoryBatchAdjust()", INDEX)
         self.assertIn("getInventoryReadSource()!=='supabase'", INDEX)
         self.assertIn("usingSupabase&&canEditStock", INDEX)
-        self.assertIn("ROLE==='warehouse'||ROLE==='sales'||isAdminRole()", INDEX)
+        self.assertIn("ROLE==='warehouse'||ROLE==='purchase'||ROLE==='sales'||isAdminRole()", INDEX)
 
     def test_preview_blocks_unsafe_rows_before_write(self):
         self.assertIn("同批次料號重複", INDEX)

@@ -34,6 +34,29 @@ function request(role, token = 'company-test-token', method = 'POST') {
 
 const env = { NOTION_TOKEN: 'company-test-token' };
 
+test('purchase operational access covers orders, stock, picking and inbound without admin maintenance', async () => {
+  const {context:c}=harness();
+  for(const route of ['/api/orders/create','/api/inventory/sync','/api/inventory/adjust','/api/inventory/adjust-batch','/api/inventory/bom/upsert','/api/picking/create','/api/picking/status','/api/picking/return-request','/api/inbound/create']) {
+    assert.equal(await c.enforceErpRouteRole(request('purchase'),env,{},route,'POST'),null,route);
+    assert.equal((await c.enforceErpRouteRole(request('viewer'),env,{},route,'POST')).status,403,route);
+  }
+  for(const route of ['/api/picking/migrate','/api/inventory/material/archive','/api/corder/number-set']) {
+    assert.equal((await c.enforceErpRouteRole(request('purchase'),env,{},route,'POST')).status,403,route);
+  }
+  const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+  const ui=vm.createContext({ROLE:'purchase',isAdminRole:()=>false});
+  vm.runInContext(html.slice(html.indexOf('function canCompleteShipmentRole('),html.indexOf('function isShopeeProductionOrder('))+html.slice(html.indexOf('function canConfirmOrderReturnRequest('),html.indexOf('function orderReturnRequestActionFromPick(')),ui);
+  assert.equal(ui.canCompleteShipmentRole(),true);
+  assert.equal(ui.canProductionToQcRole(),true);
+  assert.equal(ui.canConfirmOrderReturnRequest(),true);
+  assert.equal(ui.canQcToShipRole(),false);
+  const ordersUI=html.slice(html.indexOf('function _renderOrdersList('),html.indexOf('function renderCustomers('));
+  assert.match(ordersUI,/const canAdd=.*ROLE==='purchase'/);
+  const stockUI=html.slice(html.indexOf('const canEditStock='),html.indexOf('const canEditStock=')+300);
+  assert.match(stockUI,/const canEditStock=.*ROLE==='purchase'/);
+  assert.match(stockUI,/const canEditMat=.*ROLE==='purchase'/);
+});
+
 test('sales can request returns but cannot use unrestricted picking status', async () => {
   const { context: c } = harness();
   assert.equal(await c.enforceErpRouteRole(request('sales'), env, {}, '/api/picking/return-request', 'POST'), null);

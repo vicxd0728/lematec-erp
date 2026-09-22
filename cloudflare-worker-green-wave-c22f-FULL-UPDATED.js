@@ -3204,8 +3204,8 @@ async function erpClientAuthorized(request) {
 
 const ERP_ROUTE_ROLES = {
   '/api/inventory/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
-  '/api/inventory/adjust': ['vic', 'manager', 'sales', 'warehouse'],
-  '/api/inventory/adjust-batch': ['vic', 'manager', 'sales', 'warehouse'],
+  '/api/inventory/adjust': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
+  '/api/inventory/adjust-batch': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
   '/api/inventory/material/archive': ['vic', 'manager', 'warehouse'],
   '/api/inventory/bom/migrate': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/inventory/bom/upsert': ['vic', 'manager', 'warehouse', 'purchase'],
@@ -3224,7 +3224,7 @@ const ERP_ROUTE_ROLES = {
   '/api/notes/shadow/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/notes/shadow/delete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
-  '/api/orders/create': ['vic', 'manager', 'sales'],
+  '/api/orders/create': ['vic', 'manager', 'sales', 'purchase'],
   '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],

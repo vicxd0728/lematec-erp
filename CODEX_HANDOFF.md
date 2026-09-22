@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Purchase Operational Access 2026-09-22
+
+- User authorized broader purchase access to orders, warehouse and picking. Enabled order creation, shipment completion, stock single/batch adjustments, safety-stock batch editing, material editing and return confirmation in UI; Worker now permits purchase order creation and inventory single/batch adjustments. Existing BOM/picking/inbound permissions retained. QC release, material archive and administration remain unchanged.
+- Read-only audit of SFG-2609-7035 and SFG-2609-9533 confirms both are type 半成品 and their picked items match current direct BOMs (2 and 13 items respectively). Both orders are cancelled but picking masters remain 已領料. Logs under their order/pick references show deductions and no stock-in or reversal; do not automatically restore inventory without reconciling actual material disposition.
+- Assembly flow remains direct BOM deduction at picking, parent stock-in on inspection pass. Changing order status alone does not perform parent stock-in or reverse components. No business data was modified during this audit.
+
 ## Sales Picking Return Request 2026-09-21
 
 - Fixed the sales UI calling warehouse-only `/api/picking/status` when requesting order material returns. It now calls `/api/picking/return-request`, allowed for sales, warehouse, purchase and administrators.
