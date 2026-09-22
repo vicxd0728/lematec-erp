@@ -109,6 +109,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/notes/write') {
       return erpNotesPrimaryWrite(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/assembly/complete') {
+      return erpAssemblyComplete(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/orders/create') {
       return erpB2bOrderCreate(request, env, cors);
     }
@@ -1604,10 +1607,58 @@ async function erpInventoryMaterialArchive(request, env, cors) {
   }
 }
 
+async function erpAssemblyComplete(request, env, cors) {
+  try {
+    const body = await request.json();
+    const orderId = cleanText(body.order_id), inspectionId = cleanText(body.inspection_id);
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(orderId) || !uuid.test(inspectionId)) return resp400(cors, 'Invalid assembly or inspection ID');
+    const readPage = async id => {
+      const response = await fetch(`https://api.notion.com/v1/pages/${id}`, {headers:{Authorization:`Bearer ${erpBearerToken(request)}`, 'Notion-Version':'2022-06-28'}});
+      const page = await response.json();
+      if (!response.ok || page.object !== 'page' || page.archived || page.in_trash) throw new Error('組立或品檢資料無法讀取');
+      return page;
+    };
+    const sameId = (a,b) => String(a||'').replace(/-/g,'').toLowerCase() === String(b||'').replace(/-/g,'').toLowerCase();
+    const order = await readPage(orderId), inspection = await readPage(inspectionId);
+    if (!sameId(order.parent?.database_id, BOARD_DB.orders) || !sameId(inspection.parent?.database_id,'48f1a7b9-1e89-4f9c-a4db-6df8e5ee7e5f')) throw new Error('組立或品檢資料來源不符');
+    const p = order.properties, q = inspection.properties;
+    const status = p['狀態']?.select?.name, type = p['訂單類型']?.select?.name;
+    const qty = Number(p['訂購數量']?.number), parents = p['成品']?.relation || [];
+    if (!['半成品','sfg'].includes(type) || !['待檢驗','已完成'].includes(status)) throw new Error('組立單須完成領料並送品管，取消單不可入庫');
+    if (!Number.isSafeInteger(qty) || qty <= 0 || parents.length !== 1) throw new Error('組立數量或母件關聯無效');
+    const linked = (q['關聯訂單號']?.rich_text || []).map(x=>x.plain_text || x.text?.content || '').join('').split('|')[0];
+    if (!sameId(linked,orderId) || q['檢驗結果']?.select?.name !== '通過') throw new Error('須由本張組立單的品檢通過後入庫');
+    if (Number(q['實檢數量']?.number) !== qty || Number(q['不良數量']?.number || 0) !== 0) throw new Error('整單入庫需全數實檢通過，請確認實檢與不良數量');
+    const ctx = await getSupabaseInventoryContext(env), org = ctx.organization.id;
+    const picks = await supabaseFetch(env, `/rest/v1/pick_lists?organization_id=eq.${org}&source_order_notion_page_id=eq.${orderId}&archived_at=is.null&select=id,status,production_quantity`);
+    const active = (picks || []).filter(x=>!['取消','已取消','已沖銷','已退料','作廢','封存'].includes(x.status));
+    if (active.length !== 1 || !['已領料','已確認扣料'].includes(active[0].status) || Number(active[0].production_quantity) !== qty) throw new Error('組立領料尚未完成或數量不一致');
+    const items = await supabaseFetch(env, `/rest/v1/pick_items?pick_list_id=eq.${active[0].id}&select=required_quantity,picked_quantity`);
+    if (!items?.length || items.some(x=>!(Number(x.required_quantity)>0) || Number(x.required_quantity)!==Number(x.picked_quantity))) throw new Error('組立子件尚未全數領料');
+    const material = await supabaseSingle(env, `/rest/v1/materials?organization_id=eq.${org}&notion_page_id=eq.${parents[0].id}&select=id,sku&limit=1`);
+    const key = `erp:sfg_complete:${orderId}`;
+    // Recognize both legacy completion entrances; do not re-stock previously accepted orders.
+    const prior = await supabaseFetch(env, `/rest/v1/inventory_transactions?organization_id=eq.${org}&or=(idempotency_key.eq.${encodeURIComponent(key)},idempotency_key.like.${encodeURIComponent('erp:sfg_qc_pass:'+orderId+':*')},idempotency_key.like.${encodeURIComponent('erp:sfg_inspection_result_pass:'+orderId+':*')})&select=id,material_id,quantity_delta,quantity_before,quantity_after`);
+    if (prior.length > 1 || prior.some(x=>x.material_id!==material.id || Number(x.quantity_delta)!==qty)) throw new Error('組立入庫歷史與目前資料不一致，請先核對');
+    if (!prior.length && status === '已完成') throw new Error('此單已標完成但缺入庫證據，請走人工核對，不自動補庫');
+    const data = prior.length ? prior : await supabaseFetch(env, '/rest/v1/rpc/apply_inventory_transaction', {method:'POST',body:JSON.stringify({
+      p_organization_id:org,p_warehouse_id:ctx.warehouse.id,p_material_id:material.id,p_transaction_type:'生產完成',p_quantity_delta:qty,
+      p_reason:'組立品管通過入庫',p_idempotency_key:key,p_source_type:'sfg_complete',p_source_id:null,p_source_number:orderId,
+    })});
+    const tx = Array.isArray(data) ? data[0] : data;
+    if (!tx?.id) throw new Error('組立入庫未取得交易確認');
+    if (tx.material_id!==material.id || Number(tx.quantity_delta)!==qty) throw new Error('組立交易與目前母件／數量不一致，請核對；未重複入庫');
+    const balance = await supabaseSingle(env, `/rest/v1/inventory_balances?organization_id=eq.${org}&warehouse_id=eq.${ctx.warehouse.id}&material_id=eq.${material.id}&select=quantity&limit=1`);
+    return respOK(cors,{ok:true,page_id:parents[0].id,sku:material.sku,delta:qty,before_stock:Number(tx.quantity_before),after_stock:Number(balance.quantity),transaction_after:Number(tx.quantity_after),duplicate:prior.length>0,transaction_id:tx.id});
+  } catch(e) { return resp400(cors,e.message); }
+}
+
 async function erpInventoryAdjust(request, env, cors) {
   try {
     const body = await request.json();
     const payload = body?.payload || body || {};
+    if (['sfg_qc_pass','sfg_inspection_result_pass','sfg_complete'].includes(payload.source_type)) return resp400(cors, '組立入庫請重新整理並使用品管完成流程');
     const sku = cleanSku(payload.sku || payload.code || payload.name || '');
     const delta = Number(payload.delta);
     const requestedStock = Number(payload.stock ?? payload.next_stock ?? payload.nextStock);
@@ -3225,6 +3276,7 @@ const ERP_ROUTE_ROLES = {
   '/api/notes/shadow/delete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/orders/create': ['vic', 'manager', 'sales', 'purchase'],
+  '/api/assembly/complete': ['vic', 'manager', 'qc'],
   '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],

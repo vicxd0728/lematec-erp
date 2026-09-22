@@ -38,6 +38,7 @@ This file classifies Worker routes by side effect and production safety. Before 
 | POST | `/api/picking/create` | Dry-run capable / Mutating | Creates or resumes picking and may stage deduction workflow | Production test only with `dry_run: true`; never deduct just to test. |
 | POST | `/api/picking/status` | Mutating | Updates picking status and may complete workflow | High-risk. Must not run from Notion fallback data. |
 | POST | `/api/picking/return-request` | Mutating | Sales, warehouse, purchase and administrators may request return of a completed pick | Accepts only pick_id and notes. Conditional master-only transition to 待回料確認; never changes stock or picked quantities. Retries preserve original request. Generic status remains unavailable to sales. |
+| POST | `/api/assembly/complete` | Mutating | QC and administrators complete assembly stock-in | Re-reads order and linked inspection; validates completed picking and full inspection quantity. Uses one order-scoped atomic inventory key across all completion entrances; recognizes legacy entries. Cancelled orders and inconsistent history fail closed. |
 | POST | `/api/picking/link-notion` | Migration / repair | Links Notion mirror IDs to Supabase picking rows | Repair only; avoid duplicate mirrors. |
 | POST | `/api/inbound/migrate` | Migration / repair | Migrates inbound records | Dry-run/report before apply. Historical stock must not replay. |
 | GET | `/api/inbound/summary` | Read-only | Reads inbound counts/source | Safe production verification. |

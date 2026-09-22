@@ -1838,6 +1838,20 @@ function resolveOrderPickPlan(o){
 }
 function canMoveOrderStatus(oldStatus,newStatus,o){
   if(oldStatus===newStatus) return {ok:true,msg:''};
+  if(isSfgProductionOrder(o)){
+    if(newStatus==='取消'){
+      const active=orderActivePickingRecords(o.id);
+      if(oldStatus==='待排程'&&!active.some(p=>completedOrderPickingRows([p]).length||(p.items||[]).some(i=>Number(i.pickedQty)>0)))return {ok:true,msg:''};
+      if(oldStatus!=='已完成'&&orderCanCancelAfterPickingReversal(o.id))return {ok:true,msg:''};
+      return {ok:false,msg:'組立單已領料或入庫，請先確認實物並處理回料／入庫沖銷，不可直接取消'};
+    }
+    if(newStatus==='待檢驗'&&oldStatus==='生產中'&&canProductionToQcRole()){
+      const active=orderActivePickingRecords(o.id);
+      if(active.length&&active.every(p=>['已領料','已確認扣料'].includes(p.status)))return {ok:true,msg:''};
+      return {ok:false,msg:'組立子件尚未完成領料，不能送品管'};
+    }
+    return {ok:false,msg:'組立單請依序領料、送品管；品管全數通過並入庫成功後才會完成，不可直接改成完成'};
+  }
   if(isShopeeProductionOrder(o)){
     if(oldStatus==='待排程'&&newStatus==='取消') return {ok:true,msg:''};
     if(oldStatus==='待排程'&&newStatus==='生產中'){
@@ -1872,6 +1886,14 @@ function canMoveOrderStatus(oldStatus,newStatus,o){
 async function doUpdateStatus(id, s, opts={}){
   if(denyViewOnlyAction()) return;
   const o = orders.find(x=>x.id===id);
+  if(isSfgProductionOrder(o)){
+    try{
+      const current=await pickingWorkerRequest('/api/picking/list?order_id='+encodeURIComponent(id));
+      if(current.source!=='supabase'||!Array.isArray(current.rows))throw new Error('領料資料非主資料');
+      picks=picks.filter(p=>canonicalPageId(p.orderId)!==canonicalPageId(id)).concat(current.rows.map(mapSupabasePick));
+    }
+    catch(e){showToast('組立狀態檢查失敗：'+e.message,'err');return;}
+  }
   const oldStatus = o?.status||'';
   const rule=canMoveOrderStatus(oldStatus,s,o);
   if(!rule.ok){
@@ -1895,7 +1917,7 @@ async function doUpdateStatus(id, s, opts={}){
   showToast('更新狀態中...','warn');
   try{
     await updatePage(id,{'狀態':{select:{name:s}}});
-    if(o&&(s==='待出貨'||s==='已完成')){
+    if(o&&!isSfgProductionOrder(o)&&(s==='待出貨'||s==='已完成')){
       try{
         const repaired=await syncLinkedOrderPendingInspections(o,'通過');
         if(repaired)logUserAction('品檢同步補正',o.no||id,`狀態 ${s} 後補正同訂單待檢驗紀錄 ${repaired} 筆`,ROLE);
@@ -14982,6 +15004,16 @@ function toggleInspectionBad(result){
   if(block) block.style.display = (result==='不通過'||result==='條件通過') ? '' : 'none';
 }
 
+async function completeAssemblyAndMirror(order,inspectionId){
+  if(!canQcToShipRole())throw new Error('組立品管放行限品管或管理者');
+  const result=await pickingWorkerRequest('/api/assembly/complete',{method:'POST',body:{order_id:order.id,inspection_id:inspectionId}});
+  if(!result.transaction_id||!Number.isFinite(Number(result.after_stock)))throw new Error('組立入庫未取得確認，請同步後重試');
+  try{
+    assertNotionPage(await updatePage(result.page_id,{'目前庫存':{number:Number(result.after_stock)}},{skipInventorySync:true}),'組立庫存鏡像');
+  }catch(e){queueInventoryNotionMirror(result.page_id,Number(result.after_stock),result.sku,e.message);}
+  return {before:Number(result.before_stock),after:Number(result.transaction_after),delta:Number(result.delta),duplicate:result.duplicate===true};
+}
+
 async function submitInspection(){
   // 讀取 orderId（從訂單觸發時有值，手動新增時為空）
   const orderId = document.getElementById('ins_order_id')?.value||'';
@@ -15005,6 +15037,10 @@ async function submitInspection(){
   const note     = document.getElementById('ins_note').value.trim();
   const photos   = [..._qcPhotoFiles];
 
+  if(orderId&&isSfgProductionOrder(orders.find(o=>o.id===orderId))&&result==='通過'&&!canQcToShipRole()){
+    showToast('組立品管放行限品管或管理者','warn');return;
+  }
+
   if(!matName){ showToast('請填入品項名稱','warn'); return; }
   if(!date){ showToast('請填入檢驗日期','warn'); return; }
   if(![qtyReq,qtyAct,qtyBad].every(n=>Number.isSafeInteger(n)&&n>=0)){
@@ -15026,6 +15062,7 @@ async function submitInspection(){
 
   let createdInspection=null;
   let transactionCommitted=false;
+  let assemblyAttempted=false;
   try{
     const props = {
       '檢驗單號':   {title:[{text:{content:no}}]},
@@ -15071,16 +15108,11 @@ async function submitInspection(){
           const mat = mats.find(m=>m.id===o.productId);
           let sfgStockMove=null;
           let inQty=0;
-          if(mat){
-            inQty = o.qty||qtyAct||qtyReq||0;
-            sfgStockMove=await applyInventoryDeltaAndMirror(mat.id,{
-              delta:inQty,
-              reason:'半成品品管通過入庫',
-              refNo:orderNo||orderId,
-              sourceType:'sfg_qc_pass',
-              sourceId:orderId
-            });
-          }
+          if(!mat)throw new Error('組立母件不存在，已停止入庫');
+          assemblyAttempted=true;
+          sfgStockMove=await completeAssemblyAndMirror(o,createdInspection.id);
+          transactionCommitted=true;
+          inQty=sfgStockMove.delta;
           const statusSync=await updateWorkflowPageAfterInventory(
             orderId,
             {'狀態':{select:{name:'已完成'}}},
@@ -15137,7 +15169,7 @@ async function submitInspection(){
       console.error('submitInspection post-commit refresh error:',e);
       showToast('⚠ 檢驗核心交易已完成，但畫面更新失敗；請按同步鍵確認，勿重複送出','warn',8000);
     }else{
-      await archiveNotionPageQuietly(createdInspection?.id);
+      if(!assemblyAttempted)await archiveNotionPageQuietly(createdInspection?.id);
       showToast('❌ '+e.message,'err');
     }
   }
@@ -20553,7 +20585,10 @@ async function doInspResult(insId, orderRef, resultCode){
   let appliedQty=0;
   let criticalCommitted=false;
   let targetOrder=null;
+  let assemblyAttempted=false;
   try{
+    const assemblyOrder=orders.find(o=>o.id===orderId);
+    if(isSfgProductionOrder(assemblyOrder)&&!canQcToShipRole())throw new Error('組立品管放行限品管或管理者');
     // 1. 更新檢驗單結果
     const props = { '檢驗結果':{select:{name:result}} };
     if(badDesc) props['不良描述']={rich_text:[{text:{content:badDesc}}]};
@@ -20572,19 +20607,12 @@ async function doInspResult(insId, orderRef, resultCode){
         if(isSfgOrder){
           // 半成品通過 → 自動入庫 + 訂單改「已完成」
           const mat = mats.find(m=>m.id===targetOrder.productId);
-          if(mat){
-            const inQty = targetOrder.qty||0;
-            appliedMaterial=mat;
-            appliedQty=inQty;
-            appliedStockMove=await applyInventoryDeltaAndMirror(mat.id,{
-              delta:inQty,
-              reason:'半成品檢驗結果通過入庫',
-              refNo:orderNo||orderId,
-              sourceType:'sfg_inspection_result_pass',
-              sourceId:targetOrder.id
-            });
-            criticalCommitted=true;
-          }
+          if(!mat)throw new Error('組立母件不存在，已停止入庫');
+          appliedMaterial=mat;
+          assemblyAttempted=true;
+          appliedStockMove=await completeAssemblyAndMirror(targetOrder,insId);
+          appliedQty=appliedStockMove.delta;
+          criticalCommitted=true;
           await updateWorkflowPageAfterInventory(
             targetOrder.id,
             {'狀態':{select:{name:'已完成'}}},
@@ -20636,7 +20664,7 @@ async function doInspResult(insId, orderRef, resultCode){
     showToast(passMsg, result==='通過'?'ok':'warn');
 
   }catch(e){
-    if(!criticalCommitted){
+    if(!criticalCommitted&&!assemblyAttempted){
       let repairError='';
       try{
         await updatePage(insId,{'檢驗結果':{select:{name:previousResult}}});
@@ -20645,7 +20673,7 @@ async function doInspResult(insId, orderRef, resultCode){
       }
       showToast('❌ 品檢流程未完成，已嘗試還原：'+e.message+repairError,'err',9000);
     }else{
-      showToast('⚠ 品檢核心交易已完成，但畫面重新整理失敗，請按同步鍵確認','warn',7000);
+      showToast('⚠ 組立／品檢流程尚待確認：'+e.message+'；請同步後由同一品檢紀錄重試，系統會防止重複入庫','warn',9000);
     }
   }
 }
@@ -22171,6 +22199,7 @@ async function doPick(orderId){
 
   try{
     if(!o) throw new Error('找不到訂單，請同步後重試');
+    if(isSfgProductionOrder(o)&&o.status&&o.status!=='待排程')throw new Error('組立單目前狀態不可重新領料，請同步後確認');
     const {items,production:hasBOM}=resolveOrderPickPlan(o);
     if(!items.length) throw new Error('訂單未關聯成品料件，無法扣庫存');
     const missing=items.filter(item=>item.missing||!item.id);

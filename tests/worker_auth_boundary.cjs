@@ -66,6 +66,12 @@ test('sales can request returns but cannot use unrestricted picking status', asy
   }
 });
 
+test('assembly completion requires QC or administrators; staff cannot bypass release', async () => {
+  const {context:c}=harness();
+  for(const role of ['qc','vic','manager'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/assembly/complete','POST'),null);
+  for(const role of ['sales','warehouse','purchase','viewer'])assert.equal((await c.enforceErpRouteRole(request(role),env,{},'/api/assembly/complete','POST')).status,403);
+});
+
 function returnHarness(status, raced = false) {
   const { context: c } = harness();
   const writes = [];

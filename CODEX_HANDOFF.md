@@ -1,5 +1,14 @@
 # LEMATEC ERP Codex Handoff
 
+## Assembly Completion Flow 2026-09-22
+
+- User scope: fix future assembly workflow, do not reconcile or adjust existing cancelled orders.
+- Assembly state menu can no longer mark completion or bypass picking. Sending to QC requires completed Supabase picking; cancelling consumed/stocked assemblies is blocked until the relevant reversal workflow is resolved. A fresh picking read is required before assembly state changes.
+- Both QC entry points use `/api/assembly/complete`. Worker re-reads Notion order/inspection, verifies database ownership, exact order link, full quantity with zero defects, active completed picking and picked quantities. Only QC/admin roles can complete assembly stock-in. Parent inventory is committed before frontend marks the order completed; missing material fails closed.
+- One order-scoped idempotency key covers retries/concurrent entrances, independent of inspection ID. Both legacy completion keys are recognized; conflicting prior stock-ins require reconciliation. Old generic sfg stock-in requests are rejected so stale clients must refresh.
+- Unknown stock-in outcomes preserve the inspection for same-record retry instead of archiving it. Notion inventory mirror failures queue repair. Existing cancelled-order data remains untouched.
+- Behavioral tests: `node --test tests/assembly_complete.cjs tests/worker_auth_boundary.cjs tests/order_pick_purpose.cjs`. No production stock-write testing.
+
 ## Purchase Operational Access 2026-09-22
 
 - User authorized broader purchase access to orders, warehouse and picking. Enabled order creation, shipment completion, stock single/batch adjustments, safety-stock batch editing, material editing and return confirmation in UI; Worker now permits purchase order creation and inventory single/batch adjustments. Existing BOM/picking/inbound permissions retained. QC release, material archive and administration remain unchanged.
