@@ -3,6 +3,30 @@ const root=require('node:path').join(__dirname,'..');
 const worker=fs.readFileSync(root+'/cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
 const html=fs.readFileSync(root+'/index.html','utf8');
 const id='11111111-1111-8111-8111-111111111111';
+test('actual transfer and batch handlers preserve real Notion UUIDv8 through the RPC boundary',async()=>{
+ const oid='3e2ff6f4-24bb-815d-9f70-f2de721feed7';
+ const src={id:'raw',sku:'Y-VH-01',notion_page_id:'raw-page'},dst={id:'s',sku:'S-Y-VH-01',notion_page_id:'s-page'};
+ let rpc;
+ const c=vm.createContext({Request,Response,encodeURIComponent,BOARD_DB:{orders:'orders'},canonicalNotionId:x=>x,
+  cleanText:x=>String(x||'').trim(),cleanSku:x=>x,erpBearerToken:()=>'',taipeiISOString:()=>'',inventoryTransactionType:()=> '轉庫',
+  getSupabaseInventoryContext:async()=>({organization:{id:'org'},warehouse:{id:'wh'}}),
+  fetch:async()=>Response.json({object:'page',parent:{database_id:'orders'},properties:{'訂單類型':{select:{name:'蝦皮'}},'狀態':{select:{name:'待排程'}},'訂購數量':{number:30},'成品':{relation:[{id:'s-page'}]},'訂單號':{title:[{plain_text:'ORD-2609-S01-608'}]}}}),
+  supabaseSingle:async(e,url)=>url.includes('notion_page_id=eq.')?dst:src,
+  resolveSupabaseMaterial:async(e,o,item)=>item.sku===src.sku?src:dst,
+  supabaseFetch:async(e,url,options)=>{
+   if(url.includes('/pick_lists?'))return [{status:'待領料'}];
+   if(!url.includes('/rpc/'))return [];
+   rpc=JSON.parse(options.body);
+   if(!rpc.p_source_id)throw Error('Missing order identity for stock handoff');
+   return {items:rpc.p_items.map(x=>({...x,after_stock:100}))};
+  },respOK:(c,x)=>Response.json(x),resp400:(c,error)=>Response.json({error},{status:400}),resp500:(c,error)=>Response.json({error},{status:500})});
+ for(const [start,end] of [['function isUuid(','function inventoryTransactionType('],['async function erpInventoryBatchAdjust(','function canonicalNotionId('],['async function erpShopeeTransfer(','async function erpAssemblyComplete(']])vm.runInContext(worker.slice(worker.indexOf(start),worker.indexOf(end)),c);
+ const res=await c.erpShopeeTransfer(new Request('https://test/api/shopee/transfer',{method:'POST',body:JSON.stringify({payload:{source_id:oid,items:[{sku:src.sku,delta:-30},{sku:dst.sku,delta:30}]}})}),{},{});
+ assert.equal(res.status,200,JSON.stringify(await res.json()));
+ assert.equal(rpc.p_source_id,oid);assert.equal(rpc.p_source_number,'ORD-2609-S01-608');
+ assert.equal(rpc.p_idempotency_key,'shopee_transfer:'+oid);
+ assert.equal(c.isUuid('not-an-id'),false);assert.equal(c.isUuid(oid.replace('-815d-','-f15d-')),false);
+});
 test('sales can transfer Shopee stock but cannot complete legacy production',()=>{
  const c=vm.createContext({ROLE:'sales',isAdminRole:()=>false});
  vm.runInContext(html.slice(html.indexOf('function canCompleteShopeeProductionRole'),html.indexOf('function isShopeeProductionOrder')),c);

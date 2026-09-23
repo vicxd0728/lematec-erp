@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Notion UUIDv8 Stock Source Identity Fix 2026-09-23
+
+- Production handoff failed with Missing order identity because the shared Worker UUID validator accepted only v1-v5 and silently replaced Notion UUIDv8 source IDs with null in the inventory RPC payload. Accept v1-v8 while retaining UUID structure/variant checks.
+- Added a regression invoking BOTH actual transfer and batch handlers with ORD-2609-S01-608's UUIDv8. Only external Notion/Supabase calls are stubbed; the test asserts the actual RPC source ID, fixed key and server-read order number. Earlier tests replaced the batch handler and missed this boundary.
+- Database trigger rejected the failed transaction; stock and pending cancellation roll back together. Verify Worker release and retained pending-pick state without committing a customer transfer.
+
 ## Pending Shopee Pick Continuation 2026-09-23
 
 - User authorized repair/deployment so sales can finish the existing order without recreating it. Original order ID and transfer key remain unchanged. Transfer confirmation explains that unused legacy picking is cancelled only after transaction verification.
