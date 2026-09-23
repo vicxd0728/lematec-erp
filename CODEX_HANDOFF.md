@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Pending Shopee Pick Continuation 2026-09-23
+
+- User authorized repair/deployment so sales can finish the existing order without recreating it. Original order ID and transfer key remain unchanged. Transfer confirmation explains that unused legacy picking is cancelled only after transaction verification.
+- Migration 018 installs inventory transaction guards. Under an order lock, all linked picks/items and prior formal transactions are checked; only pending picks with explicit zero picked quantities, no picked timestamp and no transaction reference are cancelled. Cancellation, durable Notion mirror jobs and both inventory legs share the existing batch transaction. Shortages or any failure roll everything back.
+- Archived/cancelled pick references remain included in ledger checks. Prior consumption, incomplete details, returns/reversals or uncertain quantities block; no automatic refund or historical stock adjustment. Concurrent old order-pick batches cannot double-consume after transfer, and handed-off picks cannot reopen.
+- CI runs disposable PostgreSQL handoff, duplicate retry, shortage rollback, unknown quantity, prior ledger and old/new concurrency tests before applying triggers. No production stock test or automatic legacy-pick cleanup occurs during deployment.
+- Keep migration guards if rolling back Worker/UI; removing them would reopen the stale-client duplicate-consumption path.
+
 ## Sales Shopee Transfer Access 2026-09-23
 
 - User explicitly authorized sales to execute one-to-one Shopee stock transfers. The pending Shopee order button and execute guard now use a dedicated transfer-role helper; Worker `/api/shopee/transfer` allows sales. Existing ordinary picking and legacy production-completion permissions remain unchanged.

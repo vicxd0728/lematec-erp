@@ -20382,7 +20382,7 @@ function openPickModal(orderId){
       ],
       sections:[
         {title:'防呆',lines:[
-          hasBOM?'BOM 資料已載入':'客戶出貨不展開 BOM',
+          plan.transfer?'若有舊待領料單，確認後會核對扣庫交易；僅未扣庫的舊單會取消並續接轉庫，保留原訂單。':hasBOM?'BOM 資料已載入':'客戶出貨不展開 BOM',
           '庫存不足會停止，不改扣其他料件',
         ]},
       ],

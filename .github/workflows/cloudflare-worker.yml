@@ -54,6 +54,7 @@ jobs:
           python tests/run_inventory_cas_postgres.py
           python tests/run_corder_bom_postgres.py
           python tests/run_shopee_transfer_postgres.py
+          python tests/run_shopee_handoff_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
@@ -64,6 +65,11 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python scripts/apply_corder_self_component.py
+
+      - name: Install atomic pending-pick handoff guards
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/apply_shopee_pick_handoff.py
 
       - name: Deploy green-wave-c22f Worker
         shell: bash

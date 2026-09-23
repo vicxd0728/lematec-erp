@@ -1632,10 +1632,13 @@ async function erpShopeeTransfer(request, env, cors) {
     if(prior.length&&(prior.length!==2||expected.some(m=>!prior.some(tx=>tx.material_id===m.id&&Number(tx.quantity_delta)===m.delta))))throw new Error('既有轉庫交易與訂單不一致，已停止重複轉庫');
     if(status==='已完成'&&!prior.length)throw new Error('舊完成單不可直接轉庫，請先核對');
     const picks=await supabaseFetch(env,`/rest/v1/pick_lists?organization_id=eq.${org}&source_order_notion_page_id=eq.${orderId}&archived_at=is.null&select=id,status`);
-    if(picks.some(x=>!['取消','已取消','已沖銷','已退料'].includes(x.status)))throw new Error('此單已有舊領料紀錄，請先核對，不可再次扣來源庫存');
+    if(picks.some(x=>!['取消','待領料','待確認','缺料待補'].includes(x.status)))throw new Error('舊領料單已領料或需核對，未再次轉庫');
+    // The database trigger checks formal ledger evidence and cancels untouched
+    // pending picks atomically with BOTH stock legs, including concurrent old clients.
+    const orderNo=(p['訂單號']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('')||orderId;
     const adjusted=await erpInventoryBatchAdjust(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify({payload:{
       items:expected.map(m=>({sku:m.sku,notion_page_id:m.notion_page_id,delta:m.delta})),idempotency_key:key,
-      source_type:'shopee_transfer',source_id:orderId,ref_no:cleanText(payload.ref_no)||orderId,reason:'一般倉庫轉入蝦皮庫存',
+      source_type:'shopee_transfer',source_id:orderId,ref_no:orderNo,reason:'一般倉庫轉入蝦皮庫存',
     }})}),env,cors);
     if(!adjusted.ok)return adjusted;
     const result=await adjusted.json();
