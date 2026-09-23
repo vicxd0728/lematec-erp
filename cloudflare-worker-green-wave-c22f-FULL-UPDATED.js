@@ -3321,7 +3321,7 @@ const ERP_ROUTE_ROLES = {
   '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/orders/create': ['vic', 'manager', 'sales', 'purchase'],
   '/api/assembly/complete': ['vic', 'manager', 'qc'],
-  '/api/shopee/transfer': ['vic', 'manager', 'warehouse', 'purchase'],
+  '/api/shopee/transfer': ['vic', 'manager', 'warehouse', 'purchase', 'sales'],
   '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],

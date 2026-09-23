@@ -1801,6 +1801,9 @@ function canQcToShipRole(){
 function canCompleteShopeeProductionRole(){
   return ROLE==='warehouse'||ROLE==='purchase'||isAdminRole();
 }
+function canTransferShopeeStockRole(){
+  return ROLE==='sales'||canCompleteShopeeProductionRole();
+}
 function isShopeeProductionOrder(o){
   if(!o)return false;
   const type=String(o.orderType||'').trim().toLowerCase();
@@ -15569,7 +15572,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
     <td>${pill(o.status)}</td>
     ${canOperate?`<td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole())?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">${isShopeeProductionOrder(o)?'轉入蝦皮庫存':'🗂 領料'}</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
+      ${o.status==='待排程'&&(isShopeeProductionOrder(o)?canTransferShopeeStockRole():(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole()))?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">${isShopeeProductionOrder(o)?'轉入蝦皮庫存':'🗂 領料'}</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
     </td>`:''}
   </tr>`;}).join('')}
   </table></div></div></div>`;
@@ -22129,7 +22132,7 @@ async function logStockChangeQuietly(...args){
   }
 }
 async function executeShopeeTransfer(order){
-  if(!canCompleteShopeeProductionRole())throw new Error('蝦皮轉庫限倉管、採購或管理者');
+  if(!canTransferShopeeStockRole())throw new Error('蝦皮轉庫限業務、倉管、採購或管理者');
   const plan=resolveOrderPickPlan(order),source=plan.items[0],target=plan.prod,qty=Number(order.qty);
   const result=await applyInventoryBatchAndMirror([{pageId:source.id,delta:-qty},{pageId:target.id,delta:qty}],{
     reason:'一般倉庫轉入蝦皮庫存',refNo:order.no,sourceType:'shopee_transfer',sourceId:order.id

@@ -3,6 +3,14 @@ const root=require('node:path').join(__dirname,'..');
 const worker=fs.readFileSync(root+'/cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
 const html=fs.readFileSync(root+'/index.html','utf8');
 const id='11111111-1111-8111-8111-111111111111';
+test('sales can transfer Shopee stock but cannot complete legacy production',()=>{
+ const c=vm.createContext({ROLE:'sales',isAdminRole:()=>false});
+ vm.runInContext(html.slice(html.indexOf('function canCompleteShopeeProductionRole'),html.indexOf('function isShopeeProductionOrder')),c);
+ assert.equal(c.canTransferShopeeStockRole(),true);
+ assert.equal(c.canCompleteShopeeProductionRole(),false);
+ c.ROLE='viewer';assert.equal(c.canTransferShopeeStockRole(),false);
+ assert(html.includes("isShopeeProductionOrder(o)?canTransferShopeeStockRole():"));
+});
 function setup(opts={}){
  const target={id:'s',sku:'S-LEI-18',notion_page_id:'sp'},source={id:'w',sku:'LEI-18',notion_page_id:'wp'};
  const order={object:'page',parent:{database_id:'orders'},properties:{'訂單類型':{select:{name:'蝦皮'}},'狀態':{select:{name:opts.status||'待排程'}},'訂購數量':{number:3},'成品':{relation:[{id:'sp'}]}}};

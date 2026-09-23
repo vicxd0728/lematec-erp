@@ -51,7 +51,7 @@ test('legacy production markers still identify untyped assembly orders',()=>{
 
 test('Shopee preview shows both stock legs and confirmation uses one transfer without a pick',async()=>{
  const t=setup('蝦皮');t.parent.code='S-F-GAB-03D-B';t.order.product=t.parent.code;
- t.ctx.mats.push({id:'source',code:'F-GAB-03D-B',stock:12});t.ctx.canCompleteShopeeProductionRole=()=>true;
+ t.ctx.mats.push({id:'source',code:'F-GAB-03D-B',stock:12});t.ctx.canTransferShopeeStockRole=()=>true;
  vm.runInContext(html.slice(html.indexOf('function getShopeeBomItems'),html.indexOf('async function deductShopeeBom')),t.ctx);
  t.ctx.openPickPreview('order');assert.equal(t.preview.rows.length,2);assert.equal(t.preview.rows[0].impact,-1);assert.equal(t.preview.rows[1].impact,1);
  await t.ctx.doPick('order');const b=t.calls.find(x=>x.batch);assert(b,JSON.stringify(t.toast));

@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Sales Shopee Transfer Access 2026-09-23
+
+- User explicitly authorized sales to execute one-to-one Shopee stock transfers. The pending Shopee order button and execute guard now use a dedicated transfer-role helper; Worker `/api/shopee/transfer` allows sales. Existing ordinary picking and legacy production-completion permissions remain unchanged.
+- Existing pending legacy picks still block transfers until transaction reconciliation; no pick/order/stock data is repaired by this permission release. In particular ORD-2609-S01-608 has pending pick PK-260921-761 and is not cleared by this change.
+- Validate role boundaries, both stock legs, shortages, retries and old-pick blocking. Deployment acceptance uses invalid-payload role probes only, without stock mutations. Rollback is limited to this role/helper/button change.
+
 ## Shopee Replenishment / C-end Direct Recipes 2026-09-22
 
 - Orders of type 蝦皮 now transfer one exact non-S SKU to its S- counterpart in one atomic batch. No BOM expansion. New materials start at zero. `/api/shopee/transfer` re-reads the order, fixes the idempotency key to its page ID, rejects legacy picking and changed demand, and allows warehouse/purchase/admin roles. New transfers finish immediately after accepted inventory changes; old production orders remain separately guarded.

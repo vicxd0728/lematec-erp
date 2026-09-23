@@ -34,10 +34,11 @@ function request(role, token = 'company-test-token', method = 'POST') {
 
 const env = { NOTION_TOKEN: 'company-test-token' };
 
-test('Shopee transfers require warehouse, purchase or administrators',async()=>{
+test('Shopee transfers allow sales without granting picking execution',async()=>{
  const {context:c}=harness();
- for(const role of ['warehouse','purchase'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/shopee/transfer','POST'),null);
- for(const role of ['sales','viewer','qc'])assert.equal((await c.enforceErpRouteRole(request(role),env,{},'/api/shopee/transfer','POST')).status,403);
+ for(const role of ['sales','warehouse','purchase','vic','manager'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/shopee/transfer','POST'),null);
+ for(const role of ['viewer','qc'])assert.equal((await c.enforceErpRouteRole(request(role),env,{},'/api/shopee/transfer','POST')).status,403);
+ for(const route of ['/api/picking/create','/api/picking/status'])assert.equal((await c.enforceErpRouteRole(request('sales'),env,{},route,'POST')).status,403);
 });
 
 test('purchase operational access covers orders, stock, picking and inbound without admin maintenance', async () => {
