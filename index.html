@@ -2491,6 +2491,7 @@ const ROLES={
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影片庫',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer';}
+function canAuditBomRole(role=ROLE){return isAdminRole(role)||role==='warehouse'||role==='purchase';}
 function canImportBomRole(role=ROLE){return !isViewOnly(role)&&(isAdminRole(role)||role==='warehouse'||role==='purchase');}
 function denyViewOnlyAction(){
   if(!isViewOnly()) return false;
@@ -16401,7 +16402,7 @@ function renderInventory(){
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
-        ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory()">🔍 全料號 BOM 查驗</button>`:''}
+        ${canAuditBomRole()?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory()">🔍 全料號 BOM 查驗</button>`:''}
         ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">Excel/貼表批量</button>`:''}
@@ -18190,7 +18191,7 @@ function buildFullBomAuditReport(materials,bomRows){
 }
 
 async function auditAllBomInventory(){
-  if(!isAdminRole()){showToast('此查驗限 Vic 或廠長使用','warn');return;}
+  if(!canAuditBomRole()){showToast('此查驗限 Vic、廠長、倉庫或採購使用','warn');return;}
   const modal=document.getElementById('modalInner');
   modal.innerHTML='<h3>🔍 全料號 BOM 查驗</h3><div class="info-box">正在讀取 Supabase 有效料號與 BOM，請稍候...</div>';
   openModal();

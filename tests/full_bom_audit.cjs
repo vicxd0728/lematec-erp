@@ -9,6 +9,15 @@ function section(start,end){
 }
 const reportCode=section('function buildFullBomAuditReport(materials,bomRows){','async function auditAllBomInventory(){');
 
+test('BOM audit is available to warehouse and purchase without widening write roles',()=>{
+ const ctx=vm.createContext({ROLE:'viewer'});
+ vm.runInContext(section('function isAdminRole(role=ROLE){','function canImportBomRole(role=ROLE){'),ctx);
+ for(const role of ['vic','manager','warehouse','purchase'])assert.equal(ctx.canAuditBomRole(role),true);
+ for(const role of ['sales','qc','viewer'])assert.equal(ctx.canAuditBomRole(role),false);
+ assert.match(html,/canAuditBomRole\(\)\?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory\(\)"/);
+ assert.match(html,/if\(!canAuditBomRole\(\)\)\{showToast\('此查驗限 Vic、廠長、倉庫或採購使用'/);
+});
+
 test('full audit covers every active material and separates absence from broken BOM',()=>{
  const ctx=vm.createContext({});vm.runInContext(reportCode,ctx);
  const materials=[
