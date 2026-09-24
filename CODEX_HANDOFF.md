@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Read-only Operational Visuals 2026-09-24
+
+- Inventory now shows a five-category stock-status bar view over the same loaded material snapshot: zero/out, at-or-below safety stock, above safety stock, safety stock unset, and unknown balance. Each bar opens the matching existing inventory list filter; source label and total are shown. The chart never treats an unset safety threshold as healthy.
+- Order picking now shows a mutually exclusive status bar view for the current date/order scope: return confirmation, shortage, picked, reversed, and other. Bars filter the original picking table. Both views are read-only and add no API, permission, order, BOM, or inventory write path.
+- Existing analytics charts remain in the Analytics tab. Focused checks: `node --test tests/erp_visuals.cjs tests/full_bom_audit.cjs tests/order_pick_purpose.cjs` and `python scripts/verify_erp_static.py`.
+
 ## Full Material / BOM Read-only Audit 2026-09-24
 
 - Replaced the ambiguous inventory-page `審查BOM建檔` button with `全料號 BOM 查驗` for Vic/manager/warehouse/purchase. The 2026-09-24 role follow-up adds warehouse and purchase to both visibility and the handler guard; no edit permission changes. It fetches fresh, complete active materials and BOM rows from the Supabase-primary Worker, checks version stability and row counts, and fails closed on incomplete or fallback data. It does not write inventory or BOM.

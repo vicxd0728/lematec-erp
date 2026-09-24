@@ -1161,6 +1161,20 @@ td{font-size:16px;padding:16px 17px;}
   color:var(--text2);font-size:14px;line-height:1.5;
 }
 .source-strip b{color:var(--cyan2);}
+.erp-visual-panel{margin-bottom:14px;padding:16px 18px;border:1px solid rgba(94,234,212,.18);border-radius:16px;background:rgba(8,18,25,.72);}
+.erp-visual-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:13px;}
+.erp-visual-head h3{margin:0;color:var(--text);font-size:16px;}
+.erp-visual-head p{margin:5px 0 0;color:var(--text3);font-size:12px;line-height:1.5;}
+.erp-visual-list{display:grid;gap:10px;}
+.erp-visual-row{display:grid;grid-template-columns:minmax(120px,180px) minmax(100px,1fr) 72px;gap:10px;align-items:center;}
+.erp-visual-label{color:var(--text2);font-size:13px;}
+.erp-visual-value{text-align:right;color:var(--text);font-family:var(--f-mono);font-size:13px;}
+.erp-visual-track{height:12px;border-radius:99px;background:rgba(148,163,184,.12);overflow:hidden;}
+.erp-visual-fill{display:block;height:100%;border-radius:99px;background:var(--visual-color,var(--cyan2));}
+.erp-visual-row button{border:0;background:none;padding:0;text-align:left;cursor:pointer;font:inherit;}
+.erp-visual-row button.erp-visual-track{width:100%;background:rgba(148,163,184,.12);}
+.erp-visual-row button:hover .erp-visual-label,.erp-visual-row button:focus-visible .erp-visual-label{color:var(--cyan2);text-decoration:underline;}
+@media(max-width:600px){.erp-visual-panel{padding:13px}.erp-visual-row{grid-template-columns:100px minmax(70px,1fr) 50px;gap:7px}.erp-visual-label{font-size:12px}}
 .video-shell{display:flex;flex-direction:column;gap:14px;}
 .video-hero{
   position:relative;overflow:hidden;
@@ -16252,6 +16266,35 @@ function renderCustomers(){
   </div>`;
 }
 
+function renderErpVisualRows(rows){
+  const max=Math.max(1,...rows.map(row=>row.count));
+  return `<div class="erp-visual-list">${rows.map(row=>`<div class="erp-visual-row" style="--visual-color:${row.color}">
+    ${row.action?`<button type="button" onclick="${row.action}" aria-label="${escapeHtml(row.label)} ${row.count} 筆，查看明細"><span class="erp-visual-label">${escapeHtml(row.label)}</span></button>`:`<span class="erp-visual-label">${escapeHtml(row.label)}</span>`}
+    ${row.action?`<button type="button" class="erp-visual-track" onclick="${row.action}" aria-label="${escapeHtml(row.label)} ${row.count} 筆，查看明細"><span class="erp-visual-fill" style="width:${Math.round(row.count/max*100)}%"></span></button>`:`<div class="erp-visual-track" role="img" aria-label="${escapeHtml(row.label)} ${row.count} 筆"><span class="erp-visual-fill" style="width:${Math.round(row.count/max*100)}%"></span></div>`}
+    <strong class="erp-visual-value">${row.count}</strong>
+  </div>`).join('')}</div>`;
+}
+function inventoryVisualStatus(m){
+  const stockRaw=m?.stock;
+  if(stockRaw===null||stockRaw===undefined||String(stockRaw).trim()===''||!Number.isFinite(Number(stockRaw)))return 'unknown';
+  const stock=Number(stockRaw);
+  if(stock<=0)return 'out';
+  const safeRaw=m?.safe;
+  if(safeRaw===null||safeRaw===undefined||String(safeRaw).trim()===''||!Number.isFinite(Number(safeRaw))||Number(safeRaw)<=0)return 'unset';
+  return stock<=Number(safeRaw)?'low':'ok';
+}
+function renderInventoryStockVisual(rows,sourceLabel){
+  const counts={out:0,low:0,ok:0,unset:0,unknown:0};
+  for(const row of rows)counts[inventoryVisualStatus(row)]++;
+  const statusRows=[
+    {label:'缺貨／零庫存',count:counts.out,color:'var(--red2)',action:"_invFilter('stockStatus','out')"},
+    {label:'低於或等於安全庫存',count:counts.low,color:'var(--amber)',action:"_invFilter('stockStatus','low')"},
+    {label:'高於安全庫存',count:counts.ok,color:'var(--green2)',action:"_invFilter('stockStatus','ok')"},
+    {label:'未設定安全庫存',count:counts.unset,color:'var(--cyan2)',action:"_invFilter('stockStatus','unset')"},
+    {label:'庫存數值不明',count:counts.unknown,color:'var(--text3)',action:"_invFilter('stockStatus','unknown')"}
+  ];
+  return `<section class="erp-visual-panel" aria-label="庫存狀態分布"><div class="erp-visual-head"><div><h3>庫存狀態分布</h3><p>全部 ${rows.length} 筆料號；依同一份快照統計，點項目篩選下方明細。安全庫存未設定會單獨列出。</p></div><span class="module-pill">來源 <b>${escapeHtml(sourceLabel)}</b></span></div>${rows.length?renderErpVisualRows(statusRows):'<div class="empty">目前沒有可統計的料號</div>'}</section>`;
+}
 function renderInventory(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
   const readSet=getInventoryReadSet();
@@ -16284,9 +16327,7 @@ function renderInventory(){
   if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
   if(INV.stockMin!=='') data=data.filter(m=>(Number(m.stock)||0)>=Number(INV.stockMin));
   if(INV.stockMax!=='') data=data.filter(m=>(Number(m.stock)||0)<=Number(INV.stockMax));
-  if(INV.stockStatus==='ok')  data=data.filter(m=>(Number(m.stock)||0)>0&&((Number(m.safe)||0)<=0||(Number(m.stock)||0)>Number(m.safe)));
-  if(INV.stockStatus==='low') data=data.filter(m=>(Number(m.stock)||0)>0&&(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
-  if(INV.stockStatus==='out') data=data.filter(m=>(Number(m.stock)||0)<=0);
+  if(INV.stockStatus!=='all')data=data.filter(m=>inventoryVisualStatus(m)===INV.stockStatus);
   if(INV.quick==='s') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('S-'));
   if(INV.quick==='y') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('Y-'));
   if(INV.quick==='mirror') data=data.filter(m=>!m.notionId);
@@ -16346,6 +16387,8 @@ function renderInventory(){
 
   ${renderInventorySourceSwitch()}
 
+  ${renderInventoryStockVisual(invMats,readSet.label)}
+
   ${usingSupabase?`<div class="source-strip"><span><b>現行資料流</b>：庫存查詢與修改以 Supabase 為正式主資料；成功後同步 Notion 鏡像供人工查閱。這不是新增架構，只是把目前狀態顯示清楚。</span><button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">查看異動記錄</button></div>`:''}
 
   <div class="filter-bar" style="margin-bottom:12px" data-contract="INVENTORY_SCAN_FILTERS_V1">
@@ -16395,7 +16438,7 @@ function renderInventory(){
       <div style="min-width:120px">
         <div style="font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存狀態</div>
         <select class="inp" style="padding:7px 10px;font-size:0.8125rem" onchange="_invFilter('stockStatus',this.value)">
-          ${[['all','全部狀態'],['ok','✅ 正常'],['low','⚠ 低庫存'],['out','❌ 缺料']].map(([v,l])=>`<option value="${v}" ${INV.stockStatus===v?'selected':''}>${l}</option>`).join('')}
+          ${[['all','全部狀態'],['ok','✅ 高於安全庫存'],['low','⚠ 低於或等於安全庫存'],['out','❌ 缺貨／零庫存'],['unset','未設安全庫存'],['unknown','庫存數值不明']].map(([v,l])=>`<option value="${v}" ${INV.stockStatus===v?'selected':''}>${l}</option>`).join('')}
         </select>
       </div>
       <!-- 清除篩選 -->
@@ -16941,6 +16984,25 @@ async function completeManualPick(masterId){
   }
 }
 
+function pickingVisualStage(p){
+  if(isPickingReturnRequest(p))return 'return';
+  if(isPickingShortage(p))return 'shortage';
+  if(isPickingReversed(p))return 'reversed';
+  if(isPickingPicked(p))return 'picked';
+  return 'other';
+}
+function renderPickingStatusVisual(rows){
+  const counts={return:0,shortage:0,picked:0,reversed:0,other:0};
+  for(const row of rows)counts[pickingVisualStage(row)]++;
+  const chartRows=[
+    {label:'待回料確認',count:counts.return,color:'var(--amber)',action:"window._PICK_STATUS='return';renderTab('picking')"},
+    {label:'缺料待補',count:counts.shortage,color:'var(--red2)',action:"window._PICK_STATUS='shortage';renderTab('picking')"},
+    {label:'已領料',count:counts.picked,color:'var(--cyan2)',action:"window._PICK_STATUS='picked';renderTab('picking')"},
+    {label:'已沖銷',count:counts.reversed,color:'var(--green2)',action:"window._PICK_STATUS='reversed';renderTab('picking')"},
+    {label:'其他狀態',count:counts.other,color:'var(--text3)',action:"window._PICK_STATUS='other';renderTab('picking')"}
+  ];
+  return `<section class="erp-visual-panel" aria-label="訂單領料狀態分布"><div class="erp-visual-head"><div><h3>訂單領料狀態分布</h3><p>目前期間與訂單範圍共 ${rows.length} 張；一張單只計入一種狀態。點項目查看下方領料紀錄。</p></div></div>${rows.length?renderErpVisualRows(chartRows):'<div class="empty">目前範圍沒有訂單領料紀錄</div>'}</section>`;
+}
 function renderPicking(){
   if(!window._PICK_SUB) window._PICK_SUB='auto';
   if(!window._PICK_STATUS) window._PICK_STATUS='all';
@@ -16953,13 +17015,14 @@ function renderPicking(){
   const manualData=allData.filter(p=>!p.orderId);
   const focusOrder=window._PICK_FOCUS_ORDER||'';
   const scopedAutoData=focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData;
-  const filteredAutoData=statusFilter==='return'?scopedAutoData.filter(isPickingReturnRequest):statusFilter==='picked'?scopedAutoData.filter(isPickingPicked):statusFilter==='reversed'?scopedAutoData.filter(isPickingReversed):statusFilter==='shortage'?scopedAutoData.filter(isPickingShortage):scopedAutoData;
+  const filteredAutoData=statusFilter==='all'?scopedAutoData:scopedAutoData.filter(p=>pickingVisualStage(p)===statusFilter);
   const data=sub==='manual'?manualData:filteredAutoData;
   const canOperate=!isViewOnly();
   const returnRequests=scopedAutoData.filter(isPickingReturnRequest);
   const pickedRows=scopedAutoData.filter(isPickingPicked);
   const reversedRows=scopedAutoData.filter(isPickingReversed);
   const shortageRows=scopedAutoData.filter(isPickingShortage);
+  const otherRows=scopedAutoData.filter(p=>pickingVisualStage(p)==='other');
   const returnQty=buildPickingReversalRows(returnRequests).reduce((sum,row)=>sum+Number(row.qty||0),0);
   const roleAction=canConfirmOrderReturnRequest()?'倉管確認實物已回倉':'業務只需送出申請';
   const tabs=`<div class="module-tabs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
@@ -16996,7 +17059,7 @@ function renderPicking(){
     <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
-  return _notionBar + tabs + workflowBoard + `<div class="filter-bar">
+  return _notionBar + tabs + workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `<div class="filter-bar">
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
     ${sub==='auto'?`<span class="filter-label">狀態：</span>
@@ -17004,7 +17067,8 @@ function renderPicking(){
     ${pickingStatusChip('return','待回料確認',statusFilter,returnRequests.length)}
     ${pickingStatusChip('picked','已領料',statusFilter,pickedRows.length)}
     ${pickingStatusChip('reversed','已沖銷',statusFilter,reversedRows.length)}
-    ${pickingStatusChip('shortage','缺料待補',statusFilter,shortageRows.length)}`:''}
+    ${pickingStatusChip('shortage','缺料待補',statusFilter,shortageRows.length)}
+    ${pickingStatusChip('other','其他狀態',statusFilter,otherRows.length)}`:''}
     ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="window._PICK_FOCUS_ORDER='';renderTab('picking')">顯示全部領料</button></div>`:''}
@@ -17021,7 +17085,7 @@ function isPickingPicked(p){return /已領料|已確認扣料/.test(String(p?.st
 function isPickingReversed(p){return /已沖銷|已退料/.test(String(p?.status||''));}
 function isPickingShortage(p){return /缺料/.test(String(p?.status||''));}
 function pickingStatusFilterLabel(v){
-  return ({all:'全部',return:'待回料確認',picked:'已領料',reversed:'已沖銷',shortage:'缺料待補'})[v]||'全部';
+  return ({all:'全部',return:'待回料確認',picked:'已領料',reversed:'已沖銷',shortage:'缺料待補',other:'其他狀態'})[v]||'全部';
 }
 function pickingStatusChip(value,label,current,count){
   const active=value===current;
