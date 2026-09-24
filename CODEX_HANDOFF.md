@@ -2,6 +2,7 @@
 
 ## Assembly Order Form / Picking Shortage Clarity 2026-09-24
 
+- Follow-up UI clarification: blocked picking now opens with a prominent `無法領料：部分 BOM 子件庫存不足` alert above the preflight metrics. It lists every blocking SKU with required, available and missing quantities, distinguishes missing BOM child records, and says the preview has not changed stock. Non-assembly customer orders and Shopee transfer shortages receive context-specific headings. The confirm button remains disabled.
 - Read-only live BOM/inventory check for SFG-2609-3581 (`Z-SKC-A-03AS-1ABFH` x1): its direct child `F-SKC-A-01AS-2` requires 1, stock 0, shortage 1. This is a real stock block; `Y-SBG-06Q` is sufficient and appeared first only because of BOM row order. No inventory or order data was changed for this diagnosis.
 - The assembly-order form now auto-selects a unique exact typed SKU, shows clickable partial-match suggestions, and has its own visible positive-integer quantity input. Creation writes that quantity to the Notion order's `訂購數量` instead of reading a hidden generic order field and defaulting to 1.
 - The picking preview sorts blocking rows first and places the exact shortage (`needed`, `available`, `missing`) near the top. Shortage still blocks deduction; no bypass or stock adjustment was added.

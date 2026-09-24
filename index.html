@@ -20366,7 +20366,12 @@ function openPickModal(orderId){
   if(plan.transfer)rows.push({lineLabel:prod.code,title:prod.name||prod.code,detail:`庫存 ${Number(prod.stock)||0} -> ${(Number(prod.stock)||0)+Number(o.qty)}`,impact:Number(o.qty),error:''});
   rows.sort((a,b)=>Number(!!b.error)-Number(!!a.error));
   const blocked=rows.filter(row=>row.error);
-  const errors=rows.filter(r=>r.error).length;
+  const shortageCount=blocked.filter(row=>row.error==='庫存不足').length;
+  const missingCount=blocked.filter(row=>row.error==='BOM 子料號尚未建檔').length;
+  const errors=blocked.length;
+  const blockedTitle=hasBOM
+    ?`無法領料：${shortageCount?'部分 BOM 子件庫存不足':''}${shortageCount&&missingCount?'，且有子件未建檔':!shortageCount?'BOM 子件尚未建檔':''}`
+    :plan.transfer?'無法轉入蝦皮庫存：一般倉庫來源庫存不足':'無法領料：訂購品項庫存不足';
   const mi = document.getElementById('modalInner');
   mi.innerHTML=`<h3>${plan.transfer?'蝦皮庫存轉入':'🗂️ 開立領料單'}</h3>
     <div style="padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:14px;font-size:0.8125rem">
@@ -20374,6 +20379,12 @@ function openPickModal(orderId){
       <div>客戶：${o.cust||o.customer||'—'}</div>
       <div>品項：${o.product||o.matCode||'—'} × ${o.qty||0}</div>
     </div>
+    ${errors?`<div role="alert" style="padding:14px;background:rgba(239,68,68,.12);border:1px solid var(--red2);border-radius:10px;margin-bottom:14px;line-height:1.55">
+      <b style="color:var(--red2);font-size:.9rem">${blockedTitle}</b>
+      <div style="color:var(--text2);font-size:.76rem;margin-top:4px">共 ${errors} 項阻擋；系統已停止扣庫，庫存沒有因這次預覽而變動。</div>
+      <ul style="margin:8px 0 6px 18px;padding:0;font-size:.8rem">${blocked.map(row=>`<li><b>${escapeHtml(row.lineLabel)}</b>：${escapeHtml(row.detail)}</li>`).join('')}</ul>
+      <div style="color:var(--text2);font-size:.76rem">請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。</div>
+    </div>`:''}
     ${renderPreflightCenter({
       title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',
       subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
@@ -20386,7 +20397,6 @@ function openPickModal(orderId){
         {label:'來源',value:plan.transfer?'同料號庫存':_bomDataSource||'not-loaded'},
       ],
       sections:[
-        ...(blocked.length?[{title:'無法領料原因',lines:blocked.map(row=>`${row.lineLabel}：${row.detail}`)}]:[]),
         {title:'防呆',lines:[
           plan.transfer?'若有舊待領料單，確認後會核對扣庫交易；僅未扣庫的舊單會取消並續接轉庫，保留原訂單。':hasBOM?'BOM 資料已載入':'客戶出貨不展開 BOM',
           '庫存不足會停止，不改扣其他料件',
