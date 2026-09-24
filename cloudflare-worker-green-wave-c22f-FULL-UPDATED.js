@@ -1623,7 +1623,11 @@ async function erpShopeeTransfer(request, env, cors) {
     const ctx=await getSupabaseInventoryContext(env),org=ctx.organization.id;
     const target=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&notion_page_id=eq.${refs[0].id}&archived_at=is.null&select=id,sku,notion_page_id&limit=1`);
     if(!target.sku.startsWith('S-')||target.sku.startsWith('S-S-'))throw new Error('蝦皮補庫目標須為單一 S- 前綴料號');
-    const source=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&sku=eq.${encodeURIComponent(target.sku.slice(2))}&archived_at=is.null&select=id,sku,notion_page_id&limit=1`,true);
+    const sourceSku=target.sku.slice(2);
+    const candidates=await supabaseFetch(env,`/rest/v1/materials?organization_id=eq.${org}&sku=ilike.${encodeURIComponent(sourceSku)}&archived_at=is.null&select=id,sku,notion_page_id&limit=50`);
+    const matches=(Array.isArray(candidates)?candidates:[]).filter(row=>cleanSku(row.sku)===cleanSku(sourceSku));
+    if(matches.length>1)throw new Error('一般倉庫來源料號大小寫重複，請先核對：'+sourceSku);
+    const source=matches[0]||null;
     if(!source?.notion_page_id)throw new Error('一般倉庫來源尚未建檔：'+target.sku.slice(2));
     const expected=[{...source,delta:-qty},{...target,delta:qty}];
     if(!Array.isArray(payload.items)||payload.items.length!==2||expected.some(m=>!payload.items.some(x=>x.sku===m.sku&&Number(x.delta)===m.delta)))throw new Error('訂單料號或數量已變更，請重新預覽轉庫');

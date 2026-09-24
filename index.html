@@ -8751,7 +8751,7 @@ function getShopeeBomRows(mat){
 function getShopeeBomItems(mat,qty){
   const code=String(mat?.code||mat?.name||'').trim(),need=Number(qty);
   if(!code.startsWith('S-')||code.startsWith('S-S-')||!Number.isSafeInteger(need)||need<=0)throw new Error('蝦皮轉庫料號或數量無效');
-  const sourceCode=code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim()===sourceCode);
+  const sourceCode=code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim().toUpperCase()===sourceCode.toUpperCase());
   if(matches.length>1)throw new Error('一般倉庫來源料號重複：'+sourceCode);
   return [{...(matches[0]||{id:'',code:sourceCode,name:sourceCode,stock:0,missing:true}),needed:need,source:'transfer'}];
 }

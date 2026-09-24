@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Shopee / C-end Workbook Refresh 2026-09-24
+
+- Source files: `LEMATEC_BOM_訂單用(1).xlsx` and `LEMATEC_BOM_C端用(1).xlsx`, both sheet `蝦皮用`. Local preflight, snapshots, journal, and readback are under `output/shopee-0924/`; script is `output/shopee_0924_update.py`.
+- Preflight found 179 one-to-one transfer targets and 214 C-end direct-recipe parents. Eight changed C-end parents (16 direct relations) were replaced in Supabase and mirrored to Notion. Two source `S-S-` children were reduced to one `S-` per the user's prior explicit decision; 11 non-S source children were mapped to their S counterpart per the C-end-only rule. Exact duplicate rows had identical content.
+- The only new transfer target is stored as canonical `S-F-DTC-16-43CM` at stock 0. The existing warehouse source is `F-DTC-16-43cm` with its original spelling and stock. Worker normalization uppercases newly created S SKUs, so frontend preview and Worker transfer source resolution now compare case-insensitively, reject ambiguous matches, and use the actual warehouse material ID/SKU. No balance transfer occurred during data update.
+- Final scoped Supabase and Notion BOM readback passed; no observed existing stock changes. Transfer runtime still requires a real staff order and is not claimed as a production stock transaction test.
+
 ## Notion UUIDv8 Stock Source Identity Fix 2026-09-23
 
 - Production handoff failed with Missing order identity because the shared Worker UUID validator accepted only v1-v5 and silently replaced Notion UUIDv8 source IDs with null in the inventory RPC payload. Accept v1-v8 while retaining UUID structure/variant checks.
