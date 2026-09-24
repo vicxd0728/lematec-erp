@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Full Material / BOM Read-only Audit 2026-09-24
+
+- Replaced the ambiguous inventory-page `審查BOM建檔` button with `全料號 BOM 查驗` for Vic/manager. It fetches fresh, complete active materials and BOM rows from the Supabase-primary Worker, checks version stability and row counts, and fails closed on incomplete or fallback data. It does not write inventory or BOM.
+- Every active SKU is searchable and paged with type, stock, BOM children/quantities, usage as a child and update time; filters include all with/without BOM, recent updates, structural issues, suffix-similar candidates, and a `待確認補 BOM` queue for non-S finished/semi-finished SKUs without a parent BOM. Missing BOM is a candidate for human review, not an automatic error or import action. CSV exports the full read-only list.
+- Known C-end `S-` self-edges with `C端直接扣料` notes are classified as expected direct-stock rules, not malformed BOM. No source workbook is compared by this audit; semantic correctness of recipe quantities still requires the supplied source Excel.
+- Live read-only scan at implementation: 1,953 active materials, 1,184 BOM rows, 404 parent SKUs, 1,549 without BOM, 544 warehouse finished/semi-finished candidates, 155 expected C-end direct-stock links, zero structural/dangling relation findings, 30 suffix-similar candidate SKUs. Counts are point-in-time and may change.
+- Regression: `node --test tests/full_bom_audit.cjs tests/sfg_order_form.cjs tests/order_pick_purpose.cjs tests/assembly_complete.cjs`; static: `python scripts/verify_erp_static.py`.
+
 ## Assembly Order Form / Picking Shortage Clarity 2026-09-24
 
 - Follow-up UI clarification: blocked picking now opens with a prominent `無法領料：部分 BOM 子件庫存不足` alert above the preflight metrics. It lists every blocking SKU with required, available and missing quantities, distinguishes missing BOM child records, and says the preview has not changed stock. Non-assembly customer orders and Shopee transfer shortages receive context-specific headings. The confirm button remains disabled.

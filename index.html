@@ -16401,7 +16401,7 @@ function renderInventory(){
       <div style="display:flex;align-items:flex-end;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
-        ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditShopeeBomInventory()">🔍 審查BOM建檔</button>`:''}
+        ${isAdminRole()?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory()">🔍 全料號 BOM 查驗</button>`:''}
         ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
         ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">Excel/貼表批量</button>`:''}
@@ -18097,6 +18097,195 @@ async function auditShopeeBomInventory(){
     </div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;
   openModal();
+}
+
+async function fetchFullBomAuditSnapshot(){
+  const get=async path=>{
+    const sep=path.includes('?')?'&':'?';
+    const response=await fetch(`${PROXY}${path}${sep}audit=${Date.now()}`,{cache:'no-store',headers:{Accept:'application/json'}});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.ok!==true||data.source!=='supabase')throw new Error(data.error||`線上主資料讀取失敗：${path}`);
+    return data;
+  };
+  const before=await get('/api/inventory/versions');
+  const [inventory,bom]=await Promise.all([get('/api/inventory/list?limit=20000'),get('/api/inventory/bom/list')]);
+  const after=await get('/api/inventory/versions');
+  if(before.inventory_version!==after.inventory_version||before.bom_version!==after.bom_version)
+    throw new Error('查驗期間庫存或 BOM 已更新，請重新執行以取得同一版本的資料');
+  if(!Array.isArray(inventory.materials)||inventory.materials.length!==Number(inventory.count)||
+     !Array.isArray(bom.rows)||bom.rows.length!==Number(bom.row_count)||
+     inventory.materials.length!==Number(after.counts?.materials)||bom.rows.length!==Number(after.counts?.bom_items))
+    throw new Error('線上料號或 BOM 清單不完整，已停止查驗；請稍後重試');
+  return {materials:inventory.materials,bomRows:bom.rows,versions:after};
+}
+
+function buildFullBomAuditReport(materials,bomRows){
+  const skuKey=value=>String(value||'').trim().toUpperCase();
+  const rows=materials.map((mat,index)=>({
+    id:String(mat.id||mat.supabase_id||index),
+    sku:String(mat.sku||mat.code||'').trim(),
+    name:String(mat.name||''),
+    type:String(mat.material_type||mat.type||''),
+    stock:Number(mat.stock)||0,
+    updatedAt:String(mat.updated_at||''),
+    notionId:String(mat.notion_page_id||''),
+    children:[],usedIn:0,issues:[],similar:[],directStock:0,
+  }));
+  const byPage=new Map(),bySku=new Map(),globalIssues=[];
+  rows.forEach(row=>{
+    if(row.notionId)byPage.set(row.notionId,row);
+    const key=skuKey(row.sku);
+    if(!bySku.has(key))bySku.set(key,[]);
+    bySku.get(key).push(row);
+  });
+  bySku.forEach(group=>{
+    if(group.length>1)group.forEach(row=>row.issues.push(`同料號重複建檔：${group.length} 筆，請人工確認保留哪一筆`));
+  });
+  const resolve=(pageId,sku)=>{
+    const key=skuKey(sku),linked=pageId?byPage.get(String(pageId)):null;
+    if(linked)return {row:linked,mismatch:!!key&&skuKey(linked.sku)!==key};
+    const matches=bySku.get(key)||[];
+    return {row:matches.length===1?matches[0]:null,mismatch:!!pageId&&matches.length===1};
+  };
+  const seenPairs=new Map();
+  bomRows.forEach((bom,index)=>{
+    const parent=resolve(bom.parent_notion_page_id,bom.parent_sku);
+    const child=resolve(bom.child_notion_page_id,bom.child_sku);
+    const label=`${bom.parent_sku||'未知母件'} → ${bom.child_sku||'未知子件'}`;
+    const qty=Number(bom.quantity);
+    if(!parent.row||!child.row){
+      globalIssues.push(`${label}：${!parent.row?'母件':'子件'}未對應有效料號`);
+      return;
+    }
+    parent.row.children.push({sku:child.row.sku,quantity:qty});
+    child.row.usedIn++;
+    if(parent.mismatch||child.mismatch)
+      parent.row.issues.push(`${label}：BOM 關聯 ID 與有效料號不一致`);
+    if(!Number.isFinite(qty)||qty<=0)
+      parent.row.issues.push(`${label}：用量不是正數`);
+    if(parent.row.id===child.row.id){
+      if(parent.row.sku.startsWith('S-')&&String(bom.notes||'').includes('C端直接扣料'))parent.row.directStock++;
+      else parent.row.issues.push(`${label}：母件與子件相同，請確認是否為刻意直接扣料`);
+    }
+    const pair=`${parent.row.id}|${child.row.id}`;
+    if(seenPairs.has(pair))
+      parent.row.issues.push(`${label}：BOM 關聯重複（第 ${seenPairs.get(pair)}、${index+1} 筆）`);
+    else seenPairs.set(pair,index+1);
+  });
+  const sorted=[...rows].filter(row=>row.sku.length>=10).sort((a,b)=>skuKey(a.sku).localeCompare(skuKey(b.sku)));
+  for(let i=1;i<sorted.length;i++){
+    const first=sorted[i-1],second=sorted[i],a=skuKey(first.sku),b=skuKey(second.sku);
+    if(Math.abs(a.length-b.length)===1&&(a.startsWith(b)||b.startsWith(a)))
+      [first,second].forEach((row,j)=>row.similar.push(j?first.sku:second.sku));
+  }
+  return {
+    rows,globalIssues,bomRows:bomRows.length,
+    bomParents:rows.filter(row=>row.children.length>0).length,
+    noBom:rows.filter(row=>row.children.length===0).length,
+    needsBom:rows.filter(row=>row.children.length===0&&!row.sku.startsWith('S-')&&['成品','半成品'].includes(row.type)).length,
+    review:rows.filter(row=>row.issues.length>0).length,
+    similar:rows.filter(row=>row.similar.length>0).length,
+    directStock:rows.filter(row=>row.directStock>0).length,
+  };
+}
+
+async function auditAllBomInventory(){
+  if(!isAdminRole()){showToast('此查驗限 Vic 或廠長使用','warn');return;}
+  const modal=document.getElementById('modalInner');
+  modal.innerHTML='<h3>🔍 全料號 BOM 查驗</h3><div class="info-box">正在讀取 Supabase 有效料號與 BOM，請稍候...</div>';
+  openModal();
+  try{
+    const snapshot=await fetchFullBomAuditSnapshot();
+    window._fullBomAudit={...buildFullBomAuditReport(snapshot.materials,snapshot.bomRows),versions:snapshot.versions,q:'',status:'all',type:'all',sort:'sku',page:1};
+    renderFullBomAuditDialog();
+  }catch(error){
+    modal.innerHTML=`<h3>🔍 全料號 BOM 查驗</h3><div class="info-box info-warn">無法完成全量查驗：${escapeHtml(error.message)}</div><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button class="btn btn-blue" onclick="auditAllBomInventory()">重試</button></div>`;
+  }
+}
+
+function renderFullBomAuditDialog(){
+  const audit=window._fullBomAudit;
+  if(!audit)return;
+  const types=[...new Set(audit.rows.map(row=>row.type).filter(Boolean))].sort();
+  document.getElementById('modalInner').innerHTML=`<h3>🔍 全料號 BOM 查驗</h3>
+    <div class="info-box">唯讀查驗線上 Supabase 主資料：有效料號 ${audit.rows.length} 筆、BOM 關聯 ${audit.bomRows} 筆。「待確認補 BOM」是非 S- 的成品／半成品尚未設 BOM，需依入料或組立用途判斷，並非已證實缺漏；零件與蝦皮轉庫料號可能不需要 BOM。此處檢查系統內部建檔，無法代替與原始 Excel 配方逐項比對；相近候選只提示尾碼差一字的料號。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;font-size:.76rem">
+      <span class="badge">有 BOM ${audit.bomParents}</span><span class="badge">未設 BOM ${audit.noBom}</span><span class="badge">待確認補 BOM ${audit.needsBom}</span><span class="badge">C 端直接扣料 ${audit.directStock}</span><span class="badge">關聯需查驗 ${audit.review}</span><span class="badge">相近料號候選 ${audit.similar}</span><span class="badge">無效關聯 ${audit.globalIssues.length}</span>
+    </div>
+    ${audit.globalIssues.length?`<div class="info-box info-warn" style="max-height:110px;overflow:auto">${audit.globalIssues.length} 筆 BOM 關聯未對應有效料號：<br>${audit.globalIssues.slice(0,30).map(escapeHtml).join('<br>')}${audit.globalIssues.length>30?'…':''}</div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+      <input class="inp" id="fullBomAuditSearch" placeholder="搜尋料號、名稱或 BOM 子件" oninput="setFullBomAuditFilter('q',this.value)" style="flex:2;min-width:180px">
+      <select class="inp" onchange="setFullBomAuditFilter('status',this.value)" style="flex:1;min-width:110px"><option value="all">全部狀態</option><option value="needs_bom">待確認補 BOM</option><option value="no_bom">所有未設 BOM</option><option value="has_bom">有 BOM</option><option value="direct">C 端直接扣料</option><option value="review">關聯需查驗</option><option value="similar">相近料號候選</option></select>
+      <select class="inp" onchange="setFullBomAuditFilter('type',this.value)" style="flex:1;min-width:110px"><option value="all">全部類型</option>${types.map(type=>`<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join('')}</select>
+      <select class="inp" onchange="setFullBomAuditFilter('sort',this.value)" style="flex:1;min-width:110px"><option value="sku">料號順序</option><option value="updated">最近更新</option></select>
+    </div>
+    <div id="fullBomAuditResults"></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="downloadFullBomAuditCsv()">下載全部查驗 CSV</button><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;
+  renderFullBomAuditResults();
+}
+
+function setFullBomAuditFilter(key,value){
+  const audit=window._fullBomAudit;
+  if(!audit)return;
+  audit[key]=value;
+  audit.page=1;
+  renderFullBomAuditResults();
+}
+
+function setFullBomAuditPage(page){
+  const audit=window._fullBomAudit;
+  if(!audit)return;
+  audit.page=Math.max(1,Number(page)||1);
+  renderFullBomAuditResults();
+}
+
+function renderFullBomAuditResults(){
+  const audit=window._fullBomAudit,box=document.getElementById('fullBomAuditResults');
+  if(!audit||!box)return;
+  const q=String(audit.q||'').trim().toLowerCase();
+  const filtered=audit.rows.filter(row=>{
+    if(audit.type!=='all'&&row.type!==audit.type)return false;
+    if(audit.status==='review'&&!row.issues.length)return false;
+    if(audit.status==='similar'&&!row.similar.length)return false;
+    if(audit.status==='direct'&&!row.directStock)return false;
+    if(audit.status==='needs_bom'&&(row.children.length||row.sku.startsWith('S-')||!['成品','半成品'].includes(row.type)))return false;
+    if(audit.status==='has_bom'&&!row.children.length)return false;
+    if(audit.status==='no_bom'&&row.children.length)return false;
+    return !q||[row.sku,row.name,...row.children.map(child=>child.sku)].some(value=>String(value).toLowerCase().includes(q));
+  });
+  if(audit.sort==='updated')filtered.sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.sku.localeCompare(b.sku));
+  const pageSize=50,pages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  audit.page=Math.min(audit.page,pages);
+  const visible=filtered.slice((audit.page-1)*pageSize,audit.page*pageSize);
+  box.innerHTML=`<div style="font-size:.75rem;color:var(--text3);margin-bottom:8px">符合 ${filtered.length} / ${audit.rows.length} 筆 · 第 ${audit.page} / ${pages} 頁（每頁 50 筆）</div>
+    <div style="max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:10px">
+      ${visible.map(row=>`<details style="border-bottom:1px solid var(--border);padding:9px 11px;font-size:.76rem">
+        <summary style="cursor:pointer;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap"><b style="font-family:var(--f-mono)">${escapeHtml(row.sku)}</b><span>${escapeHtml(row.type||'未分類')} · 庫存 ${row.stock} · BOM ${row.children.length} 件 · 被引用 ${row.usedIn} 次 · ${row.issues.length?'⚠ 關聯需查驗':row.directStock?'C 端直接扣料':row.children.length?'有 BOM':!row.sku.startsWith('S-')&&['成品','半成品'].includes(row.type)?'待確認補 BOM':'未設 BOM'}${row.similar.length?' · 相近候選':''}</span></summary>
+        ${row.name&&row.name!==row.sku?`<div style="margin-top:5px">名稱：${escapeHtml(row.name)}</div>`:''}
+        ${row.issues.length?`<div style="color:var(--amber);margin-top:5px">${row.issues.map(escapeHtml).join('<br>')}</div>`:''}
+        ${row.similar.length?`<div style="color:var(--cyan2);margin-top:5px">相近料號候選：${row.similar.map(escapeHtml).join('、')}（僅提示，不會自動合併）</div>`:''}
+        ${row.directStock?'<div style="color:var(--green2);margin-top:5px">此 S-料號依既有 C 端規則直接扣本料號，屬於預期關聯。</div>':''}
+        <div style="color:var(--text2);margin-top:5px">${row.children.length?row.children.map(child=>`${escapeHtml(child.sku)} × ${escapeHtml(child.quantity)}`).join('、'):!row.sku.startsWith('S-')&&['成品','半成品'].includes(row.type)?'此倉庫成品／半成品尚未設 BOM；若需要組立或生產領料，請補建關聯。':'沒有母件 BOM 關聯；請依實際用途判斷是否需要。'}</div>
+        ${row.updatedAt?`<div style="color:var(--text3);margin-top:5px">資料更新：${escapeHtml(row.updatedAt)}</div>`:''}
+      </details>`).join('')||'<div style="padding:18px;color:var(--text3)">沒有符合的料號</div>'}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn btn-ghost btn-xs" onclick="setFullBomAuditPage(${audit.page-1})" ${audit.page===1?'disabled':''}>上一頁</button><button class="btn btn-ghost btn-xs" onclick="setFullBomAuditPage(${audit.page+1})" ${audit.page===pages?'disabled':''}>下一頁</button></div>`;
+}
+
+function downloadFullBomAuditCsv(){
+  const audit=window._fullBomAudit;
+  if(!audit)return;
+  const quote=value=>{
+    let cell=String(value??'');
+    if(typeof value!=='number'&&/^\s*[=+\-@]/.test(cell))cell="'"+cell;
+    return `"${cell.replace(/"/g,'""')}"`;
+  };
+  const data=[['料號','名稱','類型','庫存','BOM子件數','被引用次數','資料更新時間','查驗結果','BOM子件','關聯待查事項','相近料號候選'],
+    ...audit.rows.map(row=>[row.sku,row.name,row.type,row.stock,row.children.length,row.usedIn,row.updatedAt,row.issues.length?'關聯需查驗':row.directStock?'C 端直接扣料':row.children.length?'有 BOM':!row.sku.startsWith('S-')&&['成品','半成品'].includes(row.type)?'待確認補 BOM':'未設 BOM',row.children.map(child=>`${child.sku}*${child.quantity}`).join('; '),row.issues.join('; '),row.similar.join('; ')])];
+  const csv='\uFEFF'+data.map(line=>line.map(quote).join(',')).join('\r\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=`ERP_BOM_全料號查驗_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function makeCorderNo(){
   return nextCorderInternalNo();
