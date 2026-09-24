@@ -75,15 +75,22 @@ def as_text(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def http_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def http_json(
+    url: str,
+    payload: dict[str, Any] | None = None,
+    bearer_token: str = "",
+) -> dict[str, Any]:
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "LEMATEC-ERP-Supabase-Notion-Sync/1.0",
+    }
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
     req = Request(
         url,
         data=data,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "LEMATEC-ERP-Supabase-Notion-Sync/1.0",
-        },
+        headers=headers,
         method="GET" if payload is None else "POST",
     )
     try:
@@ -342,10 +349,16 @@ def fetch_linked_notion_ids_worker(worker_url: str, days: int) -> set[str]:
     return linked
 
 
-def mark_notion_page_worker(worker_url: str, row_id: int, page_id: str) -> None:
+def mark_notion_page_worker(
+    worker_url: str,
+    row_id: int,
+    page_id: str,
+    bearer_token: str,
+) -> None:
     data = http_json(
         f"{worker_url.rstrip('/')}/api/stock-log/mark-notion",
         {"id": row_id, "notion_page_id": page_id},
+        bearer_token=bearer_token,
     )
     if not data.get("ok"):
         raise RuntimeError(f"Worker mark-notion failed: {data}")
@@ -484,7 +497,7 @@ def main() -> int:
                         if conn:
                             mark_notion_page_db(conn, row.id, page_id)
                         else:
-                            mark_notion_page_worker(args.worker_url, row.id, page_id)
+                            mark_notion_page_worker(args.worker_url, row.id, page_id, notion_token)
                         report["linked_existing"] += 1
                 elif len(matches) > 1:
                     result.update({"status": "ambiguous_existing_matches", "match_count": len(matches)})
