@@ -509,7 +509,7 @@ def main() -> int:
                         if conn:
                             mark_notion_page_db(conn, row.id, page_id)
                         else:
-                            mark_notion_page_worker(args.worker_url, row.id, page_id)
+                            mark_notion_page_worker(args.worker_url, row.id, page_id, notion_token)
                         result["notion_page_id"] = page_id
                         report["created"] += 1
                 time.sleep(0.35)
