@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Assembly Order Form / Picking Shortage Clarity 2026-09-24
+
+- Read-only live BOM/inventory check for SFG-2609-3581 (`Z-SKC-A-03AS-1ABFH` x1): its direct child `F-SKC-A-01AS-2` requires 1, stock 0, shortage 1. This is a real stock block; `Y-SBG-06Q` is sufficient and appeared first only because of BOM row order. No inventory or order data was changed for this diagnosis.
+- The assembly-order form now auto-selects a unique exact typed SKU, shows clickable partial-match suggestions, and has its own visible positive-integer quantity input. Creation writes that quantity to the Notion order's `訂購數量` instead of reading a hidden generic order field and defaulting to 1.
+- The picking preview sorts blocking rows first and places the exact shortage (`needed`, `available`, `missing`) near the top. Shortage still blocks deduction; no bypass or stock adjustment was added.
+- Focused regression: `node --test tests/sfg_order_form.cjs tests/order_pick_purpose.cjs tests/assembly_complete.cjs`; static: `python scripts/verify_erp_static.py`. A real 100-unit order or stock deduction was not created as a test.
+
 ## Shopee / C-end Workbook Refresh 2026-09-24
 
 - Source files: `LEMATEC_BOM_訂單用(1).xlsx` and `LEMATEC_BOM_C端用(1).xlsx`, both sheet `蝦皮用`. Local preflight, snapshots, journal, and readback are under `output/shopee-0924/`; script is `output/shopee_0924_update.py`.

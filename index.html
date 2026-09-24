@@ -6145,9 +6145,6 @@ function openModal(type,data){
     const domesticCustomers = customers.filter(c=>c.type==='domestic');
     const overseaOpts = overseasCustomers.map(c=>`<option value="${c.id}" data-code="${c.code||''}" data-name="${c.name||''}">${c.code||''} — ${c.name||''}</option>`).join('');
     const domOpts = domesticCustomers.map(c=>`<option value="${c.id}" data-name="${(c.name||'').replace(/"/g,'&quot;')}" data-code="${(c.code||'').replace(/"/g,'&quot;')}">${c.name||''}${c.code?' ('+c.code+')':''}</option>`).join('');
-    // SFG 半成品清單
-    const sfgOpts = mats.filter(m=>m.type==='半成品'||m.type==='成品').sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(m=>`<option value="${m.id}" data-code="${m.code||''}">${m.code||''} ${m.name&&m.name!==m.code?'— '+m.name:''}</option>`).join('');
-
     mi.innerHTML=`<h3>📋 新增訂單</h3>
     <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border-radius:10px;padding:4px">
       <button id="tabOverseas" type="button" onclick="switchOrderTab('overseas')" class="btn btn-ghost" style="flex:1;justify-content:center;font-size:0.75rem">🌍 國外訂單</button>
@@ -6202,14 +6199,18 @@ function openModal(type,data){
       <div style="padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;margin-bottom:12px;font-size:0.6875rem;color:var(--amber)">⚙️ 半成品生產單 — QC 通過後自動入庫，不需填寫客戶及包材</div>
       <div style="margin-bottom:10px">
         <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">半成品料號 *</label>
-        <input class="inp" id="m_sfg_search" placeholder="搜尋半成品..." oninput="filterSfgList(this.value)" autocomplete="off">
-        <select class="inp" id="m_sfg_sel" size="1" style="margin-top:6px;width:100%">
-          <option value="">— 選擇半成品 —</option>${sfgOpts}
-        </select>
+        <input class="inp" id="m_sfg_search" placeholder="輸入料號或名稱，完整料號會自動選取" oninput="filterSfgList(this.value)" autocomplete="off">
+        <input type="hidden" id="m_sfg_sel" value="">
+        <div id="sfgSearchResults" style="display:none;margin-top:6px;max-height:180px;overflow-y:auto;border:1px solid var(--border2);border-radius:10px;background:var(--bg3)"></div>
+        <div id="sfgSearchMsg" style="font-size:0.6875rem;color:var(--text3);margin-top:5px;min-height:16px"></div>
       </div>
       <div style="margin-bottom:10px">
-        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">品項清單</label>
-        <div id="sfgBomList" style="font-size:0.6875rem;color:var(--text3);padding:8px;background:var(--bg3);border-radius:6px">尚未加入品項，請從上方 PI 讀取或手動新增</div>
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">組立數量 *</label>
+        <input class="inp" type="number" id="m_sfg_qty" value="1" min="1" step="1" inputmode="numeric" oninput="renderSfgSelectionSummary()">
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">建立內容</label>
+        <div id="sfgBomList" style="font-size:0.6875rem;color:var(--text3);padding:8px;background:var(--bg3);border-radius:6px">請輸入並選擇組立品項</div>
       </div>
     </div>
 
@@ -20352,15 +20353,19 @@ function openPickModal(orderId){
   const rows=items.map(item=>{
     const before=Number(item.stock)||0;
     const need=Number(item.needed||0);
+    const missing=item.missing||!item.id;
+    const shortage=!missing&&before<need;
     return {
       lineLabel:item.code||item.name||'料件',
       title:item.name||item.code||'料件',
-      detail:item.missing||!item.id?'BOM 子料號尚未建檔':`庫存 ${before} -> ${before-need}`,
-      error:item.missing||!item.id?'BOM 子料號尚未建檔':before-need<0?'庫存不足':'',
+      detail:missing?'BOM 子料號尚未建檔':shortage?`需要 ${need}，現有 ${before}，缺少 ${need-before}`:`需要 ${need}，庫存 ${before} → ${before-need}`,
+      error:missing?'BOM 子料號尚未建檔':shortage?'庫存不足':'',
       impact:-need,
     };
   });
   if(plan.transfer)rows.push({lineLabel:prod.code,title:prod.name||prod.code,detail:`庫存 ${Number(prod.stock)||0} -> ${(Number(prod.stock)||0)+Number(o.qty)}`,impact:Number(o.qty),error:''});
+  rows.sort((a,b)=>Number(!!b.error)-Number(!!a.error));
+  const blocked=rows.filter(row=>row.error);
   const errors=rows.filter(r=>r.error).length;
   const mi = document.getElementById('modalInner');
   mi.innerHTML=`<h3>${plan.transfer?'蝦皮庫存轉入':'🗂️ 開立領料單'}</h3>
@@ -20381,6 +20386,7 @@ function openPickModal(orderId){
         {label:'來源',value:plan.transfer?'同料號庫存':_bomDataSource||'not-loaded'},
       ],
       sections:[
+        ...(blocked.length?[{title:'無法領料原因',lines:blocked.map(row=>`${row.lineLabel}：${row.detail}`)}]:[]),
         {title:'防呆',lines:[
           plan.transfer?'若有舊待領料單，確認後會核對扣庫交易；僅未扣庫的舊單會取消並續接轉庫，保留原訂單。':hasBOM?'BOM 資料已載入':'客戶出貨不展開 BOM',
           '庫存不足會停止，不改扣其他料件',
@@ -24216,12 +24222,43 @@ function initDomesticList(){
 
 function filterSfgList(q){
   const sel=document.getElementById('m_sfg_sel');
-  if(!sel) return;
-  const prev=sel.value;
+  const panel=document.getElementById('sfgSearchResults');
+  const msg=document.getElementById('sfgSearchMsg');
+  if(!sel||!panel) return;
+  sel.value='';
+  const input=String(q||'').trim();
+  const key=normalizeSku(input);
   const sfgMats=mats.filter(m=>m.type==='半成品'||m.type==='成品');
-  const filtered=q?sfgMats.filter(m=>(m.code||'').toLowerCase().includes(q.toLowerCase())||(m.name||'').toLowerCase().includes(q.toLowerCase())):sfgMats;
-  sel.innerHTML='<option value="">— 選擇半成品 —</option>'
-    +filtered.sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(m=>`<option value="${m.id}" ${m.id===prev?'selected':''}>${m.code||''} ${m.name&&m.name!==m.code?'— '+m.name:''}</option>`).join('');
+  const exact=key?sfgMats.filter(m=>normalizeSku(m.code||'')===key):[];
+  if(exact.length===1){
+    selectSfgMaterial(exact[0].id);
+    return;
+  }
+  const filtered=key?sfgMats.filter(m=>normalizeSku(m.code||'').includes(key)||String(m.name||'').toLowerCase().includes(input.toLowerCase())):[];
+  panel.style.display=input?'block':'none';
+  panel.innerHTML=filtered.length?filtered.slice(0,30).map(m=>`<button type="button" onclick="selectSfgMaterial('${m.id}')" style="width:100%;display:block;padding:9px 12px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);text-align:left;cursor:pointer">${escapeHtml(m.code||m.name||'')}${m.name&&m.name!==m.code?` <span style="color:var(--text3)">— ${escapeHtml(m.name)}</span>`:''}</button>`).join(''):`<div style="padding:10px;color:var(--amber)">找不到相符料號</div>`;
+  if(msg)msg.textContent=input?(filtered.length?`找到 ${filtered.length} 個料號，點選符合的品項`:'找不到相符料號；請確認料號已建檔'):'';
+  renderSfgSelectionSummary();
+}
+
+function selectSfgMaterial(id){
+  const mat=mats.find(m=>m.id===id&&(m.type==='半成品'||m.type==='成品'));
+  if(!mat)return;
+  document.getElementById('m_sfg_sel').value=mat.id;
+  document.getElementById('m_sfg_search').value=mat.code||mat.name||'';
+  const panel=document.getElementById('sfgSearchResults');
+  if(panel)panel.style.display='none';
+  const msg=document.getElementById('sfgSearchMsg');
+  if(msg)msg.innerHTML=`已選擇 <b style="color:var(--green2)">${escapeHtml(mat.code||mat.name||'')}</b>`;
+  renderSfgSelectionSummary();
+}
+
+function renderSfgSelectionSummary(){
+  const box=document.getElementById('sfgBomList');
+  if(!box)return;
+  const mat=mats.find(m=>m.id===document.getElementById('m_sfg_sel')?.value);
+  const qty=Number(document.getElementById('m_sfg_qty')?.value);
+  box.innerHTML=mat?`將建立 <b>${escapeHtml(mat.code||mat.name||'')}</b> × <b>${Number.isSafeInteger(qty)&&qty>0?qty:'請輸入正整數'}</b> 的組立單；領料時依此數量檢查 BOM 子件庫存。`:'請輸入並選擇組立品項';
 }
 
 function renderItems(){
@@ -24616,9 +24653,10 @@ async function submitNormalOrder(isDomestic){
 
 async function submitSFGOrder(){
   const sfgId=document.getElementById('m_sfg_sel')?.value;
-  const qty=parseInt(document.getElementById('m_qty')?.value)||1;
+  const qty=Number(document.getElementById('m_sfg_qty')?.value);
   const note=document.getElementById('m_note')?.value?.trim()||'';
   if(!sfgId){showToast('請選擇半成品料號','warn');return;}
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('組立數量請輸入大於 0 的整數','warn');return;}
   const sfgMat=mats.find(m=>m.id===sfgId);
   const today=new Date().toISOString().slice(0,10);
   const yr=today.slice(2,4); const mo=today.slice(5,7);
@@ -24730,10 +24768,6 @@ function switchOrderTab(type){
   if(orderNoRow) orderNoRow.style.display = (type==='sfg'||type==='shopee')?'none':'';
   if(type==='domestic'){
     initDomesticList();
-  }
-  if(type==='sfg'){
-    const sel=document.getElementById('m_sfg_sel');
-    if(sel) sel.style.display='block';
   }
   if(type==='shopee'){
     initShopeeOrderList();
