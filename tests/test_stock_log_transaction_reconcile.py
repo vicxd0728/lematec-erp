@@ -22,6 +22,7 @@ def test_reconcile_uses_formal_transactions_without_inventory_mutation():
     assert "/rest/v1/inventory_transactions" in block
     assert "/rest/v1/erp_stock_logs" in block
     assert "inventory-tx:${tx.id}" in block
+    assert "&order=id.asc" in block
     assert "inventory_reconcile" in block
     assert "apply_inventory_transaction" not in block
     assert "apply_inventory_batch" not in block

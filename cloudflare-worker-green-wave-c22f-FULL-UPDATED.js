@@ -2789,7 +2789,9 @@ async function buildStockLogReconcilePlan(env, days = 60) {
   const [transactions, materials, logs] = await Promise.all([
     supabaseAll(env, `/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organizationId)}&occurred_at=gte.${encodeURIComponent(since)}&select=id,material_id,transaction_type,quantity_delta,quantity_before,quantity_after,source_number,reason,occurred_at,created_at&order=occurred_at.asc`),
     supabaseAll(env, `/rest/v1/materials?organization_id=eq.${encodeURIComponent(organizationId)}&select=id,notion_page_id,sku,name`),
-    supabaseAll(env, `/rest/v1/erp_stock_logs?change_date=gte.${encodeURIComponent(sinceDate)}&select=id,material_code,ref_no,before_stock,after_stock,quantity,client_trace_id`),
+    // The reconciliation scan can span thousands of rows. Keep offset pagination
+    // stable so records do not shift between pages and appear falsely missing.
+    supabaseAll(env, `/rest/v1/erp_stock_logs?change_date=gte.${encodeURIComponent(sinceDate)}&select=id,material_code,ref_no,before_stock,after_stock,quantity,client_trace_id&order=id.asc`),
   ]);
   const materialById = new Map(materials.map(row => [cleanText(row.id), row]));
   const existingTraces = new Set(logs.map(row => cleanText(row.client_trace_id)).filter(Boolean));
