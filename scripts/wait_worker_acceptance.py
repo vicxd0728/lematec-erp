@@ -15,6 +15,15 @@ def acceptance(runs, sha):
     return 'success' if latest.get('conclusion') == 'success' else 'failed'
 
 
+def failure_summary(runs, sha):
+    matches = [r for r in runs if r.get('head_sha') == sha and r.get('head_branch') == 'main']
+    if not matches:
+        return 'No matching Worker run was found.'
+    latest = max(matches, key=lambda r: (r['run_number'], r.get('run_attempt', 1)))
+    url = latest.get('html_url', 'run URL unavailable')
+    return f"Worker run #{latest.get('run_number')} attempt {latest.get('run_attempt', 1)} concluded {latest.get('conclusion')}: {url}"
+
+
 def main():
     sha = os.environ['RELEASE_SHA']
     repo = os.environ['GH_REPO']
@@ -23,12 +32,13 @@ def main():
         request = Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
             'Accept': 'application/vnd.github+json', 'User-Agent': 'lematec-pages-acceptance'})
         with urlopen(request, timeout=30) as response:
-            state = acceptance(json.load(response)['workflow_runs'], sha)
+            runs = json.load(response)['workflow_runs']
+        state = acceptance(runs, sha)
         if state == 'success':
             print('Exact-commit Worker workflow including production acceptance: PASS')
             return
         if state == 'failed':
-            raise SystemExit('Worker workflow failed or was cancelled; Pages publication blocked.')
+            raise SystemExit('Worker workflow failed or was cancelled; Pages publication blocked. ' + failure_summary(runs, sha))
         print(f'Waiting for complete Worker acceptance ({attempt + 1}/120)', flush=True)
         time.sleep(10)
     raise SystemExit('Worker acceptance timed out; Pages publication blocked.')
