@@ -19,6 +19,7 @@ function makeContext(overrides = {}) {
     DATA_LOAD_COUNT: { corders: 0, stocklog: 0 },
     DATA_LOAD_DAYS: { corders: 30, stocklog: 30 },
     stockLogLoadError: '',
+    _bomDataSource: 'supabase',
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
     todayStr: () => '2026-09-26',
     isFresh: () => false,
@@ -131,4 +132,51 @@ test('all-history trend preserves empty months instead of implying continuous vo
     { created: '2026-03-05' },
   ], [], 'all');
   assert.equal(trend.map(x => `${x.key}:${x.formal}`).join(','), '2026-01:1,2026-02:0,2026-03:1');
+});
+
+test('BOM-risk metric counts all matching materials while retaining a bounded drilldown sample', () => {
+  const mats = Array.from({ length: 11 }, (_, i) => ({ id: `m${i}`, code: `SKU-${i}`, stock: 5, safe: 2 }));
+  const orders = mats.map((mat, i) => ({ id: `o${i}`, created: '2026-09-20', customer: `客戶${i}`, matCode: mat.code, qty: 1, status: '待排程' }));
+  const ctx = makeContext({ mats, orders, boms: [], stockLogs: [] });
+  const result = ctx.buildOperationsAnalytics();
+  assert.equal(result.noBomFinishedCount, 11);
+  assert.equal(result.noBomFinished.length, 8);
+  assert.match(ctx.renderAnalytics(), /正式訂單 BOM 風險[\s\S]*?11/);
+});
+
+test('consumption coverage keeps unknown balances distinct and estimates known-stock days', () => {
+  const ctx = makeContext({
+    mats: [
+      { id: 'a', code: 'SKU-A', stock: 60, safe: 10 },
+      { id: 'b', code: 'SKU-B', stock: null, safe: 10 },
+    ],
+    stockLogs: [
+      { date: '2026-09-20', type: '領料', qty: -30, matCode: 'SKU-A' },
+      { date: '2026-09-20', type: '領料', qty: -15, matCode: 'SKU-B' },
+    ],
+  });
+  const result = ctx.buildOperationsAnalytics();
+  const known = result.consumptionCoverage.find(row => row.sku === 'SKU-A');
+  const unknown = result.consumptionCoverage.find(row => row.sku === 'SKU-B');
+  assert.equal(known.averageDailyUse, 1);
+  assert.equal(known.coverDays, 60);
+  assert.equal(unknown.stock, null);
+  assert.equal(unknown.stockState, 'unknown');
+  assert.equal(unknown.coverDays, null);
+  assert.equal(result.stockUnknownCount, 1);
+});
+
+test('analytics inventory drilldown does not hide an in-stock SKU or falsify unknown stock', () => {
+  const ctx = makeContext({
+    mats: [{ id: 'a', code: 'SKU-A' }],
+    normalizeSearchText: value => String(value || '').trim().toUpperCase(),
+    switchTab: () => {},
+  });
+  ctx.analyticsGo('inventory', 'sku', 'SKU-A');
+  assert.equal(ctx.window._invState.stockStatus, 'all');
+  assert.equal(ctx.window._invState.q, 'SKU-A');
+  assert.equal(ctx.window._invState.selectedId, 'a');
+  ctx.analyticsGo('inventory', 'unknown', '庫存數值待確認');
+  assert.equal(ctx.window._invState.stockStatus, 'unknown');
+  assert.equal(ctx.window._invState.q, '');
 });

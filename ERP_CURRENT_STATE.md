@@ -8,7 +8,13 @@ Updated: 2026-09-07
 - Selecting 90 days loads 90 days of C-end and stock-log source data. Open/overdue workload is a current snapshot independent of the selected period. Analytics C-end reads skip the separate seven-day auto-completion routine, so range changes cannot update order status.
 - Completion rate excludes cancelled/deleted orders; C-end return rate uses completed shipments as its denominator. Assembly and Shopee internal orders are not included in customer ranking.
 - Added an order creation trend comparing formal and C-end volumes (daily/weekly/monthly by selected range) and explicit loaded row counts/coverage; all-history stock logs disclose the 20,000-row cap.
-- Read-only UI and calculations only; no business records, stock, BOM, permissions, or Worker routes changed. Full regression: 250 Python tests + 47 subtests; 125 Node CJS tests; static verifier passed. Latest Pages/Worker deployment includes this read-only guard and must be verified after push.
+- Read-only UI and calculations only; no business records, stock, BOM, permissions, or Worker routes changed. Full regression: 250 Python tests + 47 subtests; 128 Node CJS tests; static verifier passed. Latest Pages/Worker deployment includes this read-only guard and must be verified after push.
+
+## Analytics Inventory Coverage and Full Counts 2026-09-26
+
+- BOM-risk metric reports the full count and limits only the sample list. Analytics now shows unknown inventory balances, unset safety-stock counts, inventory/BOM source counts, and a period-based consumption coverage table with estimated days-on-hand for 30/90-day ranges. Unknown stock never becomes zero; all-history view omits daily coverage estimates where the source may be capped.
+- Inventory drilldowns preserve regular stock rows and can filter unknown balances or unset safety stock. The estimates are informational, exclude supplier lead time, and do not change reorder or inventory rules.
+- Validation: 250 Python tests + 47 subtests; 128 Node CJS tests; static verifier. Read-only deployment pending.
 
 ## Taiwan Business-Date Consistency 2026-09-26
 

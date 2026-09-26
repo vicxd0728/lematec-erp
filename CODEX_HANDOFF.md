@@ -7,7 +7,13 @@
 - Analytics C-end reads skip the separate seven-day automatic-completion routine, so changing an analysis range cannot update order status.
 - Completion rate excludes cancelled/deleted orders. C-end return-rate denominator includes only completed shipments. Assembly/Shopee internal records are separated from actual customer ranking.
 - Added a side-by-side stacked order-creation trend: daily for 30 days, weekly for 90 days, monthly for all loaded history, preserving empty months. Source banner shows loaded counts, coverage, and the stock-log 20,000-row cap.
-- No stock, BOM, order, permission, or Worker write path changed. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 125 passed; static verifier passed. Production deployment and readback are required before calling the release complete.
+- No stock, BOM, order, permission, or Worker write path changed. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 128 passed; static verifier passed. Production deployment and readback are required before calling the release complete.
+
+## Analytics Inventory Coverage and Full Counts 2026-09-26
+
+- BOM-risk count now uses the full matched set while showing only a bounded sample; previously the displayed count was capped at eight. Added unknown stock and unset safety-stock counts, source counts for materials/BOM, and an inventory coverage table with period usage, average daily use, current balance, and estimated days-on-hand.
+- Unknown balances stay `未知`, never zero. All-history coverage omits daily averages because the source may be capped. SKU drilldown keeps normal stocked items visible; unknown/unset filters route to the matching inventory view.
+- Read-only analytics/UI changes only. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 128 passed; static verifier passed. Deploy and production readback required.
 
 ## Taiwan Business-Date Consistency 2026-09-26
 
