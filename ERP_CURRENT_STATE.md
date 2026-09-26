@@ -6,7 +6,7 @@ Updated: 2026-09-07
 
 - Active module navigation scrolls into view on narrow screens after a dashboard shortcut or other programmatic tab switch.
 - Role-authorized dashboard shortcuts open the existing order/inbound creation forms directly. Shared role checks preserve the current permissions and reuse the existing forms.
-- No stock, BOM, order lifecycle, or inventory write logic changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; static verifier and diff check passed. Deployment and production readback pending.
+- No stock, BOM, order lifecycle, or inventory write logic changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; static verifier and diff check passed. Commit `1e79309` deployed; Worker run `36222595460` and Pages run `36222595449` passed; Worker SHA and Pages HTML matched. Authenticated sales-role UI showed the new order shortcut and, at 390px, active-tab autoscroll. An already-open old tab may prompt “已有新版程式” and needs that action to refresh its service-worker cache.
 
 ## Operations analysis clarity and trend 2026-09-26
 

@@ -4,7 +4,7 @@
 
 - On narrow screens, programmatic tab changes now scroll the active role navigation tab into view so a dashboard shortcut cannot leave the user on an off-screen module.
 - The dashboard now opens the existing new-order and new-inbound modals directly for the same roles already allowed to create them. Order and inbound module buttons share those role predicates; view-only and unrelated roles gain no write access.
-- No order, BOM, inventory, or stock-deduction behavior changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; ERP static verifier and `git diff --check` passed. Production deployment/readback pending.
+- No order, BOM, inventory, or stock-deduction behavior changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; ERP static verifier and `git diff --check` passed. Commit `1e79309` deployed; Worker run `36222595460` and Pages run `36222595449` passed. Worker SHA and Pages HTML readback matched; authenticated sales-role UI showed the new shortcut, and at 390px the active inventory tab scrolled into view. The existing tab may need its displayed “已有新版程式” action to refresh its service-worker cache.
 
 ## Deployment Lock Retry and Failure Diagnostics 2026-09-26
 
