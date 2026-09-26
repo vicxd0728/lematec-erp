@@ -58,7 +58,11 @@ test('purchase operational access covers orders, stock, picking and inbound with
   assert.equal(ui.canConfirmOrderReturnRequest(),true);
   assert.equal(ui.canQcToShipRole(),false);
   const ordersUI=html.slice(html.indexOf('function _renderOrdersList('),html.indexOf('function renderCustomers('));
-  assert.match(ordersUI,/const canAdd=.*ROLE==='purchase'/);
+  assert.match(html,/function dashboardCanCreateOrder\(role=ROLE\).*role==='purchase'/);
+  assert.match(ordersUI,/const canAdd=dashboardCanCreateOrder\(\)/);
+  const inboundUI=html.slice(html.indexOf('function renderInbound('),html.indexOf('function renderQc('));
+  assert.match(html,/function dashboardCanCreateInbound\(role=ROLE\).*role==='purchase'/);
+  assert.match(inboundUI,/const canAdd=dashboardCanCreateInbound\(\)/);
   const stockUI=html.slice(html.indexOf('const canEditStock='),html.indexOf('const canEditStock=')+300);
   assert.match(stockUI,/const canEditStock=.*ROLE==='purchase'/);
   assert.match(stockUI,/const canEditMat=.*ROLE==='purchase'/);

@@ -2,6 +2,12 @@
 
 Updated: 2026-09-07
 
+## Dashboard efficiency and narrow navigation 2026-09-26
+
+- Active module navigation scrolls into view on narrow screens after a dashboard shortcut or other programmatic tab switch.
+- Role-authorized dashboard shortcuts open the existing order/inbound creation forms directly. Shared role checks preserve the current permissions and reuse the existing forms.
+- No stock, BOM, order lifecycle, or inventory write logic changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; static verifier and diff check passed. Deployment and production readback pending.
+
 ## Operations analysis clarity and trend 2026-09-26
 
 - Analytics date windows use formal/C-end order creation dates and inventory movement dates. Missing dates are excluded from bounded ranges.

@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Dashboard Efficiency and Narrow Navigation 2026-09-26
+
+- On narrow screens, programmatic tab changes now scroll the active role navigation tab into view so a dashboard shortcut cannot leave the user on an off-screen module.
+- The dashboard now opens the existing new-order and new-inbound modals directly for the same roles already allowed to create them. Order and inbound module buttons share those role predicates; view-only and unrelated roles gain no write access.
+- No order, BOM, inventory, or stock-deduction behavior changed. Validation: Node CJS 132 passed; Python 254 passed + 47 subtests; ERP static verifier and `git diff --check` passed. Production deployment/readback pending.
+
 ## Deployment Lock Retry and Failure Diagnostics 2026-09-26
 
 - The first deployment for `1611368` failed in `Install atomic pending-pick handoff guards` with PostgreSQL `LockNotAvailable` after the migration's 10-second lock timeout. This proves a conflicting database lock, but the lock holder was not captured in the run logs. Pages correctly blocked because the exact-commit Worker was not accepted; rerunning the workflows succeeded.

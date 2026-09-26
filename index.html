@@ -9001,6 +9001,7 @@ function switchTab(tab){
     const roleTabs=ROLES[ROLE]?.tabs||[];
     b.classList.toggle('active',roleTabs[i]===tab);
   });
+  keepActiveNavTabVisible(tab);
   renderTab(tab);
   if(!['notes','corders','stocklog','schedule','analytics'].includes(tab)){
     loadTabData(tab).then(()=>{
@@ -15339,12 +15340,36 @@ async function submitInspection(){
 }
 
 function dashboardTabAvailable(tab){return !!ROLES[ROLE]?.tabs?.includes(tab);}
+function dashboardCanCreateOrder(role=ROLE){return !isViewOnly(role)&&(role==='sales'||role==='purchase'||isAdminRole(role));}
+function dashboardCanCreateInbound(role=ROLE){return !isViewOnly(role)&&(role==='warehouse'||role==='purchase'||isAdminRole(role));}
 function dashboardStockStatus(material){
   const raw=material?.stock;
   if(raw===null||raw===undefined||raw==='')return'unknown';
   const stock=Number(raw),safe=Number(material?.safe);
   if(!Number.isFinite(stock))return'unknown';
   return stock<=(Number.isFinite(safe)?safe:0)?'low':'ok';
+}
+function keepActiveNavTabVisible(tab){
+  const nav=document.getElementById('roleNav');
+  const index=(ROLES[ROLE]?.tabs||[]).indexOf(tab);
+  const button=nav?.querySelectorAll('.tab-btn')?.[index];
+  if(!nav||!button||index<0)return false;
+  const navRect=nav.getBoundingClientRect(),buttonRect=button.getBoundingClientRect(),padding=10;
+  if(buttonRect.left<navRect.left+padding)nav.scrollLeft=Math.max(0,nav.scrollLeft-(navRect.left+padding-buttonRect.left));
+  else if(buttonRect.right>navRect.right-padding)nav.scrollLeft+=buttonRect.right-(navRect.right-padding);
+  return true;
+}
+function dashboardOpenNewOrder(){
+  if(!dashboardCanCreateOrder()){showToast('此職務沒有開放新增訂單','warn');return false;}
+  switchTab('orders');
+  openModal('newOrder');
+  return true;
+}
+function dashboardOpenNewInbound(){
+  if(!dashboardCanCreateInbound()){showToast('此職務沒有開放新增入料','warn');return false;}
+  switchTab('inbound');
+  openModal('newInbound');
+  return true;
 }
 function dashboardGo(tab,sub=''){
   if(!dashboardTabAvailable(tab)){showToast('此職務沒有開放這個頁面','warn');return false;}
@@ -15472,7 +15497,12 @@ function renderDashboard(){
       <div class="dash-hero-title">今日營運總覽</div>
       <div class="dash-hero-sub">先看重點與異常，再點進對應分頁處理細節；總覽只做導航與提醒，不取代各模組作業畫面。</div>
       <div class="dash-hero-actions">
-        ${[['orders','查看訂單','btn-blue'],['inventory','庫存主檔','btn-cyan'],['picking','領料作業','btn-green']].filter(([tab])=>dashboardTabAvailable(tab)).map(([tab,label,cls])=>`<button class="btn ${cls}" onclick="dashboardGo('${tab}')">${label}</button>`).join('')}
+        ${[
+          ...(dashboardCanCreateOrder()?[['orders','＋ 新增訂單','btn-blue','dashboardOpenNewOrder()']]:dashboardTabAvailable('orders')?[['orders','查看訂單','btn-blue',"dashboardGo('orders')"]]:[]),
+          ...(dashboardCanCreateInbound()?[['inbound','＋ 新增入料','btn-green','dashboardOpenNewInbound()']]:[]),
+          ...(dashboardTabAvailable('inventory')?[['inventory','庫存主檔','btn-cyan',"dashboardGo('inventory')"]]:[]),
+          ...(dashboardTabAvailable('picking')?[['picking','領料作業','btn-green',"dashboardGo('picking')"]]:[]),
+        ].map(([,label,cls,action])=>`<button class="btn ${cls}" onclick="${action}">${label}</button>`).join('')}
       </div>
     </div>
     <div class="dash-hero-side">
@@ -15663,7 +15693,7 @@ function orderCustomerLabel(o){
 // ══════════════════════════════════════
 function _renderOrdersList(tabs, soonOrders=[]){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
-  const canAdd=!isViewOnly()&&(ROLE==='sales'||ROLE==='purchase'||isAdminRole());
+  const canAdd=dashboardCanCreateOrder();
   const canOperate=!isViewOnly();
   
   const filters=getOrderFilters();
@@ -17286,7 +17316,7 @@ function pickingStatusChip(value,label,current,count){
 
 function renderInbound(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
-  const canAdd=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole());
+  const canAdd=dashboardCanCreateInbound();
   const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
   const data=applySort('inbound',applyDateFilter('inbound',inbounds,'date'));
   return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
