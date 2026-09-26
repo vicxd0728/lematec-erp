@@ -63,6 +63,10 @@ test('dashboard reports source freshness and scopes quick entry cards by role', 
   const dashboard = html.slice(html.indexOf('function renderDashboard()'), html.indexOf('function renderOrders()'));
   assert.match(dashboard, /dashboardFreshnessStrip\(\)/);
   assert.match(dashboard, /filter\(e=>dashboardTabAvailable\(e\.tab\)\)/);
+  assert.match(dashboard, /activeOrders:dashboardMetric\('orders','core',active\.length\)/);
+  assert.match(dashboard, /todayShip:dashboardMetric\('ops','core',todayShipOrders\.length\)/);
+  assert.doesNotMatch(dashboard, /count:`\$\{active\.length\} 筆進行中`/);
+  assert.doesNotMatch(dashboard, /count:`\$\{todayShipOrders\.length\} 筆今日出貨`/);
   assert.match(html.slice(start, html.indexOf('function renderDashboard()')), /Notion · 近30天及未結案/);
   assert.match(html.slice(start, html.indexOf('function renderDashboard()')), /Supabase · 最多5,000筆/);
   assert.doesNotMatch(dashboard, /width:75%|width:60%|width:50%/);

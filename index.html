@@ -15258,6 +15258,11 @@ function renderDashboard(){
   const recentOrders=applySort('dash',orders).slice(0,6);
   const dashStats={
     orders:dashboardMetric('orders','core',orders.length),
+    activeOrders:dashboardMetric('orders','core',active.length),
+    todayShip:dashboardMetric('ops','core',todayShipOrders.length),
+    stockAttention:dashboardMetric('inventory','core',stockAttention),
+    deadline:dashboardMetric('orders','core',deadlineSoon.length),
+    qc:dashboardMetric('qc','inbounds',window._coreLoaded?qcPending:'—'),
     customers:dashboardMetric('customers','customers',customers.length),
     corders:dashboardMetric('corders','corders',(window.corders||[]).filter(o=>o.status==='出貨中').length),
     picks:dashboardMetric('picking','picks',picks.length),
@@ -15330,10 +15335,10 @@ function renderDashboard(){
   </div>`;
 
   const quickEntryDefs=[
-    {tab:'orders',color:'var(--blue2)',title:'訂單處理',body:'新增訂單、交期提醒、領料、出貨與狀態更新集中在訂單分頁。',count:`${active.length} 筆進行中`},
+    {tab:'orders',color:'var(--blue2)',title:'訂單處理',body:'新增訂單、交期提醒、領料、出貨與狀態更新集中在訂單分頁。',count:`${dashStats.activeOrders.value} 筆進行中`},
     {tab:'corders',color:'var(--cyan2)',title:'C端訂單',body:'S- 成品出貨、Excel 匯入預覽、SHPTW 共用序號與物流資料。',count:`${dashStats.corders.value} 筆出貨中`},
-    {tab:'inventory',color:'var(--green2)',title:'庫存主檔',body:'Supabase 主資料查詢、篩選、批量調整、BOM 匯入與 Notion 鏡像狀態。',count:`${dashboardMetric('inventory','core',stockAttention).value} 項需確認`},
-    {tab:'ops',color:'var(--amber)',title:'現場看板',body:'快速查看今日待辦、出貨、生產、品檢與補料節點。',count:`${todayShipOrders.length} 筆今日出貨`},
+    {tab:'inventory',color:'var(--green2)',title:'庫存主檔',body:'Supabase 主資料查詢、篩選、批量調整、BOM 匯入與 Notion 鏡像狀態。',count:`${dashStats.stockAttention.value} 項需確認`},
+    {tab:'ops',color:'var(--amber)',title:'現場看板',body:'快速查看今日待辦、出貨、生產、品檢與補料節點。',count:`${dashStats.todayShip.value} 筆今日出貨`},
   ].filter(e=>dashboardTabAvailable(e.tab));
   const quickEntries=`<div class="quick-entry-grid">${quickEntryDefs.map(e=>`<button class="quick-entry-card" style="--entry-color:${e.color}" onclick="dashboardGo('${e.tab}')"><b>${e.title}</b><span>${e.body}</span><small>${e.count}</small></button>`).join('')}</div>`;
 
@@ -15357,14 +15362,14 @@ function renderDashboard(){
       <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${rate}%"></div></div>
     </div>
 
-    <div class="kpi-card ${readyShipOrders.length?'kpi-amber':'kpi-green'}" onclick="dashboardGo('ops')">
+    <div class="kpi-card ${!window._coreLoaded?'kpi-blue':readyShipOrders.length?'kpi-amber':'kpi-green'}" onclick="dashboardGo('ops')">
       <div class="kpi-glow"></div>
       <div class="kpi-label">今日出貨</div>
       <div class="kpi-num">${dashboardMetric('ops','core',todayShipOrders.length).value}</div>
       <div class="kpi-sub">${dashboardTabAvailable('ops')?`待出貨 ${readyShipOrders.length} 筆`:'此職務未開放'}</div>
     </div>
 
-      <div class="kpi-card ${stockAttention?'kpi-red':'kpi-green'}" onclick="dashboardGo('inventory')">
+      <div class="kpi-card ${!window._coreLoaded?'kpi-blue':stockAttention?'kpi-red':'kpi-green'}" onclick="dashboardGo('inventory')">
       <div class="kpi-glow"></div>
       <div class="kpi-label">庫存警示</div>
       <div class="kpi-num">${dashboardMetric('inventory','core',stockAttention).value}</div>
@@ -15382,10 +15387,10 @@ function renderDashboard(){
   <!-- KPI Row 2: 次要指標 -->
   <div class="dash-kpi-grid-5">
 
-    <div class="kpi-card ${deadlineSoon.length>0?'kpi-red':'kpi-green'}" onclick="dashboardGo('orders','deadline')" title="點擊查看交期提醒">
+    <div class="kpi-card ${!window._coreLoaded?'kpi-blue':deadlineSoon.length>0?'kpi-red':'kpi-green'}" onclick="dashboardGo('orders','deadline')" title="點擊查看交期提醒">
       <div class="kpi-glow"></div>
       <div class="kpi-label">⏰ 交期提醒</div>
-      <div class="kpi-num">${dashStats.orders.value==='—'?'—':deadlineSoon.length}</div>
+      <div class="kpi-num">${dashStats.deadline.value}</div>
       <div class="kpi-sub">${warnDays} 天內到期</div>
     </div>
 
@@ -15394,13 +15399,13 @@ function renderDashboard(){
       <div class="kpi-label">進行中</div>
       <div class="kpi-num">${dashStats.orders.value==='—'?'—':active.length}</div>
       <div class="kpi-sub">待排程 + 生產中</div>
-      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${orders.length?Math.round(active.length/orders.length*100):0}%"></div></div>
+      ${dashStats.orders.state==='資料已載入'?`<div class="kpi-bar"><div class="kpi-bar-fill" style="width:${orders.length?Math.round(active.length/orders.length*100):0}%"></div></div>`:''}
     </div>
 
-    <div class="kpi-card ${qcPending?'kpi-red':'kpi-green'}" onclick="dashboardGo('qc')" style="cursor:pointer">
+    <div class="kpi-card ${!window._inboundsLoaded||!window._coreLoaded?'kpi-blue':qcPending?'kpi-red':'kpi-green'}" onclick="dashboardGo('qc')" style="cursor:pointer">
       <div class="kpi-glow"></div>
       <div class="kpi-label">品管待檢</div>
-      <div class="kpi-num">${dashboardMetric('qc','inbounds',window._coreLoaded?qcPending:'—').value}</div>
+      <div class="kpi-num">${dashStats.qc.value}</div>
       <div class="kpi-sub">${!dashboardTabAvailable('qc')?'此職務未開放':window._inboundsLoaded&&window._coreLoaded?(qcPending?`⏳ ${qcPending} 筆待檢驗`:'✓ 無待檢驗項目'):'資料載入中'}</div>
     </div>
 
@@ -15418,7 +15423,7 @@ function renderDashboard(){
       <div class="kpi-sub">${dashStats.inbounds.state}${window._inboundsLoaded?` · 待品檢 ${inbounds.filter(i=>i.qcStatus==='待品檢').length} 筆`:''}</div>
     </div>
 
-    <div class="kpi-card ${pending?'kpi-amber':'kpi-green'}" onclick="dashboardGo('leave')">
+    <div class="kpi-card ${!window._leavesLoaded?'kpi-blue':pending?'kpi-amber':'kpi-green'}" onclick="dashboardGo('leave')">
       <div class="kpi-glow"></div>
       <div class="kpi-label">請假審核</div>
       <div class="kpi-num">${dashStats.leaves.value}</div>
