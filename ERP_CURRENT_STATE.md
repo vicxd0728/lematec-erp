@@ -2,6 +2,14 @@
 
 Updated: 2026-09-07
 
+## Operations analysis clarity and trend 2026-09-26
+
+- Analytics date windows use formal/C-end order creation dates and inventory movement dates. Missing dates are excluded from bounded ranges.
+- Selecting 90 days loads 90 days of C-end and stock-log source data. Open/overdue workload is a current snapshot independent of the selected period.
+- Completion rate excludes cancelled/deleted orders; C-end return rate uses completed shipments as its denominator. Assembly and Shopee internal orders are not included in customer ranking.
+- Added an order creation trend comparing formal and C-end volumes (daily/weekly/monthly by selected range) and explicit loaded row counts/coverage; all-history stock logs disclose the 20,000-row cap.
+- Read-only UI and calculations only; no business records, stock, BOM, permissions, or Worker routes changed. Full regression: 250 Python tests + 47 subtests; 120 Node CJS tests; static verifier passed. Awaiting production release/readback.
+
 ## Read-only UI clarity release 2026-09-26
 
 - Analytics C-end decision card uses C-end shipped-item totals and matches the C-end ranking/filter.

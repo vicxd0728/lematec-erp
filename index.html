@@ -1245,6 +1245,17 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}
 .analytics-panel-head h3{margin:0;font-size:17px;line-height:1.25;color:var(--text);}
 .analytics-panel-head p{margin:4px 0 0;color:var(--text3);font-size:12px;line-height:1.45;}
+.analytics-trend-scroll{overflow-x:auto;padding:8px 2px 0;}
+.analytics-trend-chart{display:grid;grid-template-columns:repeat(var(--trend-cols),minmax(24px,1fr));gap:5px;min-width:max(100%,calc(var(--trend-cols)*29px));height:148px;align-items:end;}
+.analytics-trend-col{height:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;}
+.analytics-trend-track{height:124px;width:100%;display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid var(--border);background:linear-gradient(180deg,transparent,rgba(255,255,255,.018));}
+.analytics-trend-stack{width:min(22px,80%);min-height:0;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;border-radius:5px 5px 1px 1px;}
+.analytics-trend-formal{display:block;background:var(--blue);}
+.analytics-trend-corder{display:block;background:var(--cyan2);}
+.analytics-trend-col small{height:14px;font-size:9px;line-height:14px;color:var(--text3);white-space:nowrap;}
+.analytics-trend-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-top:8px;color:var(--text3);font-size:11px;}
+.analytics-trend-legend span{display:inline-flex;align-items:center;gap:6px;}
+.analytics-trend-legend i{width:9px;height:9px;border-radius:3px;display:inline-block;}
 .analytics-row-link{cursor:pointer;border-radius:10px;padding:7px 8px;margin:0 -8px;}
 .analytics-row-link:hover{background:rgba(45,212,191,.075);}
 .analytics-action-table tr{cursor:pointer;}
@@ -6557,6 +6568,7 @@ async function dbQueryAll(dbId,options={}){
 const FIRST_LOAD_DAYS=30;
 const DATA_LOAD_MODE={corders:'recent',stocklog:'recent',notes:'recent'};
 const DATA_LOAD_COUNT={corders:0,stocklog:0,notes:0};
+const DATA_LOAD_DAYS={corders:FIRST_LOAD_DAYS,stocklog:FIRST_LOAD_DAYS,notes:FIRST_LOAD_DAYS};
 function isoDaysAgo(days=FIRST_LOAD_DAYS){
   const d=new Date();
   d.setDate(d.getDate()-days);
@@ -6569,9 +6581,9 @@ function recentCreatedFilter(days=FIRST_LOAD_DAYS){
 function activeStatusFilter(prop='狀態',done='完成'){
   return {property:prop,select:{does_not_equal:done}};
 }
-function corderRecentFilter(){
+function corderRecentFilter(days=FIRST_LOAD_DAYS){
   return {or:[
-    recentCreatedFilter(),
+    recentCreatedFilter(days),
     {and:[
       activeStatusFilter('狀態','已完成'),
       activeStatusFilter('狀態','已取消'),
@@ -6591,9 +6603,10 @@ function stockLogRecentFilter(){
     recentCreatedFilter(),
   ]};
 }
-function markDataLoadMode(scope,mode,count){
+function markDataLoadMode(scope,mode,count,days=FIRST_LOAD_DAYS){
   DATA_LOAD_MODE[scope]=mode;
   DATA_LOAD_COUNT[scope]=count||0;
+  DATA_LOAD_DAYS[scope]=mode==='all'?0:(Number(days)||FIRST_LOAD_DAYS);
   markLoaded(scope);
 }
 function limitedDataHint(scope,label){
@@ -11232,7 +11245,7 @@ function mapSupabaseStockRows(rows){
     source: r.source||'Supabase'
   }));
 }
-async function loadWorkerStockLog(mode='recent'){
+async function loadWorkerStockLog(mode='recent',days=FIRST_LOAD_DAYS){
   const pageLimit=500;
   const rows=[];
   let offset=0;
@@ -11240,7 +11253,7 @@ async function loadWorkerStockLog(mode='recent'){
   do{
     const params=new URLSearchParams({
       mode,
-      days:String(FIRST_LOAD_DAYS),
+      days:String(days||FIRST_LOAD_DAYS),
       limit:String(pageLimit),
       offset:String(offset)
     });
@@ -11258,10 +11271,11 @@ async function loadWorkerStockLog(mode='recent'){
 }
 async function loadStockLog(options={}){
   const mode=options.mode||DATA_LOAD_MODE.stocklog||'recent';
+  const days=Number(options.days)||DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS;
   try{
-    stockLogs=await loadWorkerStockLog(mode);
+    stockLogs=await loadWorkerStockLog(mode,days);
     stockLogLoadError='';
-    markDataLoadMode('stocklog',mode,stockLogs.length);
+    markDataLoadMode('stocklog',mode,stockLogs.length,days);
     void flushPendingStockLogs({quiet:true});
   }catch(e){
     console.warn('loadStockLog error:',e);
@@ -11763,18 +11777,24 @@ async function setAnalyticsRange(range){
       DATA_LOAD_MODE.stocklog==='all'?Promise.resolve():loadStockLog({mode:'all'})
     ]);
   }else{
-    await loadAnalyticsData();
+    const days=Number(range)||FIRST_LOAD_DAYS;
+    await Promise.all([
+      window._cordersLoaded&&(DATA_LOAD_MODE.corders==='all'||DATA_LOAD_DAYS.corders>=days)?Promise.resolve():loadCorders({mode:'recent',days}),
+      (DATA_LOAD_MODE.stocklog==='all'||DATA_LOAD_DAYS.stocklog>=days)?Promise.resolve():loadStockLog({mode:'recent',days})
+    ]);
   }
   if(CURRENT_TAB==='analytics')renderTab('analytics');
 }
-function analyticsDateValue(row){
-  return String(row?.date||row?.shipDate||row?.deadline||row?.created||row?.createdAt||'').slice(0,10);
+function analyticsDateValue(row,basis='created'){
+  const value=basis==='movement'?(row?.date||row?.createdAt||''):(row?.created||row?.createdAt||'');
+  const date=String(value).slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date)?date:'';
 }
-function analyticsWithinRange(row,range=analyticsRange()){
+function analyticsWithinRange(row,range=analyticsRange(),basis='created'){
   if(range==='all')return true;
   const days=Number(range)||30;
-  const d=analyticsDateValue(row);
-  if(!d)return true;
+  const d=analyticsDateValue(row,basis);
+  if(!d)return false;
   const cutoff=new Date();
   cutoff.setDate(cutoff.getDate()-days);
   return d>=cutoff.toISOString().slice(0,10);
@@ -11799,6 +11819,10 @@ function analyticsIsCompleted(status){
   const s=String(status||'');
   return s.includes('完成')||s.includes('已出貨')||s.includes('結案')||s.includes('退貨');
 }
+function analyticsIsCountableOrder(row){
+  const status=String(row?.status||'');
+  return !status.includes('取消')&&!status.includes('刪除');
+}
 function analyticsIsActive(status){
   const s=String(status||'');
   return !analyticsIsCompleted(s)&&!s.includes('取消')&&!s.includes('刪除')&&!s.includes('退貨');
@@ -11812,6 +11836,76 @@ function analyticsReturnReasonLabel(reason=''){
   if(!text)return '原因未填';
   if(text.startsWith('其他：'))return '其他';
   return text;
+}
+function analyticsTrendKey(date,range){
+  if(!date)return '';
+  if(range==='all')return date.slice(0,7);
+  if(String(range)==='30')return date;
+  const d=new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));
+  return d.toISOString().slice(0,10);
+}
+function analyticsTrendLabel(key,range){
+  return range==='all'?key.slice(2):key.slice(5);
+}
+function analyticsTrendData(formalRows=[],corderRows=[],range=analyticsRange()){
+  const counts=new Map();
+  const add=(rows,series)=>rows.forEach(row=>{
+    const date=analyticsDateValue(row,'created');
+    const key=analyticsTrendKey(date,range);
+    if(!key)return;
+    const item=counts.get(key)||{formal:0,corder:0};
+    item[series]++;
+    counts.set(key,item);
+  });
+  add(formalRows,'formal');add(corderRows,'corder');
+  if(range==='all'){
+    const keys=[...counts.keys()].sort();
+    if(!keys.length)return [];
+    const [startYear,startMonth]=keys[0].split('-').map(Number);
+    const [endYear,endMonth]=keys[keys.length-1].split('-').map(Number);
+    const start=new Date(Date.UTC(startYear,startMonth-1,1));
+    const end=new Date(Date.UTC(endYear,endMonth-1,1));
+    const output=[];
+    for(const d=new Date(start);d<=end;d.setUTCMonth(d.getUTCMonth()+1)){
+      const key=d.toISOString().slice(0,7);
+      output.push({key,label:analyticsTrendLabel(key,range),...(counts.get(key)||{formal:0,corder:0})});
+    }
+    return output;
+  }
+  const end=new Date(`${todayStr()}T00:00:00Z`);
+  const start=new Date(end);
+  start.setUTCDate(start.getUTCDate()-(Number(range)||30));
+  if(String(range)==='30'){
+    const output=[];
+    for(const d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
+      const key=d.toISOString().slice(0,10);
+      output.push({key,label:analyticsTrendLabel(key,range),...(counts.get(key)||{formal:0,corder:0})});
+    }
+    return output;
+  }
+  start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));
+  const output=[];
+  for(const d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+7)){
+    const key=d.toISOString().slice(0,10);
+    output.push({key,label:analyticsTrendLabel(key,range),...(counts.get(key)||{formal:0,corder:0})});
+  }
+  return output;
+}
+function analyticsTrendChart(formalRows=[],corderRows=[],range=analyticsRange()){
+  const data=analyticsTrendData(formalRows,corderRows,range);
+  if(!data.length)return '<div style="color:var(--text3);padding:12px 0">目前沒有可用的建立日期資料。</div>';
+  const max=Math.max(1,...data.map(x=>x.formal+x.corder));
+  const labelStep=Math.max(1,Math.ceil(data.length/10));
+  const cols=data.map((x,i)=>{
+    const total=x.formal+x.corder;
+    const height=Math.round(total*100/max);
+    const corderHeight=total?Math.round(x.corder*100/total):0;
+    const label=i%labelStep===0||i===data.length-1?x.label:'';
+    const detail=`${x.key}｜正式 ${x.formal} 筆｜C端 ${x.corder} 筆｜合計 ${total} 筆`;
+    return `<div class="analytics-trend-col" title="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"><div class="analytics-trend-track"><div class="analytics-trend-stack" style="height:${height}%"><span class="analytics-trend-formal" style="height:${100-corderHeight}%"></span><span class="analytics-trend-corder" style="height:${corderHeight}%"></span></div></div><small>${escapeHtml(label)}</small></div>`;
+  }).join('');
+  return `<div class="analytics-trend-scroll"><div class="analytics-trend-chart" style="--trend-cols:${data.length}">${cols}</div></div><div class="analytics-trend-legend"><span><i class="analytics-trend-formal"></i>正式訂單</span><span><i class="analytics-trend-corder"></i>C端訂單</span><span>每柱為當期新建筆數</span></div>`;
 }
 function analyticsCorderReturnEvents(order){
   const note=String(order?.note||'');
@@ -11926,13 +12020,13 @@ function analyticsMiniTable(rows,{empty='目前沒有資料',tab='analytics'}={}
 }
 function buildOperationsAnalytics(){
   const range=analyticsRange();
-  const orderRows=(orders||[]).filter(o=>analyticsWithinRange(o,range));
-  const corderRows=(window.corders||[]).filter(o=>analyticsWithinRange(o,range));
-  const logRows=(stockLogs||[]).filter(s=>analyticsWithinRange(s,range));
+  const orderRows=(orders||[]).filter(o=>analyticsWithinRange(o,range,'created'));
+  const corderRows=(window.corders||[]).filter(o=>analyticsWithinRange(o,range,'created'));
+  const logRows=(stockLogs||[]).filter(s=>analyticsWithinRange(s,range,'movement'));
   const doneOrders=orderRows.filter(o=>analyticsIsCompleted(o.status));
-  const activeOrders=orderRows.filter(o=>analyticsIsActive(o.status));
+  const activeOrders=(orders||[]).filter(o=>analyticsIsActive(o.status));
   const doneCorders=corderRows.filter(o=>analyticsIsCompleted(o.status));
-  const activeCorders=corderRows.filter(o=>analyticsIsActive(o.status));
+  const activeCorders=(window.corders||[]).filter(o=>analyticsIsActive(o.status));
   const today=todayStr();
   const overdue=activeOrders.filter(o=>o.deadline&&o.deadline<today);
   const consumptionLogs=logRows.filter(analyticsIsConsumptionLog);
@@ -11940,6 +12034,7 @@ function buildOperationsAnalytics(){
   const orderStatus=new Map();
   const corderStatus=new Map();
   const customerTotals=new Map();
+  const orderCategoryTotals=new Map();
   const productTotals=new Map();
   const cProductTotals=new Map();
   const cReturnReasons=new Map();
@@ -11947,7 +12042,9 @@ function buildOperationsAnalytics(){
   const consumptionBySku=new Map();
   orderRows.forEach(o=>{
     analyticsAdd(orderStatus,o.status||'未填狀態');
-    analyticsAdd(customerTotals,o.customer||o.cust||'未填客戶');
+    const customer=String(o.customer||o.cust||'未填客戶').trim()||'未填客戶';
+    if(['組立單','蝦皮'].includes(customer))analyticsAdd(orderCategoryTotals,customer);
+    else analyticsAdd(customerTotals,customer);
     analyticsAdd(productTotals,o.matCode||o.product||'未填料號',Number(o.qty)||1);
   });
   corderRows.forEach(o=>{
@@ -11960,7 +12057,7 @@ function buildOperationsAnalytics(){
     analyticsAdd(cReturnProducts,e.order?.matCode||e.order?.matName||'未填料號',e.qty);
   });
   const cReturnQty=cReturnEvents.reduce((sum,e)=>sum+(Number(e.qty)||0),0);
-  const cSoldQty=corderRows.filter(o=>!String(o.status||'').includes('取消')).reduce((sum,o)=>sum+(Number(o.qty)||0),0);
+  const cSoldQty=corderRows.filter(o=>analyticsIsCompleted(o.status)).reduce((sum,o)=>sum+(Number(o.qty)||0),0);
   consumptionLogs.forEach(s=>analyticsAdd(consumptionBySku,s.matCode||stockLogDisplayName(s),Math.abs(Number(s.qty)||0)));
   const matBySku=new Map((mats||[]).map(m=>[String(m.code||m.name||'').trim(),m]));
   const lowStockRisk=analyticsTopEntries(consumptionBySku,20).map(([sku,used])=>{
@@ -11981,7 +12078,8 @@ function buildOperationsAnalytics(){
   const audit=typeof buildStockLogAuditReport==='function'?buildStockLogAuditReport(stockLogs):{issues:[],errors:0,warnings:0};
   return {
     range,orderRows,corderRows,logRows,doneOrders,activeOrders,doneCorders,activeCorders,overdue,
-    consumptionLogs,manualAdjustments,orderStatus,corderStatus,customerTotals,productTotals,cProductTotals,
+    countableOrders:[...orderRows,...corderRows].filter(analyticsIsCountableOrder),
+    consumptionLogs,manualAdjustments,orderStatus,corderStatus,customerTotals,orderCategoryTotals,productTotals,cProductTotals,
     cReturnEvents,cReturnReasons,cReturnProducts,cReturnQty,cSoldQty,
     consumptionBySku,lowStockRisk,missingCorderSku,noBomFinished,audit
   };
@@ -11990,15 +12088,16 @@ function renderAnalytics(){
   const a=buildOperationsAnalytics();
   const totalOrders=a.orderRows.length+a.corderRows.length;
   const totalDone=a.doneOrders.length+a.doneCorders.length;
+  const countableTotal=a.countableOrders.length;
   const cReturnRate=a.cSoldQty?Math.round(a.cReturnQty*1000/a.cSoldQty)/10:0;
   const allRangeWarn=DATA_LOAD_MODE.corders!=='all'||DATA_LOAD_MODE.stocklog!=='all';
   const rangeButtons=['30','90','all'].map(r=>`<button class="btn ${a.range===r?'btn-blue':'btn-ghost'} btn-sm" onclick="setAnalyticsRange('${r}')">${escapeHtml(analyticsRangeLabel(r))}</button>`).join('');
   const orderKpis=[
     analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders),'orders'),
-    analyticsKpiCard('完成率',analyticsPercent(totalDone,totalOrders),`已完成 ${totalDone} / 共 ${totalOrders}`,'var(--green2)',totalOrders?totalDone*100/totalOrders:0,'orders','status','已完成'),
-    analyticsKpiCard('進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders','status','生產中'),
-    analyticsKpiCard('交期警示',analyticsNum(a.overdue.length),`正式訂單逾期未完成`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
-    analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`退貨 ${analyticsNum(a.cReturnQty)} / 出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
+    analyticsKpiCard('完成率',analyticsPercent(totalDone,countableTotal),`已完成 ${totalDone} / 未取消 ${countableTotal} 筆`,'var(--green2)',countableTotal?totalDone*100/countableTotal:0,'orders','status','已完成'),
+    analyticsKpiCard('目前進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`未結案總覽：正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders','status','生產中'),
+    analyticsKpiCard('目前逾期',analyticsNum(a.overdue.length),`所有未結案正式訂單，不受期間篩選`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
+    analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`本期建立訂單：退貨 ${analyticsNum(a.cReturnQty)} / 已完成出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
   ].join('');
   const topRisk=a.lowStockRisk[0];
   const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
@@ -12007,7 +12106,7 @@ function renderAnalytics(){
   const decisionCards=[
     analyticsDecisionCard({
       icon:'⏰',title:'先追交期',value:analyticsNum(a.overdue.length),
-      sub:a.overdue.length?'正式訂單已逾期未完成':'目前無逾期正式訂單',
+      sub:a.overdue.length?'所有未結案正式訂單中已逾期':'目前無逾期正式訂單',
       action:'查看逾期訂單',tab:'orders',nav:'overdue',color:a.overdue.length?'var(--red2)':'var(--green2)'
     }),
     analyticsDecisionCard({
@@ -12050,15 +12149,18 @@ function renderAnalytics(){
     </div>
   </section>
   <div class="analytics-source-strip">
-    <span><b>資料範圍</b>：${escapeHtml(analyticsRangeLabel(a.range))}；正式訂單來自 Notion，C端與庫存異動依目前已載入資料統計。</span>
-    <span>${allRangeWarn&&a.range!=='all'?'快速載入模式，長期判斷可切全部':'資料已依目前範圍整理'}</span>
+    <span><b>資料範圍</b>：${escapeHtml(analyticsRangeLabel(a.range))}；期間統計依訂單建立日／異動日期，目前逾期與進行中採未結案清單。</span>
+    <span>C端已載入 ${analyticsNum(DATA_LOAD_COUNT.corders||window.corders?.length||0)} 筆（${DATA_LOAD_MODE.corders==='all'?'全部歷史':`近${DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS}天新單及未結案`}）；異動已載入 ${analyticsNum(DATA_LOAD_COUNT.stocklog||stockLogs.length)} 筆（${DATA_LOAD_MODE.stocklog==='all'?'全部可載入，最多20,000筆':`近${DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS}天`}）${stockLogLoadError?`；異動載入失敗：${escapeHtml(stockLogLoadError)}`:''}</span>
+    <span>${allRangeWarn?(a.range==='all'?'歷史資料載入尚未完整；目前只統計已成功載入的資料，請重新整理後確認。':'目前是快速載入範圍，切「全部已載入資料」可補齊 C端與異動歷史。'):`本期納入正式 ${a.orderRows.length}、C端 ${a.corderRows.length}、異動 ${a.logRows.length} 筆。`}</span>
   </div>
   <div class="analytics-decision-grid">${decisionCards}</div>
   <div class="kpi-grid">${orderKpis}</div>
+  <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單建立趨勢</h3><p>依建立日期統計新建單量；近 30 天按日、近 90 天按週、全部資料按月呈現。取消單仍計入建立量。</p></div></div>${analyticsTrendChart(a.orderRows,a.corderRows,a.range)}</div>
   <div class="analytics-panel-grid">
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</div>
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>蝦皮/C端流程狀態，回 C端訂單看寄件與完成。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders',action:'status'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>看哪些客戶在期間內最活躍。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>排除「組立單／蝦皮」系統作業單，避免混入客戶排名。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</div>
+    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>內部作業單</h3><p>組立單與蝦皮內部流程數量獨立呈現，不列為客戶。</p></div></div>${analyticsBarList(analyticsTopEntries(a.orderCategoryTotals,8),{empty:'期間內沒有內部作業單',tab:'orders',action:'customer'})}</div>
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端品項排行</h3><p>用來觀察熱賣品項與補貨方向。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders',action:'product'})}</div>
   </div>
   <div class="analytics-panel-grid">
@@ -24990,7 +25092,8 @@ async function loadCorders(options={}){
   try{
     await ensureXlsxLoaded();
     const mode=options.mode||DATA_LOAD_MODE.corders||'recent';
-    const r=await dbQueryAll(DB.corders,mode==='all'?{}:{filter:corderRecentFilter()});
+    const days=Number(options.days)||DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS;
+    const r=await dbQueryAll(DB.corders,mode==='all'?{}:{filter:corderRecentFilter(days)});
     window.corders=r.map(p=>({
       id:p.id,
       no:getTitle(p.properties,'訂單號碼')||getTitle(p.properties,'Name'),
@@ -25012,7 +25115,7 @@ async function loadCorders(options={}){
     }));
     window._cordersLoaded=true;
     window._cordersLoadedAt=Date.now();
-    markDataLoadMode('corders',mode,window.corders.length);
+    markDataLoadMode('corders',mode,window.corders.length,days);
     await autoCompleteCordersAfter7Days();
   }catch(e){
     window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);

@@ -13,7 +13,7 @@ class CorderStatusContractTest(unittest.TestCase):
 
     def test_recent_filter_uses_only_real_cancelled_status(self):
         match = re.search(
-            r"function corderRecentFilter\(\)\{(?P<body>.*?)\n\}",
+            r"function corderRecentFilter\(days=FIRST_LOAD_DAYS\)\{(?P<body>.*?)\n\}",
             self.index,
             re.DOTALL,
         )

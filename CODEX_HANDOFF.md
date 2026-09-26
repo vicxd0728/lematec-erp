@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Operations Analytics Clarity and Trend 2026-09-26
+
+- Operations analysis now uses order creation dates for order cohorts and inventory movement dates for stock activity. Undated records no longer leak into bounded date ranges.
+- The 90-day control fetches 90 days of C-end orders and Supabase stock logs; 30/90/all selections use matching query coverage. Current overdue/open workload remains a current snapshot regardless of the selected trend period.
+- Completion rate excludes cancelled/deleted orders. C-end return-rate denominator includes only completed shipments. Assembly/Shopee internal records are separated from actual customer ranking.
+- Added a side-by-side stacked order-creation trend: daily for 30 days, weekly for 90 days, monthly for all loaded history, preserving empty months. Source banner shows loaded counts, coverage, and the stock-log 20,000-row cap.
+- No stock, BOM, order, permission, or Worker write path changed. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 120 passed; static verifier passed. Production deployment and readback are required before calling the release complete.
+
 ## Analytics, Picking Status, and Deadline Clarity 2026-09-26
 
 - Corrected the C-end decision card to use C-end shipped-item totals, matching the C-end ranking and its SKU drill-down. The card no longer uses global inventory consumption.
