@@ -19,6 +19,7 @@ function makeContext(overrides = {}) {
     stockLogLoadError: '',
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
     todayStr: () => '2026-09-26',
+    isFresh: () => false,
     stockLogIsInventoryMove: () => true,
     stockLogDisplayName: row => row.matCode || row.material_name || '—',
     buildStockLogAuditReport: () => ({ issues: [], errors: 0, warnings: 0 }),
@@ -49,10 +50,19 @@ test('selecting 90 days expands both C-end and inventory-movement source queries
   ctx.document = { getElementById: () => ({ innerHTML: '' }) };
   ctx.CURRENT_TAB = 'dashboard';
   const calls = [];
-  ctx.loadCorders = async options => { calls.push(['corders', options.days]); ctx.DATA_LOAD_DAYS.corders = options.days; };
+  ctx.loadCorders = async options => { calls.push(['corders', options.days, options.skipAutoComplete]); ctx.DATA_LOAD_DAYS.corders = options.days; };
   ctx.loadStockLog = async options => { calls.push(['stocklog', options.days]); ctx.DATA_LOAD_DAYS.stocklog = options.days; };
   await ctx.setAnalyticsRange('90');
-  assert.equal(calls.map(x => `${x[0]}:${x[1]}`).sort().join(','), 'corders:90,stocklog:90');
+  assert.equal(calls.map(x => `${x[0]}:${x[1]}:${x[2]??false}`).sort().join(','), 'corders:90:true,stocklog:90:false');
+});
+
+test('analytics initial source load skips automatic C-end status writes', async () => {
+  const ctx = makeContext({ window: { corders: [], _ANALYTICS_RANGE: '30', _cordersLoaded: false } });
+  const options = [];
+  ctx.loadCorders = async value => options.push(value);
+  ctx.loadStockLog = async () => {};
+  await ctx.loadAnalyticsData();
+  assert.equal(options[0].skipAutoComplete, true);
 });
 
 test('completion-rate denominator excludes cancelled orders', () => {

@@ -11763,7 +11763,7 @@ function analyticsDataReady(){
 }
 async function loadAnalyticsData(){
   const tasks=[];
-  if(!window._cordersLoaded)tasks.push(loadCorders());
+  if(!window._cordersLoaded)tasks.push(loadCorders({skipAutoComplete:true}));
   if(!isFresh('stocklog')&&!stockLogs.length)tasks.push(loadStockLog({mode:'recent'}));
   await Promise.all(tasks);
 }
@@ -11773,13 +11773,13 @@ async function setAnalyticsRange(range){
   if(c)c.innerHTML='<div class="loading-row"><div class="spin"></div>更新營運分析...</div>';
   if(range==='all'){
     await Promise.all([
-      DATA_LOAD_MODE.corders==='all'?Promise.resolve():loadCorders({mode:'all'}),
+      DATA_LOAD_MODE.corders==='all'?Promise.resolve():loadCorders({mode:'all',skipAutoComplete:true}),
       DATA_LOAD_MODE.stocklog==='all'?Promise.resolve():loadStockLog({mode:'all'})
     ]);
   }else{
     const days=Number(range)||FIRST_LOAD_DAYS;
     await Promise.all([
-      window._cordersLoaded&&(DATA_LOAD_MODE.corders==='all'||DATA_LOAD_DAYS.corders>=days)?Promise.resolve():loadCorders({mode:'recent',days}),
+      window._cordersLoaded&&(DATA_LOAD_MODE.corders==='all'||DATA_LOAD_DAYS.corders>=days)?Promise.resolve():loadCorders({mode:'recent',days,skipAutoComplete:true}),
       (DATA_LOAD_MODE.stocklog==='all'||DATA_LOAD_DAYS.stocklog>=days)?Promise.resolve():loadStockLog({mode:'recent',days})
     ]);
   }
@@ -25116,7 +25116,7 @@ async function loadCorders(options={}){
     window._cordersLoaded=true;
     window._cordersLoadedAt=Date.now();
     markDataLoadMode('corders',mode,window.corders.length,days);
-    await autoCompleteCordersAfter7Days();
+    if(!options.skipAutoComplete)await autoCompleteCordersAfter7Days();
   }catch(e){
     window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);
     if(options.strict)throw e;
