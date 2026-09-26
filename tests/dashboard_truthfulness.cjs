@@ -13,10 +13,16 @@ const helperEnd = html.indexOf('function dashboardFreshnessStrip()', start);
 function makeContext(role, tabs, loaded = []) {
   const window = {};
   for (const key of loaded) window[`_${key}Loaded`] = true;
+  window.corders = [];
   return vm.createContext({
     ROLE: role,
     ROLES: { [role]: { tabs } },
     window,
+    orders: [], mats: [], picks: [], inbounds: [],
+    QC_SUB: 'pending',
+    todayStr: () => '2026-09-26',
+    isShopeeProductionOrder: order => order.orderType === 'shopee',
+    pickingVisualStage: pick => pick.stage || 'other',
   });
 }
 
@@ -45,6 +51,51 @@ test('dashboard navigation refuses links outside the active role', () => {
   assert.equal(navigated, '');
   assert.equal(ctx.dashboardGo('qc'), true);
   assert.equal(navigated, 'qc');
+});
+
+test('role todo list limits work to accessible modules and counts each wait-schedule order once', () => {
+  const tabs = ['dashboard', 'orders', 'picking', 'inventory', 'qc', 'corders'];
+  const ctx = makeContext('warehouse', tabs, ['core', 'picks']);
+  ctx.orders = [{ status: '待出貨' }, { status: '待排程', orderType: 'shopee' }, { status: '待排程' }];
+  ctx.picks = [{ stage: 'shortage' }];
+  ctx.mats = [{ stock: 0, safe: 2 }];
+  vm.runInContext(html.slice(start, helperEnd), ctx);
+  const todos = ctx.dashboardTodoItems();
+  assert.equal(todos.find(item => item.key === 'ship').count, 1);
+  assert.equal(todos.some(item => item.key === 'shopee'), false, 'warehouse sees one combined wait-schedule task');
+  assert.equal(todos.find(item => item.key === 'production').count, 2);
+  assert.equal(todos.find(item => item.key === 'shortage').count, 1);
+  assert.equal(todos.find(item => item.key === 'stock').count, 1);
+  assert.ok(!todos.some(item => item.key === 'orderQc'), 'warehouse does not receive QC-only tasks');
+  assert.ok(todos.some(item => item.key === 'inboundQc') === false, 'warehouse does not receive QC tasks');
+});
+
+test('sales Shopee and C-end tasks remain visibly loading until their own data arrives', () => {
+  const ctx = makeContext('sales', ['dashboard', 'orders', 'corders'], ['core']);
+  ctx.orders = [{ status: '待排程', orderType: 'shopee' }];
+  vm.runInContext(html.slice(start, helperEnd), ctx);
+  const todos = ctx.dashboardTodoItems();
+  assert.equal(todos.find(item => item.key === 'shopee').count, 1);
+  assert.equal(todos.find(item => item.key === 'corderShip').count, null);
+});
+
+test('todo routes open the matching order, picking, and QC filters', () => {
+  const ctx = makeContext('warehouse', ['dashboard', 'orders', 'picking', 'qc']);
+  ctx.getOrderFilters = () => ctx.window.filters || (ctx.window.filters = { q: '', type: 'all', status: 'all', date: '7d', hide: true, deadline: 'overdue' });
+  ctx.setOrderSearchDraft = value => { ctx.searchDraft = value; };
+  ctx.switchTab = tab => { ctx.currentTab = tab; };
+  ctx.showToast = () => {};
+  vm.runInContext(html.slice(start, helperEnd), ctx);
+  assert.equal(ctx.dashboardOpenTodo('order:status:待出貨'), true);
+  assert.equal(ctx.window.filters.status, '待出貨');
+  assert.equal(ctx.window.filters.date, '0');
+  assert.equal(ctx.dashboardOpenTodo('order:shopee-pending'), true);
+  assert.equal(ctx.window.filters.type, 'shopee');
+  assert.equal(ctx.window.filters.status, '待排程');
+  assert.equal(ctx.dashboardOpenTodo('pick:shortage'), true);
+  assert.equal(ctx.window._PICK_STATUS, 'shortage');
+  assert.equal(ctx.dashboardOpenTodo('qc:order'), true);
+  assert.equal(ctx.QC_SUB, 'order_qc');
 });
 
 test('dashboard separates unknown inventory balances from low stock', () => {

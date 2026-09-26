@@ -1114,6 +1114,21 @@ td{font-size:16px;padding:16px 17px;}
 .dash-ann-card .ann-body{font-size:13px!important;line-height:1.55;color:var(--text2);margin-top:7px!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .dash-ann-card .ann-meta{font-family:var(--f-mono);font-size:12px!important;color:var(--text3);margin-top:10px!important;}
 .quick-entry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 18px;}
+.dashboard-todo{margin:0 0 18px;padding:17px;border:1px solid rgba(94,234,212,.18);border-radius:18px;background:linear-gradient(145deg,rgba(12,25,31,.94),rgba(7,14,18,.96));}
+.dashboard-todo-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.dashboard-todo-head h2{margin:0;font-size:19px;color:var(--text);}
+.dashboard-todo-head p{margin:5px 0 0;font-size:13px;color:var(--text3);line-height:1.5;}
+.dashboard-todo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;}
+.dashboard-todo-card{display:flex;flex-direction:column;align-items:stretch;min-width:0;padding:14px;border:1px solid rgba(148,163,184,.16);border-radius:14px;background:rgba(8,16,21,.82);}
+.dashboard-todo-card.has-work{border-color:rgba(245,185,66,.38);background:linear-gradient(145deg,rgba(38,29,13,.4),rgba(8,16,21,.88));}
+.dashboard-todo-card.is-loading{border-color:rgba(77,142,245,.28);}
+.dashboard-todo-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.dashboard-todo-card-top b{font-size:15px;line-height:1.35;color:var(--text);}
+.dashboard-todo-count{flex:none;font:800 23px/1 var(--f-mono);color:var(--cyan2);}
+.dashboard-todo-card.has-work .dashboard-todo-count{color:var(--amber);}
+.dashboard-todo-card p{margin:9px 0 12px;color:var(--text2);font-size:13px;line-height:1.55;flex:1;}
+.dashboard-todo-card .btn{align-self:flex-start;min-height:36px;}
+.dashboard-todo-empty{padding:18px;text-align:center;border:1px dashed rgba(94,234,212,.22);border-radius:13px;color:var(--green2);background:rgba(12,34,26,.24);font-weight:700;}
 .quick-entry-card{
   position:relative;overflow:hidden;text-align:left;cursor:pointer;
   min-height:116px;padding:16px 17px;border-radius:18px;
@@ -15349,6 +15364,37 @@ function dashboardStockStatus(material){
   if(!Number.isFinite(stock))return'unknown';
   return stock<=(Number.isFinite(safe)?safe:0)?'low':'ok';
 }
+function dashboardTodoItems(){
+  const admin=['vic','manager'];
+  const specs=[
+    {key:'ship',title:'訂單待出貨',source:'core',tab:'orders',route:'order:status:待出貨',roles:['sales','warehouse','purchase',...admin,'viewer'],detail:'確認出貨安排與實際出貨日。'},
+    {key:'overdue',title:'逾期未完成訂單',source:'core',tab:'orders',route:'orders:overdue',roles:['sales','purchase',...admin,'viewer'],detail:'先確認目前進度與交期，再更新訂單或聯繫相關人員。',count:()=>orders.filter(o=>o.deadline&&o.deadline<todayStr()&&o.status!=='已完成'&&o.status!=='取消').length},
+    {key:'shopee',title:'蝦皮庫存待轉入',source:'core',tab:'orders',route:'order:shopee-pending',roles:['sales'],detail:'確認來源庫存與 BOM，再執行轉入蝦皮庫存。',count:()=>orders.filter(o=>o.status==='待排程'&&isShopeeProductionOrder(o)).length},
+    {key:'production',title:'待排程（領料／蝦皮轉庫）',source:'core',tab:'picking',route:'order:status:待排程',roles:['warehouse','purchase',...admin,'viewer'],detail:'一般訂單依 BOM 領料；蝦皮訂單依補庫流程轉入。若領料缺料，系統會停止扣料並列出原因。',count:()=>orders.filter(o=>o.status==='待排程').length},
+    {key:'shortage',title:'領料缺料待處理',source:'picks',tab:'picking',route:'pick:shortage',roles:['warehouse','purchase',...admin,'viewer'],detail:'因 BOM 子件庫存不足而停下，尚未完成扣料。開啟領料單查看缺料料號、需求與現有量；補足後重新檢查。',count:()=>picks.filter(p=>pickingVisualStage(p)==='shortage').length},
+    {key:'return',title:'待確認回料',source:'picks',tab:'picking',route:'pick:return',roles:['warehouse',...admin,'viewer'],detail:'核對實物已回倉後確認；系統才會補回庫存。',count:()=>picks.filter(p=>pickingVisualStage(p)==='return').length},
+    {key:'inboundQc',title:'入料待品檢',source:'inbounds',tab:'qc',route:'qc:inbound',roles:['qc',...admin,'viewer'],detail:'檢查入料與檢驗資料；檢驗合格時 ERP 會執行入庫，不合格則依退回流程處理。',count:()=>inbounds.filter(i=>i.qcStatus==='待品檢').length},
+    {key:'orderQc',title:'訂單待檢驗',source:'core',tab:'qc',route:'qc:order',roles:['qc',...admin,'viewer'],detail:'檢查已送檢訂單；通過後系統才會推進至待出貨。',count:()=>orders.filter(o=>o.status==='待檢驗'||o.status==='品檢異常').length},
+    {key:'stock',title:'庫存需補充或核對',source:'core',tab:'inventory',route:'inventory',roles:['warehouse','purchase',...admin,'viewer'],detail:'先查看低於安全庫存的料號；數量未知的料號需先核對主檔。',count:()=>mats.filter(m=>dashboardStockStatus(m)==='low'||dashboardStockStatus(m)==='unknown').length},
+    {key:'corderShip',title:'C端訂單出貨中',source:'corders',tab:'corders',route:'corders',roles:['sales',...admin,'viewer'],detail:'核對物流與出貨狀態，完成後更新訂單進度。',count:()=>((window.corders||[]).filter(o=>o.status==='出貨中').length)},
+  ];
+  return specs.filter(s=>s.roles.includes(ROLE)&&dashboardTabAvailable(s.tab)).map(s=>({
+    ...s,
+    count:window[`_${s.source}Loaded`]?(s.count?s.count():orders.filter(o=>o.status==='待出貨').length):null,
+  }));
+}
+function dashboardOpenTodo(route){
+  if(route==='orders:overdue')return dashboardGo('orders','overdue');
+  if(route.startsWith('order:status:'))return dashboardGo('orders',route.slice('order:'.length));
+  if(route==='order:shopee-pending')return dashboardGo('orders','shopee-pending');
+  if(route==='pick:shortage')return dashboardGo('picking','shortage');
+  if(route==='pick:return')return dashboardGo('picking','return');
+  if(route==='qc:inbound')return dashboardGo('qc','inbound');
+  if(route==='qc:order')return dashboardGo('qc','order');
+  if(route==='corders')return dashboardGo('corders');
+  if(route==='inventory')return dashboardGo('inventory');
+  return false;
+}
 function keepActiveNavTabVisible(tab){
   const nav=document.getElementById('roleNav');
   const index=(ROLES[ROLE]?.tabs||[]).indexOf(tab);
@@ -15380,6 +15426,21 @@ function dashboardGo(tab,sub=''){
     setOrderSearchDraft('');
     window._ORD_SUB='list';
   }
+  if(sub.startsWith('status:')){
+    const filters=getOrderFilters();
+    filters.date='0';filters.hide=false;filters.type='all';filters.status=sub.slice('status:'.length);filters.q='';filters.deadline='';
+    setOrderSearchDraft('');window._ORD_SUB='list';
+  }
+  if(sub==='shopee-pending'){
+    const filters=getOrderFilters();
+    filters.date='0';filters.hide=false;filters.type='shopee';filters.status='待排程';filters.q='';filters.deadline='';
+    setOrderSearchDraft('');window._ORD_SUB='list';
+  }
+  if(sub==='shortage'||sub==='return'){
+    window._PICK_SUB='auto';window._PICK_STATUS=sub;window._PICK_FOCUS_ORDER='';
+  }
+  if(sub==='inbound')QC_SUB='pending';
+  if(sub==='order')QC_SUB='order_qc';
   switchTab(tab);
   return true;
 }
@@ -15451,6 +15512,16 @@ function renderDashboard(){
     inbounds:dashboardMetric('inbound','inbounds',inbounds.length),
     leaves:dashboardMetric('leave','leaves',pending),
   };
+  const todoItems=dashboardTodoItems();
+  const visibleTodos=todoItems.filter(item=>item.count===null||item.count>0);
+  const todoSection=`<section class="dashboard-todo" aria-label="依登入職務顯示的待辦事項">
+    <div class="dashboard-todo-head"><div><h2>📌 ${ROLE==='viewer'?'流程待辦（唯讀）':'我的待辦'}</h2><p>${ROLE==='viewer'?'依唯讀權限顯示待處理流程，供查閱進度。':'只列出目前職務可查看的工作；按下按鈕會直接開啟對應清單。'}資料尚未載入時會明確標示。</p></div></div>
+    ${visibleTodos.length?`<div class="dashboard-todo-grid">${visibleTodos.map(item=>`<article class="dashboard-todo-card${item.count===null?' is-loading':''}${item.count>0?' has-work':''}">
+      <div class="dashboard-todo-card-top"><b>${item.title}</b><span class="dashboard-todo-count">${item.count===null?'…':item.count}</span></div>
+      <p>${item.count===null?'資料載入中，完成載入後才會顯示待辦數量。':item.detail}</p>
+      <button class="btn ${item.count>0?'btn-yellow':'btn-ghost'} btn-xs" onclick="dashboardOpenTodo('${item.route}')" aria-label="${ROLE==='viewer'?'查看':'前往處理'}${item.title}">${ROLE==='viewer'?'查看明細 →':'前往處理 →'}</button>
+    </article>`).join('')}</div>`:`<div class="dashboard-todo-empty">✓ 目前已載入的資料沒有待處理事項</div>`}
+  </section>`;
 
   const annSection=dashAnns.length?`
   <div class="dash-ann-panel" style="margin-bottom:18px">
@@ -15529,7 +15600,7 @@ function renderDashboard(){
   ].filter(e=>dashboardTabAvailable(e.tab));
   const quickEntries=`<div class="quick-entry-grid">${quickEntryDefs.map(e=>`<button class="quick-entry-card" style="--entry-color:${e.color}" onclick="dashboardGo('${e.tab}')"><b>${e.title}</b><span>${e.body}</span><small>${e.count}</small></button>`).join('')}</div>`;
 
-  return`${dashHero}${dashboardFreshnessStrip()}${quickEntries}${annSection}
+  return`${dashHero}${dashboardFreshnessStrip()}${todoSection}${quickEntries}${annSection}
 
   <!-- KPI Row 1: 核心指標 -->
   <div class="dash-kpi-grid">
