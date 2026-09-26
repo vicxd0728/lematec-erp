@@ -2,10 +2,10 @@
 
 ## Deployment Lock Retry and Failure Diagnostics 2026-09-26
 
-- The first deployment for `1611368` failed in `Install atomic pending-pick handoff guards` with PostgreSQL `LockNotAvailable` after the migration's 10-second lock timeout. Pages correctly blocked because the exact-commit Worker was not accepted; rerunning the workflows succeeded.
+- The first deployment for `1611368` failed in `Install atomic pending-pick handoff guards` with PostgreSQL `LockNotAvailable` after the migration's 10-second lock timeout. This proves a conflicting database lock, but the lock holder was not captured in the run logs. Pages correctly blocked because the exact-commit Worker was not accepted; rerunning the workflows succeeded.
 - The idempotent, function/trigger-only handoff migration now retries SQLSTATE `55P03` up to four times with bounded 5/10/20/30-second backoff and a fresh connection/transaction each time. Non-lock errors still fail immediately; final failure logs include SQLSTATE. No order, picking or inventory data is changed by this step.
 - Pages' Worker-acceptance failure now includes the exact failed Worker run number, attempt and URL. `wait_worker_acceptance` tests cover this diagnostic.
-- Validation: Python suite 254 passed + 47 subtests; 72 focused Worker CJS tests passed; static verifier and diff checks passed. Deployment and production readback pending.
+- Validation: Python suite 254 passed + 47 subtests; 72 focused Worker CJS tests passed; static verifier and diff checks passed. Fix commit `849099d` deployed; Worker and Pages runs passed, Worker SHA matched, and Pages readback returned the deployed analytics content on 2026-09-26.
 
 ## Operations Analytics Clarity and Trend 2026-09-26
 
