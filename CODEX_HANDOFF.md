@@ -7,7 +7,13 @@
 - Analytics C-end reads skip the separate seven-day automatic-completion routine, so changing an analysis range cannot update order status.
 - Completion rate excludes cancelled/deleted orders. C-end return-rate denominator includes only completed shipments. Assembly/Shopee internal records are separated from actual customer ranking.
 - Added a side-by-side stacked order-creation trend: daily for 30 days, weekly for 90 days, monthly for all loaded history, preserving empty months. Source banner shows loaded counts, coverage, and the stock-log 20,000-row cap.
-- No stock, BOM, order, permission, or Worker write path changed. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 122 passed; static verifier passed. Production deployment and readback are required before calling the release complete.
+- No stock, BOM, order, permission, or Worker write path changed. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 125 passed; static verifier passed. Production deployment and readback are required before calling the release complete.
+
+## Taiwan Business-Date Consistency 2026-09-26
+
+- Date-only defaults, reporting cutoffs, movement fallbacks, QC/picking identifiers, and month-based order identifiers now use the explicit Asia/Taipei calendar date. Previously `toISOString().slice(0,10)` could label local midnight-to-08:00 actions with yesterday's UTC date; month-based IDs could also use the previous month at Taiwan month boundaries.
+- Full-history timestamps remain UTC ISO timestamps. Tests cover the UTC/Taipei date rollover and month rollover without changing inventory or order records.
+- Regression: Python suite 250 passed + 47 subtests; Node CJS suite 125 passed; static verifier passed. Pending deployment and production readback.
 
 ## Analytics, Picking Status, and Deadline Clarity 2026-09-26
 

@@ -6034,7 +6034,7 @@ function openModal(type,data){
 
   if(type==='newNote'||type==='editNote'){
     const d=type==='editNote'?(data||{}):{};
-    const today=new Date().toISOString().slice(0,10);
+    const today=todayStr();
     mi.innerHTML=`<h3>${d.id?'✏️ 編輯記事':'＋ 新增記事'}</h3>
       <div class="form-row" style="grid-template-columns:1.4fr .8fr .8fr">
         <div><label class="field-label">標題 *</label><input class="inp" id="note_title" value="${escapeHtml(d.title||'')}" placeholder="例如：客戶來訪、設備保養、出貨預約"></div>
@@ -6300,7 +6300,7 @@ function openModal(type,data){
     </div>`;
     renderItems();
     switchOrderTab(orderTypeTab);
-    document.getElementById('m_date').value=new Date().toISOString().slice(0,10);
+    document.getElementById('m_date').value=todayStr();
     openModal();
     return;
   }
@@ -6387,7 +6387,7 @@ function openModal(type,data){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" onclick="submitLeave()">📨 送出申請</button>
     </div>`;
-    const today=new Date().toISOString().slice(0,10);
+    const today=todayStr();
     openModal();
     document.getElementById('lv_from').value=today;
     document.getElementById('lv_to').value=today;
@@ -6411,7 +6411,7 @@ function openModal(type,data){
   // ── C端訂單新增 ──
   if(type==='newCorder'){
     const shopeeMats=mats.filter(m=>isShopeeMat(m)).sort((a,b)=>(a.code||a.name).localeCompare(b.code||b.name));
-    const today=new Date().toISOString().slice(0,10);
+    const today=todayStr();
     mi.innerHTML=`<h3>🛒 新增 C端訂單</h3>
     <div class="help-box" style="margin-bottom:14px">建立後狀態為「出貨中」。套組依銷售 BOM 扣各個 S- 配件；單品扣該 S- 庫存。補貨用的非 S- 關聯不在出貨時扣除。</div>
     <div class="form-row" style="margin-bottom:10px">
@@ -8346,7 +8346,7 @@ async function ensurePickingNotionMirror(pick){
           '領料主單號':{title:[{text:{content:pick.no}}]},
           '成品品號':{rich_text:[{text:{content:pick.product||'臨時補料'}}]},
           '生產數量':{number:Number(pick.qty)||pick.items.reduce((sum,item)=>sum+Number(item.qty||0),0)},
-          '領料日期':{date:{start:pick.date||new Date().toISOString().slice(0,10)}},
+          '領料日期':{date:{start:pick.date||todayStr()}},
           '領料人員':{rich_text:[{text:{content:pick.person||ROLE||''}}]},
           '狀態':{select:{name:pick.status||'待領料'}},
           '備註':{rich_text:[{text:{content:[pick.note,`Supabase:${pick.supabaseId}`,pick.fingerprint?`交易指紋:${pick.fingerprint}`:''].filter(Boolean).join(' ')}}]},
@@ -8504,7 +8504,7 @@ function inboundMirrorProps(ib){
     '入庫狀態':{select:{name:ib.stStatus||'待入庫'}},
     '料件類型':{select:{name:ib.matType||'零件'}},
     '備註':{rich_text:[{text:{content:(ib.note||'').slice(-1800)}}]},
-    '入料日期':{date:{start:ib.date||new Date().toISOString().slice(0,10)}},
+    '入料日期':{date:{start:ib.date||todayStr()}},
   };
   if(ib.matId) props['料件']={relation:[{id:ib.matId}]};
   if(ib.supplier) props['供應商']={rich_text:[{text:{content:ib.supplier.slice(0,1800)}}]};
@@ -8838,7 +8838,7 @@ function applyDateFilterValue(val,data,dateKey='created'){
     cutoff.setMonth(cutoff.getMonth()-parseInt(val));
   }
 
-  const cs=cutoff.toISOString().slice(0,10);
+  const cs=taipeiDateKey(cutoff);
   return data.filter(item=>{
     const d=item[dateKey]||'';
     if(!d) return false; // 沒有日期的不顯示（避免永遠出現）
@@ -9025,7 +9025,15 @@ function renderTab(tab){const c=document.getElementById('mainContent');if(tab===
   }
   }
 
-function todayStr(){return new Date().toISOString().slice(0,10);}
+function taipeiDateKey(value=new Date()){
+  const date=value instanceof Date?value:new Date(value);
+  if(Number.isNaN(date.getTime()))return '';
+  const formatter=taipeiDateKey.formatter||(taipeiDateKey.formatter=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}));
+  const parts=formatter.formatToParts(date);
+  const fields=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
+function todayStr(){return taipeiDateKey(new Date());}
 function orderProductName(o){
   const mat=mats.find(m=>m.id===o.productId);
   return mat ? `${mat.name}${mat.code?' ('+mat.code+')':''}` : (o.product||o.matCode||'—');
@@ -11797,7 +11805,7 @@ function analyticsWithinRange(row,range=analyticsRange(),basis='created'){
   if(!d)return false;
   const cutoff=new Date();
   cutoff.setDate(cutoff.getDate()-days);
-  return d>=cutoff.toISOString().slice(0,10);
+  return d>=taipeiDateKey(cutoff);
 }
 function analyticsNum(n){
   const num=Number(n)||0;
@@ -11843,7 +11851,7 @@ function analyticsTrendKey(date,range){
   if(String(range)==='30')return date;
   const d=new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));
-  return d.toISOString().slice(0,10);
+  return taipeiDateKey(d);
 }
 function analyticsTrendLabel(key,range){
   return range==='all'?key.slice(2):key.slice(5);
@@ -11879,7 +11887,7 @@ function analyticsTrendData(formalRows=[],corderRows=[],range=analyticsRange()){
   if(String(range)==='30'){
     const output=[];
     for(const d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
-      const key=d.toISOString().slice(0,10);
+      const key=taipeiDateKey(d);
       output.push({key,label:analyticsTrendLabel(key,range),...(counts.get(key)||{formal:0,corder:0})});
     }
     return output;
@@ -11887,7 +11895,7 @@ function analyticsTrendData(formalRows=[],corderRows=[],range=analyticsRange()){
   start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));
   const output=[];
   for(const d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+7)){
-    const key=d.toISOString().slice(0,10);
+    const key=taipeiDateKey(d);
     output.push({key,label:analyticsTrendLabel(key,range),...(counts.get(key)||{formal:0,corder:0})});
   }
   return output;
@@ -12211,7 +12219,7 @@ function renderStockLog(){
     if(dateVal==='7d'){ cutoff=new Date(); cutoff.setDate(cutoff.getDate()-7); }
     else if(dateVal==='month'){ cutoff=new Date(today.getFullYear(),today.getMonth(),1); }
     else { cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-parseInt(dateVal)); }
-    const cs=cutoff.toISOString().slice(0,10);
+    const cs=taipeiDateKey(cutoff);
     data=data.filter(s=>!s.date||s.date>=cs);
   }
 
@@ -12354,7 +12362,7 @@ async function loadSchedule(){
 function renderSchedule(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/c66f324d59c64276bdc5b0ec915c9c20" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📅 生產排程</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a></div>';;
   const canEdit = !isViewOnly()&&(isAdminRole()||ROLE==='warehouse');
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayStr();
   const viewVal = document.getElementById('schView')?.value||'list';
   const typeVal = document.getElementById('schType')?.value||'all';
   const statusVal = document.getElementById('schStatus')?.value||'all';
@@ -12369,7 +12377,7 @@ function renderSchedule(){
   const inProgress = schedules.filter(s=>s.status==='進行中').length;
   const thisWeek = schedules.filter(s=>{
     const d=new Date(); d.setDate(d.getDate()+7);
-    return s.startDate<=d.toISOString().slice(0,10)&&s.startDate>=today&&s.status!=='已完成';
+    return s.startDate<=taipeiDateKey(d)&&s.startDate>=today&&s.status!=='已完成';
   }).length;
 
   const typeColors={'生產':'var(--blue)','交貨':'var(--green)','採購入料':'var(--amber)','品管':'var(--yellow)','維護':'var(--text3)','其他':'var(--purple)'};
@@ -12543,7 +12551,7 @@ let _notesShadowSyncQueue=Promise.resolve();
 let _notesReadSource='尚未載入', _notesReadError='';
 let _notesShadowRetryBusy=false, _notesShadowRetryTimer=null, _notesShadowSummary=null;
 
-function noteIsoDate(d=new Date()){return d.toISOString().slice(0,10);}
+function noteIsoDate(d=new Date()){return taipeiDateKey(d);}
 function noteMonthKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
 function noteSplitList(v=''){return String(v||'').split(/[,\s、，]+/).map(x=>x.trim()).filter(Boolean);}
 function noteRoleTargetsHtml(selected=[]){
@@ -14978,7 +14986,7 @@ async function uploadQCPhotosToNotion(ctx){
 
 function openNewInspection(orderId, orderNo, matName, qty){
   resetQCPhotos();
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayStr();
   const insNo = 'INS-'+today.slice(2).replace(/-/g,'')+'-'+Math.floor(Math.random()*900+100);
   const isManual = !orderId;
   document.getElementById('modalInner').innerHTML=`<h3>🔬 新增品管檢驗單</h3>
@@ -15361,7 +15369,7 @@ function renderDashboard(){
 
   // 近30天訂單分析
   const cutoff30=new Date();cutoff30.setDate(cutoff30.getDate()-30);
-  const c30=cutoff30.toISOString().slice(0,10);
+  const c30=taipeiDateKey(cutoff30);
   const recent30=orders.filter(o=>o.created>=c30);
 
   // 最近訂單
@@ -15970,7 +15978,7 @@ function _renderOrderCalendar(tabs){
       } else {
         const dk=monthStr+'-'+String(dc).padStart(2,'0');
         const dl=deadlineMap[dk]||[];
-        const isT=dk===today.toISOString().slice(0,10);
+        const isT=dk===todayStr();
         const isW=(i%7===0||i%7===6);
         cells+=`<div style="min-height:60px;padding:4px 5px;background:${isT?'rgba(77,142,245,.08)':'var(--bg2)'};
           border:1px solid ${isT?'rgba(77,142,245,.3)':dl.length?'rgba(239,68,68,.25)':'var(--border)'};border-radius:6px">
@@ -16001,7 +16009,7 @@ function _renderOrderCalendar(tabs){
   // 近期交期清單
   const upcomingList = Object.entries(deadlineMap)
     .sort(([a],[b])=>a.localeCompare(b))
-    .filter(([k])=>k>=today.toISOString().slice(0,10))
+    .filter(([k])=>k>=todayStr())
     .slice(0,10);
 
   const upcomingHtml = upcomingList.length ? `<div class="panel" style="margin-top:16px">
@@ -16965,7 +16973,7 @@ function renderManualPickItems(){
 async function submitManualPick(){
   if(!_mpItems.length){showToast('請至少加入一個料號','warn');return;}
   const note=(document.getElementById('mp_note')?.value||'').trim();
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   const now=new Date();
   const time=[now.getHours(),now.getMinutes(),now.getSeconds()].map(v=>String(v).padStart(2,'0')).join('');
   const random=String(crypto.getRandomValues(new Uint16Array(1))[0]%100).padStart(2,'0');
@@ -17534,7 +17542,7 @@ function renderLeave(){
       const from = new Date(l.dateFrom);
       const dateTo = l.dateTo ? new Date(l.dateTo) : from;
       for(let d=new Date(from); d<=dateTo; d.setDate(d.getDate()+1)){
-        const key = d.toISOString().slice(0,10);
+        const key = taipeiDateKey(d);
         if(key.startsWith(monthStr)){
           if(!dayMap[key]) dayMap[key]=[];
           dayMap[key].push(l);
@@ -17553,7 +17561,7 @@ function renderLeave(){
       } else {
         const dateKey=`${monthStr}-${String(dayCount).padStart(2,'0')}`;
         const dayLeaves=dayMap[dateKey]||[];
-        const isToday=dateKey===today.toISOString().slice(0,10);
+        const isToday=dateKey===todayStr();
         const isWeekend=((i%7===0)||(i%7===6));
         calCells+=`<div style="min-height:80px;padding:8px;background:${isToday?'rgba(77,142,245,.08)':'var(--bg2)'};
           border:1px solid ${isToday?'rgba(77,142,245,.3)':'var(--border)'};border-radius:8px;position:relative">
@@ -18494,7 +18502,7 @@ function downloadFullBomAuditCsv(){
     ...audit.rows.map(row=>[row.sku,row.name,row.type,row.stock,row.children.length,row.usedIn,row.updatedAt,row.issues.length?'關聯需查驗':row.directStock?'C 端直接扣料':row.children.length?'有 BOM':!row.sku.startsWith('S-')&&['成品','半成品'].includes(row.type)?'待確認補 BOM':'未設 BOM',row.children.map(child=>`${child.sku}*${child.quantity}`).join('; '),row.issues.join('; '),row.similar.join('; ')])];
   const csv='\uFEFF'+data.map(line=>line.map(quote).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
-  const link=document.createElement('a');link.href=url;link.download=`ERP_BOM_全料號查驗_${new Date().toISOString().slice(0,10)}.csv`;
+  const link=document.createElement('a');link.href=url;link.download=`ERP_BOM_全料號查驗_${todayStr()}.csv`;
   document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function makeCorderNo(){
@@ -18993,7 +19001,7 @@ async function cancelCorder(id, matId, qty){
 async function completeCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o) return;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   try{
     const props={'狀態':{select:{name:'已完成'}}};
     if(!o.shipDate) props['出日']={date:{start:today}};
@@ -19091,7 +19099,7 @@ async function submitReturnCorder(id){
   const returnKey=`${id}:return:${returnedQty}:${returnedQty+returnQty}`;
   const nextReturnedQty=returnedQty+returnQty;
   const nextStatus=nextReturnedQty>=orderQty?'已退貨':'部分退貨';
-  const noteParts=[o.note||'',`退貨 ${returnQty}/${orderQty}：${reason}${stockMode==='return'?'（回補庫存）':'（不回補庫存）'} ${new Date().toISOString().slice(0,10)}`].filter(Boolean);
+  const noteParts=[o.note||'',`退貨 ${returnQty}/${orderQty}：${reason}${stockMode==='return'?'（回補庫存）':'（不回補庫存）'} ${todayStr()}`].filter(Boolean);
   btn.disabled=true;
   btn.textContent='退貨處理中...';
   _corderReturnLocks.add(id);
@@ -20815,7 +20823,7 @@ function openPickModal(orderId){
 function qcInspectionDateFilter(days=30){
   const d=new Date();
   d.setDate(d.getDate()-days);
-  return {property:'檢驗日期',date:{on_or_after:d.toISOString().slice(0,10)}};
+  return {property:'檢驗日期',date:{on_or_after:taipeiDateKey(d)}};
 }
 function qcInspectionLoadScope(){
   return QC_DATE==='0'?'all':'recent';
@@ -21052,7 +21060,7 @@ async function updateInspectionStatus(id, status){
 }
 
 function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],doneInbound=[]){
-  const month=new Date().toISOString().slice(0,7);
+  const month=todayStr().slice(0,7);
   const scopeLabel=QC_DATE==='0'?'全部紀錄':'近3個月紀錄';
   const monthIns=allInspections.filter(x=>(x.date||'').startsWith(month));
   const pass=allInspections.filter(x=>x.result==='通過'||x.result==='條件通過').length;
@@ -22570,7 +22578,7 @@ async function doPick(orderId){
   _orderPickLocks.add(orderId);
   const o=orders.find(x=>x.id===orderId);
   const prod=mats.find(m=>m.id===o?.productId);
-  const ds=new Date().toISOString().slice(0,10);
+  const ds=todayStr();
   let no=`PK-${ds.slice(2).replace(/-/g,'')}-${Math.floor(Math.random()*900+100)}`;
   let pick=null;
   let inventoryCommitted=false;
@@ -22955,7 +22963,7 @@ async function flushPendingStockLogs(options={}){
         continue;
       }
       try{
-        const today=row.stock_log_date||new Date().toISOString().slice(0,10);
+        const today=row.stock_log_date||todayStr();
         const safeType=row.stock_log_type||normalizeStockLogType(row.changeType);
         if(row.stage==='supabase'){
           await writeSupabaseStockLog(row,today,safeType);
@@ -22989,7 +22997,7 @@ async function flushPendingStockLogs(options={}){
   }
 }
 async function persistStockLog(item){
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   const safeType=normalizeStockLogType(item.changeType);
   item.stock_log_date=today;
   item.stock_log_type=safeType;
@@ -23028,7 +23036,7 @@ function openInboundPhotoQC(id,matId,qty){
   resetQCPhotos();
   const ib=inbounds.find(x=>x.id===id);
   const mat=mats.find(m=>m.id===matId);
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   document.getElementById('modalInner').innerHTML=`<h3>📷 入料拍照品檢</h3>
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px">
       <div style="font-size:.72rem;color:var(--text3);margin-bottom:6px">入料單</div>
@@ -23237,7 +23245,7 @@ async function approveQC(id,matId,qty,opts={}){
   const ibNo = ib?.no||id;
   const ibMat = ib?.matName||ib?.mat||'';
   const ibCode = ib?.matCode||'';
-  const ibDate = new Date().toISOString().slice(0,10);
+  const ibDate = todayStr();
   const insNo = 'IB-'+ibDate.replace(/-/g,'').slice(2)+'-'+Math.floor(Math.random()*900+100);
 
   // ★ 驗證 matId
@@ -23362,7 +23370,7 @@ async function rejectQC(id,opts={}){
     const ibNo = ib?.no||id;
     const ibMat = ib?.matName||ib?.mat||'';
     const ibCode = ib?.matCode||'';
-    const ibDate = new Date().toISOString().slice(0,10);
+    const ibDate = todayStr();
     const insNo = 'IB-'+ibDate.replace(/-/g,'').slice(2)+'-'+Math.floor(Math.random()*900+100);
     const monthKey = ibDate.slice(0,7); // YYYY-MM
     const reasonBase=opts.reason||'質量異常';
@@ -23723,7 +23731,7 @@ async function submitMultiOrders(){
   if(batchBtn){batchBtn.disabled=true;batchBtn.textContent='建立中，請勿關閉...';}
   div.insertAdjacentHTML('afterend',`<div id="batchProgress" style="background:var(--bg3);border-radius:8px;padding:10px;margin-top:8px;font-size:0.75rem;color:var(--cyan)"><div class="spin" style="margin-right:6px"></div>正在建立 ${selected.length} 筆訂單...</div>`);
 
-  const prefix=`ORD-${new Date().toISOString().slice(2,7).replace('-','')}`;
+  const prefix=`ORD-${todayStr().slice(2,7).replace('-','')}`;
   let ok=0,fail=0,failList=[];
 
   for(let i=0;i<selected.length;i++){
@@ -23987,7 +23995,7 @@ function removeIbItem(idx){
 async function submitBatchInbound(){
   if(!window._ibItems||!window._ibItems.length){showToast('請先加入入料品項','warn');return;}
   const note=(document.getElementById('ib_note')?.value||'').trim();
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   closeModal(); showToast(`⏳ 建立 ${window._ibItems.length} 筆入料中...`,'warn');
   let ok=0, fail=0, failMsgs=[];
   for(let itemIndex=0;itemIndex<window._ibItems.length;itemIndex++){
@@ -25067,7 +25075,7 @@ async function submitSFGOrder(){
   if(!sfgId){showToast('請選擇半成品料號','warn');return;}
   if(!Number.isSafeInteger(qty)||qty<=0){showToast('組立數量請輸入大於 0 的整數','warn');return;}
   const sfgMat=mats.find(m=>m.id===sfgId);
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   const yr=today.slice(2,4); const mo=today.slice(5,7);
   const orderNo=`SFG-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
   closeModal(); showToast('建立半成品生產單...','warn');
@@ -25221,7 +25229,7 @@ async function submitShopeeOrdersV2(){
     if(mat) items=[{matId:mat.id,qty:parseInt(document.getElementById('m_shopee_qty')?.value)||1,code:mat.code||mat.name,name:mat.name||mat.code}];
   }
   if(!items.length){showToast('請至少加入一個 S-料號','warn');return;}
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayStr();
   const yr=today.slice(2,4), mo=today.slice(5,7);
   closeModal(); showToast('⏳ 建立蝦皮待排程訂單...','ok');
   let ok=0, fail=0, messages=[];

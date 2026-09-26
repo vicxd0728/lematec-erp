@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const dateStart = html.indexOf('function taipeiDateKey(');
+const dateEnd = html.indexOf('function orderProductName(', dateStart);
 const start = html.indexOf('function analyticsRange()');
 const end = html.indexOf('function renderStockLog()', start);
-assert(start >= 0 && end > start, 'analytics module exists');
+assert(dateStart >= 0 && dateEnd > dateStart && start >= 0 && end > start, 'date and analytics modules exist');
 
 function makeContext(overrides = {}) {
   const ctx = vm.createContext({
@@ -25,6 +27,7 @@ function makeContext(overrides = {}) {
     buildStockLogAuditReport: () => ({ issues: [], errors: 0, warnings: 0 }),
     ...overrides,
   });
+  vm.runInContext(html.slice(dateStart, dateEnd), ctx);
   vm.runInContext(html.slice(start, end), ctx);
   return ctx;
 }

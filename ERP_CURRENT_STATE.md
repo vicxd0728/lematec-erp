@@ -8,7 +8,12 @@ Updated: 2026-09-07
 - Selecting 90 days loads 90 days of C-end and stock-log source data. Open/overdue workload is a current snapshot independent of the selected period. Analytics C-end reads skip the separate seven-day auto-completion routine, so range changes cannot update order status.
 - Completion rate excludes cancelled/deleted orders; C-end return rate uses completed shipments as its denominator. Assembly and Shopee internal orders are not included in customer ranking.
 - Added an order creation trend comparing formal and C-end volumes (daily/weekly/monthly by selected range) and explicit loaded row counts/coverage; all-history stock logs disclose the 20,000-row cap.
-- Read-only UI and calculations only; no business records, stock, BOM, permissions, or Worker routes changed. Full regression: 250 Python tests + 47 subtests; 122 Node CJS tests; static verifier passed. Latest Pages/Worker deployment includes this read-only guard and must be verified after push.
+- Read-only UI and calculations only; no business records, stock, BOM, permissions, or Worker routes changed. Full regression: 250 Python tests + 47 subtests; 125 Node CJS tests; static verifier passed. Latest Pages/Worker deployment includes this read-only guard and must be verified after push.
+
+## Taiwan Business-Date Consistency 2026-09-26
+
+- Date-only operational defaults, dashboard/range cutoffs, fallback movement/QC/picking dates, and date-derived identifiers now use the explicit Asia/Taipei calendar date. This prevents early-morning UTC date drift and previous-month order IDs near Taiwan month rollover; event timestamps remain UTC.
+- Validation: deterministic Taiwan midnight/month-boundary tests; 250 Python tests + 47 subtests, 125 Node CJS tests, static verifier. Awaiting production deployment/readback.
 
 ## Read-only UI clarity release 2026-09-26
 

@@ -18,7 +18,7 @@ function form(){
  const calls=[];
  const context=vm.createContext({mats,document:{getElementById:id=>elements[id]||null},
   escapeHtml:x=>String(x),normalizeSku:x=>String(x||'').toUpperCase().replace(/\s/g,''),
-  showToast:(...args)=>calls.push(['toast',...args]),closeModal:()=>{},
+  showToast:(...args)=>calls.push(['toast',...args]),closeModal:()=>{},todayStr:()=> '2026-09-26',
   notionAPI:async(...args)=>{calls.push(['write',...args]);return {id:'order'};},
   logUserAction:()=>{},refreshAffectedData:async()=>{},DB:{orders:'orders'},ROLE:'sales'});
  vm.runInContext(section('function filterSfgList(q){','function renderItems(){'),context);
