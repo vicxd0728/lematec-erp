@@ -2,6 +2,10 @@
 
 Updated: 2026-09-07
 
+## Dashboard trust and role navigation (2026-09-26)
+
+Dashboard cards no longer present unloaded modules as zero; they show a loading marker, source, last-loaded time, and applicable recent/capped scope. Quick links and order/customer/inventory details are limited to tabs visible to the current role, with a route guard for dashboard clicks. Inventory KPI distinguishes low balances from missing/invalid quantities. Arbitrary count-shaped progress bars were removed; actual percentage bars remain. The change is read-only and does not change ERP role configuration or business writes. Focused regression and responsive preview checks pass; real authenticated production-role acceptance remains pending user-entered Vic second-factor password.
+
 Inspection submission validates nonnegative integer quantities and rejects defective quantities above inspected quantities before writes. Manual stock-in requires positive net quantity. Automatic QC sync forces refresh, checks each record's current result/reference/version, and reads back writes. This reduces stale overwrites but is not atomic Notion concurrency control.
 
 QC synchronization now treats explicit order page IDs as authoritative; legacy number-only records require a fresh unique Notion order lookup. Failed or ambiguous lookups cannot permit number-based writes. Pages publication waits for the latest exact-commit Worker workflow to finish successfully, including deployed authorization and real-order read checks, before its existing version/health gate. Order/picking status discrepancies remain under user review and are not repaired by this release.

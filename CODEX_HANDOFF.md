@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Dashboard Data Accuracy / Role-Aware Navigation 2026-09-26
+
+- The dashboard now displays `—` while a module is not loaded and hides metrics or quick links outside the active role's visible tabs. Dashboard routes also guard against opening unavailable modules; the recent-order table and inventory detail warning render only for roles that can open those modules.
+- Added a freshness/source strip: core order/inventory/BOM source, C-end's 30-day plus active-order scope, and the 5,000 / 10,000 row caps for picking and inbound. It shows last-loaded time per module. This prevents capped/recent views from looking like complete history.
+- Inventory dashboard alerts now separate low stock from unknown balances, so missing quantities are not reported as healthy. Removed arbitrary decorative progress bars; retained bars only for actual ratios such as completion and active-order share.
+- No order, inventory, permission, or API write behavior changed. Verification: `node --test tests/dashboard_truthfulness.cjs tests/erp_visuals.cjs tests/full_bom_audit.cjs tests/order_pick_purpose.cjs`, `python scripts/verify_erp_static.py --root .`, `python -m unittest tests.test_verify_erp_static`, and focused workbench/analytics tests. UI preview checked at desktop and 390px with no horizontal overflow; authenticated production-role visual acceptance still requires the Vic login password to be entered by the user.
+
 ## Read-only Operational Visuals 2026-09-24
 
 - Inventory now shows a five-category stock-status bar view over the same loaded material snapshot: zero/out, at-or-below safety stock, above safety stock, safety stock unset, and unknown balance. Each bar opens the matching existing inventory list filter; source label and total are shown. The chart never treats an unset safety threshold as healthy.
