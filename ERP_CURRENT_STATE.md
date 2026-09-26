@@ -14,7 +14,7 @@ Updated: 2026-09-07
 
 - BOM-risk metric reports the full count and limits only the sample list. Analytics now shows unknown inventory balances, unset safety-stock counts, inventory/BOM source counts, and a period-based consumption coverage table with estimated days-on-hand for 30/90-day ranges. Unknown stock never becomes zero; all-history view omits daily coverage estimates where the source may be capped.
 - Inventory drilldowns preserve regular stock rows and can filter unknown balances or unset safety stock. The estimates are informational, exclude supplier lead time, and do not change reorder or inventory rules.
-- Validation: 250 Python tests + 47 subtests; 128 Node CJS tests; static verifier. Read-only deployment pending.
+- Validation: 250 Python tests + 47 subtests; 128 Node CJS tests; static verifier. Commit `1611368` deployed; Worker SHA and Pages content readback matched on 2026-09-26.
 
 ## Taiwan Business-Date Consistency 2026-09-26
 

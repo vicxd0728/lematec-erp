@@ -13,7 +13,7 @@
 
 - BOM-risk count now uses the full matched set while showing only a bounded sample; previously the displayed count was capped at eight. Added unknown stock and unset safety-stock counts, source counts for materials/BOM, and an inventory coverage table with period usage, average daily use, current balance, and estimated days-on-hand.
 - Unknown balances stay `未知`, never zero. All-history coverage omits daily averages because the source may be capped. SKU drilldown keeps normal stocked items visible; unknown/unset filters route to the matching inventory view.
-- Read-only analytics/UI changes only. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 128 passed; static verifier passed. Deploy and production readback required.
+- Read-only analytics/UI changes only. Regression: Python suite 250 passed + 47 subtests; Node CJS suite 128 passed; static verifier passed. Commit `1611368` deployed; Worker SHA and Pages content readback matched on 2026-09-26.
 
 ## Taiwan Business-Date Consistency 2026-09-26
 
