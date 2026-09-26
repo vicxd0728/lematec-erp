@@ -68,3 +68,14 @@ def test_operations_analytics_includes_corder_return_analysis():
     assert "cReturnReasons" in block
     assert "cReturnProducts" in block
     assert "analyticsGo('corders','search','退貨')" in block
+
+
+def test_c_end_decision_card_uses_c_end_shipments_not_global_consumption():
+    html = read_index()
+    start = html.index("icon:'🛒',title:'C端品項'")
+    end = html.index("}),", start)
+    card = html[start:end]
+    assert "topCProduct" in card
+    assert "期間出貨" in card
+    assert "filter:topCProduct?.[0]" in card
+    assert "topUse" not in card

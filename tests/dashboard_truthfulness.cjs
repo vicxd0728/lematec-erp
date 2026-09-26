@@ -71,3 +71,27 @@ test('dashboard reports source freshness and scopes quick entry cards by role', 
   assert.match(html.slice(start, html.indexOf('function renderDashboard()')), /Supabase · 最多5,000筆/);
   assert.doesNotMatch(dashboard, /width:75%|width:60%|width:50%/);
 });
+
+test('dashboard highlights overdue orders and routes directly to their filtered list', () => {
+  const dashboard = html.slice(html.indexOf('function renderDashboard()'), html.indexOf('function renderOrders()'));
+  assert.match(dashboard, /const overdueOrders=orders\.filter/);
+  assert.match(dashboard, /deadline:dashboardMetric\('orders','core',overdueOrders\.length\)/);
+  assert.match(dashboard, /逾期未完成/);
+  assert.match(dashboard, /天內到期 \$\{window\._coreLoaded\?deadlineSoon\.length:'—'\} 筆/);
+  assert.match(dashboard, /onclick="dashboardGo\('orders','\$\{overdueOrders\.length\?'overdue':'deadline'\}'\)"/);
+
+  const ctx = makeContext('sales', ['orders'], ['core']);
+  const start = html.indexOf('function dashboardTabAvailable(');
+  const end = html.indexOf('function dashboardMetric(', start);
+  let navigated = '';
+  ctx.getOrderFilters = () => ctx.window._ORDER_FILTERS || (ctx.window._ORDER_FILTERS = { q: '', type: 'all', status: 'all', date: '0', hide: false, deadline: '' });
+  ctx.setOrderSearchDraft = value => { ctx.searchDraft = value; };
+  ctx.switchTab = tab => { navigated = tab; };
+  ctx.showToast = () => {};
+  vm.runInContext(html.slice(start, end), ctx);
+  assert.equal(ctx.dashboardGo('orders', 'overdue'), true);
+  assert.equal(navigated, 'orders');
+  assert.equal(ctx.window._ORDER_FILTERS.deadline, 'overdue');
+  assert.equal(ctx.window._ORDER_FILTERS.date, '0');
+  assert.equal(ctx.window._ORD_SUB, 'list');
+});

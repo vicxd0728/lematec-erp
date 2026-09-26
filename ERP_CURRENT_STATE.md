@@ -2,6 +2,14 @@
 
 Updated: 2026-09-07
 
+## Read-only UI clarity release 2026-09-26
+
+- Analytics C-end decision card uses C-end shipped-item totals and matches the C-end ranking/filter.
+- Picking status chart explains legacy `已確認扣料` records are grouped into `已領料`; historical records are not rewritten.
+- Dashboard deadline KPI surfaces overdue unfinished orders separately from the configured upcoming reminder count and routes to the overdue-filtered order list.
+- Regression: 250 Python tests + 47 subtests; 111 Node CJS tests; static verifier passed. No business-data writes or Worker logic changes.
+- Deployment must pass both Worker and Pages workflows at one SHA, then verify `/api/version` and production frontend readback.
+
 ## Dashboard trust and role navigation (2026-09-26)
 
 Dashboard cards no longer present unloaded modules as zero; they show a loading marker, source, last-loaded time, and applicable recent/capped scope. Quick links and order/customer/inventory details are limited to tabs visible to the current role, with a route guard for dashboard clicks. Inventory KPI distinguishes low balances from missing/invalid quantities. Arbitrary count-shaped progress bars were removed; actual percentage bars remain. The change is read-only and does not change ERP role configuration or business writes. Focused regression and responsive preview checks pass; real authenticated production-role acceptance remains pending user-entered Vic second-factor password.

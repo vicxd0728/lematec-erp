@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Analytics, Picking Status, and Deadline Clarity 2026-09-26
+
+- Corrected the C-end decision card to use C-end shipped-item totals, matching the C-end ranking and its SKU drill-down. The card no longer uses global inventory consumption.
+- The picking status chart now explains that legacy `已確認扣料` records are grouped under `已領料`; this is display guidance only and does not rewrite Supabase/Notion records.
+- Dashboard deadline KPI now shows overdue unfinished orders as the main count, also shows the configured upcoming reminder count, and opens the overdue-filtered order list when overdue work exists. If none are overdue, it opens the existing upcoming deadline view.
+- Regression coverage: dashboard overdue routing, C-end decision-card source, and picking legacy-stage grouping. Full Python suite: 250 passed + 47 subtests; Node CJS suite: 111 passed. Static verifier passed. No production business data or Worker logic changed.
+- Release verification must confirm both Worker and Pages Actions for the same SHA, `/api/version`, and production frontend readback.
+
 ## Dashboard Data Accuracy / Role-Aware Navigation 2026-09-26
 
 - The dashboard now displays `—` while a module is not loaded and hides metrics or quick links outside the active role's visible tabs. Dashboard routes also guard against opening unavailable modules; the recent-order table and inventory detail warning render only for roles that can open those modules.

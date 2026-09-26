@@ -12002,6 +12002,7 @@ function renderAnalytics(){
   ].join('');
   const topRisk=a.lowStockRisk[0];
   const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
+  const topCProduct=analyticsTopEntries(a.cProductTotals,1)[0];
   const topReturnReason=analyticsTopEntries(a.cReturnReasons,1)[0];
   const decisionCards=[
     analyticsDecisionCard({
@@ -12020,9 +12021,9 @@ function renderAnalytics(){
       action:'查看稽核結果',tab:'stocklog',nav:'audit',color:a.audit.issues.length?'var(--amber)':'var(--green2)'
     }),
     analyticsDecisionCard({
-      icon:'🛒',title:'C端品項',value:topUse?topUse[0]:'無資料',
-      sub:topUse?`期間耗用 ${analyticsNum(topUse[1])} 件，可回 C端/異動查明細`:'期間內沒有扣庫耗用',
-      action:'查看 C端品項',tab:'corders',nav:'product',filter:topUse?.[0]||'',color:'var(--cyan2)'
+      icon:'🛒',title:'C端品項',value:topCProduct?topCProduct[0]:'無資料',
+      sub:topCProduct?`期間出貨 ${analyticsNum(topCProduct[1])} 件，可回 C端訂單查明細`:'期間內沒有 C端出貨品項',
+      action:'查看 C端品項',tab:'corders',nav:'product',filter:topCProduct?.[0]||'',color:'var(--cyan2)'
     }),
     analyticsDecisionCard({
       icon:'↩',title:'退貨原因',value:topReturnReason?topReturnReason[0]:'正常',
@@ -15199,6 +15200,12 @@ function dashboardStockStatus(material){
 function dashboardGo(tab,sub=''){
   if(!dashboardTabAvailable(tab)){showToast('此職務沒有開放這個頁面','warn');return false;}
   if(sub==='deadline')window._ORD_SUB='deadline';
+  if(sub==='overdue'){
+    const filters=getOrderFilters();
+    filters.date='0';filters.hide=false;filters.status='all';filters.q='';filters.deadline='overdue';
+    setOrderSearchDraft('');
+    window._ORD_SUB='list';
+  }
   switchTab(tab);
   return true;
 }
@@ -15241,6 +15248,7 @@ function renderDashboard(){
     const diff=Math.round((dl-_now)/86400000);
     return diff>=0 && diff<=warnDays;
   });
+  const overdueOrders=orders.filter(o=>o.deadline&&o.deadline<_todayShip&&o.status!=='已完成'&&o.status!=='取消');
   const qcPending=(orders.filter(o=>o.status==='待檢驗').length)+(inbounds.filter(i=>i.qcStatus==='待品檢').length);
 
   // 公告
@@ -15261,7 +15269,7 @@ function renderDashboard(){
     activeOrders:dashboardMetric('orders','core',active.length),
     todayShip:dashboardMetric('ops','core',todayShipOrders.length),
     stockAttention:dashboardMetric('inventory','core',stockAttention),
-    deadline:dashboardMetric('orders','core',deadlineSoon.length),
+    deadline:dashboardMetric('orders','core',overdueOrders.length),
     qc:dashboardMetric('qc','inbounds',window._coreLoaded?qcPending:'—'),
     customers:dashboardMetric('customers','customers',customers.length),
     corders:dashboardMetric('corders','corders',(window.corders||[]).filter(o=>o.status==='出貨中').length),
@@ -15387,11 +15395,11 @@ function renderDashboard(){
   <!-- KPI Row 2: 次要指標 -->
   <div class="dash-kpi-grid-5">
 
-    <div class="kpi-card ${!window._coreLoaded?'kpi-blue':deadlineSoon.length>0?'kpi-red':'kpi-green'}" onclick="dashboardGo('orders','deadline')" title="點擊查看交期提醒">
+    <div class="kpi-card ${!window._coreLoaded?'kpi-blue':overdueOrders.length>0?'kpi-red':deadlineSoon.length>0?'kpi-amber':'kpi-green'}" onclick="dashboardGo('orders','${overdueOrders.length?'overdue':'deadline'}')" title="點擊查看${overdueOrders.length?'逾期未完成訂單':'交期提醒'}">
       <div class="kpi-glow"></div>
-      <div class="kpi-label">⏰ 交期提醒</div>
+      <div class="kpi-label">⏰ 逾期未完成</div>
       <div class="kpi-num">${dashStats.deadline.value}</div>
-      <div class="kpi-sub">${warnDays} 天內到期</div>
+      <div class="kpi-sub">${warnDays} 天內到期 ${window._coreLoaded?deadlineSoon.length:'—'} 筆</div>
     </div>
 
     <div class="kpi-card kpi-amber" onclick="dashboardGo('orders')">
@@ -17036,7 +17044,7 @@ function renderPickingStatusVisual(rows){
     {label:'已沖銷',count:counts.reversed,color:'var(--green2)',action:"window._PICK_STATUS='reversed';renderTab('picking')"},
     {label:'其他狀態',count:counts.other,color:'var(--text3)',action:"window._PICK_STATUS='other';renderTab('picking')"}
   ];
-  return `<section class="erp-visual-panel" aria-label="訂單領料狀態分布"><div class="erp-visual-head"><div><h3>訂單領料狀態分布</h3><p>目前期間與訂單範圍共 ${rows.length} 張；一張單只計入一種狀態。點項目查看下方領料紀錄。</p></div></div>${rows.length?renderErpVisualRows(chartRows):'<div class="empty">目前範圍沒有訂單領料紀錄</div>'}</section>`;
+  return `<section class="erp-visual-panel" aria-label="訂單領料狀態分布"><div class="erp-visual-head"><div><h3>訂單領料狀態分布</h3><p>目前期間與訂單範圍共 ${rows.length} 張；一張單只計入一種狀態。舊紀錄「已確認扣料」併入「已領料」。點項目查看下方領料紀錄。</p></div></div>${rows.length?renderErpVisualRows(chartRows):'<div class="empty">目前範圍沒有訂單領料紀錄</div>'}</section>`;
 }
 function renderPicking(){
   if(!window._PICK_SUB) window._PICK_SUB='auto';

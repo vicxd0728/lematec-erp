@@ -32,11 +32,12 @@ test('inventory chart distinguishes zero stock, low stock, unset threshold and u
 test('picking chart puts each row in one stage and follows the current scope',()=>{
   const rows=[
     {status:'待回料確認'},{status:'缺料待補'},{status:'已領料'},
-    {status:'已沖銷'},{status:'待領料'}
+    {status:'已確認扣料'},{status:'已沖銷'},{status:'待領料'}
   ];
-  assert.deepEqual(rows.map(ctx.pickingVisualStage),['return','shortage','picked','reversed','other']);
+  assert.deepEqual(rows.map(ctx.pickingVisualStage),['return','shortage','picked','picked','reversed','other']);
   const chart=ctx.renderPickingStatusVisual(rows);
-  assert.match(chart,/共 5 張/);
+  assert.match(chart,/共 6 張/);
   assert.match(chart,/缺料待補/);
+  assert.match(chart,/舊紀錄「已確認扣料」併入「已領料」/);
   assert.match(html,/renderPickingStatusVisual\(scopedAutoData\)/);
 });
