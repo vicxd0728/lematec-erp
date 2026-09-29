@@ -46,7 +46,8 @@ def test_reply_attachments_are_marked_and_rendered_inline_with_thread():
     assert "noteReplyAttachmentGrid(attachmentsByKey[key])" in formatter
     assert 'id="note_thread_box"' in detail
     assert "loadNoteAttachments(n.actualNotionPageId,n.files||[],n)" in detail
-    assert "uploadNoteAttachments(notionId,files,_notesNotionPendingAttachmentContexts[task.noteKey]||{})" in mirror
+    assert "const targetPageId=n.eventPageId||notionId" in mirror
+    assert "uploadNoteAttachments(targetPageId,files,{...context,countPageId:notionId})" in mirror
 
 
 def test_file_selection_renderer_supports_reply_target():

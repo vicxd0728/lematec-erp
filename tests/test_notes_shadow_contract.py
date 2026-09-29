@@ -57,7 +57,7 @@ class NotesShadowContractTest(unittest.TestCase):
     def test_attachment_count_is_audited_end_to_end(self):
         self.assertIn("need('附件數',{number:{}})", self.index)
         self.assertIn("async function countNoteAttachmentBlocks(pageId)", self.index)
-        self.assertIn("'附件數':{number:attachmentCount}", self.index)
+        self.assertIn("'附件數':{number:totalCount}", self.index)
         self.assertIn("attachmentCount:Number(n.attachmentCount||0)", self.index)
         self.assertIn("Number(s.attachment_count||0)", self.index)
 

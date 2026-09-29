@@ -6067,11 +6067,11 @@ function openModal(type,data){
         <div><label class="field-label">標籤</label><input class="inp" id="note_tags" value="${escapeHtml((d.tags||[]).join('、'))}" placeholder="可用、或逗號分隔，例如：客戶、交期"></div>
       </div>
       <div class="form-row" style="grid-template-columns:1fr 1fr 1fr">
-        <div><label class="field-label">關聯客戶編號</label><input class="inp" id="note_customer_code" value="${escapeHtml(d.customerCode||'')}" placeholder="國外客戶編號，例如 2602US028"></div>
+        <div><label class="field-label">關聯客戶編號</label><input class="inp" id="note_customer_code" value="${escapeHtml(d.customerCode||'')}" placeholder="輸入編號或名稱搜尋" autocomplete="off" oninput="renderNoteCustomerChoices()" onfocus="renderNoteCustomerChoices()"><div id="note_customer_choices" class="hint" style="margin-top:5px" aria-live="polite"></div></div>
         <div><label class="field-label">關聯訂單</label><input class="inp" id="note_linked_order" value="${escapeHtml(d.linkedOrder||'')}" placeholder="訂單號 / SHPTW / PI 編號"></div>
         <div><label class="field-label">關聯料號</label><input class="inp" id="note_linked_material" value="${escapeHtml(d.linkedMaterial||'')}" placeholder="料號，可用逗號或、分隔"></div>
       </div>
-      <div class="hint" style="margin:-4px 0 12px">填國外客戶編號後，系統會同步在該客戶 Notion 頁面建立「記事」分頁與事件紀錄。</div>
+      <div class="hint" style="margin:-4px 0 12px">請從候選名單選擇國外客戶；確認後會同步到該客戶的 Notion 記事頁。</div>
       <div style="margin-bottom:12px"><label class="field-label">需要知道的角色</label><div class="note-targets">${noteRoleTargetsHtml(d.targetRoles||[])}</div></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text2);font-size:.84rem">
         <input id="note_need_ack" type="checkbox" ${d.needAck?'checked':''} style="width:16px;height:16px;accent-color:var(--cyan)">
@@ -6088,7 +6088,12 @@ function openModal(type,data){
         <button class="btn btn-ghost" onclick="closeModal()">取消</button>
         <button class="btn btn-blue" onclick="submitNote('${d.id||''}')">💾 儲存記事</button>
       </div>`;
-    openSharedModal();return;
+    openSharedModal();renderNoteCustomerChoices();
+    if(!isFresh('customers',180000))loadCustomersOnly().then(renderNoteCustomerChoices).catch(e=>{
+      const box=document.getElementById('note_customer_choices');
+      if(box)box.textContent='客戶資料載入失敗，請稍後重試：'+(e.message||e);
+    });
+    return;
   }
 
   if(type==='help'){
@@ -12717,10 +12722,11 @@ async function loadNoteAttachments(pageId,legacyFiles=[],noteData=null){
   if(!box)return;
   try{
     const items=[];
-    let cursor='';
-    do{
+    for(const sourcePageId of [...new Set([pageId,noteData?.eventPageId].filter(Boolean))]){
+      let cursor='';
+      do{
       const suffix=`?page_size=100${cursor?`&start_cursor=${encodeURIComponent(cursor)}`:''}`;
-      const result=await notionAPI2026('GET',`blocks/${pageId}/children${suffix}`);
+      const result=await notionAPI2026('GET',`blocks/${sourcePageId}/children${suffix}`);
       if(result?.object==='error')throw new Error(result.message||'附件讀取失敗');
       (result?.results||[]).forEach(block=>{
         if(!['image','video','audio','pdf','file'].includes(block.type))return;
@@ -12729,7 +12735,8 @@ async function loadNoteAttachments(pageId,legacyFiles=[],noteData=null){
         if(url)items.push({kind:block.type,name:noteAttachmentName(block,payload),url,replyKey:noteAttachmentReplyKey(block,payload),createdTime:block.created_time||''});
       });
       cursor=result?.has_more?result.next_cursor:'';
-    }while(cursor);
+      }while(cursor);
+    }
     (legacyFiles||[]).forEach(file=>{
       const payload=file[file.type]||file;
       const url=noteAttachmentUrl(payload);
@@ -12778,23 +12785,28 @@ async function uploadNoteAttachments(pageId,files=[],context={}){
           caption:[{type:'text',text:{content:captionName}}]
         }
       });
-      outcome.uploaded.push({name:file.name||'附件',size:file.size||0});
+      outcome.uploaded.push({name:file.name||'附件',size:file.size||0,index:i});
     }catch(error){
-      outcome.failed.push({name:file.name||'附件',error:error?.message||String(error)});
+      outcome.failed.push({name:file.name||'附件',index:i,error:error?.message||String(error)});
     }
   }
   if(blocks.length){
     try{
       const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
       if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
-      const attachmentCount=await countNoteAttachmentBlocks(pageId);
-      const countResult=await updatePage(pageId,{'附件數':{number:attachmentCount}});
-      if(countResult?.object==='error')throw new Error(countResult.message||'附件數更新失敗');
     }catch(error){
       const message=error?.message||String(error);
       outcome.failed.push(...outcome.uploaded.map(file=>({...file,error:message})));
       outcome.uploaded=[];
+      return outcome;
     }
+    try{
+      const attachmentCount=await countNoteAttachmentBlocks(pageId);
+      const countPageId=context.countPageId||pageId;
+      const totalCount=countPageId===pageId?attachmentCount:attachmentCount+await countNoteAttachmentBlocks(countPageId);
+      const countResult=await updatePage(countPageId,{'附件數':{number:totalCount}});
+      if(countResult?.object==='error')throw new Error(countResult.message||'附件數更新失敗');
+    }catch(error){outcome.countWarning=error?.message||String(error);}
   }
   return outcome;
 }
@@ -13936,8 +13948,29 @@ function noteRelationSummary(n){
 function noteFindOverseasCustomerByCode(code=''){
   const q=String(code||'').trim().toUpperCase();
   if(!q) return null;
-  return (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase()===q)||
-    (customers||[]).find(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase().includes(q));
+  const matches=(customers||[]).filter(c=>(c.type==='overseas'||!c.type)&&String(c.code||'').trim().toUpperCase()===q);
+  return matches.length===1?matches[0]:null;
+}
+function renderNoteCustomerChoices(){
+  const input=document.getElementById('note_customer_code');
+  const box=document.getElementById('note_customer_choices');
+  if(!input||!box)return;
+  const q=input.value.trim().toUpperCase();
+  const selected=noteFindOverseasCustomerByCode(q);
+  input.dataset.selectedCustomerId=selected?.id||'';
+  if(!q){box.textContent='選填；輸入部分客編或名稱即可搜尋。';return;}
+  const matches=(customers||[]).filter(c=>(c.type==='overseas'||!c.type)&&c.code&&
+    (String(c.code).toUpperCase().includes(q)||String(c.name||'').toUpperCase().includes(q))).slice(0,8);
+  if(!matches.length){box.textContent=isFresh('customers',180000)?'找不到符合的國外客戶，請檢查編號。':'正在讀取客戶資料…';return;}
+  box.innerHTML=`${selected?`<div style="color:var(--green2);margin-bottom:5px">✓ 已確認：${escapeHtml(selected.code)} · ${escapeHtml(selected.name)}</div>`:'請選擇正確客戶：'}
+    <div style="display:grid;gap:4px">${matches.map(c=>`<button type="button" class="btn btn-ghost btn-sm" style="text-align:left;white-space:normal" onclick="selectNoteCustomer('${c.id}')">${escapeHtml(c.code)} · ${escapeHtml(c.name)}${c.region?` · ${escapeHtml(c.region)}`:''}</button>`).join('')}</div>`;
+}
+function selectNoteCustomer(id){
+  const customer=(customers||[]).find(c=>c.id===id&&c.type==='overseas');
+  const input=document.getElementById('note_customer_code');
+  if(!customer||!input)return;
+  input.value=customer.code;
+  renderNoteCustomerChoices();
 }
 async function noteChildPages(parentPageId,title){
   if(!parentPageId) return [];
@@ -13975,12 +14008,13 @@ async function ensureCustomerNotesChildPage(customerPageId,noteData={}){
   return await createNoteChildPage(customerPageId,'記事');
 }
 function noteEventDateTitle(noteData={}){
-  return safeRt(String(noteData.date||noteIsoDate()).trim()||noteIsoDate(),40);
+  return safeRt(noteData.createdAt?taipeiDateKey(new Date(noteData.createdAt)):noteIsoDate(),40);
 }
 function noteEventPageTitle(noteData={}){
   const title=String(noteData.title||'').trim();
-  const date=String(noteData.date||'').trim();
-  return safeRt(title||date||'\u8a18\u4e8b',90);
+  const date=noteEventDateTitle(noteData);
+  const suffix=String(noteData.id||'').replace(/[^a-zA-Z0-9]/g,'').slice(-6);
+  return safeRt(`${date}${title?` · ${title}`:''}${suffix?` (${suffix})`:''}`,90);
 }
 async function ensureNoteDateChildPage(customerNotesPageId,noteData={}){
   if(!customerNotesPageId) throw new Error('\u7f3a\u5c11\u5ba2\u6236\u8a18\u4e8b\u9801 ID');
@@ -14041,18 +14075,20 @@ async function syncNoteToCustomerPage(noteId,noteData,mode='建立'){
   try{
     const code=String(noteData.customerCode||'').trim();
     if(!code) return {};
+    if(!noteFindOverseasCustomerByCode(code)&&!isFresh('customers',180000))await loadCustomersOnly();
     const customer=noteFindOverseasCustomerByCode(code);
     if(!customer?.id){
       showToast(`⚠ 找不到國外客戶編號 ${code}，記事已保存但未同步客戶頁`,'warn',7000);
       return {};
     }
-    const existingPath=await findExistingCustomerNotePath(customer.id,noteData);
+    const titledNote={...noteData,id:noteData.id||noteId};
+    const existingPath=await findExistingCustomerNotePath(customer.id,titledNote);
     const customerNotesPageId=existingPath.customerNotesPageId||noteData.customerNotesPageId||await createNoteChildPage(customer.id,'記事');
     if(!customerNotesPageId) throw new Error('無法建立或取得客戶頁下的「記事」分頁');
     const stamp=fmtDateTime(new Date().toISOString());
-    const datePageId=existingPath.datePageId||await ensureNoteDateChildPage(customerNotesPageId,noteData);
-    const eventTitle=noteEventPageTitle(noteData);
-    let eventPageId=noteData.eventPageId||existingPath.eventPageId||await noteFindChildPageByTitle(datePageId,eventTitle);
+    const datePageId=noteData.eventPageId?'':(existingPath.datePageId||await ensureNoteDateChildPage(customerNotesPageId,titledNote));
+    const eventTitle=noteEventPageTitle(titledNote);
+    let eventPageId=noteData.eventPageId||existingPath.eventPageId||(datePageId?await noteFindChildPageByTitle(datePageId,eventTitle):'');
     const empty='—';
     const baseBlocks=[
       noteTextBlock(`ERP ${mode}：${noteData.title||empty}`),
@@ -14194,14 +14230,9 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
             n.actualNotionPageId=notionId;
             n.url=created.url||n.url;
           }
-          const files=(volatileFiles||_notesNotionPendingFiles)[task.noteKey]||[];
-          if(files.length){
-            const result=await uploadNoteAttachments(notionId,files,_notesNotionPendingAttachmentContexts[task.noteKey]||{});
-            n.attachmentCount=Number(n.attachmentCount||0)+result.uploaded.length;
-            if(result.failed.length)throw new Error(result.failed.map(x=>`${x.name}: ${x.error}`).join('；'));
-          }
           if(n.customerCode){
             const syncInfo=await syncNoteToCustomerPage(notionId,n,n.backendUrl?'更新':'建立');
+            if(!syncInfo.eventPageId)throw new Error(`客戶 ${n.customerCode} 的記事頁尚未同步，附件未上傳；請保持此頁開啟後重試`);
             Object.assign(n,{
               customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
               eventPageId:syncInfo.eventPageId||n.eventPageId,
@@ -14210,6 +14241,16 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
             if(syncInfo.backendUrl){
               await updatePage(notionId,noteNotionProperties(n));
             }
+          }
+          const files=(volatileFiles||_notesNotionPendingFiles)[task.noteKey]||[];
+          if(files.length){
+            const context=_notesNotionPendingAttachmentContexts[task.noteKey]||{};
+            const targetPageId=n.eventPageId||notionId;
+            const result=await uploadNoteAttachments(targetPageId,files,{...context,countPageId:notionId});
+            n.attachmentCount=Number(n.attachmentCount||0)+result.uploaded.length;
+            if(result.uploaded.length)_notesNotionPendingFiles[task.noteKey]=files.filter((_,index)=>result.failed.some(f=>f.index===index));
+            if(result.failed.length)throw new Error(result.failed.map(x=>`${x.name}: ${x.error}`).join('；'));
+            if(result.countWarning)console.warn('記事附件已寫入，附件數更新待補:',result.countWarning);
           }
           n.notionSyncStatus='synced';
           n.notionSyncError='';
@@ -14379,11 +14420,13 @@ async function submitNotePrimary(id=''){
   const customerCode=(document.getElementById('note_customer_code')?.value||'').trim();
   const linkedOrder=(document.getElementById('note_linked_order')?.value||'').trim();
   const linkedMaterial=(document.getElementById('note_linked_material')?.value||'').trim();
-  const linkedCustomer=customerCode?(noteFindOverseasCustomerByCode(customerCode)?.name||''):'';
+  const selectedCustomer=customerCode?noteFindOverseasCustomerByCode(customerCode):null;
+  const linkedCustomer=selectedCustomer?.name||'';
   const targetRoles=noteTargetsForSubmit();
   const noteFiles=[...(document.getElementById('note_files')?.files||[])];
   const needAck=!!document.getElementById('note_need_ack')?.checked||targetRoles.length>0;
   if(!title||!date){showToast('請填標題與日期','warn');return;}
+  if(customerCode&&!selectedCustomer){renderNoteCustomerChoices();showToast('請先從候選名單確認國外客戶；目前編號未找到或不唯一','warn',7000);return;}
   if(noteFiles.length>NOTE_MAX_ATTACHMENTS){showToast(`附件一次最多 ${NOTE_MAX_ATTACHMENTS} 個`,'warn');return;}
   const uploadableFiles=noteFiles.filter(file=>(file.size||0)>0&&(file.size||0)<=NOTE_MAX_ATTACHMENT_BYTES);
   const oversizedFiles=noteFiles.filter(file=>(file.size||0)>NOTE_MAX_ATTACHMENT_BYTES);
@@ -14407,28 +14450,49 @@ async function submitNotePrimary(id=''){
     attachmentCount:Number(old?.attachmentCount||0),notionSyncStatus:'pending',notionSyncError:''
   };
   showToast('⏳ 儲存記事到 Supabase...','warn');
+  let primarySaved=false;
   try{
     const saved=await writeNotePrimary(n,{operation:'upsert',event:{
       actorRole:loginRoleLabel(),action:old?'編輯':'建立',comment:title,createdAt:nowIso
     }});
+    primarySaved=true;
     Object.assign(n,saved,{id:noteKey,actualNotionPageId:saved.actualNotionPageId||old?.actualNotionPageId||''});
     const pos=notes.findIndex(row=>row.id===noteKey);
     if(pos>=0)notes[pos]=n;else notes.push(n);
     if(uploadableFiles.length)_notesNotionPendingFiles[noteKey]=uploadableFiles;
     queueNoteNotionMirror(n,'upsert');
+    logUserAction(old?'編輯記事':'新增記事',title,`${date} ${time}`,ROLE);
+    if(uploadableFiles.length){
+      const expectedAttachmentCount=Number(old?.attachmentCount||0)+uploadableFiles.length;
+      showToast('⏳ 記事已建立，正在上傳並核對附件；請保持頁面開啟','warn',9000);
+      const result=await flushNotesNotionMirrorQueue({quiet:true});
+      if(result.pending||!n.actualNotionPageId||Number(n.attachmentCount||0)<expectedAttachmentCount){
+        const saveButton=document.querySelector('#modalBg button.btn-blue[onclick^="submitNote"]');
+        if(saveButton){saveButton.setAttribute('onclick',`retryPendingNoteAttachments('${noteKey}',${expectedAttachmentCount})`);saveButton.textContent='🔄 重試附件';}
+        showToast('⚠ 記事已儲存，但附件尚未完成；請保持頁面開啟並按「重試附件」','warn',10000);
+        return;
+      }
+      showToast(`✅ 記事與 ${uploadableFiles.length} 個附件已同步到 Notion`,'ok');
+    }else{
+      showToast(`✅ 記事已${old?'更新':'建立'}；Notion 將於背景同步`,'ok');
+    }
     closeModal();
     renderTab('notes');
-    logUserAction(old?'編輯記事':'新增記事',title,`${date} ${time}`,ROLE);
-    showToast(`✅ 記事已${old?'更新':'建立'}；Notion 將於背景同步`,'ok');
-    if(uploadableFiles.length){
-      setTimeout(()=>flushNotesNotionMirrorQueue({quiet:true}).then(result=>{
-        if(!result.pending)showToast(`✅ ${uploadableFiles.length} 個記事附件已同步`,'ok');
-      }).catch(e=>showToast('⚠ 記事已儲存，但附件待重試：'+e.message,'warn',8000)),50);
-    }
     if(oversizedFiles.length)showToast(`⚠ ${oversizedFiles.length} 個超過 20MB 的檔案請從 Notion 事件頁補上傳`,'warn',9000);
   }catch(e){
-    showToast('❌ Supabase 未寫入，記事未建立：'+e.message,'err',9000);
+    showToast(primarySaved?'⚠ 記事已寫入，附件或 Notion 同步尚未完成：'+e.message:'❌ Supabase 未寫入，記事未建立：'+e.message,primarySaved?'warn':'err',9000);
   }
+}
+async function retryPendingNoteAttachments(noteKey,expectedCount){
+  const result=await flushNotesNotionMirrorQueue({quiet:true});
+  const n=notes.find(row=>row.id===noteKey);
+  if(result.pending||!n||Number(n.attachmentCount||0)<expectedCount){
+    showToast('⚠ 附件仍未完成：'+(n?.notionSyncError||'請稍後再試，或重新選擇檔案'), 'warn',9000);
+    return;
+  }
+  closeModal();
+  renderTab('notes');
+  showToast('✅ 記事附件已同步到 Notion','ok');
 }
 async function submitNote(id=''){
   return submitNotePrimary(id);
