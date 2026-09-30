@@ -97,6 +97,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--f-ui);fon
 .view-only-role .notion-bar a,
 .view-only-role a[href*="notion.so"]{display:none!important;}
 .view-only-role .notion-bar::after{content:'檢視模式';color:var(--text3);font-size:.8rem;font-weight:700;}
+.view-only-role.ai-role .notion-bar::after{content:'AI：僅記事可編輯';}
 
 /* ── Input ── */
 .inp{width:100%;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;font-family:var(--f-ui);font-size:0.875rem;outline:none;transition:border-color .2s,box-shadow .2s;}
@@ -7424,6 +7425,7 @@ async function startApp(){
   CURRENT_TAB='dashboard';
   const ri=ROLES[ROLE];
   document.body.classList.toggle('view-only-role',isViewOnly());
+  document.body.classList.toggle('ai-role',ROLE==='ai');
   const badge=document.getElementById('roleBadge');
   badge.textContent=ri.label;
   badge.style.cssText=`padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:700;background:${ri.color}20;color:${ri.color}`;

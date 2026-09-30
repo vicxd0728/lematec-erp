@@ -18,6 +18,7 @@ test('AI can see every module while remaining view-only outside Notes', () => {
   assert.equal(ctx.canWriteNotes(), true);
   assert.equal(ctx.canWriteNotes('viewer'), false);
   assert.equal(ctx.canImportBomRole(), false);
+  assert.match(html, /\.view-only-role\.ai-role \.notion-bar::after\{content:'AI：僅記事可編輯'/);
 });
 
 test('AI Worker mutation scope accepts only actual Notes resources', async () => {
