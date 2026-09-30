@@ -6644,7 +6644,7 @@ function limitedDataHint(scope,label){
   if(DATA_LOAD_MODE[scope]==='all') return '';
   const count=DATA_LOAD_COUNT[scope]||0;
   return `<div class="info-box" style="margin:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 100%">
-    <span>⚡ 已先載入近 ${FIRST_LOAD_DAYS} 天與待處理資料，讓第一次開頁更快。目前 ${label} 已載入 <b>${count}</b> 筆。</span>
+    <span>⚡ 已先載入近 ${DATA_LOAD_DAYS[scope]||FIRST_LOAD_DAYS} 天與待處理資料，讓第一次開頁更快。目前 ${label} 已載入 <b>${count}</b> 筆。</span>
     <button class="btn btn-ghost btn-sm" onclick="loadFullData('${scope}')">載入全部歷史</button>
   </div>`;
 }
@@ -6660,10 +6660,13 @@ async function loadFullData(scope,quiet=false){
   if(!quiet)showToast('載入全部歷史資料中...','warn');
   try{
     if(scope==='corders')await loadCorders({mode:'all'});
-    if(scope==='stocklog')await loadStockLog({mode:'all'});
+    if(scope==='stocklog'){
+      await loadStockLog({mode:'all'});
+      if(stockLogLoadError)throw new Error(stockLogLoadError);
+    }
     if(scope==='notes')await loadNotes({mode:'all'});
     if(CURRENT_TAB===scope||scope==='stocklog'&&CURRENT_TAB==='stocklog')renderTab(CURRENT_TAB);
-    if(!quiet)showToast('✅ 已載入全部歷史資料','ok');
+    if(!quiet)showToast(scope==='stocklog'&&stockLogHasMore?'⚠️ 異動紀錄已達 20,000 筆上限，統計仍屬部分資料':'✅ 已載入全部歷史資料',scope==='stocklog'&&stockLogHasMore?'warn':'ok');
   }catch(e){
     showToast('❌ 載入歷史失敗：'+e.message,'err');
   }finally{
@@ -8967,7 +8970,32 @@ function updateCustomerFilter(key,value){
   renderTab('customers');
 }
 function getStockLogFilters(){
-  return window._STOCKLOG_FILTERS||(window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:''});
+  return window._STOCKLOG_FILTERS||(window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:'',page:1});
+}
+async function updateStockLogFilter(key,value){
+  const f=getStockLogFilters();
+  f[key]=value;f.page=1;
+  if(key==='date'&&DATA_LOAD_MODE.stocklog!=='all'){
+    if(value==='0'){
+      await loadFullData('stocklog');
+      if(CURRENT_TAB==='stocklog')renderTab('stocklog');
+      return;
+    }
+    const days=({'7d':7,'30d':30,'90d':90,'month':31,'1':31,'3':93,'6':186})[value]||FIRST_LOAD_DAYS;
+    if((DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS)<days){
+      const content=document.getElementById('mainContent');
+      if(content)content.innerHTML='<div class="loading-row"><div class="spin"></div>載入所選期間異動紀錄...</div>';
+      await loadStockLog({mode:'recent',days});
+    }
+  }
+  if(CURRENT_TAB==='stocklog')renderTab('stocklog');
+}
+function changeStockLogPage(delta){
+  const f=getStockLogFilters();
+  f.page=Math.max(1,(Number(f.page)||1)+delta);
+  renderTab('stocklog');
+  const content=document.getElementById('mainContent');
+  if(content)content.scrollTop=0;
 }
 function setStockLogSearchDraft(value){
   getStockLogFilters().draft=String(value||'');
@@ -8977,6 +9005,7 @@ function applyStockLogSearch(value){
   const v=value!==undefined?value:(document.getElementById('slSearch')?.value||f.draft||'');
   f.draft=String(v||'');
   f.q=String(v||'').trim();
+  f.page=1;
   requestFullDataForSearch('stocklog',f.q);
   renderTab('stocklog');
 }
@@ -8984,6 +9013,7 @@ function clearStockLogSearch(){
   const f=getStockLogFilters();
   f.q='';
   f.draft='';
+  f.page=1;
   renderTab('stocklog');
 }
 function updateOrderFilter(key,value,focusId=''){
@@ -9080,7 +9110,7 @@ function switchTab(tab){
   if(tab==='health')setTimeout(()=>runHealthCheck(false),80);
 }
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
-function pill(t){const[bg,c]=PILL[t]||['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${t||'—'}</span>`;}
+function pill(t){const[bg,c]=Object.prototype.hasOwnProperty.call(PILL,t)?PILL[t]:['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${escapeHtml(t||'—')}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='analytics'){if(analyticsDataReady()){c.innerHTML=renderAnalytics();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入營運分析...</div>';loadAnalyticsData().then(()=>{if(CURRENT_TAB==='analytics')c.innerHTML=renderAnalytics();});}}else if(tab==='stocklog'){if(isFresh('stocklog')){c.innerHTML=renderStockLog();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}}
   else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
   else if(tab==='corders'){
@@ -12352,32 +12382,22 @@ function renderStockLog(){
   const syncStatus=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:${stockLogLoadError?'rgba(255,91,112,.08)':'rgba(61,220,151,.07)'};border:1px solid ${stockLogLoadError?'rgba(255,91,112,.32)':'rgba(61,220,151,.22)'};border-radius:8px">
     <div style="font-size:.72rem;color:${stockLogLoadError?'var(--red2)':'var(--text2)'}">
       <b>${stockLogLoadError?'異動紀錄暫時無法讀取':'Supabase 主資料已連線'}</b>
-      <span style="margin-left:7px">${stockLogLoadError?escapeHtml(stockLogLoadError):`近 ${FIRST_LOAD_DAYS} 天優先載入；Notion 為查閱鏡像。`}</span>
+      <span style="margin-left:7px">${stockLogLoadError?escapeHtml(stockLogLoadError):`${DATA_LOAD_MODE.stocklog==='all'?'已載入可用歷史':`近 ${DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS} 天已載入`}；Notion 為查閱鏡像。`}</span>
       ${pendingCounts.detail?`<span style="margin-left:7px;color:var(--yellow)">操作明細待補 ${pendingCounts.detail} 筆</span>`:''}
       ${pendingCounts.notion?`<span style="margin-left:7px;color:var(--text3)">Notion 鏡像待補 ${pendingCounts.notion} 筆</span>`:''}
     </div>
     ${(stockLogLoadError||pendingCount)?`<button class="btn btn-ghost btn-xs" onclick="retryStockLogSync()">重新同步</button>`:''}
   </div>`;
   const slState=getStockLogFilters();
-  const dateVal=document.getElementById('slDateFilter')?.value||slState.date||'month';
-  const typeVal=document.getElementById('slTypeFilter')?.value||slState.type||'all';
-  const viewVal=document.getElementById('slViewFilter')?.value||slState.view||'all';
+  const dateVal=slState.date||'month';
+  const typeVal=slState.type||'all';
+  const viewVal=slState.view||'all';
   const qVal=(slState.q||'').toLowerCase().trim();
   const qDraft=slState.draft!==undefined?slState.draft:slState.q||'';
   slState.date=dateVal; slState.type=typeVal; slState.view=viewVal; slState.q=qVal;
 
-  let data=[...stockLogs];
-
-  // 日期篩選
-  if(dateVal!=='0'){
-    const today=new Date();
-    let cutoff;
-    if(dateVal==='7d'){ cutoff=new Date(); cutoff.setDate(cutoff.getDate()-7); }
-    else if(dateVal==='month'){ cutoff=new Date(today.getFullYear(),today.getMonth(),1); }
-    else { cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-parseInt(dateVal)); }
-    const cs=taipeiDateKey(cutoff);
-    data=data.filter(s=>!s.date||s.date>=cs);
-  }
+  const periodLogs=applyDateFilterValue(dateVal,stockLogs,'date');
+  let data=[...periodLogs];
 
   // 類型篩選
   if(typeVal!=='all') data=data.filter(s=>s.type===typeVal);
@@ -12386,15 +12406,15 @@ function renderStockLog(){
 
   // 關鍵字
   if(qVal) data=data.filter(s=>
-    s.matName.toLowerCase().includes(qVal)||
-    (s.matCode&&s.matCode.toLowerCase().includes(qVal))||
-    (s.ref&&s.ref.toLowerCase().includes(qVal))||
-    (s.note&&s.note.toLowerCase().includes(qVal))
+    [s.matName,s.matCode,s.ref,s.note].some(value=>String(value||'').toLocaleLowerCase().includes(qVal))
   );
+  const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
+  slState.page=Math.min(Math.max(1,Number(slState.page)||1),pageCount);
+  const pageRows=data.slice((slState.page-1)*pageSize,slState.page*pageSize);
 
   // 統計
-  const inventoryMoves=stockLogs.filter(stockLogIsInventoryMove);
-  const operationLogs=stockLogs.filter(s=>!stockLogIsInventoryMove(s));
+  const inventoryMoves=periodLogs.filter(stockLogIsInventoryMove);
+  const operationLogs=periodLogs.filter(s=>!stockLogIsInventoryMove(s));
   const adjTotal=inventoryMoves.filter(s=>s.type==='手動調整').length;
 
   const typeColors={'入料':'var(--green)','領料':'var(--blue)','領料沖銷':'var(--green)','入庫沖銷':'var(--red2)','C端出貨':'var(--blue)','C端退料':'var(--green)','蝦皮完成入庫':'var(--green)','手動調整':'var(--yellow)','品管退回':'var(--red)','操作紀錄':'var(--text3)'};
@@ -12405,7 +12425,7 @@ function renderStockLog(){
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
-      {label:'總異動筆數',val:stockLogs.length,color:'var(--cyan2)',icon:'📊'},
+      {label:'期間異動筆數',val:periodLogs.length,color:'var(--cyan2)',icon:'📊'},
       {label:'庫存異動',val:inventoryMoves.length,color:'var(--green)',icon:'📦'},
       {label:'操作紀錄',val:operationLogs.length,color:'var(--text2)',icon:'🧾'},
       {label:'手動調整',val:adjTotal,color:'var(--yellow)',icon:'✏️'},
@@ -12418,7 +12438,7 @@ function renderStockLog(){
 
   <!-- 篩選列 -->
   <div class="panel" style="margin-bottom:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),date:this.value};if(this.value==='0'&&DATA_LOAD_MODE.stocklog!=='all'){loadFullData('stocklog')}else{renderTab('stocklog')}">
+    <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="updateStockLogFilter('date',this.value)">
       <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option>
       <option value="30d" ${dateVal==='30d'?'selected':''}>近30天</option>
       <option value="90d" ${dateVal==='90d'?'selected':''}>近90天</option>
@@ -12428,14 +12448,14 @@ function renderStockLog(){
       <option value="6" ${dateVal==='6'?'selected':''}>近半年</option>
       <option value="0" ${dateVal==='0'?'selected':''}>全部</option>
     </select>
-    <select class="inp" id="slTypeFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),type:this.value};renderTab('stocklog')">
-      <option value="all">全部類型</option>
+    <select class="inp" id="slTypeFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="updateStockLogFilter('type',this.value)">
+      <option value="all" ${typeVal==='all'?'selected':''}>全部類型</option>
       <option value="入料" ${typeVal==='入料'?'selected':''}>📥 入料</option>
       <option value="領料" ${typeVal==='領料'?'selected':''}>🗂️ 領料</option>
       <option value="手動調整" ${typeVal==='手動調整'?'selected':''}>✏️ 手動調整</option>
       <option value="品管退回" ${typeVal==='品管退回'?'selected':''}>❌ 品管退回</option>
     </select>
-    <select class="inp" id="slViewFilter" style="width:120px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),view:this.value};renderTab('stocklog')">
+    <select class="inp" id="slViewFilter" style="width:120px;padding:5px 8px;font-size:0.75rem" onchange="updateStockLogFilter('view',this.value)">
       <option value="all" ${viewVal==='all'?'selected':''}>全部紀錄</option>
       <option value="inventory" ${viewVal==='inventory'?'selected':''}>只看庫存異動</option>
       <option value="operation" ${viewVal==='operation'?'selected':''}>只看操作紀錄</option>
@@ -12446,10 +12466,11 @@ function renderStockLog(){
       oninput="setStockLogSearchDraft(this.value)"
       onkeydown="if(event.key==='Enter'&&!this._composing&&this.dataset.composing!=='1'&&!(event&&event.isComposing)){event.preventDefault();applyStockLogSearch(this.value)}">
     <button class="btn btn-blue btn-xs" onclick="applyStockLogSearch()">搜尋</button>
-    ${(slState.q||slState.type!=='all'||slState.view!=='all'||slState.date!=='month')?`<button class="btn btn-ghost btn-xs" onclick="window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:''};renderTab('stocklog')">清除</button>`:''}
-    <span style="font-size:0.6875rem;color:var(--text3)">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
+    ${(slState.q||slState.type!=='all'||slState.view!=='all'||slState.date!=='month')?`<button class="btn btn-ghost btn-xs" onclick="window._STOCKLOG_FILTERS={date:'month',type:'all',view:'all',q:'',draft:'',page:1};renderTab('stocklog')">清除</button>`:''}
+    <span style="font-size:0.6875rem;color:var(--text3)">符合 <b style="color:var(--text)">${data.length}</b> 筆 · 第 ${slState.page}/${pageCount} 頁</span>
   </div>
   ${limitedDataHint('stocklog','異動紀錄')}
+  ${stockLogHasMore?'<div class="info-warn" role="status">異動紀錄已達 20,000 筆顯示上限；目前統計只涵蓋已載入資料，請縮短日期或搜尋範圍。</div>':''}
 
   <!-- 記錄表格 -->
   <div class="panel"><div class="panel-hdr"><span class="panel-title">庫存異動記錄 <span class="badge">${data.length}</span></span></div>
@@ -12465,24 +12486,25 @@ function renderStockLog(){
       <th class="hide-m">關聯單號</th>
       <th class="hide-m">操作人員</th>
     </tr>
-    ${data.map(s=>{
+    ${pageRows.map(s=>{
       const isMove=stockLogIsInventoryMove(s);
       const displayType=stockLogDisplayType(s);
       const before=Number(s.before)||0;
       const after=Number(s.after)||0;
       const qtyColor=!isMove?'var(--text3)':after>before?'var(--green)':after<before?'var(--red2)':'var(--yellow)';
       return`<tr>
-        <td style="font-family:monospace;font-size:0.6875rem;color:var(--text3)">${s.date||'—'}</td>
+        <td style="font-family:monospace;font-size:0.6875rem;color:var(--text3)">${escapeHtml(s.date||'—')}</td>
         <td style="font-size:0.75rem;font-weight:600">${escapeHtml(stockLogDisplayName(s))}${stockLogDisplaySubText(s)?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">${escapeHtml(stockLogDisplaySubText(s))}</div>`:''}</td>
-        <td><span class="pill" style="background:${typeColors[displayType]||typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[displayType]||typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[displayType]||typeColors[s.type]||'var(--border)'}44">${displayType}</span></td>
+        <td><span class="pill" style="background:${typeColors[displayType]||typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[displayType]||typeColors[s.type]||'var(--text2)'};border:1px solid ${typeColors[displayType]||typeColors[s.type]||'var(--border)'}44">${escapeHtml(displayType)}</span></td>
         <td style="font-family:monospace;font-weight:700;color:${qtyColor}">${stockLogQtyLabel(s)}</td>
         <td style="font-family:monospace;color:var(--text3)">${isMove?s.before:'—'}</td>
         <td style="font-family:monospace;font-weight:600;color:var(--text)">${isMove?s.after:'—'}</td>
-        <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:var(--cyan2)">${s.ref||'—'}</td>
-        <td class="hide-m" style="font-size:0.6875rem;color:var(--text2)">${s.operator||'—'}</td>
+        <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:var(--cyan2)">${escapeHtml(s.ref||'—')}</td>
+        <td class="hide-m" style="font-size:0.6875rem;color:var(--text2)">${escapeHtml(s.operator||'—')}</td>
       </tr>`;
     }).join('')}
   </table></div>`}
+  ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${slState.page===1?'disabled':''} onclick="changeStockLogPage(-1)">上一頁</button><span style="font-size:.75rem">${slState.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${slState.page===pageCount?'disabled':''} onclick="changeStockLogPage(1)">下一頁</button></div>`:''}
   </div>`;
 }
 
@@ -12498,6 +12520,7 @@ async function retryStockLogSync(){
 // 📅 排程模組
 // ══════════════════════════════════════════════
 let schedules = [];
+let scheduleLoadError='';
 
 async function loadSchedule(){
   try{
@@ -12514,16 +12537,16 @@ async function loadSchedule(){
       status: p.properties?.['狀態']?.select?.name||'待開始',
       note: getRichText(p.properties,'備註'),
     })).sort((a,b)=>a.startDate.localeCompare(b.startDate));
-  }catch(e){ console.warn('loadSchedule:',e); schedules=[]; }
+    scheduleLoadError='';
+  }catch(e){ console.warn('loadSchedule:',e); scheduleLoadError=e?.message||String(e); }
 }
 
 function renderSchedule(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/c66f324d59c64276bdc5b0ec915c9c20" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📅 生產排程</a><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a></div>';;
   const canEdit = !isViewOnly()&&(isAdminRole()||ROLE==='warehouse');
   const today = todayStr();
-  const viewVal = document.getElementById('schView')?.value||'list';
-  const typeVal = document.getElementById('schType')?.value||'all';
-  const statusVal = document.getElementById('schStatus')?.value||'all';
+  const filters=window._SCHEDULE_FILTERS||(window._SCHEDULE_FILTERS={view:'list',type:'all',status:'all'});
+  const viewVal=filters.view,typeVal=filters.type,statusVal=filters.status;
 
   let data = [...schedules];
   if(typeVal!=='all') data=data.filter(s=>s.type===typeVal);
@@ -12565,7 +12588,7 @@ function renderSchedule(){
       const daySchedules=data.filter(s=>s.startDate===dateStr||s.endDate===dateStr||(s.startDate<=dateStr&&s.endDate>=dateStr));
       cal+=`<div style="padding:5px;border:1px solid var(--border);min-height:64px;background:${isToday?'rgba(59,130,246,.08)':'var(--bg2)'}">
         <div style="font-size:0.6875rem;font-weight:${isToday?800:400};color:${isToday?'var(--blue)':'var(--text2)'};margin-bottom:3px">${d}</div>
-        ${daySchedules.slice(0,2).map(s=>`<div style="font-size:0.5625rem;background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border-radius:3px;padding:1px 4px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>`).join('')}
+        ${daySchedules.slice(0,2).map(s=>`<div style="font-size:0.5625rem;background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'};border-radius:3px;padding:1px 4px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.name)}</div>`).join('')}
         ${daySchedules.length>2?`<div style="font-size:0.5625rem;color:var(--text3)">+${daySchedules.length-2} 更多</div>`:''}
       </div>`;
       cellIdx++;
@@ -12575,7 +12598,7 @@ function renderSchedule(){
     return cal;
   }
 
-  return _notionBar + `
+  return _notionBar + `${scheduleLoadError?`<div class="info-warn" role="alert">排程資料暫時無法更新，以下為上次載入的資料。${escapeHtml(scheduleLoadError)}</div>`:''}
   <!-- 統計列 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
@@ -12583,7 +12606,7 @@ function renderSchedule(){
       {label:'本週開始',val:thisWeek,color:'var(--cyan2)',icon:'📅'},
       {label:'🔴 緊急',val:urgent,color:'var(--red)',icon:'🚨'},
       {label:'逾期未完',val:overdue,color:'var(--amber)',icon:'⚠'},
-    ].map(c=>`<div style="background:var(--bg2);border:1px solid ${overdue>0&&c.label==='逾期未完'?'rgba(245,158,11,.3)':'var(--border)'};border-radius:10px;padding:12px;text-align:center;cursor:pointer" onclick="document.getElementById('schStatus').value='進行中';renderTab('schedule')">
+    ].map(c=>`<div style="background:var(--bg2);border:1px solid ${overdue>0&&c.label==='逾期未完'?'rgba(245,158,11,.3)':'var(--border)'};border-radius:10px;padding:12px;text-align:center">
       <div style="font-size:1.25rem;margin-bottom:2px">${c.icon}</div>
       <div style="font-size:1.5rem;font-weight:800;color:${c.color};font-family:monospace">${c.val}</div>
       <div style="font-size:0.625rem;color:var(--text3)">${c.label}</div>
@@ -12592,16 +12615,16 @@ function renderSchedule(){
 
   <!-- 篩選列 -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-    <select class="inp" id="schView" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('schedule')">
+    <select class="inp" id="schView" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="updateScheduleFilter('view',this.value)">
       <option value="list" ${viewVal==='list'?'selected':''}>📋 列表</option>
       <option value="calendar" ${viewVal==='calendar'?'selected':''}>📅 月曆</option>
     </select>
-    <select class="inp" id="schType" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('schedule')">
-      <option value="all">全部類型</option>
+    <select class="inp" id="schType" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="updateScheduleFilter('type',this.value)">
+      <option value="all" ${typeVal==='all'?'selected':''}>全部類型</option>
       ${['生產','交貨','採購入料','品管','維護','其他'].map(t=>`<option value="${t}" ${typeVal===t?'selected':''}>${t}</option>`).join('')}
     </select>
-    <select class="inp" id="schStatus" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="renderTab('schedule')">
-      <option value="all">全部狀態</option>
+    <select class="inp" id="schStatus" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="updateScheduleFilter('status',this.value)">
+      <option value="all" ${statusVal==='all'?'selected':''}>全部狀態</option>
       ${['待開始','進行中','已完成','延期'].map(s=>`<option value="${s}" ${statusVal===s?'selected':''}>${s}</option>`).join('')}
     </select>
     <span style="font-size:0.6875rem;color:var(--text3);margin-left:auto">共 <b style="color:var(--text)">${data.length}</b> 筆</span>
@@ -12618,12 +12641,12 @@ function renderSchedule(){
       ${data.map(s=>{
         const isOverdue=s.endDate&&s.endDate<today&&s.status!=='已完成';
         return`<tr style="${isOverdue?'background:rgba(245,101,101,.05)':''}">
-          <td style="font-weight:600">${s.name}${s.orderRef?`<div style="font-size:0.625rem;color:var(--cyan2);font-family:monospace">${s.orderRef}</div>`:''}</td>
-          <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'}">${s.type||'—'}</span></td>
-          <td style="font-family:monospace;font-size:0.6875rem">${s.startDate||'—'}</td>
-          <td style="font-family:monospace;font-size:0.6875rem;color:${isOverdue?'var(--red)':'var(--text2)'}">${s.endDate||'—'}${isOverdue?' ⚠':''}</td>
-          <td class="hide-m" style="font-size:0.75rem">${s.person||'—'}</td>
-          <td><span class="pill" style="background:${statusColors[s.status]||'var(--bg4)'}22;color:${statusColors[s.status]||'var(--text2)'}">${s.status||'—'}</span></td>
+          <td style="font-weight:600">${escapeHtml(s.name)}${s.orderRef?`<div style="font-size:0.625rem;color:var(--cyan2);font-family:monospace">${escapeHtml(s.orderRef)}</div>`:''}</td>
+          <td><span class="pill" style="background:${typeColors[s.type]||'var(--bg4)'}22;color:${typeColors[s.type]||'var(--text2)'}">${escapeHtml(s.type||'—')}</span></td>
+          <td style="font-family:monospace;font-size:0.6875rem">${escapeHtml(s.startDate||'—')}</td>
+          <td style="font-family:monospace;font-size:0.6875rem;color:${isOverdue?'var(--red)':'var(--text2)'}">${escapeHtml(s.endDate||'—')}${isOverdue?' ⚠':''}</td>
+          <td class="hide-m" style="font-size:0.75rem">${escapeHtml(s.person||'—')}</td>
+          <td><span class="pill" style="background:${statusColors[s.status]||'var(--bg4)'}22;color:${statusColors[s.status]||'var(--text2)'}">${escapeHtml(s.status||'—')}</span></td>
           <td class="hide-m" style="font-size:0.75rem">${priorityIcon[s.priority]||'—'}</td>
           ${canEdit?`<td style="white-space:nowrap">
             <button class="btn btn-ghost btn-sm" onclick="openEditSchedule('${s.id}')">✏</button>
@@ -12633,6 +12656,11 @@ function renderSchedule(){
       }).join('')}
     </table></div>`}
   </div>`}`;
+}
+function updateScheduleFilter(key,value){
+  const filters=window._SCHEDULE_FILTERS||(window._SCHEDULE_FILTERS={view:'list',type:'all',status:'all'});
+  filters[key]=value;
+  renderTab('schedule');
 }
 
 async function submitSchedule(existId){
@@ -12646,7 +12674,7 @@ async function submitSchedule(existId){
   const note=document.getElementById('sch_note').value.trim();
   const status=document.getElementById('sch_status')?.value||'待開始';
   if(!name){showToast('請填入排程名稱','warn');return;}
-  closeModal();showToast('儲存中...','warn');
+  showToast('儲存中...','warn');
   try{
     const props={
       '排程名稱':{title:[{text:{content:name}}]},
@@ -12660,21 +12688,22 @@ async function submitSchedule(existId){
     if(start)props['開始日期']={date:{start}};
     if(end)props['結束日期']={date:{start:end}};
     if(existId){
-      await notionAPI('PATCH','pages/'+existId,{properties:props});
+      assertNotionPage(await notionAPI('PATCH','pages/'+existId,{properties:props}),'更新排程');
       showToast('✅ 排程已更新','ok');
     }else{
-      await notionAPI('POST','pages',{parent:{database_id:DB.schedule},properties:props});
+      assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:DB.schedule},properties:props}),'建立排程');
       showToast('✅ 排程已建立','ok');
     }
+    closeModal();
     await loadSchedule();renderTab('schedule');
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
 async function doScheduleStatus(id, status){
   const s=schedules.find(x=>x.id===id);
-  if(s){s.status=status;renderTab('schedule');}
   try{
-    await updatePage(id,{'狀態':{select:{name:status}}});
+    assertNotionPage(await updatePage(id,{'狀態':{select:{name:status}}}),'更新排程狀態');
+    if(s){s.status=status;renderTab('schedule');}
     showToast('✅ 已更新排程狀態','ok');
     setTimeout(()=>loadSchedule().then(()=>renderTab('schedule')),1500);
   }catch(e){showToast('❌ '+e.message,'err');}
@@ -17467,14 +17496,17 @@ function renderPicking(){
   const sub=window._PICK_SUB;
   const statusFilter=window._PICK_STATUS;
   const _notionBar='<div class="notion-bar"><span class="notion-bar-label">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" class="notion-link">📄 領料主單</a><a href="https://www.notion.so/267f16cfe88a41ed8049d39d618a1275" target="_blank" class="notion-link">📝 領料明細</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" class="notion-link">🔩 BOM清單</a></div>';
-  const dateVal=document.getElementById('pickDateFilter')?.value||'6';
-  const allData=applySort('picking',applyDateFilter('pick',picks,'date'));
+  const dateVal=window._PICK_DATE||'6';
+  const allData=applySort('picking',applyDateFilterValue(dateVal,picks,'date'));
   const autoData=allData.filter(p=>p.orderId);
   const manualData=allData.filter(p=>!p.orderId);
   const focusOrder=window._PICK_FOCUS_ORDER||'';
   const scopedAutoData=focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData;
   const filteredAutoData=statusFilter==='all'?scopedAutoData:scopedAutoData.filter(p=>pickingVisualStage(p)===statusFilter);
   const data=sub==='manual'?manualData:filteredAutoData;
+  const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
+  window._PICK_PAGE=Math.min(Math.max(1,Number(window._PICK_PAGE)||1),pageCount);
+  const pageRows=data.slice((window._PICK_PAGE-1)*pageSize,window._PICK_PAGE*pageSize);
   const canOperate=!isViewOnly();
   const returnRequests=scopedAutoData.filter(isPickingReturnRequest);
   const pickedRows=scopedAutoData.filter(isPickingPicked);
@@ -17519,7 +17551,7 @@ function renderPicking(){
   </div>`:'';
   return _notionBar + tabs + workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `<div class="filter-bar">
     <span class="filter-label">時間：</span>
-    <select class="inp" id="pickDateFilter" style="width:130px" onchange="renderTab('picking')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
+    <select class="inp" id="pickDateFilter" style="width:130px" onchange="updatePickingDate(this.value)"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     ${sub==='auto'?`<span class="filter-label">狀態：</span>
     ${pickingStatusChip('all','全部',statusFilter,scopedAutoData.length)}
     ${pickingStatusChip('return','待回料確認',statusFilter,returnRequests.length)}
@@ -17530,11 +17562,12 @@ function renderPicking(){
     ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="window._PICK_FOCUS_ORDER='';renderTab('picking')">顯示全部領料</button></div>`:''}
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span></div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">第 ${window._PICK_PAGE}/${pageCount} 頁</span></div>
   ${!data.length?`<div class="loading-row">${sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
-  ${data.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${p.no}</td><td class="hide-m" style="font-size:0.8125rem">${p.product||p.note||'—'}</td><td style="font-family:monospace">${p.qty}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${p.date||p.created||'—'}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
+  ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
+  ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===1?'disabled':''} onclick="changePickingPage(-1)">上一頁</button><span style="font-size:.75rem">${window._PICK_PAGE} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===pageCount?'disabled':''} onclick="changePickingPage(1)">下一頁</button></div>`:''}
   </div>`;
 }
 
@@ -17548,6 +17581,17 @@ function pickingStatusFilterLabel(v){
 function pickingStatusChip(value,label,current,count){
   const active=value===current;
   return `<button class="filter-chip ${active?'active':''}" onclick="window._PICK_STATUS='${value}';renderTab('picking')">${label} <b>${count}</b></button>`;
+}
+function updatePickingDate(value){
+  window._PICK_DATE=value;
+  window._PICK_PAGE=1;
+  renderTab('picking');
+}
+function changePickingPage(delta){
+  window._PICK_PAGE=Math.max(1,(Number(window._PICK_PAGE)||1)+delta);
+  renderTab('picking');
+  const content=document.getElementById('mainContent');
+  if(content)content.scrollTop=0;
 }
 
 function inboundListFilters(){

@@ -1932,10 +1932,10 @@ async function erpPickingList(request, env, cors) {
     if(orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId))return resp400(cors,'Invalid order_id');
     const orderFilter=orderId?`&source_order_notion_page_id=eq.${encodeURIComponent(orderId)}`:'';
     const limit = Math.max(1, Math.min(5000, Number.isFinite(requestedLimit) ? requestedLimit : 5000));
-    const masters = await supabaseFetch(
+    const masters = (await supabaseAll(
       env,
-      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null${orderFilter}&select=id,pick_number,pick_type,status,production_quantity,picked_at,notes,notion_page_id,product_display,picker_display,source_order_notion_page_id,source,source_payload,created_at,updated_at&order=created_at.desc&limit=${limit}`
-    );
+      `/rest/v1/pick_lists?organization_id=eq.${encodeURIComponent(organizationId)}&archived_at=is.null${orderFilter}&select=id,pick_number,pick_type,status,production_quantity,picked_at,notes,notion_page_id,product_display,picker_display,source_order_notion_page_id,source,source_payload,created_at,updated_at&order=created_at.desc,id.desc`
+    )).slice(0, limit);
     const masterIds = (Array.isArray(masters) ? masters : []).map((row) => cleanText(row.id)).filter(Boolean);
     let itemRows = [];
     if (masterIds.length) {

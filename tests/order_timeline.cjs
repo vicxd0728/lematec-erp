@@ -93,7 +93,7 @@ test('Worker picking filter is exact and rejects malformed order IDs',async()=>{
  const worker=fs.readFileSync(path.join(root,'cloudflare-worker-green-wave-c22f-FULL-UPDATED.js'),'utf8');
  const calls=[];
  const w=vm.createContext({URL,cleanText:x=>String(x||''),isUuid:x=>/^[a-f0-9-]{36}$/i.test(x),
-  getSupabaseInventoryContext:async()=>({organization:{id:'org'}}),supabaseFetch:async(e,url)=>{calls.push(url);return [];},
+  getSupabaseInventoryContext:async()=>({organization:{id:'org'}}),supabaseAll:async(e,url)=>{calls.push(url);return [];},
   respOK:(cors,data)=>data,resp400:()=>({status:400}),resp500:(cors,error)=>({error}),taipeiISOString:()=>'',normalizePickingItems:x=>x});
  vm.runInContext(worker.slice(worker.indexOf('async function erpPickingList'),worker.indexOf('async function erpPickingCreate')),w);
  const id='3c9ff6f4-24bb-81ad-9798-e0ebf3847f44'; // Real Notion v8 format, not an inventory UUID.
