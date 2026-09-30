@@ -6191,7 +6191,7 @@ function openModal(type,data){
       <div class="field" style="margin-bottom:10px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">內容</label><textarea class="inp" id="ann_body" rows="4" style="resize:vertical">${escapeHtml(d.content||d.body||'')}</textarea></div>
       <div class="form-row" style="margin-bottom:10px">
         <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">發佈日期</label><input class="inp" type="date" id="ann_date" value="${escapeHtml(d.date||'')}"></div>
-        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">狀態</label><select class="inp" id="ann_status"><option${d.status==='草稿'?' selected':''}>草稿</option><option${(!d.status||d.status==='發佈')?' selected':''}>發佈</option><option${d.status==='過期'?' selected':''}>過期</option></select></div>
+        <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">狀態</label><select class="inp" id="ann_status"><option${d.status==='草稿'?' selected':''}>草稿</option><option${(!d.status||d.status==='已發佈'||d.status==='發佈')?' selected':''}>已發佈</option><option${d.status==='過期'?' selected':''}>過期</option></select></div>
       </div>
       <div class="form-row" style="margin-bottom:10px">
         <div><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">顯示順序（小=優先）</label><input class="inp" type="number" id="ann_order" value="${Number(d.order)||0}" min="0" style="width:100%"></div>
@@ -15697,7 +15697,7 @@ function renderDashboard(){
   const qcPending=(orders.filter(o=>o.status==='待檢驗').length)+(inbounds.filter(i=>i.qcStatus==='待品檢').length);
 
   // 公告
-  const pubAll=announces.filter(a=>a.status==='已發佈');
+  const pubAll=announces.filter(a=>a.status==='已發佈'||a.status==='發佈');
   const pinnedOne=pubAll.filter(a=>a.pinned).sort((a,b)=>(a.order||99)-(b.order||99))[0]||null;
   const latestOne=pubAll.filter(a=>!a.pinned).sort((a,b)=>b.date.localeCompare(a.date))[0]||null;
   const dashAnns=[pinnedOne,latestOne].filter(Boolean);
@@ -17743,7 +17743,7 @@ function renderAnnounce(){
     + '</div><div style="padding:8px">';
   if(!sorted.length) html+='<div class="info-box">目前沒有公告</div>';
   else sorted.forEach(a=>{
-    const statusColor = a.status==='發佈'?'var(--green)':a.status==='草稿'?'var(--text3)':'var(--red)';
+    const statusColor = (a.status==='已發佈'||a.status==='發佈')?'var(--green)':a.status==='草稿'?'var(--text3)':'var(--red)';
     html+=`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
         <div style="font-weight:600;color:var(--text);font-size:0.875rem">${a.pinned?'📌 ':''}${escapeHtml(a.title||'（無標題）')}</div>

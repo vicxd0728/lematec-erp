@@ -69,7 +69,7 @@ test('schedule editing preserves its status and blocks reversed dates',async()=>
 });
 
 test('announcement write failure keeps input open; refresh failure is labeled after acceptance',async()=>{
-  const fields={ann_title:{value:'重要公告'},ann_body:{value:'內容'},ann_date:{value:'2026-10-01'},ann_status:{value:'發佈'},ann_order:{value:'1'},ann_pin:{checked:false}};
+  const fields={ann_title:{value:'重要公告'},ann_body:{value:'內容'},ann_date:{value:'2026-10-01'},ann_status:{value:'已發佈'},ann_order:{value:'1'},ann_pin:{checked:false}};
   let closed=0,shouldFail=true;
   const toasts=[];
   const ctx=vm.createContext({
@@ -111,6 +111,11 @@ test('edit forms restore announcement content and schedule dates',()=>{
   ctx.openModal('newAnnounce',{id:'id',title:'公告',content:'保留內容</textarea>',date:'2026-10-01'});
   assert.match(modal.innerHTML,/保留內容&lt;\/textarea&gt;/);
   assert.match(modal.innerHTML,/value="2026-10-01"/);
+  assert.match(modal.innerHTML,/<option selected>已發佈<\/option>/);
+  ctx.openModal('newAnnounce',{id:'id',title:'公告',status:'已發佈'});
+  assert.match(modal.innerHTML,/<option selected>已發佈<\/option>/);
+  ctx.openModal('newAnnounce',{id:'id',title:'公告',status:'發佈'});
+  assert.match(modal.innerHTML,/<option selected>已發佈<\/option>/);
   ctx.openModal('editSchedule',{id:'id',name:'維修',startDate:'2026-10-02',endDate:'2026-10-03'});
   assert.match(modal.innerHTML,/id="sc_start" value="2026-10-02"/);
   assert.match(modal.innerHTML,/id="sc_end" value="2026-10-03"/);
