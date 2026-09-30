@@ -8886,9 +8886,9 @@ function applyDateFilterValue(val,data,dateKey='created'){
   const today=new Date();
   let cutoff;
 
-  if(val==='7d'){
+  if(val==='7d'||val==='30d'||val==='90d'){
     cutoff=new Date();
-    cutoff.setDate(cutoff.getDate()-7);
+    cutoff.setDate(cutoff.getDate()-Number(val.slice(0,-1)));
   } else if(val==='month'){
     cutoff=new Date(today.getFullYear(),today.getMonth(),1);
   } else {
@@ -9054,6 +9054,7 @@ function formatOptionalMoney(n){
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
 function switchTab(tab){
+  const previousTab=CURRENT_TAB;
   CURRENT_TAB=tab;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>{
     const roleTabs=ROLES[ROLE]?.tabs||[];
@@ -9061,6 +9062,10 @@ function switchTab(tab){
   });
   keepActiveNavTabVisible(tab);
   renderTab(tab);
+  if(previousTab!==tab){
+    const content=document.getElementById('mainContent');
+    if(content)content.scrollTop=0;
+  }
   if(!['notes','corders','stocklog','schedule','analytics'].includes(tab)){
     loadTabData(tab).then(()=>{
       if(CURRENT_TAB===tab&&!isEditingNow()&&!isModalOpen())renderTab(tab);
@@ -11354,6 +11359,7 @@ function mapSupabaseStockRows(rows){
 }
 async function loadWorkerStockLog(mode='recent',days=FIRST_LOAD_DAYS){
   const pageLimit=500;
+  const maxRows=20000;
   const rows=[];
   let offset=0;
   let hasMore=false;
@@ -11372,8 +11378,8 @@ async function loadWorkerStockLog(mode='recent',days=FIRST_LOAD_DAYS){
     rows.push(...(data?.rows||[]));
     hasMore=data?.has_more===true;
     offset=Number(data?.next_offset||0);
-  }while(mode==='all'&&hasMore&&offset>0&&rows.length<20000);
-  stockLogHasMore=mode!=='all'&&hasMore;
+  }while(hasMore&&offset>0&&rows.length<maxRows);
+  stockLogHasMore=hasMore;
   return mapSupabaseStockRows(rows);
 }
 async function loadStockLog(options={}){
@@ -12074,7 +12080,7 @@ function analyticsGo(tab,action='',value=''){
       window._CO_DAYS=analyticsRange()==='all'?'0':String(analyticsRange());
     }else if(tab==='stocklog'){
       const state=window._STOCKLOG_FILTERS=window._STOCKLOG_FILTERS||{};
-      state.date=analyticsRange()==='all'?'0':'1';
+      state.date=analyticsRange()==='all'?'0':`${analyticsRange()}d`;
       state.view='inventory';
       state.type=action==='manual'?'手動調整':'all';
       state.q=(action==='sku'||action==='consume')?(value||''):'';
@@ -12245,6 +12251,18 @@ function renderAnalytics(){
   const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
   const topCProduct=analyticsTopEntries(a.cProductTotals,1)[0];
   const topReturnReason=analyticsTopEntries(a.cReturnReasons,1)[0];
+  const movementLoadFailed=!!stockLogLoadError;
+  const movementScopeComplete=!movementLoadFailed&&!stockLogHasMore&&(a.range==='all'
+    ? DATA_LOAD_MODE.stocklog==='all'&&stockLogs.length<20000
+    : DATA_LOAD_MODE.stocklog==='all'||DATA_LOAD_DAYS.stocklog>=Number(a.range));
+  const movementEvidence=movementLoadFailed?'異動資料載入失敗，請重新整理'
+    :!movementScopeComplete?'異動資料未涵蓋完整選定期間，請重新載入'
+    :!a.logRows.length?'選定期間沒有異動紀錄，尚不能判定'
+    :'已載入範圍內';
+  const movementUnverified=movementLoadFailed||!movementScopeComplete||!a.logRows.length;
+  const auditSub=a.audit.issues.length
+    ?`已載入紀錄有 ${a.audit.issues.length} 項待處理；${movementEvidence}`
+    :movementUnverified?movementEvidence:'已載入範圍內未發現異常';
   const decisionCards=[
     analyticsDecisionCard({
       icon:'⏰',title:'先追交期',value:analyticsNum(a.overdue.length),
@@ -12252,14 +12270,14 @@ function renderAnalytics(){
       action:'查看逾期訂單',tab:'orders',nav:'overdue',color:a.overdue.length?'var(--red2)':'var(--green2)'
     }),
     analyticsDecisionCard({
-      icon:'📦',title:topRisk?.stockState==='unknown'?'先確認庫存':topRisk?.stockState==='unmatched'?'先確認料號':'補料優先',value:topRisk?topRisk.sku:'正常',
-      sub:topRisk?`本期耗用 ${analyticsNum(topRisk.used)}，${topRisk.hint}${topRisk.coverDays!==null?` · 約可供 ${analyticsNum(Math.round(topRisk.coverDays))} 天`:''}`:'目前沒有明顯高耗用低庫存',
-      action:'查看該料號',tab:'inventory',nav:'sku',filter:topRisk?.sku||'',color:topRisk?.stockState==='unknown'||topRisk?.stockState==='unmatched'?'var(--text3)':topRisk?'var(--amber)':'var(--green2)'
+      icon:'📦',title:topRisk?.stockState==='unknown'?'先確認庫存':topRisk?.stockState==='unmatched'?'先確認料號':'補料優先',value:topRisk?topRisk.sku:movementUnverified?'待確認':'未見高風險',
+      sub:topRisk?`本期耗用 ${analyticsNum(topRisk.used)}，${topRisk.hint}${topRisk.coverDays!==null?` · 約可供 ${analyticsNum(Math.round(topRisk.coverDays))} 天`:''}`:movementUnverified?movementEvidence:'已載入範圍內未見高耗用低庫存料號',
+      action:topRisk?'查看該料號':'查看異動來源',tab:topRisk?'inventory':'stocklog',nav:topRisk?'sku':'audit',filter:topRisk?.sku||'',color:topRisk?.stockState==='unknown'||topRisk?.stockState==='unmatched'||movementUnverified?'var(--text3)':topRisk?'var(--amber)':'var(--green2)'
     }),
     analyticsDecisionCard({
-      icon:'🧾',title:'資料品質',value:analyticsNum(a.audit.issues.length),
-      sub:a.audit.issues.length?'異動紀錄有待處理項目':'異動紀錄稽核正常',
-      action:'查看稽核結果',tab:'stocklog',nav:'audit',color:a.audit.issues.length?'var(--amber)':'var(--green2)'
+      icon:'🧾',title:'資料品質',value:movementUnverified&&!a.audit.issues.length?'待確認':analyticsNum(a.audit.issues.length),
+      sub:auditSub,
+      action:'查看稽核結果',tab:'stocklog',nav:'audit',color:a.audit.issues.length?'var(--amber)':movementUnverified?'var(--text3)':'var(--green2)'
     }),
     analyticsDecisionCard({
       icon:'🛒',title:'C端品項',value:topCProduct?topCProduct[0]:'無資料',
@@ -12267,13 +12285,13 @@ function renderAnalytics(){
       action:'查看 C端品項',tab:'corders',nav:'product',filter:topCProduct?.[0]||'',color:'var(--cyan2)'
     }),
     analyticsDecisionCard({
-      icon:'↩',title:'退貨原因',value:topReturnReason?topReturnReason[0]:'正常',
-      sub:topReturnReason?`期間退貨 ${analyticsNum(topReturnReason[1])} 件，點回 C端查來源`:'期間內沒有 C端退貨',
-      action:'查看退貨訂單',tab:'corders',nav:'search',filter:topReturnReason?.[0]||'退貨',color:topReturnReason?'var(--red2)':'var(--green2)'
+      icon:'↩',title:'退貨原因',value:topReturnReason?topReturnReason[0]:'未記錄',
+      sub:topReturnReason?`期間退貨 ${analyticsNum(topReturnReason[1])} 件，點回 C端查來源`:'已載入範圍內未記錄 C端退貨',
+      action:'查看退貨訂單',tab:'corders',nav:'search',filter:topReturnReason?.[0]||'退貨',color:topReturnReason?'var(--red2)':'var(--text3)'
     })
   ].join('');
   const dataQualityRows=[
-    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:a.audit.issues.length,hint:a.audit.issues.length?'到異動記錄分頁處理':'目前正常',color:a.audit.issues.length?'var(--amber)':'var(--green2)',tab:'stocklog',nav:'audit'},
+    {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:movementUnverified&&!a.audit.issues.length?'待確認':a.audit.issues.length,hint:auditSub,color:a.audit.issues.length?'var(--amber)':movementUnverified?'var(--text3)':'var(--green2)',tab:'stocklog',nav:'audit'},
     {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)',tab:'stocklog',nav:'manual'},
     {name:'C端料號缺漏',sub:'缺料件編號或料件ID',value:a.missingCorderSku.length,hint:a.missingCorderSku.length?'到 C端訂單補齊':'正常',color:a.missingCorderSku.length?'var(--red2)':'var(--green2)',tab:'corders',nav:'search',filter:'無料號 找不到 未扣'},
     {name:'正式訂單 BOM 風險',sub:`有訂單料號但找不到 BOM${a.noBomFinished.length?`；例：${a.noBomFinished.slice(0,4).map(m=>m.code||m.name).join('、')}`:''}`,value:a.noBomFinishedCount,hint:a.noBomFinishedCount?'到庫存/BOM 檢查':'正常',color:a.noBomFinishedCount?'var(--amber)':'var(--green2)',tab:'inventory',nav:'sku',filter:a.noBomFinished[0]?.code||''},
@@ -12402,6 +12420,8 @@ function renderStockLog(){
   <div class="panel" style="margin-bottom:12px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
     <select class="inp" id="slDateFilter" style="width:100px;padding:5px 8px;font-size:0.75rem" onchange="window._STOCKLOG_FILTERS={...(window._STOCKLOG_FILTERS||{}),date:this.value};if(this.value==='0'&&DATA_LOAD_MODE.stocklog!=='all'){loadFullData('stocklog')}else{renderTab('stocklog')}">
       <option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option>
+      <option value="30d" ${dateVal==='30d'?'selected':''}>近30天</option>
+      <option value="90d" ${dateVal==='90d'?'selected':''}>近90天</option>
       <option value="month" ${dateVal==='month'?'selected':''}>當月</option>
       <option value="1" ${dateVal==='1'?'selected':''}>近1個月</option>
       <option value="3" ${dateVal==='3'?'selected':''}>近3個月</option>
@@ -17530,20 +17550,58 @@ function pickingStatusChip(value,label,current,count){
   return `<button class="filter-chip ${active?'active':''}" onclick="window._PICK_STATUS='${value}';renderTab('picking')">${label} <b>${count}</b></button>`;
 }
 
+function inboundListFilters(){
+  return window._INBOUND_FILTERS||(window._INBOUND_FILTERS={q:'',status:'all',date:'6',page:1});
+}
+function filterInboundRows(rows,filters=inboundListFilters()){
+  const q=String(filters.q||'').trim().toLocaleLowerCase();
+  return applyDateFilterValue(filters.date||'6',rows,'date').filter(i=>{
+    const qc=String(i.qcStatus||''),stock=String(i.stStatus||'');
+    if(filters.status==='pending'&&!(/待/.test(qc)||/待/.test(stock)))return false;
+    if(filters.status==='stocked'&&stock!=='已入庫')return false;
+    if(filters.status==='returned'&&!(/不合格/.test(qc)||/^退回/.test(stock)))return false;
+    if(!q)return true;
+    return [i.no,i.matCode,i.matName,i.supplier,i.note].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+  });
+}
+function updateInboundSearch(input){
+  const filters=inboundListFilters();
+  filters.q=input.value;filters.page=1;
+  const cursor=input.selectionStart;
+  renderTab('inbound');
+  const next=document.getElementById('inboundSearch');
+  if(next){next.focus();try{next.setSelectionRange(cursor,cursor);}catch(e){}}
+}
+function changeInboundPage(delta){
+  const filters=inboundListFilters();
+  filters.page=Math.max(1,(Number(filters.page)||1)+delta);
+  renderTab('inbound');
+  const content=document.getElementById('mainContent');
+  if(content)content.scrollTop=0;
+}
 function renderInbound(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const canAdd=dashboardCanCreateInbound();
-  const dateVal=document.getElementById('inboundDateFilter')?.value||'6';
-  const data=applySort('inbound',applyDateFilter('inbound',inbounds,'date'));
+  const filters=inboundListFilters();
+  const dateVal=filters.date||'6';
+  const data=applySort('inbound',filterInboundRows(inbounds,filters));
+  const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
+  filters.page=Math.min(Math.max(1,Number(filters.page)||1),pageCount);
+  const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
   return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
-    <select class="inp" id="inboundDateFilter" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1">近1個月</option><option value="3">近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0">全部</option></select>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)">
+      <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option></select>
+      <select class="inp" id="inboundDateFilter" aria-label="入料日期" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="inboundListFilters().date=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
+    </div>
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
   </div>
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span></div>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${data.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${i.no}</td><td style="font-size:0.6875rem">${i.matName||mat?.name||'—'}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}</td><td style="font-family:monospace">${i.qty}</td><td class="hide-m" style="font-size:0.6875rem">${i.supplier||'—'}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${i.date||'—'}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matName||mat?.name||'—')}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
   </table></div>`}
+  ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div>`;
 }
 
@@ -21067,15 +21125,15 @@ function openPickModal(orderId){
   const mi = document.getElementById('modalInner');
   mi.innerHTML=`<h3>${plan.transfer?'蝦皮庫存轉入':'🗂️ 開立領料單'}</h3>
     <div style="padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:14px;font-size:0.8125rem">
-      <div>訂單：<b>${o.no||''}</b></div>
-      <div>客戶：${o.cust||o.customer||'—'}</div>
-      <div>品項：${o.product||o.matCode||'—'} × ${o.qty||0}</div>
+      <div>訂單：<b>${escapeHtml(o.no||'')}</b></div>
+      <div>客戶：${escapeHtml(o.cust||o.customer||'—')}</div>
+      <div>品項：${escapeHtml(o.product||o.matCode||'—')} × ${Number(o.qty)||0}</div>
     </div>
     ${errors?`<div role="alert" style="padding:14px;background:rgba(239,68,68,.12);border:1px solid var(--red2);border-radius:10px;margin-bottom:14px;line-height:1.55">
       <b style="color:var(--red2);font-size:.9rem">${blockedTitle}</b>
       <div style="color:var(--text2);font-size:.76rem;margin-top:4px">共 ${errors} 項阻擋；系統已停止扣庫，庫存沒有因這次預覽而變動。</div>
       <ul style="margin:8px 0 6px 18px;padding:0;font-size:.8rem">${blocked.map(row=>`<li><b>${escapeHtml(row.lineLabel)}</b>：${escapeHtml(row.detail)}</li>`).join('')}</ul>
-      <div style="color:var(--text2);font-size:.76rem">請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。</div>
+      <div style="color:var(--text2);font-size:.76rem">${plan.transfer?'請確認一般倉庫來源料號與庫存，補足後重新整理資料，再檢查轉庫。':'請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。'}</div>
     </div>`:''}
     ${renderPreflightCenter({
       title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',

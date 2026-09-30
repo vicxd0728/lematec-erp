@@ -19,6 +19,7 @@ function makeContext(overrides = {}) {
     DATA_LOAD_COUNT: { corders: 0, stocklog: 0 },
     DATA_LOAD_DAYS: { corders: 30, stocklog: 30 },
     stockLogLoadError: '',
+    stockLogHasMore: false,
     _bomDataSource: 'supabase',
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
     todayStr: () => '2026-09-26',
@@ -117,6 +118,33 @@ test('operations analytics includes a source-backed order creation trend and loa
   assert.match(markup, /異動.*已載入.*筆/);
 });
 
+test('empty or failed movement source never reports a healthy audit or replenishment', () => {
+  const empty = makeContext();
+  const emptyMarkup = empty.renderAnalytics();
+  assert.match(emptyMarkup, /選定期間沒有異動紀錄，尚不能判定/);
+  assert.doesNotMatch(emptyMarkup, /異動紀錄稽核正常/);
+  assert.doesNotMatch(emptyMarkup, /補料優先[\s\S]{0,180}>正常</);
+
+  const failed = makeContext({ stockLogLoadError: '暫時無法連線' });
+  const failedMarkup = failed.renderAnalytics();
+  assert.match(failedMarkup, /異動資料載入失敗，請重新整理/);
+  assert.doesNotMatch(failedMarkup, /異動紀錄稽核正常/);
+});
+
+test('partial movement coverage is labeled as unverified even when cached rows exist', () => {
+  const ctx = makeContext({
+    DATA_LOAD_DAYS: { corders: 30, stocklog: 30 },
+    stockLogs: [{ date: '2026-09-20', type: '領料', qty: -1, matCode: 'Y-TEST' }],
+    window: { corders: [], _ANALYTICS_RANGE: '90', _cordersLoaded: true },
+  });
+  assert.match(ctx.renderAnalytics(), /異動資料未涵蓋完整選定期間，請重新載入/);
+});
+
+test('a capped movement result never claims full-period audit coverage', () => {
+  const ctx = makeContext({ stockLogHasMore: true });
+  assert.match(ctx.renderAnalytics(), /異動資料未涵蓋完整選定期間，請重新載入/);
+});
+
 test('all-data view warns when one source has not completed its full-history load', () => {
   const ctx = makeContext({
     window: { corders: [], _ANALYTICS_RANGE: 'all', _cordersLoaded: true },
@@ -179,4 +207,14 @@ test('analytics inventory drilldown does not hide an in-stock SKU or falsify unk
   ctx.analyticsGo('inventory', 'unknown', '庫存數值待確認');
   assert.equal(ctx.window._invState.stockStatus, 'unknown');
   assert.equal(ctx.window._invState.q, '');
+});
+
+test('analytics stock-log drilldown keeps the selected 90-day window', () => {
+  const ctx = makeContext({
+    window: { corders: [], _ANALYTICS_RANGE: '90', _cordersLoaded: true },
+    switchTab: () => {},
+  });
+  ctx.analyticsGo('stocklog', 'audit');
+  assert.equal(ctx.window._STOCKLOG_FILTERS.date, '90d');
+  assert.match(html, /<option value="90d"/);
 });
