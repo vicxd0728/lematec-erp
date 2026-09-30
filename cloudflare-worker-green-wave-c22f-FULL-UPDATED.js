@@ -170,7 +170,7 @@ export default {
           const file = fd.get('file');
 
           if (!token) return resp400(cors, 'Missing token');
-          if (uploadRole === 'viewer') {
+          if (uploadRole === 'viewer' || (uploadRole === 'ai' && fd.get('scope') !== 'notes')) {
             return new Response(JSON.stringify({error: '檢視角色僅供查看，Worker 已阻擋檔案寫入'}), {status: 403, headers: jh(cors)});
           }
           if (!file) return resp400(cors, 'No file provided');
@@ -271,7 +271,7 @@ export default {
 
     // ── Notion API 代理 ──
     try {
-      const { token, role, method, endpoint, body, downloadUrl, notionVersion, cacheEpoch } = await request.json();
+      const { token, role, method, endpoint, body, scope, downloadUrl, notionVersion, cacheEpoch } = await request.json();
       const notionVersionHeader = notionVersion || '2022-06-28';
 
       if (downloadUrl) {
@@ -292,7 +292,8 @@ export default {
 
       const normalizedMethod = String(method || 'GET').toUpperCase();
       if (['PATCH', 'DELETE'].includes(normalizedMethod) || (normalizedMethod === 'POST' && !/\/query(?:\?|$)/.test(endpoint || '') && endpoint !== 'search')) {
-        if (cleanText(role).toLowerCase() === 'viewer') {
+        if (cleanText(role).toLowerCase() === 'viewer' ||
+            (cleanText(role).toLowerCase() === 'ai' && !(await aiNoteProxyMutationAllowed(normalizedMethod, endpoint, body, scope, token)))) {
           return new Response(JSON.stringify({error: '檢視角色僅供查看，Worker 已阻擋寫入'}), {status: 403, headers: jh(cors)});
         }
       }
@@ -3306,6 +3307,81 @@ async function erpClientAuthorized(request) {
   return check;
 }
 
+// Operational scope for the shared-token AI role. Individual credentials are required
+// before a role header can be treated as a security identity.
+async function aiNotionRead(token, endpoint, notionVersion = '2022-06-28') {
+  const response = await fetch(`https://api.notion.com/v1/${endpoint}`, {
+    headers: {'Authorization': `Bearer ${token}`, 'Notion-Version': notionVersion},
+  });
+  return response.ok ? await response.json() : null;
+}
+
+async function aiNoteDatabaseAllowed(token, dbId) {
+  const db = await aiNotionRead(token, `databases/${dbId}`);
+  const title = (db?.title || []).map(item => item.plain_text || item.text?.content || '').join('').trim();
+  return title === 'ERP 記事行事曆' &&
+    canonicalNotionId(db?.parent?.page_id) === canonicalNotionId('b60823b3-452c-467b-a2f9-dc54f3799464');
+}
+
+async function aiNotePageKind(token, pageId, depth = 0) {
+  if (depth > 3) return '';
+  const page = await aiNotionRead(token, `pages/${pageId}`);
+  if (!page || page.archived || page.in_trash) return '';
+  const parent = page.parent || {};
+  if (parent.data_source_id) {
+    if (canonicalNotionId(parent.data_source_id) === canonicalNotionId('19fff6f4-24bb-81b5-85d4-000bdabccfbb')) return 'customer';
+    const source = await aiNotionRead(token, `data_sources/${parent.data_source_id}`, '2026-03-11');
+    if (source?.parent?.database_id && await aiNoteDatabaseAllowed(token, source.parent.database_id)) return 'note';
+    return '';
+  }
+  if (parent.database_id) {
+    if (canonicalNotionId(parent.database_id) === canonicalNotionId('19fff6f4-24bb-80fe-b265-c62fa39c814c')) return 'customer';
+    return (await aiNoteDatabaseAllowed(token, parent.database_id)) ? 'note' : '';
+  }
+  if (!parent.page_id) return '';
+  const ancestor = await aiNotePageKind(token, parent.page_id, depth + 1);
+  const title = Object.values(page.properties || {}).flatMap(value => value?.title || []).map(item => item.plain_text || item.text?.content || '').join('').trim();
+  if (ancestor === 'customer' && title === '記事') return 'notes-root';
+  if (ancestor === 'notes-root' && /^\d{4}-\d{2}-\d{2}$/.test(title)) return 'date';
+  if (ancestor === 'date') return 'event';
+  return '';
+}
+
+function aiNewPageTitle(body) {
+  const value = body?.properties?.title;
+  const items = Array.isArray(value) ? value : value?.title || [];
+  return items.map(item => item.plain_text || item.text?.content || '').join('').trim();
+}
+
+async function aiNoteProxyMutationAllowed(method, endpoint, body, scope, token) {
+  if (scope !== 'notes' || !body || typeof body !== 'object') return false;
+  const path = String(endpoint || '').replace(/\?.*$/, '');
+  if (method === 'POST' && path === 'pages') {
+    if (body.parent?.database_id) return !!body.properties && await aiNoteDatabaseAllowed(token, body.parent.database_id);
+    if (!body.parent?.page_id) return false;
+    const kind = await aiNotePageKind(token, body.parent.page_id);
+    const title = aiNewPageTitle(body);
+    return (kind === 'customer' && title === '記事') ||
+      (kind === 'notes-root' && /^\d{4}-\d{2}-\d{2}$/.test(title)) ||
+      (kind === 'date' && !!title);
+  }
+  if (method === 'PATCH' && /^pages\/[0-9a-f-]{32,36}$/i.test(path)) {
+    return (!!body.properties || body.archived === true) &&
+      (await aiNotePageKind(token, path.slice(6))) === 'note';
+  }
+  if (method === 'PATCH' && /^blocks\/[0-9a-f-]{32,36}\/children$/i.test(path)) {
+    if (!Array.isArray(body.children) || !body.children.length) return false;
+    const kind = await aiNotePageKind(token, path.split('/')[1]);
+    if (kind === 'note' || kind === 'event') return true;
+    if (body.children.length !== 1 || body.children[0]?.type !== 'child_page') return false;
+    const title = body.children[0].child_page?.title || '';
+    return (kind === 'customer' && title === '記事') ||
+      (kind === 'notes-root' && /^\d{4}-\d{2}-\d{2}$/.test(title)) ||
+      (kind === 'date' && !!title);
+  }
+  return false;
+}
+
 const ERP_ROUTE_ROLES = {
   '/api/inventory/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
   '/api/inventory/adjust': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
@@ -3325,15 +3401,15 @@ const ERP_ROUTE_ROLES = {
   '/api/stock-log/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/stock-log/mark-notion': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/stock-log/reconcile': ['vic', 'manager', 'warehouse'],
-  '/api/notes/shadow/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
-  '/api/notes/shadow/delete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
-  '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/notes/shadow/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
+  '/api/notes/shadow/delete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
+  '/api/notes/write': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
   '/api/orders/create': ['vic', 'manager', 'sales', 'purchase'],
   '/api/assembly/complete': ['vic', 'manager', 'qc'],
   '/api/shopee/transfer': ['vic', 'manager', 'warehouse', 'purchase', 'sales'],
-  '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
-  '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
-  '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
+  '/api/reliability/mirror/enqueue': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
+  '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
+  '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
   '/api/corder/number-reserve': ['vic', 'manager', 'sales'],
   '/api/corder/number-set': ['vic', 'manager', 'sales'],
 };
@@ -3352,6 +3428,15 @@ async function enforceErpRouteRole(request, env, cors, pathname, method) {
   if (!role && trustedAutomation) role = 'system';
   if (!token || !(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
   if (role === 'system' && trustedAutomation) return null;
+  if (role === 'ai' && pathname.startsWith('/api/reliability/mirror/')) {
+    const payload = await request.clone().json().catch(() => ({}));
+    const job = payload.job || payload;
+    const key = cleanText(job.dedupe_key);
+    if (!key.startsWith('notes_notion:') ||
+        (pathname.endsWith('/enqueue') && cleanText(job.module) !== 'notes_notion')) {
+      return new Response(JSON.stringify({error: 'AI role may manage Notes mirror jobs only'}), {status: 403, headers: jh(cors)});
+    }
+  }
   if (!role || !allowed.includes(role)) {
     return new Response(JSON.stringify({
       error: 'ERP role is not allowed for this operation',

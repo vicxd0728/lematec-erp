@@ -48,9 +48,9 @@ test('customer page title uses note creation date, not planned event date',()=>{
 test('uploaded attachment is appended to customer event page and count kept on note record',async()=>{
   const writes=[];
   const context=vm.createContext({showToast:()=>{},uploadNotionFileViaProxy:async()=>({file_upload:{id:'uploaded-file'}}),
-    noteAttachmentKind:()=> 'pdf',notionAPI2026:async(method,url,body)=>{writes.push([method,url,body]);return {results:[{id:'block'}]};},
+    noteAttachmentKind:()=> 'pdf',noteNotionAPI2026:async(method,url,body)=>{writes.push([method,url,body]);return {results:[{id:'block'}]};},
     countNoteAttachmentBlocks:async id=>id==='event'?1:0,
-    updatePage:async(id,props)=>{writes.push(['update',id,props]);return {id};}});
+    updateNotePage:async(id,props)=>{writes.push(['update',id,props]);return {id};}});
   vm.runInContext(section('async function uploadNoteAttachments','function noteNotionPageUrl'),context);
   const result=await context.uploadNoteAttachments('event',[{name:'meeting.pdf',size:123}],{countPageId:'master'});
   assert.equal(result.uploaded.length,1);

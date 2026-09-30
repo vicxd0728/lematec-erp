@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## AI Notes Role 2026-09-30
+
+- Added an `AI` role to the existing company Notion-token login. It can browse every module, but operational writes remain blocked except the full Notes workflow (create/edit/reply/acknowledge/complete/archive, customer Notes mirror, and attachments). The permissions tab shows only a read-only explanation; Vic/manager PINs are not exposed.
+- Notes remain Supabase-primary with Notion attachment/detail mirrors. The Worker allows AI on Notes routes and Notes mirror jobs only; its Notion proxy checks Notes resource ancestry before permitting AI-scoped page/block writes. Other Worker mutation routes remain denied.
+- This remains a shared-token operational role, not a distinct authenticated account. Anyone with the shared company token can select another unpinned role; true per-person isolation needs separate server-verified credentials. Do not describe the AI role as a security boundary.
+- Validation and deployment status must be read from this change's commit and GitHub Actions; local tests alone do not prove production acceptance.
+
 ## Dashboard Efficiency and Narrow Navigation 2026-09-26
 
 - On narrow screens, programmatic tab changes now scroll the active role navigation tab into view so a dashboard shortcut cannot leave the user on an off-screen module.

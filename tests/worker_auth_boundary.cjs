@@ -173,9 +173,23 @@ test('existing token and all allowed role/route combinations still pass', async 
   const { context: c } = harness();
   for (const [route, roles] of Object.entries(c.matrix)) {
     for (const role of roles) {
+      if (role === 'ai' && route.startsWith('/api/reliability/mirror/')) continue;
       assert.equal(await c.enforceErpRouteRole(request(role), env, {}, route, 'POST'), null, `${role}: ${route}`);
     }
   }
+});
+
+test('AI may persist only Notes mirror jobs', async () => {
+  const {context: c} = harness();
+  const make = (route, body) => new Request(`https://offline.invalid${route}`, {
+    method: 'POST',
+    headers: {Authorization: 'Bearer company-test-token', 'X-ERP-Role': 'ai', 'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const route = '/api/reliability/mirror/enqueue';
+  assert.equal(await c.enforceErpRouteRole(make(route, {job: {module: 'notes_notion', dedupe_key: 'notes_notion:note-1'}}), env, {}, route, 'POST'), null);
+  assert.equal((await c.enforceErpRouteRole(make(route, {job: {module: 'inventory_notion', dedupe_key: 'inventory_notion:stock-1'}}), env, {}, route, 'POST')).status, 403);
+  assert.equal((await c.enforceErpRouteRole(make(route, {job: {module: 'inventory_notion', dedupe_key: 'notes_notion:spoof'}}), env, {}, route, 'POST')).status, 403);
 });
 
 test('a valid unrelated Notion token without company database access is rejected', async () => {

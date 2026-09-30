@@ -1772,6 +1772,7 @@ html[data-theme="warm"] #themePanel{
         <option value="qc">✅ 品管</option>
         <option value="purchase">🛒 採購</option>
         <option value="viewer">👁️ 檢視</option>
+        <option value="ai">🤖 AI（記事可編輯）</option>
       </select>
     </div>
     <button class="btn-login" id="loginBtn" onclick="login()">⚡ 進入系統</button>
@@ -2531,15 +2532,17 @@ const ROLES={
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','orders','inventory','picking','inbound','analytics','announce','notes','videos','leave','stocklog','schedule']},
   // 檢視：只看主要流程，不具備建立、修改、刪除、審核等操作權限
   viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
+  ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health','permissions']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影片庫',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
-function isViewOnly(role=ROLE){return role==='viewer';}
+function isViewOnly(role=ROLE){return role==='viewer'||role==='ai';}
+function canWriteNotes(role=ROLE){return !!role&&role!=='viewer';}
 function canAuditBomRole(role=ROLE){return isAdminRole(role)||role==='warehouse'||role==='purchase';}
 function canImportBomRole(role=ROLE){return !isViewOnly(role)&&(isAdminRole(role)||role==='warehouse'||role==='purchase');}
 function denyViewOnlyAction(){
   if(!isViewOnly()) return false;
-  showToast('檢視角色僅供查看，無操作權限','warn');
+  showToast('此角色僅能查看；AI 角色只可操作記事','warn');
   return true;
 }
 function isMutatingNotionCall(method,endpoint){
@@ -6041,7 +6044,7 @@ async function saveSchedule(id){
 
 function openModal(type,data){
   if(!type){openSharedModal();return;}
-  if(isViewOnly()&&type!=='help'){
+  if(isViewOnly()&&type!=='help'&&!(ROLE==='ai'&&(type==='newNote'||type==='editNote'))){
     denyViewOnlyAction();
     return;
   }
@@ -6552,20 +6555,27 @@ function advancesNotionCacheEpoch(method,endpoint){
   const ep=String(endpoint||'');
   return m==='PATCH'||m==='DELETE'||(m==='POST'&&!/\/query(?:\?|$)/.test(ep)&&ep!=='search');
 }
-async function notionAPI(method,endpoint,body=null){
-  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
+async function notionAPI(method,endpoint,body=null,scope=''){
+  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)&&!(ROLE==='ai'&&scope==='notes')){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,cacheEpoch:_notionCacheEpoch},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,scope,cacheEpoch:_notionCacheEpoch},`${method} ${endpoint}`);
   if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
   return result;
 }
-async function notionAPI2026(method,endpoint,body=null){
-  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)){
+async function notionAPI2026(method,endpoint,body=null,scope=''){
+  if(isViewOnly()&&!_allowViewOnlyAuditWrite&&isMutatingNotionCall(method,endpoint)&&!(ROLE==='ai'&&scope==='notes')){
     return {object:'error',status:403,code:'view_only',message:'檢視角色僅供查看，無操作權限'};
   }
-  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,cacheEpoch:_notionCacheEpoch,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
+  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,scope,cacheEpoch:_notionCacheEpoch,notionVersion:'2026-03-11'},`${method} ${endpoint}`);
   if(advancesNotionCacheEpoch(method,endpoint)&&result?.object!=='error')_notionCacheEpoch++;
+  return result;
+}
+const noteNotionAPI=(method,endpoint,body=null)=>notionAPI(method,endpoint,body,'notes');
+const noteNotionAPI2026=(method,endpoint,body=null)=>notionAPI2026(method,endpoint,body,'notes');
+async function updateNotePage(id,props){
+  const result=await noteNotionAPI('PATCH',`pages/${id}`,{properties:props});
+  if(result?.object==='error')throw new Error(result.message||'記事 Notion 更新失敗');
   return result;
 }
 async function dbQueryAll(dbId,options={}){
@@ -7256,6 +7266,7 @@ async function setAdminRolePin(role){
 }
 
 function renderPermissionSettings(){
+  if(ROLE==='ai') return '<div class="info-box info-tip">AI 可查看各模組；只有記事可新增、編輯、回覆與管理。管理角色密碼僅限 Vic 查看。</div>';
   if(ROLE!=='vic') return '<div class="info-box info-warn">此頁僅限 Vic 使用。</div>';
   setTimeout(syncPermissionPinsFromNotion,0);
   setTimeout(loadLoginLogs,0);
@@ -7433,7 +7444,8 @@ async function startApp(){
   }
 
   await refreshAll();
-  flushReliableMirrorQueues({quiet:true}).catch(e=>console.warn('可靠性補同步失敗:',e));
+  if(!isViewOnly())flushReliableMirrorQueues({quiet:true}).catch(e=>console.warn('可靠性補同步失敗:',e));
+  else if(ROLE==='ai')flushNotesNotionMirrorQueue({quiet:true}).catch(e=>console.warn('記事補同步失敗:',e));
   loadNotes().then(()=>schedulePendingNoteNotification(true)).catch(e=>console.warn('notes notify failed:',e));
   initAutoSync();
   initAccessibilityObserver();
@@ -12598,7 +12610,7 @@ const NOTES_SHADOW_RETRY_KEY='lematec_notes_shadow_retry_v1';
 const NOTES_SHADOW_HEALTH_KEY='lematec_notes_shadow_health_v1';
 const NOTE_TYPES=['一般','預約','待辦','提醒','客戶','出貨','其他'];
 const NOTE_STATUS=['未處理','待確認','已接受','進行中','待回覆','完成','拒絕','取消'];
-const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視'];
+const NOTE_TARGET_ROLES=['全部','Vic','廠長','業務','倉管','品管','採購','檢視','AI'];
 const NOTE_REPLY_DEFAULTS=['知道了','接受處理','拒絕/退回'];
 const NOTE_PRIORITIES=['一般','重要','緊急'];
 const NOTE_TAG_OPTIONS=['客戶','交期','出貨','採購','品管','現場','維修','客訴','會議','追蹤'];
@@ -12773,7 +12785,7 @@ async function uploadNoteAttachments(pageId,files=[],context={}){
     const file=files[i];
     showToast(`📎 上傳附件 ${i+1}/${files.length}：${file.name}`,'warn',5000);
     try{
-      const uploaded=await uploadNotionFileViaProxy(file);
+      const uploaded=await uploadNotionFileViaProxy(file,'notes');
       const kind=noteAttachmentKind(file);
       const blockType=['image','video','audio','pdf'].includes(kind)?kind:'file';
       const captionName=context.replyKey?`[ERP_REPLY_ATTACHMENT:${context.replyKey}] ${file.name||'附件'}`:(file.name||'附件');
@@ -12792,7 +12804,7 @@ async function uploadNoteAttachments(pageId,files=[],context={}){
   }
   if(blocks.length){
     try{
-      const result=await notionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
+      const result=await noteNotionAPI2026('PATCH',`blocks/${pageId}/children`,{children:blocks});
       if(result?.object==='error')throw new Error(result.message||'附件寫入記事失敗');
     }catch(error){
       const message=error?.message||String(error);
@@ -12804,7 +12816,7 @@ async function uploadNoteAttachments(pageId,files=[],context={}){
       const attachmentCount=await countNoteAttachmentBlocks(pageId);
       const countPageId=context.countPageId||pageId;
       const totalCount=countPageId===pageId?attachmentCount:attachmentCount+await countNoteAttachmentBlocks(countPageId);
-      const countResult=await updatePage(countPageId,{'附件數':{number:totalCount}});
+      const countResult=await updateNotePage(countPageId,{'附件數':{number:totalCount}});
       if(countResult?.object==='error')throw new Error(countResult.message||'附件數更新失敗');
     }catch(error){outcome.countWarning=error?.message||String(error);}
   }
@@ -12852,6 +12864,7 @@ function saveNoteReplyOption(v){
   }
 }
 async function ensureNotesDBFields(dbId,props={}){
+  if(ROLE==='ai')return;
   if(_notesFieldsChecked||!dbId) return;
   const add={};
   const legacyNames={'???':'舊欄位-建立者','????':'舊欄位-最後回覆','?????':'舊欄位-最後回覆者','??????':'舊欄位-最後回覆時間'};
@@ -13011,8 +13024,8 @@ async function ensureNotesDB(force=false){
   if(child?.id){
     try{const d=await notionAPI('GET','databases/'+child.id);await ensureNotesDBFields(child.id,d?.properties||{});}catch(e){console.warn('notes child db check failed',e);}
     let recovered=0;
-    if(cached&&!noteDbIdSame(cached,child.id)) recovered+=await migrateCachedNotesDB(cached,child.id);
-    recovered+=await migrateSiblingNotesDBs(child.id,children);
+    if(ROLE!=='ai'&&cached&&!noteDbIdSame(cached,child.id)) recovered+=await migrateCachedNotesDB(cached,child.id);
+    if(ROLE!=='ai')recovered+=await migrateSiblingNotesDBs(child.id,children);
     if(recovered) _notesDbRecovered+=recovered;
     _notesDbId=child.id;localStorage.setItem(NOTES_DB_KEY,child.id);
     return child.id;
@@ -13024,6 +13037,7 @@ async function ensureNotesDB(force=false){
       localStorage.removeItem(NOTES_DB_KEY);
     }catch(e){console.warn('notes cached db invalid',e);localStorage.removeItem(NOTES_DB_KEY);}
   }
+  if(ROLE==='ai')throw new Error('記事資料庫尚未建立，請先由 Vic 完成初始化');
   const created=await notionAPI('POST','databases',{
     parent:{type:'page_id',page_id:DB.erpPage},
     title:[{type:'text',text:{content:'ERP 記事行事曆'}}],
@@ -13298,7 +13312,7 @@ async function loadNotesShadowHealth({quiet=true}={}){
   }
 }
 async function notesShadowRequest(path,options={}){
-  const headers={Authorization:`Bearer ${TOKEN}`,...(options.headers||{})};
+  const headers=erpWorkerHeaders(options.headers||{});
   const res=await fetch(`${PROXY}${path}`,{...options,headers});
   const payload=await res.json().catch(()=>({}));
   if(!res.ok||payload?.error)throw new Error(payload?.error||`記事影子資料 HTTP ${res.status}`);
@@ -13664,9 +13678,9 @@ function noteIsAuthor(n){
   return n.authorRole===role||n.author===role;
 }
 function noteIsVic(){return loginRoleLabel()==='Vic';}
-function noteCanManage(n){return !isViewOnly()&&(noteIsVic()||noteIsAuthor(n));}
+function noteCanManage(n){return canWriteNotes()&&(ROLE==='ai'||noteIsVic()||noteIsAuthor(n));}
 function noteCanEdit(n){return noteCanManage(n);}
-function noteCanReply(n){return !isViewOnly();}
+function noteCanReply(n){return canWriteNotes();}
 function noteTargetedToCurrentRole(n){
   const role=loginRoleLabel();
   const targets=n.targetRoles||[];
@@ -13760,7 +13774,7 @@ function renderNotes(){
   const completed=visibleNotes.filter(n=>n.status==='完成').length;
   const monthKey=noteMonthKey(window._NOTE_YEAR,window._NOTE_MONTH);
   const monthCount=visibleNotes.filter(n=>(n.date||'').startsWith(monthKey)).length;
-  const canAdd=!isViewOnly();
+  const canAdd=canWriteNotes();
   window._NOTE_MOBILE_VIEW=window._NOTE_MOBILE_VIEW||(pendingAck?'todo':'all');
   const first=new Date(window._NOTE_YEAR,window._NOTE_MONTH,1);
   const start=new Date(first);start.setDate(1-first.getDay());
@@ -13924,7 +13938,7 @@ function parseNoteReplyLine(line=''){
   return m?{stamp:m[1],role:m[2],action:m[3],body:m[4]||'',raw}:{stamp:'',role:'',action:'回覆',body:raw,raw};
 }
 function noteCanEditReplyLine(line='',n=null){
-  if(isViewOnly())return false;
+  if(!canWriteNotes())return false;
   const parsed=parseNoteReplyLine(line);
   const role=loginRoleLabel();
   return isAdminRole()||noteCanManage(n||{})||(parsed.role&&parsed.role===role);
@@ -14041,7 +14055,7 @@ function noteCleanText(content){
 async function appendNoteBlocks(pageId,children){
   if(!pageId) throw new Error('缺少 Notion 頁面 ID');
   if(!children?.length) return null;
-  const r=await notionAPI('PATCH',`blocks/${pageId}/children`,{children});
+  const r=await noteNotionAPI('PATCH',`blocks/${pageId}/children`,{children});
   if(r?.object==='error') throw new Error(r.message||JSON.stringify(r));
   return r;
 }
@@ -14057,7 +14071,7 @@ async function createNoteChildPage(parentPageId,title,children=[]){
   ];
   for(const body of attempts){
     try{
-      const r=await notionAPI('POST','pages',body);
+      const r=await noteNotionAPI('POST','pages',body);
       if(r?.id&&r.object!=='error') return r.id;
       if(r?.object==='error') errors.push(noteApiErr(r));
     }catch(e){errors.push(e.message);}
@@ -14126,7 +14140,7 @@ async function syncNoteCustomerLinkBack(id,n,syncInfo){
   if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
   if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
   props['後台連結']={url:syncInfo.backendUrl};
-  assertNotionPage(await updatePage(id,props),'同步客戶記事連結');
+  assertNotionPage(await updateNotePage(id,props),'同步客戶記事連結');
   Object.assign(n,{
     customerNotesPageId:syncInfo.customerNotesPageId||n.customerNotesPageId,
     eventPageId:syncInfo.eventPageId||n.eventPageId,
@@ -14214,14 +14228,14 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
       try{
         if(task.action==='archive'){
           const notionId=n.actualNotionPageId||task.note?.actualNotionPageId||'';
-          if(notionId)await notionAPI('PATCH','pages/'+notionId,{archived:true});
+          if(notionId)await noteNotionAPI('PATCH','pages/'+notionId,{archived:true});
         }else{
           let notionId=n.actualNotionPageId||task.note?.actualNotionPageId||'';
           if(notionId){
-            assertNotionPage(await updatePage(notionId,noteNotionProperties(n)),'更新記事鏡像');
+            assertNotionPage(await updateNotePage(notionId,noteNotionProperties(n)),'更新記事鏡像');
           }else{
             const dbId=await ensureNotesDB(true);
-            const created=await notionAPI('POST','pages',{
+            const created=await noteNotionAPI('POST','pages',{
               parent:{database_id:dbId},
               properties:noteNotionProperties(n,{includeCreated:true})
             });
@@ -14239,7 +14253,7 @@ async function flushNotesNotionMirrorQueue({quiet=true,volatileFiles=null}={}){
               backendUrl:syncInfo.backendUrl||n.backendUrl
             });
             if(syncInfo.backendUrl){
-              await updatePage(notionId,noteNotionProperties(n));
+              await updateNotePage(notionId,noteNotionProperties(n));
             }
           }
           const files=(volatileFiles||_notesNotionPendingFiles)[task.noteKey]||[];
@@ -14370,7 +14384,7 @@ async function openNoteDetail(id){
     ${n.replies?`<div class="note-thread" id="note_thread_box">${formatNoteThread(n.replies,{},n.id)}</div>`:''}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
-      ${n.customerCode?`<button class="btn btn-cyan" onclick="resyncNoteCustomer('${n.id}')">同步客戶頁</button>`:''}
+       ${n.customerCode&&canWriteNotes()?`<button class="btn btn-cyan" onclick="resyncNoteCustomer('${n.id}')">同步客戶頁</button>`:''}
       ${noteCanReply(n)?`<button class="btn btn-cyan" onclick="openNoteReply('${n.id}','')">回覆</button>`:''}
       ${noteCanManage(n)&&n.status!=='完成'?`<button class="btn btn-green" onclick="completeNote('${n.id}')">完成</button>`:''}
       ${noteCanEdit(n)?`<button class="btn btn-yellow" onclick="openEditNote('${n.id}')">編輯</button>`:''}
@@ -14403,7 +14417,7 @@ async function resyncNoteCustomer(id){
 }
 function openEditNote(id){
   const n=notes.find(x=>x.id===id);if(!n)return;
-  if(!noteCanEdit(n)){showToast('❌ 只有發布者或 Vic 可以編輯此記事','err');return;}
+  if(!noteCanEdit(n)){showToast('❌ 只有發布者、Vic 或 AI 可以編輯此記事','err');return;}
   openModal('editNote',n);
 }
 async function submitNotePrimary(id=''){
@@ -14563,7 +14577,7 @@ async function submitNote(id=''){
       if(syncInfo.customerNotesPageId) props['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
       if(syncInfo.eventPageId) props['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
       if(syncInfo.backendUrl) props['後台連結']={url:syncInfo.backendUrl};
-      assertNotionPage(await updatePage(id,props),'更新記事');
+       assertNotionPage(await updateNotePage(id,props),'更新記事');
       savedNotePageId=id;
       if(uploadableFiles.length){
         const result=await uploadNoteAttachments(id,uploadableFiles);
@@ -14577,7 +14591,7 @@ async function submitNote(id=''){
       props['建立者角色']={select:{name:loginRoleLabel()}};
       props['建立時間']={date:{start:new Date().toISOString()}};
       props['已確認角色']={rich_text:[{text:{content:''}}]};
-      const created=await notionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
+       const created=await noteNotionAPI('POST','pages',{parent:{database_id:dbId},properties:props});
       assertNotionPage(created,'建立記事');
       savedNotePageId=created.id;
       if(uploadableFiles.length){
@@ -14591,7 +14605,7 @@ async function submitNote(id=''){
         if(syncInfo.customerNotesPageId) linkProps['客戶記事頁ID']={rich_text:[{text:{content:syncInfo.customerNotesPageId}}]};
         if(syncInfo.eventPageId) linkProps['事件頁ID']={rich_text:[{text:{content:syncInfo.eventPageId}}]};
         if(syncInfo.backendUrl) linkProps['後台連結']={url:syncInfo.backendUrl};
-        await updatePage(created.id,linkProps);
+         await updateNotePage(created.id,linkProps);
       }
       logUserAction('新增記事',title,`${date} ${time}`,ROLE);
       closeModal();
@@ -14800,7 +14814,7 @@ async function submitNoteReply(id,quickAction=''){
 async function completeNote(id){
   const primaryNote=notes.find(x=>x.id===id);
   if(!primaryNote)return;
-  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者或 Vic 可以完成此記事','err');return;}
+  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者、Vic 或 AI 可以完成此記事','err');return;}
   if(primaryNote.status==='完成'){showToast('此記事已完成','warn');return;}
   const primaryRole=loginRoleLabel();
   const primaryNow=new Date().toISOString();
@@ -14822,7 +14836,7 @@ async function completeNote(id){
   }
   return;
   const n=notes.find(x=>x.id===id);if(!n)return;
-  if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以完成此記事','err');return;}
+  if(!noteCanManage(n)){showToast('❌ 只有發布者、Vic 或 AI 可以完成此記事','err');return;}
   if(n.status==='完成'){showToast('此記事已完成','warn');return;}
   try{
     const role=loginRoleLabel();
@@ -14858,7 +14872,7 @@ async function completeNote(id){
 }
 async function deleteNote(id){
   const primaryNote=notes.find(x=>x.id===id);if(!primaryNote)return;
-  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者或 Vic 可以刪除此記事','err');return;}
+  if(!noteCanManage(primaryNote)){showToast('❌ 只有發布者、Vic 或 AI 可以刪除此記事','err');return;}
   const primaryReason=prompt('刪除原因（會寫入異動記錄）');
   if(primaryReason===null)return;
   try{
@@ -14875,7 +14889,7 @@ async function deleteNote(id){
   }
   return;
   const n=notes.find(x=>x.id===id);if(!n)return;
-  if(!noteCanManage(n)){showToast('❌ 只有發布者或 Vic 可以刪除此記事','err');return;}
+  if(!noteCanManage(n)){showToast('❌ 只有發布者、Vic 或 AI 可以刪除此記事','err');return;}
   const reason=prompt('刪除原因（會寫入異動記錄）');
   if(reason===null)return;
   try{
@@ -15054,11 +15068,12 @@ async function compressQCPhoto(file){
   const name=`${safeName}-${Date.now()}.jpg`;
   return {file:new File([blob],name,{type:'image/jpeg'}),url:URL.createObjectURL(blob),name};
 }
-async function uploadNotionFileViaProxy(file){
+async function uploadNotionFileViaProxy(file,scope=''){
   const fd=new FormData();
   fd.append('action','notionFileUpload');
   fd.append('token',TOKEN);
   fd.append('role',ROLE);
+  if(scope)fd.append('scope',scope);
   fd.append('file',file,file.name);
   const res=await fetch(PROXY,{method:'POST',headers:ROLE?{'X-ERP-Role':ROLE}:{},body:fd});
   const text=await res.text();
@@ -25328,7 +25343,7 @@ async function loadCorders(options={}){
     window._cordersLoaded=true;
     window._cordersLoadedAt=Date.now();
     markDataLoadMode('corders',mode,window.corders.length,days);
-    if(!options.skipAutoComplete)await autoCompleteCordersAfter7Days();
+    if(!options.skipAutoComplete&&!isViewOnly())await autoCompleteCordersAfter7Days();
   }catch(e){
     window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);
     if(options.strict)throw e;
