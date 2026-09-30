@@ -6052,8 +6052,10 @@ async function saveSchedule(id){
     if(id) await updatePage(id,props);
     else await createPage(DB.schedule,props);
     closeModal();
-    await loadSchedule(); renderTab('schedule');
-    showToast('✅ 排程已儲存','ok');
+    try{
+      await loadSchedule(); renderTab('schedule');
+      showToast('✅ 排程已儲存','ok');
+    }catch(refreshError){showToast('⚠️ 排程已儲存，但清單更新失敗，請重新整理','warn');}
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -12711,7 +12713,8 @@ async function submitSchedule(existId){
       showToast('✅ 排程已建立','ok');
     }
     closeModal();
-    await loadSchedule();renderTab('schedule');
+    try{await loadSchedule();renderTab('schedule');}
+    catch(refreshError){showToast('⚠️ 排程已儲存，但清單更新失敗，請重新整理','warn');}
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -12721,7 +12724,7 @@ async function doScheduleStatus(id, status){
     assertNotionPage(await updatePage(id,{'狀態':{select:{name:status}}}),'更新排程狀態');
     if(s){s.status=status;renderTab('schedule');}
     showToast('✅ 已更新排程狀態','ok');
-    setTimeout(()=>loadSchedule().then(()=>renderTab('schedule')),1500);
+    setTimeout(()=>loadSchedule().then(()=>renderTab('schedule')).catch(()=>showToast('⚠️ 狀態已更新，但清單重載失敗，請重新整理','warn')),1500);
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
@@ -19907,16 +19910,16 @@ async function saveEditLeave(id){
   const title=(document.getElementById('elv_title')?.value||'').trim();
   const type=document.getElementById('elv_type')?.value||'年假';
   const status=normalizeLeaveStatus(document.getElementById('elv_status')?.value||'待審核');
-  const days=parseFloat(document.getElementById('elv_days')?.value)||1;
-  const hours=parseFloat(document.getElementById('elv_hours')?.value)||leaveHoursFromDays(days);
+  const days=Number(document.getElementById('elv_days')?.value);
+  const hours=Number(document.getElementById('elv_hours')?.value);
   const from=document.getElementById('elv_from')?.value||'';
   const to=document.getElementById('elv_to')?.value||from;
   const proxy=(document.getElementById('elv_proxy')?.value||'').trim();
   const reason=(document.getElementById('elv_reason')?.value||'').trim();
   if(!name){showToast('請填寫姓名','warn');return;}
   if(!from){showToast('請選擇開始日期','warn');return;}
+  if(!Number.isFinite(days)||days<=0||!Number.isFinite(hours)||hours<=0){showToast('請假天數與時數都必須大於 0','warn');return;}
   if(to&&new Date(to)<new Date(from)){showToast('結束日期不能早於開始日期','warn');return;}
-  closeModal();
   showToast('儲存請假修改中...','warn');
   try{
     const props={
@@ -19938,6 +19941,7 @@ async function saveEditLeave(id){
       props['審核人']={rich_text:[{text:{content:ROLES[ROLE]?.label||ROLE||''}}]};
     }
     await updatePage(id,props);
+    closeModal();
     await ensureLeaveEmployeeRecord(name,title,proxy);
     await syncLeaveStatsTransition(old,{name,title,type,days,hours,dateFrom:from,dateTo:to||from,proxy,status});
     const l=leaves.find(x=>x.id===id);
@@ -24466,19 +24470,20 @@ async function submitLeave(){
   const name=(document.getElementById('lv_name')?.value||'').trim();
   const title=(document.getElementById('lv_title')?.value||'').trim();
   const type=document.getElementById('lv_type')?.value||'年假';
-  const days=parseFloat(document.getElementById('lv_days')?.value)||1;
-  const hours=parseFloat(document.getElementById('lv_hours')?.value)||leaveHoursFromDays(days);
+  const days=Number(document.getElementById('lv_days')?.value);
+  const hours=Number(document.getElementById('lv_hours')?.value);
   const from=document.getElementById('lv_from')?.value||'';
   const to=document.getElementById('lv_to')?.value||'';
   const proxy=(document.getElementById('lv_proxy')?.value||'').trim();
   const reason=(document.getElementById('lv_reason')?.value||'').trim();
   if(!name){showToast('請填寫姓名','warn');return;}
   if(!from){showToast('請選擇開始日期','warn');return;}
+  if(!Number.isFinite(days)||days<=0||!Number.isFinite(hours)||hours<=0){showToast('請假天數與時數都必須大於 0','warn');return;}
   if(to&&new Date(to)<new Date(from)){showToast('結束日期不能早於開始日期','warn');return;}
-  closeModal(); showToast('送出請假申請...','warn');
+  showToast('送出請假申請...','warn');
   const applyAt=new Date().toISOString();
   try{
-    await notionAPI('POST','pages',{parent:{database_id:DB.leave},properties:{
+    assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:DB.leave},properties:{
       '申請人姓名':    {title:[{text:{content:name}}]},
       '職稱':          {rich_text:[{text:{content:title||''}}]},
       '假別':          {select:{name:type}},
@@ -24490,11 +24495,14 @@ async function submitLeave(){
       '職務代理人':    {rich_text:[{text:{content:proxy||''}}]},
       '請假原因':      {rich_text:[{text:{content:reason||''}}]},
       '審核狀態':      {select:{name:'待審核'}},
-    }});
+    }}),'建立請假申請');
+    closeModal();
     const emp=await ensureLeaveEmployeeRecord(name,title,proxy);
     logUserAction('送出請假',name,`${type} ${leaveDurationLabel({days,hours})}`,ROLE);
-    await refreshAffectedData({tabs:['leave'],label:'請假資料已更新'});
-    showToast(emp?'✅ 請假申請已送出，員工資料已確認':'✅ 請假申請已送出','ok');
+    try{
+      await refreshAffectedData({tabs:['leave'],label:'請假資料已更新'});
+      showToast(emp?'✅ 請假申請已送出，員工資料已確認':'✅ 請假申請已送出','ok');
+    }catch(refreshError){showToast('⚠️ 請假申請已送出，但清單更新失敗，請重新整理','warn');}
   }catch(e){showToast('❌ 送出失敗：'+e.message,'err');}
 }
 
@@ -24522,15 +24530,19 @@ async function submitNewCustomer(){
   const code=(document.getElementById('nc_code')?.value||'').trim();
   const region=(document.getElementById('nc_region')?.value||'').trim();
   if(!name){showToast('請填寫客戶名稱','warn');return;}
-  closeModal(); showToast('建立客戶中...','warn');
+  showToast('建立客戶中...','warn');
   try{
-    await notionAPI('POST','pages',{parent:{database_id:DB.custMaster},properties:{
+    assertNotionPage(await notionAPI('POST','pages',{parent:{database_id:DB.custMaster},properties:{
       'Name':         {title:[{text:{content:name}}]},
       '客戶編號':     {rich_text:[{text:{content:code||''}}]},
       '國家':         region?{select:{name:region}}:undefined,
-    }});
+    }}),'建立客戶');
+    closeModal();
     logUserAction('建立客戶',name,code||region||'',ROLE);
-    await refreshAffectedData({tabs:['customers'],label:'客戶資料已更新'}); showToast('✅ 客戶建立完成','ok');
+    try{
+      await refreshAffectedData({tabs:['customers'],label:'客戶資料已更新'});
+      showToast('✅ 客戶建立完成','ok');
+    }catch(refreshError){showToast('⚠️ 客戶已建立，但清單更新失敗，請重新整理','warn');}
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
