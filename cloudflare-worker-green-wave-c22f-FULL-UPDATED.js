@@ -1394,6 +1394,7 @@ async function erpInventoryBomUpsert(request, env, cors) {
 async function erpInventoryList(request, env, cors) {
   try {
     const url = new URL(request.url);
+    const sku = cleanSku(url.searchParams.get('sku') || '');
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 5000) || 5000, 1), 20000);
     const pageSize = Math.min(Number(url.searchParams.get('page_size') || 1000) || 1000, 1000);
     const rows = [];
@@ -1415,7 +1416,7 @@ async function erpInventoryList(request, env, cors) {
     for (let offset = 0; offset < limit; offset += pageSize) {
       const batch = await supabaseFetch(
         env,
-        `/rest/v1/materials?archived_at=is.null&select=${encodeURIComponent(select)}&order=sku.asc&limit=${pageSize}&offset=${offset}`
+        `/rest/v1/materials?archived_at=is.null&${sku ? `sku=eq.${encodeURIComponent(sku)}&` : ''}select=${encodeURIComponent(select)}&order=sku.asc&limit=${pageSize}&offset=${offset}`
       );
       const list = Array.isArray(batch) ? batch : [];
       rows.push(...list);
@@ -1492,9 +1493,14 @@ async function erpInventorySync(request, env, cors) {
     if (!material?.id) throw new Error(`Supabase material sync failed: ${sku}`);
 
     const stock = Number(payload.stock);
-    if ((task.kind === 'set_stock' || task.kind === 'upsert_material') && Number.isFinite(stock)) {
+    if (task.kind === 'set_stock' && Number.isFinite(stock)) {
       await upsertSupabaseBalance(env, organization.id, warehouse.id, material.id, stock);
+    } else if (task.kind === 'upsert_material' && Number.isFinite(stock)) {
+      // A delayed material-link retry must never reset stock that an inbound already committed.
+      await insertSupabaseBalanceIfMissing(env, organization.id, warehouse.id, material.id, stock);
     }
+
+    const currentBalance = await getSupabaseBalance(env, organization.id, warehouse.id, material.id);
 
     return respOK(cors, {
       ok: true,
@@ -1502,7 +1508,7 @@ async function erpInventorySync(request, env, cors) {
       sku,
       material_id: material.id,
       notion_page_id: cleanText(material.notion_page_id || ''),
-      stock: Number.isFinite(stock) ? stock : null,
+      stock: currentBalance?.id ? Number(currentBalance.quantity) : null,
       created: !existedBeforeSync,
       mirrored_at: taipeiISOString(),
     });
@@ -4509,6 +4515,19 @@ async function upsertSupabaseBalance(env, organizationId, warehouseId, materialI
     }),
   });
   return Array.isArray(data) ? data[0] : data;
+}
+
+async function insertSupabaseBalanceIfMissing(env, organizationId, warehouseId, materialId, quantity) {
+  return supabaseFetch(env, '/rest/v1/inventory_balances?on_conflict=organization_id,warehouse_id,material_id&select=id,quantity', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
+    body: JSON.stringify({
+      organization_id: organizationId,
+      warehouse_id: warehouseId,
+      material_id: materialId,
+      quantity,
+    }),
+  });
 }
 
 async function compareAndSwapSupabaseBalance(env, {

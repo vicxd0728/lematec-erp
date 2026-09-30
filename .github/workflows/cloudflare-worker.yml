@@ -32,6 +32,9 @@ jobs:
       - name: Verify assembly completion and stock safety
         run: node --test tests/assembly_complete.cjs
 
+      - name: Verify material mirror recovery and stock preservation
+        run: node --test tests/inventory_mirror_recovery.cjs
+
       - name: Verify Shopee one-to-one transfer safety
         run: node --test tests/shopee_transfer.cjs
 
