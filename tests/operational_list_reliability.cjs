@@ -13,6 +13,14 @@ function section(source,start,end){
 }
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
+test('external status labels stay text even for HTML or inherited object keys',()=>{
+  const ctx=vm.createContext({PILL:{已完成:['#123','#fff']},escapeHtml});
+  vm.runInContext(section(html,'function pill(t){','function renderTab(tab)'),ctx);
+  assert.match(ctx.pill('<img src=x>'),/&lt;img src=x&gt;/);
+  assert.doesNotMatch(ctx.pill('<img src=x>'),/<img/);
+  assert.match(ctx.pill('constructor'),/>constructor<\/span>/);
+});
+
 test('picking API returns records beyond the Supabase 1000-row response cap',async()=>{
   const calls=[];
   const ctx=vm.createContext({
