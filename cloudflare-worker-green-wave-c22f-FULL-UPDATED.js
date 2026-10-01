@@ -2692,7 +2692,12 @@ async function erpStockLogList(request, env, cors) {
     const fields = 'id,notion_page_id,item_title,material_id,material_name,material_code,change_type,original_action,quantity,before_stock,after_stock,change_date,ref_no,operator_role,note,source,client_trace_id,created_at';
     const filters = [`select=${fields}`];
     const refNo=cleanText(url.searchParams.get('ref_no')||'');
+    const refPrefix=cleanText(url.searchParams.get('ref_prefix')||'');
     if(refNo)filters.push(`ref_no=eq.${encodeURIComponent(refNo)}`);
+    else if(refPrefix){
+      if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(refPrefix))return resp400(cors,'Invalid stock log reference prefix');
+      filters.push(`ref_no=like.${encodeURIComponent(refPrefix)}*`);
+    }
     if (mode !== 'all') {
       const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
       filters.push(`change_date=gte.${since}`);

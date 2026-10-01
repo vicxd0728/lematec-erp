@@ -2044,7 +2044,7 @@ function openEditStock(id, name, cur){
   const matForEdit=mats.find(m=>m.id===id);
   name=name||matForEdit?.name||'料件';
   cur=(cur===undefined||cur===null)?(matForEdit?.stock||0):cur;
-  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${name}</h3>
+  document.getElementById('modalInner').innerHTML=`<h3>✏️ 修改庫存 — ${escapeHtml(name)}</h3>
   <div style="font-size:0.8125rem;color:var(--text2);margin-bottom:10px">目前：<b style="color:var(--text);font-size:1.25rem">${cur}</b> 個</div>
   <div style="margin-bottom:10px">
     <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">修改後數量</label>
@@ -2057,40 +2057,46 @@ function openEditStock(id, name, cur){
   </div>
   <div class="form-actions">
     <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-    <button class="btn btn-blue" onclick="doEditStock('${id}','${name}',${cur})">💾 確認修改</button>
+    <button class="btn btn-blue" onclick="doEditStock('${id}')">💾 確認修改</button>
   </div>`;
   openModal();
 }
 
 async function doEditStock(id, name, oldStock){
   if(denyViewOnlyAction()) return;
-  const newVal = parseInt(document.getElementById('newStock')?.value);
+  name=mats.find(m=>m.id===id)?.name||name||'料件';
+  const rawValue=document.getElementById('newStock')?.value||'';
+  const newVal=Number(rawValue);
   const reason = (document.getElementById('editStockReason')?.value||'').trim();
-  if(isNaN(newVal)||newVal<0){showToast('請輸入有效數字','warn');return;}
+  if(rawValue===''||!Number.isSafeInteger(newVal)||newVal<0){showToast('庫存數量需為 0 以上整數','warn');return;}
   if(!reason || !/[一-龥a-zA-Z0-9]/.test(reason)){
     showToast('⚠ 請填寫修改原因（需包含中文或英數字）','warn');
     document.getElementById('editStockReason')?.focus();
     return;
   }
-  closeModal(); showToast('更新庫存中...','warn');
+  showToast('正在提交正式庫存交易...','warn');
+  let stockMove;
   try{
-    const stockMove=await applyInventorySetAndMirror(id,newVal,{
+    stockMove=await applyInventorySetAndMirror(id,newVal,{
       reason,
       refNo:name,
       sourceType:'manual_stock_edit',
       sourceId:id
     });
-    await _writeStockEditLog({
+  }catch(e){showToast('❌ 正式庫存未確認成功：'+e.message,'err');return;}
+  closeModal();
+  const editLogSaved=await _writeStockEditLog({
       matId:id, matName:name, matCode:'',
       changeType:'庫存數量修改',
       before:String(stockMove.before), after:String(stockMove.after),
       delta:stockMove.delta, reason, operator:ROLE,
-    });
-    const mat = mats.find(m=>m.id===id);
-    if(mat){mat.qty=stockMove.after; mat.stock=stockMove.after;}
-    await refreshAffectedData({core:true,label:'庫存已更新'});
-    showToast(`✅ ${name} 庫存 ${stockMove.before} → ${stockMove.after}（原因已記錄）`,'ok');
-  }catch(e){showToast('❌ 失敗：'+e.message,'err');}
+  });
+  const mat=mats.find(m=>m.id===id);
+  if(mat){mat.qty=stockMove.after;mat.stock=stockMove.after;}
+  let refreshError='';
+  try{await refreshAffectedData({core:true,label:'庫存已更新'});}catch(e){refreshError=e.message||String(e);}
+  const pending=[stockMove.mirrorPending?'Notion 庫存鏡像待補同步':'',!editLogSaved?'修改記錄待核對':'',refreshError?'畫面重新讀取失敗，請手動同步':''].filter(Boolean);
+  showToast(`${pending.length?'⚠':'✅'} ${name} 正式庫存已更新 ${stockMove.before} → ${stockMove.after}${pending.length?'；'+pending.join('；'):'（原因已記錄）'}`,pending.length?'warn':'ok',9000);
 }
 
 function openInventoryBatchAdjust(){
@@ -19238,16 +19244,15 @@ async function fetchCorderStockAuditRows(orderNo){
   const all=[];
   let offset=0;
   for(let guard=0;guard<8;guard++){
-    const res=await fetch(`${PROXY}/api/stock-log/list?mode=all&limit=995&offset=${offset}&corder_delete_audit=1`);
+    const res=await fetch(`${PROXY}/api/stock-log/list?mode=all&limit=995&offset=${offset}&ref_prefix=${encodeURIComponent(target)}&corder_delete_audit=1`);
     const data=await res.json().catch(()=>null);
     if(!res.ok||data?.ok===false||data?.error) throw new Error(data?.error||`C端異動記錄查詢失敗 HTTP ${res.status}`);
     const rows=Array.isArray(data?.rows)?data.rows:[];
-    all.push(...rows);
-    if(!data?.has_more) break;
+    all.push(...rows.filter(row=>String(row?.ref_no||'')===target||String(row?.ref_no||'').startsWith(`${target}-RET-`)));
+    if(!data?.has_more) return all.sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
     offset=Number(data.next_offset)||offset+995;
   }
-  return all.filter(row=>String(row?.ref_no||'')===target||orderAuditLogText(row).includes(target))
-    .sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+  throw new Error(`${target} 的庫存異動紀錄超過查詢上限，已停止操作`);
 }
 function buildCorderInventoryOutstandingRows(rows,fallbackRefs=[]){
   const shipped=new Map();
@@ -19335,7 +19340,10 @@ async function openCorderCancelDeleteFlow(id,mode='delete'){
   if(!o){showToast('找不到 C端訂單','err');return;}
   showToast('檢查 C端庫存異動...','warn');
   try{
+    await assertCorderStockActionIdentity(o);
     const rows=await fetchCorderStockAuditRows(o.no||id);
+    if(!o.matId&&!rows.some(isCorderShipLog)&&['出貨中','已完成','部分退貨'].includes(o.status))
+      throw new Error('找不到可核對的原始扣庫明細，已停止回庫／取消；請先核對正式交易');
     const outstanding=o.matId?corderSavedOutstandingRows(o):buildCorderInventoryOutstandingRows(rows,[]);
     openCorderDeleteAuditModal(id,{mode,rows,outstanding});
   }catch(e){
@@ -19355,7 +19363,10 @@ async function processCorderDeleteDecision(id,mode,stockMode){
   _corderDeleteLocks.add(lockKey);
   showToast(`${actionText}處理中...`,'warn');
   try{
+    await assertCorderStockActionIdentity(o);
     const rows=await fetchCorderStockAuditRows(orderNo);
+    if(!o.matId&&!rows.some(isCorderShipLog)&&['出貨中','已完成','部分退貨'].includes(o.status))
+      throw new Error('找不到可核對的原始扣庫明細，已停止操作；請先核對正式交易');
     const outstanding=o.matId?corderSavedOutstandingRows(o):buildCorderInventoryOutstandingRows(rows,[]);
     if(stockMode==='return'&&outstanding.length){
       await returnCorderStock(outstanding.map(row=>({id:row.pageId,qty:row.qty})),orderNo,`cancel-delete:${id}:return`);
@@ -19510,6 +19521,7 @@ async function submitReturnCorder(id){
   btn.textContent='退貨處理中...';
   _corderReturnLocks.add(id);
   try{
+    await assertCorderStockActionIdentity(o);
     if(stockMode==='return') await returnCorderStock(refs,returnRefNo,returnKey);
     const statusSync=await updateWorkflowPageAfterInventory(id,{
       '狀態':{select:{name:nextStatus}},
@@ -19584,6 +19596,33 @@ async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer){
   );
   if(!same)throw new Error(`${orderNo} 已用於其他蝦皮訂單或買家，請換單號或核對原單`);
   return matches.length;
+}
+async function assertCorderStockActionIdentity(order){
+  const orderNo=String(order?.no||'').trim();
+  if(!orderNo||!order?.id)throw new Error('C端訂單身分不完整，已停止庫存操作');
+  const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
+    page_size:100,
+    filter:{property:'訂單號碼',title:{equals:orderNo}},
+  });
+  if(r?.object==='error'||!Array.isArray(r?.results)||r.has_more)
+    throw new Error(`${orderNo} 的既有訂單查核不完整，已停止庫存操作`);
+  const active=r.results.filter(p=>!p.archived&&!p.in_trash);
+  const current=active.find(p=>normalizeNotionIdForCompare(p.id)===normalizeNotionIdForCompare(order.id));
+  if(!current)throw new Error(`${orderNo} 的訂單已變更，請重新讀取後操作`);
+  const identity=p=>({
+    shopee:(getRichText(p.properties||{},'蝦皮訂單號碼')||getTitle(p.properties||{},'蝦皮訂單號碼')).trim(),
+    buyer:(getRichText(p.properties||{},'買家帳號')||getRichText(p.properties||{},'客戶')).trim(),
+  });
+  const selected=identity(current);
+  if(selected.shopee!==String(order.shopeeNo||'').trim()||selected.buyer!==String(order.buyer||'').trim())
+    throw new Error(`${orderNo} 的蝦皮單號或買家已變更，請重新讀取後操作`);
+  if(active.some(p=>{
+    const other=identity(p);
+    return other.shopee!==selected.shopee||other.buyer!==selected.buyer;
+  }))throw new Error(`${orderNo} 對應不同蝦皮單號或買家，不能只按內部單號退貨／回庫；請先人工核對原單`);
+  if(active.length>1&&!parseCorderStockRefs(order.matId,order.qty).length)
+    throw new Error(`${orderNo} 有多筆品項但缺少本筆原始扣料清單，不能按共用單號回庫；請先核對正式交易`);
+  return active.length;
 }
 async function corderInternalNoExists(orderNo,currentId=''){
   const currentKey=normalizeNotionIdForCompare(currentId);
@@ -22675,10 +22714,13 @@ async function _writeStockEditLog({matId, matName, matCode, changeType, before, 
     if(typeof delta === 'number' && !isNaN(delta)) props['變化量']={number:delta};
     if(matId) props['料件連結']={url:`https://www.notion.so/${matId.replace(/-/g,'')}`};
 
-    await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:props});
+    const saved=await notionAPI('POST','pages',{parent:{database_id:DB.stockEditLog},properties:props});
+    if(saved?.object==='error'||!saved?.id)throw new Error(saved?.message||'修改記錄未確認建立');
     console.log('[庫存記錄] 已寫入:', recNo, changeType, reason);
+    return true;
   }catch(e){
     console.warn('[庫存記錄] 寫入失敗（不影響主功能）:', e);
+    return false;
   }
 }
 
