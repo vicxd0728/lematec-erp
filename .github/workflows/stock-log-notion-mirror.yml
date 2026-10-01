@@ -15,6 +15,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Reconcile staff stock details from accepted transactions
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          ERP_WORKER_URL: https://green-wave-c22f.vic-e93.workers.dev
+        run: python scripts/reconcile_stock_log_details.py --apply --days 60 --max-rows 100
+
       - name: Repair missing Notion mirrors
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -28,4 +34,5 @@ jobs:
             --apply \
             --limit 100 \
             --days 30 \
-            --source erp_frontend
+            --source erp_frontend \
+            --source inventory_reconcile

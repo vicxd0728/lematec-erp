@@ -19569,6 +19569,22 @@ function openEditCorder(id){
 function normalizeNotionIdForCompare(id=''){
   return String(id||'').trim().replace(/-/g,'').toLowerCase();
 }
+async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer){
+  const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
+    page_size:100,
+    filter:{property:'訂單號碼',title:{equals:orderNo}},
+  });
+  if(r?.object==='error'||!Array.isArray(r?.results)||r.has_more)
+    throw new Error(`${orderNo} 的既有訂單查核不完整，已停止操作`);
+  const matches=r.results.filter(p=>!p.archived&&!p.in_trash);
+  const same=matches.every(p=>
+    !!shopeeNo&&!!buyer&&
+    getRichText(p.properties||{},'蝦皮訂單號碼').trim()===String(shopeeNo).trim()&&
+    getRichText(p.properties||{},'買家帳號').trim()===String(buyer).trim()
+  );
+  if(!same)throw new Error(`${orderNo} 已用於其他蝦皮訂單或買家，請換單號或核對原單`);
+  return matches.length;
+}
 async function corderInternalNoExists(orderNo,currentId=''){
   const currentKey=normalizeNotionIdForCompare(currentId);
   const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
@@ -24546,7 +24562,9 @@ async function submitNewCustomer(){
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
+let CORDER_SUBMIT_BUSY=false;
 async function submitCorder(){
+  if(CORDER_SUBMIT_BUSY)return;
   const manualNo=(document.getElementById('co_no')?.value||'').trim();
   const shopeeNo=(document.getElementById('co_shopee_no')?.value||'').trim();
   const buyer=(document.getElementById('co_buyer')?.value||'').trim();
@@ -24560,11 +24578,13 @@ async function submitCorder(){
   if(!matId){showToast('請選擇蝦皮料號','warn');return;}
   const mat=mats.find(m=>m.id===matId);
   if(!mat){showToast('找不到料件','err');return;}
+  CORDER_SUBMIT_BUSY=true;
   const existingOrderNo=corderExistingNoByShopeeAndBuyer(shopeeNo,buyer);
   if(!manualNo&&!existingOrderNo){
     try{
       await ensureCorderSequenceReady();
     }catch(_){
+      CORDER_SUBMIT_BUSY=false;
       return;
     }
   }
@@ -24573,7 +24593,7 @@ async function submitCorder(){
   let stagedOrder=null;
   let committed=false;
   let stockAttempted=false;
-  closeModal(); showToast('建立 C端訂單中...','warn');
+  showToast('正在確認 C端訂單與庫存...','warn');
   try{
     await loadCoreEssentials({force:true});
     const shipPlan=resolveCorderShipPlan(mat,qty);
@@ -24582,6 +24602,8 @@ async function submitCorder(){
       const reserved=await reserveCorderNumbers(1);
       orderNo=formatCorderNo(reserved.start_number);
     }
+    await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer);
+    closeModal();
     // 先建立可追蹤的暫存單，再執行 Supabase 扣庫；避免「扣了庫存卻沒有訂單」。
     const stagedProps={
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
@@ -24600,6 +24622,7 @@ async function submitCorder(){
     if(payDate)  stagedProps['付款時間']={date:{start:payDate}};
     stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:stagedProps});
     if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error('C端訂單暫存建檔失敗：'+(stagedOrder?.message||'未回傳訂單'));
+    await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer);
 
     const operationKey=`manual:${orderNo}:${shopeeNo||'-'}:${mat.id}`;
     stockAttempted=true;
@@ -24636,7 +24659,7 @@ async function submitCorder(){
       console.error('submitCorder post-commit error:',e);
       showToast(`⚠ C端訂單 ${orderNo} 已扣庫，但後續同步未完成；請按同步鍵確認，勿重複建立`,'warn',9000);
     }
-  }
+  }finally{CORDER_SUBMIT_BUSY=false;}
 }
 
 function buildCorderImportPreflight(incoming){
@@ -24802,15 +24825,33 @@ async function applyCorderImportPreflight(){
     openCorderImportPreflightModal(freshReport);showToast('庫存或 BOM 已更新，請確認新的扣料預覽','warn');return;
   }
   const incoming=report.incoming;
-  closeModal();
-  showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
   let ok=0, skip=0, warn=0, failed=0;
   const warnList=[];
   const assignedNos=new Map();
   const newOrderKeys=report.newOrderKeys||[];
-  if(newOrderKeys.length) await ensureCorderSequenceReady();
-  const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
-  newOrderKeys.forEach((key,index)=>assignedNos.set(key,formatCorderNo(Number(reservedRange.start_number)+index)));
+  try{
+    if(newOrderKeys.length) await ensureCorderSequenceReady();
+    const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
+    newOrderKeys.forEach((key,index)=>assignedNos.set(key,formatCorderNo(Number(reservedRange.start_number)+index)));
+    const identities=new Map();
+    for(const item of incoming){
+      const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
+      const no=corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer)||assignedNos.get(key);
+      if(!no) throw new Error(`第 ${item.sourceRow} 列缺少 C端內部單號`);
+      const prior=identities.get(no);
+      if(prior&&(prior.shopeeNo!==item.shopeeNo||prior.buyer!==item.buyer))
+        throw new Error(`${no} 同時指向不同蝦皮訂單或買家，已停止匯入`);
+      identities.set(no,{shopeeNo:item.shopeeNo,buyer:item.buyer});
+    }
+    for(const [no,identity] of identities)
+      await assertCorderInternalNoForIdentity(no,identity.shopeeNo,identity.buyer);
+  }catch(e){
+    openCorderImportPreflightModal(report);
+    showToast('❌ 匯入前單號查核失敗；未建立訂單或扣庫：'+e.message,'err',10000);
+    return;
+  }
+  closeModal();
+  showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
   function assignInternalNo(item){
     const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
     const existing=corderExistingNoByShopeeAndBuyer(item.shopeeNo,item.buyer);
@@ -24864,6 +24905,7 @@ async function applyCorderImportPreflight(){
       cProps['料件ID']={rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]};
       stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
       if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
+      await assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer);
 
       const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
       stockAttempted=true;
