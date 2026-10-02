@@ -139,6 +139,44 @@ test('editing active work records the correction and preserves completed history
   assert.equal(result.data.row.steps[1].supplier,'丁廠');
 });
 
+test('mistaken work can be removed and restored without deleting its history or touching stock',async()=>{
+  const h=harness(),id=op(90);
+  await h.call({action:'create',operation_id:id,title:'錯建工作',steps:[{type:'噴砂',supplier:'甲廠'}]});
+  let result=await h.call({action:'archive',operation_id:op(91),job_id:id,expected_version:1,reason:'建立錯誤'});
+  assert.equal(result.status,200);assert.ok(result.data.row.archived_at);
+  assert.equal(result.data.row.archived_reason,'建立錯誤');
+  assert.equal(result.data.row.events.length,2);
+  result=await h.call({action:'edit',operation_id:op(92),job_id:id,expected_version:2,title:'不應修改',step:{type:'清洗',supplier:'甲廠'}});
+  assert.equal(result.status,400);
+  result=await h.call({action:'restore',operation_id:op(93),job_id:id,expected_version:2});
+  assert.equal(result.status,200);assert.equal(result.data.row.archived_at,null);
+  assert.equal(result.data.row.events.length,3);
+  assert.equal(h.inventoryWrites.length,0);
+});
+
+test('linked inbound work cannot be removed from the supply list',async()=>{
+  const h=harness(),id=op(94);
+  await h.call({action:'create',operation_id:id,title:'已入料',steps:[{type:'電鍍',supplier:'甲廠'}]});
+  await h.call({action:'complete',operation_id:op(95),job_id:id,expected_version:1});
+  const prepared=await h.call({action:'prepare_inbound',operation_id:op(96),job_id:id,expected_version:2});
+  h.receipts.set(op(97),{id:op(97),inbound_number:prepared.data.row.inbound_number});
+  await h.call({action:'link_inbound',operation_id:op(98),job_id:id,expected_version:3,inbound_receipt_id:op(97)});
+  const result=await h.call({action:'archive',operation_id:op(99),job_id:id,expected_version:4,reason:'誤建'});
+  assert.equal(result.status,400);assert.equal(h.jobs.get(id).archived_at,undefined);
+});
+
+test('closed work allows a documented metadata correction but locks finished steps',async()=>{
+  const h=harness(),id=op(100);
+  await h.call({action:'create',operation_id:id,title:'舊名稱',steps:[{type:'電鍍',supplier:'甲廠'}]});
+  await h.call({action:'complete',operation_id:op(101),job_id:id,expected_version:1});
+  await h.call({action:'close',operation_id:op(102),job_id:id,expected_version:2});
+  let result=await h.call({action:'edit',operation_id:op(103),job_id:id,expected_version:3,title:'更正名稱',quantity:12,unit:'件',notes:'名稱筆誤'});
+  assert.equal(result.status,200);assert.equal(result.data.row.title,'更正名稱');
+  assert.equal(result.data.row.steps[0].type,'電鍍');
+  result=await h.call({action:'edit',operation_id:op(104),job_id:id,expected_version:4,title:'不可改工項',step:{type:'噴砂',supplier:'乙廠'}});
+  assert.equal(result.status,400);assert.equal(h.jobs.get(id).steps[0].type,'電鍍');
+});
+
 test('worker role matrix restricts supply writes to operations roles',()=>{
   assert.match(source,/\'\/api\/supply\/write\': \['vic', 'manager', 'purchase', 'warehouse'\]/);
   assert.doesNotMatch(source,/\'\/api\/supply\/write\': \[[^\]]*'ai'/);

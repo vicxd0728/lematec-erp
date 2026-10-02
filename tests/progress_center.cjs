@@ -53,6 +53,31 @@ test('supply view waits for official data and shows recorded jobs without invent
   assert.match(rendered, /入料經品檢通過才增加庫存/);
 });
 
+test('removed supply work stays out of daily counts and can be found for restoration', () => {
+  const ctx=setup();
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'b',title:'誤建加工',work_number:'SC-2',status:'加工中',archived_at:'2026-10-02T00:00:00Z',archived_reason:'建錯',current_step:0,steps:[{type:'噴砂',supplier:'乙廠'}]}]",ctx);
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.doesNotMatch(rendered,/SC-2/);
+  assert.match(rendered,/進行中<\/div><strong[^>]*>0<\/strong>/);
+  vm.runInContext("supplyFilter='archived'",ctx);
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-2/);
+  assert.match(rendered,/移除原因：建錯/);
+  assert.match(rendered,/還原/);
+});
+
+test('work detail can open a process route while the default list remains unchanged', () => {
+  const ctx=setup(),modal={innerHTML:''};
+  ctx.document.getElementById=()=>modal;
+  ctx.openSharedModal=()=>{};
+  vm.runInContext("supplyJobs=[{id:'a',title:'接頭加工',work_number:'SC-3',status:'加工中',current_step:1,steps:[{type:'沖壓',supplier:'甲廠'},{type:'攻牙',supplier:'乙廠'}],events:[{action:'WORK_CREATED',recorded_at:'2026-10-01T01:00:00Z'},{action:'advance',recorded_at:'2026-10-02T01:00:00Z'}]}]",ctx);
+  ctx.supplyOpenFlow('a');
+  assert.match(modal.innerHTML,/第 1 站 · 沖壓/);
+  assert.match(modal.innerHTML,/第 2 站 · 攻牙/);
+  assert.match(modal.innerHTML,/已完成 1／2 站/);
+  assert.match(modal.innerHTML,/返回工作詳情/);
+});
+
 test('order progress uses only active orders and filters overdue work', () => {
   const ctx = setup([
     { id: 'a', no: 'ORD-A', status: '生產中', deadline: '2026-10-01', customer: '甲', product: 'Y-A', qty: 4 },

@@ -3783,7 +3783,7 @@ async function erpInboundList(request, env, cors) {
 // Supply-chain work is a tracking ledger. None of these routes mutates inventory.
 // The existing inbound/QC route remains the only path from finished work to stock.
 const ERP_SUPPLY_TYPES = new Set(['電鍍', '噴砂', '攻牙', '清洗', '塑膠射出', '金屬射出', '沖壓', '電子廠', '外包組裝']);
-const ERP_SUPPLY_JOB_SELECT = 'id,organization_id,work_number,title,material_sku,quantity,unit,due_date,related_order,notes,status,current_step,steps,events,version,inbound_number,inbound_receipt_id,created_role,created_at,updated_at';
+const ERP_SUPPLY_JOB_SELECT = 'id,organization_id,work_number,title,material_sku,quantity,unit,due_date,related_order,notes,status,current_step,steps,events,version,inbound_number,inbound_receipt_id,archived_at,archived_reason,created_role,created_at,updated_at';
 const ERP_SUPPLY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function supplyText(value, max = 160) { return cleanText(value).slice(0, max); }
@@ -3811,8 +3811,12 @@ async function erpSupplyJobs(request, env, cors) {
   try {
     if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const {organization} = await getSupabaseInventoryContext(env);
-    const rows = await supabaseFetch(env, `/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organization.id)}&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=500`);
-    return respOK(cors,{ok:true,rows:Array.isArray(rows)?rows:[]});
+    const prefix=`/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organization.id)}`;
+    const [active,archived]=await Promise.all([
+      supabaseFetch(env,`${prefix}&archived_at=is.null&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=500`),
+      supabaseFetch(env,`${prefix}&archived_at=not.is.null&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=100`),
+    ]);
+    return respOK(cors,{ok:true,rows:[...(Array.isArray(active)?active:[]),...(Array.isArray(archived)?archived:[])],active_truncated:active?.length===500,archived_truncated:archived?.length===100});
   } catch (error) { return resp500(cors,error.message); }
 }
 async function erpSupplyCatalog(request, env, cors) {
@@ -3908,21 +3912,37 @@ async function erpSupplyWrite(request, env, cors) {
     if (!current) return resp400(cors,'找不到工作單，請重新整理');
     if ((current.events||[]).some(event=>event.event_id===operationId)) return respOK(cors,{ok:true,existing:true,row:current});
     if (Number(body?.expected_version)!==Number(current.version)) return supplyConflict(cors,'工作單已有較新的變更，請重新整理後再操作',current);
+    if (current.archived_at&&action!=='restore') return resp400(cors,'工作單已移至已移除清單，請先還原');
     const steps=Array.isArray(current.steps)?current.steps.map(step=>({...step})):[];
     const index=Number(current.current_step)||0;
     const changes={};
     let detail={};
     if (action==='edit') {
-      if (!['待送出','加工中'].includes(current.status)) return resp400(cors,'只有進行中的工作可修改');
+      const editableStep=['待送出','加工中'].includes(current.status);
+      if (!editableStep&&!['待決定','已結案'].includes(current.status)) return resp400(cors,'此工作已進入正式入料流程，不能再修改');
       const title=supplyText(body?.title,160);
       const quantity=body?.quantity===null||body?.quantity===undefined||body?.quantity===''?null:Number(body.quantity);
       const dueDate=supplyText(body?.due_date,10);
-      const step=supplyStep(body?.step,true,await supplyAllowedTypes(env,organizationId));
+      if (!editableStep&&body?.step) return resp400(cors,'已完成工項不可修改');
+      const step=editableStep?supplyStep(body?.step,true,await supplyAllowedTypes(env,organizationId)):steps[index];
       if (!title||quantity!==null&&(!Number.isFinite(quantity)||quantity<=0||quantity>1e9)||dueDate&&!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return resp400(cors,'工作名稱、數量或日期無效');
-      const before={title:current.title,quantity:current.quantity,due_date:current.due_date,step:steps[index]};
-      steps[index]=step;
-      Object.assign(changes,{title,quantity,due_date:dueDate||null,steps});
-      detail={before,after:{title,quantity,due_date:dueDate||null,step}};
+      const unit=supplyText(body?.unit,20)||null;
+      const relatedOrder=supplyText(body?.related_order,120)||null;
+      const notes=supplyText(body?.notes,2000)||null;
+      const before={title:current.title,quantity:current.quantity,unit:current.unit,due_date:current.due_date,related_order:current.related_order,notes:current.notes,step:steps[index]};
+      if(editableStep)steps[index]=step;
+      Object.assign(changes,{title,quantity,unit,due_date:dueDate||null,related_order:relatedOrder,notes,...(editableStep?{steps}:{})});
+      detail={before,after:{title,quantity,unit,due_date:dueDate||null,related_order:relatedOrder,notes,step}};
+    } else if (action==='archive') {
+      if (current.inbound_receipt_id||current.status==='待品檢') return resp400(cors,'此工作已連到正式入料單，不能從工作清單移除');
+      const reason=supplyText(body?.reason,500);
+      if (!reason) return resp400(cors,'請填寫移除原因，方便日後查核');
+      changes.archived_at=new Date().toISOString();changes.archived_reason=reason;
+      detail={reason,previous_status:current.status};
+    } else if (action==='restore') {
+      if (!current.archived_at) return resp400(cors,'工作單尚未移除');
+      changes.archived_at=null;changes.archived_reason=null;
+      detail={previous_reason:current.archived_reason||''};
     } else if (action==='insert_step') {
       const at=Number(body?.at);
       if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(at)||at<=index||at>steps.length||steps.length>=25) return resp400(cors,'只能在目前工項之後插入，最多 25 關');
