@@ -25380,7 +25380,7 @@ function renderItems(){
   const row=document.getElementById('itemAddRow');
   if(!row) return;
   row.innerHTML=`<div style="flex:1">
-    <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">成品</label>
+    <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">訂購料號（成品／半成品／零件）</label>
     <div style="display:flex;gap:6px">
       <input class="inp" id="m_product_search" placeholder="直接輸入料號/名稱，邊打邊篩選" oninput="filterProductList(this.value)" onfocus="filterProductList(this.value)" autocomplete="off">
       <button type="button" class="btn btn-cyan btn-sm" onclick="createProductFromInput()">建檔</button>
@@ -25401,12 +25401,13 @@ function renderItems(){
 
 function productCandidates(q=''){
   const key=normalizeSku(q);
-  let list=mats.filter(m=>{
-    const sku=String(m.code||m.name||'');
-    return m.type==='成品'||m.type==='半成品'||m.type==='蝦皮用'||m.type==='蝦皮用(S-)'||/^S-/i.test(sku)||!m.type;
-  });
+  let list=mats.filter(m=>m.code||m.name);
   if(key) list=list.filter(m=>[...materialReferenceKeys(m)].some(ref=>ref.includes(key)));
-  return list.sort((a,b)=>(a.code||a.name||'').localeCompare(b.code||b.name||'')).slice(0,40);
+  return list.sort((a,b)=>{
+    const aExact=normalizeSku(a.code||a.name)===key;
+    const bExact=normalizeSku(b.code||b.name)===key;
+    return Number(bExact)-Number(aExact)||(a.code||a.name||'').localeCompare(b.code||b.name||'');
+  }).slice(0,40);
 }
 
 function filterProductList(q){
@@ -25417,6 +25418,8 @@ function filterProductList(q){
   if(hidden) hidden.value='';
   const list=productCandidates(q);
   const input=String(q||'').trim();
+  const exact=input?list.filter(m=>normalizeSku(m.code||m.name)===normalizeSku(input)):[];
+  if(exact.length===1){selectProduct(exact[0].id);return;}
   panel.style.display=input?'block':'none';
   panel.innerHTML=list.length?list.map(m=>`<button type="button" onclick="selectProduct('${m.id}')" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);text-align:left;cursor:pointer">
     <span style="font-family:var(--f-mono);font-weight:700">${escapeHtml(m.code||m.name||'')}</span>

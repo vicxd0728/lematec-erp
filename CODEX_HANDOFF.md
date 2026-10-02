@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Customer Orders Can Select Parts 2026-10-02
+
+- General domestic and foreign order material search now includes existing parts such as `Y-FLT-D-07`, alongside finished and semi-finished materials. A unique exact SKU auto-selects its existing material ID; partial matches remain clickable suggestions. The field label describes all three item types.
+- Production inventory read-only check found `Y-FLT-D-07` as an existing distinct material with balance 986.86; similarly prefixed `Y-FLT-D-07-1` and `Y-FLT-D-07-2` remain separate SKUs. No material, order, or stock was written during this check.
+- Both domestic and foreign order creation tests verify the order's existing material relation and quantity without new-material creation. Customer picking already deducts the ordered SKU itself, including parts; assembly/Shopee rules remain unchanged. Focused Node tests and static verifier passed. Production Pages deployment/readback must be checked for this change's exact commit.
+
 ## Media Hub / Marketing Schedule 2026-10-02
 
 - The former `videos` main tab is labeled `影音專區` and contains `影片庫` plus `行銷行程` subtabs. The existing video library read and share behavior is unchanged.
