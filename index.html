@@ -2546,7 +2546,7 @@ const ROLES={
   // 廠長
   manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
-  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','inventory','analytics','customers','leave','stocklog']},
+  sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','inventory','analytics','customers','leave','stocklog','schedule']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
   warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','analytics','announce','notes','videos','leave','stocklog','schedule']},
   // 品管：品管頁操作 + 入料瀏覽
@@ -2557,7 +2557,7 @@ const ROLES={
   viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
   ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health','permissions']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影音專區',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影音專區',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'🧭 進度中心'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer'||role==='ai';}
 function canWriteNotes(role=ROLE){return !!role&&role!=='viewer';}
@@ -9145,7 +9145,7 @@ function switchTab(tab){
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=Object.prototype.hasOwnProperty.call(PILL,t)?PILL[t]:['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${escapeHtml(t||'—')}</span>`;}
 function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderMediaHub();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='analytics'){if(analyticsDataReady()){c.innerHTML=renderAnalytics();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入營運分析...</div>';loadAnalyticsData().then(()=>{if(CURRENT_TAB==='analytics')c.innerHTML=renderAnalytics();});}}else if(tab==='stocklog'){if(isFresh('stocklog')){c.innerHTML=renderStockLog();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}}
-  else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
+  else if(tab==='schedule'){c.innerHTML=renderProgressCenter();}
   else if(tab==='corders'){
     if(window._cordersLoaded&&Date.now()-(window._cordersLoadedAt||0)<120000){c.innerHTML=renderCorders();}
     else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入 C端訂單...</div>';loadCorders().then(()=>{if(CURRENT_TAB==='corders')c.innerHTML=renderCorders();});}
@@ -12552,6 +12552,84 @@ async function retryStockLogSync(){
 // ══════════════════════════════════════════════
 // 📅 排程模組
 // ══════════════════════════════════════════════
+const SUPPLY_WORK_TYPES=['電鍍','噴砂','攻牙','清洗','塑膠射出','金屬射出','沖壓','電子廠','外包組裝'];
+let progressCenterView='orders';
+let progressCenterFilter='all';
+let progressCenterSearch='';
+let legacyScheduleLoaded=false;
+
+function setProgressCenterView(view){
+  if(!['orders','supply','legacy'].includes(view))return;
+  progressCenterView=view;
+  if(view==='legacy'&&!legacyScheduleLoaded){
+    const host=document.getElementById('mainContent');
+    if(host)host.innerHTML='<div class="loading-row"><div class="spin"></div>載入原生產排程...</div>';
+    loadSchedule().then(()=>{
+      legacyScheduleLoaded=true;
+      if(CURRENT_TAB==='schedule'&&progressCenterView==='legacy')renderTab('schedule');
+    });
+    return;
+  }
+  if(CURRENT_TAB==='schedule')renderTab('schedule');
+}
+
+function setProgressCenterFilter(value){
+  if(!['all','overdue','soon','production','inspection','shipping'].includes(value))return;
+  progressCenterFilter=value;
+  if(CURRENT_TAB==='schedule')renderTab('schedule');
+}
+
+function setProgressCenterSearch(value){
+  progressCenterSearch=String(value||'').trim();
+  if(CURRENT_TAB==='schedule')renderTab('schedule');
+}
+
+function renderProgressCenter(){
+  const tabs=[['orders','📋 訂單進度'],['supply','🔗 供應鏈追蹤'],['legacy','📅 原生產排程']];
+  const nav=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px" role="tablist" aria-label="進度中心檢視">${tabs.map(([key,label])=>`<button type="button" class="btn ${progressCenterView===key?'btn-blue':'btn-ghost'} btn-sm" role="tab" aria-selected="${progressCenterView===key}" onclick="setProgressCenterView('${key}')">${label}</button>`).join('')}</div>`;
+  const intro=`<div class="info-warn" style="margin-bottom:14px;background:rgba(45,212,191,.07);border-color:rgba(45,212,191,.22);color:var(--text)"><b>進度中心</b>：訂單狀態來自現有訂單；外包流轉與庫存出入是不同紀錄，不能用「加工完成」取代品檢或入庫。</div>`;
+  if(progressCenterView==='legacy')return intro+nav+renderSchedule();
+  if(progressCenterView==='supply')return intro+nav+renderSupplyChainFoundation();
+  return intro+nav+renderProgressOrders();
+}
+
+function renderProgressOrders(){
+  if(!window._coreLoaded&&!orders.length)return '<div class="info-warn" role="status">訂單資料尚未載入，暫不顯示進度數字；請等待主資料載入或使用右上角同步。</div>';
+  const today=todayStr();
+  const active=orders.filter(o=>o.status!=='已完成'&&o.status!=='取消');
+  const overdue=active.filter(o=>o.deadline&&o.deadline<today);
+  const soon=active.filter(o=>o.deadline&&o.deadline>=today&&o.deadline<=taipeiDateKey(new Date(Date.now()+7*86400000)));
+  const noDeadline=active.filter(o=>!o.deadline);
+  const counts=[['進行中',active.length,'var(--cyan2)'],['已逾交期',overdue.length,'var(--red)'],['7 天內交期',soon.length,'var(--amber)'],['未填交期',noDeadline.length,'var(--text2)']];
+  const q=progressCenterSearch.toLocaleLowerCase();
+  const filtered=active.filter(o=>{
+    if(progressCenterFilter==='overdue'&&!(o.deadline&&o.deadline<today))return false;
+    if(progressCenterFilter==='soon'&&!(o.deadline&&o.deadline>=today&&o.deadline<=taipeiDateKey(new Date(Date.now()+7*86400000))))return false;
+    if(progressCenterFilter==='production'&&!['待排程','生產中'].includes(o.status))return false;
+    if(progressCenterFilter==='inspection'&&o.status!=='待檢驗')return false;
+    if(progressCenterFilter==='shipping'&&o.status!=='待出貨')return false;
+    return !q||[o.no,o.customer,o.cust,o.matCode,o.product].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+  }).sort((a,b)=>{
+    const ad=a.deadline||'9999-99-99',bd=b.deadline||'9999-99-99';
+    return ad.localeCompare(bd)||(b.created||'').localeCompare(a.created||'');
+  });
+  const nextAction={'待排程':'確認領料／排程','生產中':'追蹤生產進度','待檢驗':'確認品檢結果','待出貨':'安排出貨'};
+  return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color])=>`<div class="panel" style="padding:14px"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></div>`).join('')}</div>
+    <div class="panel" style="padding:16px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>訂單待辦一覽</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；此處只彙整既有訂單，領料、品檢及出貨仍在原功能處理。</div></div><button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部進行中'],['overdue','已逾交期'],['soon','7 天內交期'],['production','待領料／生產'],['inspection','待檢驗'],['shipping','待出貨']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,40).map(o=>{
+        const late=o.deadline&&o.deadline<today;
+        return `<div style="border:1px solid ${late?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)}</div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.7rem;color:${late?'var(--red)':'var(--text3)'};margin-top:4px">交期 ${escapeHtml(o.deadline||'未填')} ${late?'· 已逾期':''} · ${escapeHtml(nextAction[o.status]||'查看訂單')}</div></div><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查看進度</button></div>`;
+      }).join('')}</div>${filtered.length>40?`<div style="color:var(--text3);font-size:.75rem;margin-top:10px">目前顯示前 40 筆；共符合 ${filtered.length} 筆，可用搜尋縮小範圍。</div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
+    </div>`;
+}
+
+function renderSupplyChainFoundation(){
+  return `<div class="panel" style="padding:18px;margin-bottom:14px"><div style="font-size:1rem;font-weight:800;margin-bottom:6px">常用外包工項</div><div style="font-size:.75rem;color:var(--text3);margin-bottom:14px">先建立工項分類；供應商名稱與擅長項目待名單提供後建立關聯。</div><div style="display:flex;gap:8px;flex-wrap:wrap">${SUPPLY_WORK_TYPES.map(t=>`<span class="pill" style="padding:8px 11px;background:rgba(77,142,245,.12);color:var(--cyan2)">${escapeHtml(t)}</span>`).join('')}</div></div>
+    <div class="panel" style="padding:18px"><div style="font-weight:800;margin-bottom:10px">外包流轉紀錄</div><div class="info-warn" role="status" style="margin-bottom:14px">尚未啟用正式流轉紀錄。這裡不顯示「0 筆在外」；目前沒有可靠資料可以判定實際在外數量。</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:9px">${[['1','建立加工／採購工作單'],['2','依實際數量記錄每次交接'],['3','到貨後連結入料與品檢'],['4','品檢通過後依原流程入庫']].map(([n,t])=>`<div style="border:1px solid var(--border);border-radius:9px;padding:11px;background:var(--bg2)"><span style="color:var(--cyan2);font-weight:800;margin-right:6px">${n}</span>${t}</div>`).join('')}</div><div style="font-size:.75rem;color:var(--text3);margin-top:14px">後續會以每批料的交接事件保存來源、去向、數量、時間與確認人；多次轉廠或拆批都保留歷史。此頁目前不會扣庫存或新增入庫。</div></div>`;
+}
+
 let schedules = [];
 let scheduleLoadError='';
 

@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center Foundation 2026-10-02
+
+- The former `schedule` navigation label is `進度中心`. It now opens three views: existing-order progress, a supply-chain foundation, and the unchanged legacy production schedule. Sales can browse this page; legacy schedule edit permissions are unchanged.
+- Order progress derives active/overdue/seven-day/no-deadline counts from the already loaded formal customer-order rows. It provides search, status filters, due-date ordering, and the existing order timeline. A missing or stale core load is disclosed rather than shown as a reliable zero/current result.
+- The supply-chain view lists the nine user-requested work categories: 電鍍、噴砂、攻牙、清洗、塑膠射出、金屬射出、沖壓、電子廠、外包組裝. The future supplier list is not yet provided. No supplier, custody event, outside quantity, inventory transfer, inbound, or QC transaction is created by this page; the empty state explicitly says formal flow records are not active.
+- This is a UI/data-boundary foundation, not a completed external-processing workflow. The next stage needs a separate persisted work-order/batch/handoff model and the supplier name-to-work-item list. The legacy Notion schedule database must not be reused as the custody ledger.
+- Verification: focused and full Node CJS suites, ERP static verifier, and synthetic desktop/mobile Chromium previews. Deployment and authenticated production UI acceptance are separate gates.
+
 ## Customer Orders Can Select Parts 2026-10-02
 
 - General domestic and foreign order material search now includes existing parts such as `Y-FLT-D-07`, alongside finished and semi-finished materials. A unique exact SKU auto-selects its existing material ID; partial matches remain clickable suggestions. The field label describes all three item types.
