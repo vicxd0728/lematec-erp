@@ -76,6 +76,7 @@ function harness(){
   });
   vm.runInContext(block,ctx);
   const call=async(body)=>{
+    if(body.action==='create'&&!Object.hasOwn(body,'due_date'))body={...body,due_date:'2026-10-10'};
     const response=await ctx.erpSupplyWrite(new Request('https://erp.test/api/supply/write',{method:'POST',headers:{'X-ERP-Role':'purchase','Content-Type':'application/json'},body:JSON.stringify(body)}),{},{});
     return {status:response.status,data:await response.json()};
   };
@@ -84,9 +85,11 @@ function harness(){
 
 test('saving a fixed process binds an exact SKU and updates that SKU on later saves',async()=>{
   const h=harness(),id=op(200);h.materials.add('Y-A');
-  await h.call({action:'create',operation_id:id,title:'Y-A',material_sku:'Y-A',steps:[{type:'沖壓',supplier:'甲廠'}]});
+  await h.call({action:'create',operation_id:id,title:'Y-A',material_sku:'Y-A',steps:[{type:'沖壓',supplier:'甲廠',due_at:'2026-10-08T17:00:00+08:00'}]});
   let result=await h.call({action:'save_template',operation_id:op(201),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
   assert.equal(result.status,200);assert.equal(result.data.row.material_sku,'Y-A');
+  assert.equal(result.data.row.steps[0].due_at,undefined);
+  assert.equal(result.data.row.steps[0].started_at,undefined);
   const templateId=result.data.row.id;
   await h.call({action:'insert_step',operation_id:op(202),job_id:id,expected_version:1,at:1,step:{type:'清洗',supplier:'乙廠'}});
   result=await h.call({action:'save_template',operation_id:op(203),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
@@ -96,6 +99,33 @@ test('saving a fixed process binds an exact SKU and updates that SKU on later sa
   result=await h.call({action:'save_template',operation_id:op(203),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
   assert.equal(result.data.existing,true);
   result=await h.call({action:'save_template',operation_id:op(204),source_job_id:id,name:'錯誤料號',material_sku:'Y-UNKNOWN'});
+  assert.equal(result.status,400);
+});
+
+test('whole-process due date is required while stage targets and actual starts stay separate',async()=>{
+  const h=harness(),id=op(210);
+  let result=await h.call({action:'create',operation_id:id,title:'加工追蹤',due_date:'',steps:[{type:'沖壓',supplier:'甲廠'}]});
+  assert.equal(result.status,400);assert.equal(h.jobs.has(id),false);
+  result=await h.call({action:'create',operation_id:id,title:'加工追蹤',due_at:'2026-99-99T18:00:00+08:00',steps:[{type:'沖壓',supplier:'甲廠'}]});
+  assert.equal(result.status,400);assert.equal(h.jobs.has(id),false);
+  result=await h.call({action:'create',operation_id:id,title:'加工追蹤',due_at:'2026-10-12T18:00:00+08:00',steps:[{type:'沖壓',supplier:'甲廠',due_at:'2026-10-05T10:00:00+08:00'},{type:'清洗',supplier:'乙廠',due_at:'2026-10-08T17:00:00+08:00'}]});
+  assert.equal(result.status,200);
+  assert.equal(result.data.row.due_at,'2026-10-12T10:00:00.000Z');
+  assert.equal(result.data.row.due_date,'2026-10-12');
+  assert.equal(result.data.row.steps[0].due_at,'2026-10-05T02:00:00.000Z');
+  assert.equal(result.data.row.steps[0].started_at,result.data.row.events[0].recorded_at);
+  assert.equal(result.data.row.steps[1].started_at,undefined);
+  result=await h.call({action:'set_step_due',operation_id:op(211),job_id:id,expected_version:1,at:1,due_at:'2026-10-09T18:00:00+08:00'});
+  assert.equal(result.status,200);assert.equal(result.data.row.steps[1].due_at,'2026-10-09T10:00:00.000Z');
+  result=await h.call({action:'advance',operation_id:op(212),job_id:id,expected_version:2});
+  assert.equal(result.status,200);
+  assert.ok(result.data.row.steps[0].completed_at);
+  assert.equal(result.data.row.steps[1].started_at,result.data.row.steps[0].completed_at);
+  result=await h.call({action:'set_step_due',operation_id:op(213),job_id:id,expected_version:3,at:0,due_at:null});
+  assert.equal(result.status,400);
+  result=await h.call({action:'complete',operation_id:op(214),job_id:id,expected_version:3});
+  assert.ok(result.data.row.steps[1].completed_at);
+  result=await h.call({action:'set_step_due',operation_id:op(215),job_id:id,expected_version:4,at:1,due_at:null});
   assert.equal(result.status,400);
 });
 
@@ -162,7 +192,7 @@ test('editing active work records the correction and preserves completed history
   assert.equal(result.data.row.steps[0].supplier,'丙廠');
   assert.equal(result.data.row.events[1].detail.before.step.supplier,'甲廠');
   await h.call({action:'advance',operation_id:op(82),job_id:id,expected_version:2});
-  result=await h.call({action:'edit',operation_id:op(83),job_id:id,expected_version:3,title:'再更正',quantity:100,step:{type:'攻牙',supplier:'丁廠'}});
+  result=await h.call({action:'edit',operation_id:op(83),job_id:id,expected_version:3,title:'再更正',quantity:100,due_date:'2026-10-10',step:{type:'攻牙',supplier:'丁廠'}});
   assert.equal(result.status,200);assert.equal(result.data.row.steps[0].supplier,'丙廠');
   assert.equal(result.data.row.steps[1].supplier,'丁廠');
 });
@@ -198,7 +228,7 @@ test('closed work allows a documented metadata correction but locks finished ste
   await h.call({action:'create',operation_id:id,title:'舊名稱',steps:[{type:'電鍍',supplier:'甲廠'}]});
   await h.call({action:'complete',operation_id:op(101),job_id:id,expected_version:1});
   await h.call({action:'close',operation_id:op(102),job_id:id,expected_version:2});
-  let result=await h.call({action:'edit',operation_id:op(103),job_id:id,expected_version:3,title:'更正名稱',quantity:12,unit:'件',notes:'名稱筆誤'});
+  let result=await h.call({action:'edit',operation_id:op(103),job_id:id,expected_version:3,title:'更正名稱',quantity:12,unit:'件',due_date:'2026-10-10',notes:'名稱筆誤'});
   assert.equal(result.status,200);assert.equal(result.data.row.title,'更正名稱');
   assert.equal(result.data.row.steps[0].type,'電鍍');
   result=await h.call({action:'edit',operation_id:op(104),job_id:id,expected_version:4,title:'不可改工項',step:{type:'噴砂',supplier:'乙廠'}});

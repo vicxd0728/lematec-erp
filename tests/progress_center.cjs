@@ -76,6 +76,21 @@ test('work detail can open a process route while the default list remains unchan
   assert.match(modal.innerHTML,/第 2 站 · 攻牙/);
   assert.match(modal.innerHTML,/已完成 1／2 站/);
   assert.match(modal.innerHTML,/返回工作詳情/);
+  assert.match(modal.innerHTML,/實際起始：/);
+  assert.match(modal.innerHTML,/本關預計：未設定/);
+});
+
+test('stage deadline marks current work overdue and planned stages do not have actual starts', () => {
+  const ctx=setup(),modal={innerHTML:''};
+  ctx.document.getElementById=()=>modal;ctx.openSharedModal=()=>{};
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'late',title:'加工逾期',work_number:'SC-L',status:'加工中',due_date:'2099-10-10',current_step:0,steps:[{type:'沖壓',supplier:'甲廠',started_at:'2026-10-01T01:00:00Z',due_at:'2026-10-01T02:00:00Z'},{type:'清洗',supplier:'乙廠',due_at:'2099-10-02T01:00:00Z'}]}]",ctx);
+  const rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/本關逾期/);
+  assert.match(rendered,/已逾期工作/);
+  ctx.supplyOpenFlow('late');
+  assert.match(modal.innerHTML,/實際起始：/);
+  assert.match(modal.innerHTML,/尚未開始/);
+  assert.match(modal.innerHTML,/本關逾期/);
 });
 
 test('selecting a known SKU automatically fills its saved process and keeps quantity/date editable', () => {
