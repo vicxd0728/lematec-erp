@@ -2542,9 +2542,9 @@ const DB={
 };
 const ROLES={
   // Vic：與廠長同權限，但操作紀錄獨立顯示
-  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health','permissions']},
+  vic:      {label:'Vic',   color:'#f43f5e', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','schedule','analytics','customers','leave','stocklog','health','permissions']},
   // 廠長
-  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health']},
+  manager:  {label:'廠長',  color:'#42d4f5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','schedule','analytics','customers','leave','stocklog','health']},
   // 業務：訂單 + 客戶管理（不負責領料）
   sales:    {label:'業務',  color:'#4d8ef5', tabs:['dashboard','ops','announce','notes','videos','orders','corders','inventory','analytics','customers','leave','stocklog','schedule']},
   // 倉管：庫存 + 入料 + 領料執行（發料）
@@ -2555,7 +2555,7 @@ const ROLES={
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','orders','inventory','picking','inbound','analytics','announce','notes','videos','leave','stocklog','schedule']},
   // 檢視：只看主要流程，不具備建立、修改、刪除、審核等操作權限
   viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
-  ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health','permissions']},
+  ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','schedule','analytics','customers','leave','stocklog','health','permissions']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影音專區',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'🧭 進度中心'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
