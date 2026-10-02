@@ -40,6 +40,12 @@ test('supply view lists the nine requested processes without inventing outside s
   }
   assert.match(rendered, /尚未啟用正式流轉紀錄/);
   assert.match(rendered, /沒有可靠資料可以判定實際在外數量/);
+  assert.match(rendered, /送外與轉廠只記錄流程，不扣主倉庫存/);
+  assert.match(rendered, /選擇入庫/);
+  assert.match(rendered, /料號不存在，可在入料流程直接建檔/);
+  assert.match(rendered, /品檢通過才增加庫存/);
+  assert.match(rendered, /選擇結案/);
+  assert.match(rendered, /不建立入料單，也不變動庫存/);
 });
 
 test('order progress uses only active orders and filters overdue work', () => {

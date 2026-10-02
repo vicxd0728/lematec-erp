@@ -2,6 +2,7 @@
 
 ## Progress Center Foundation 2026-10-02
 
+- Confirmed business rule: sending or transferring work to an external supplier is **tracking only** and does not deduct main-warehouse inventory. At the end, the operator chooses either (a) inbound, selecting an existing SKU or creating a missing SKU through the current inbound form, followed by normal QC and stock increase only on QC pass, or (b) close as a process record with no inbound and no inventory mutation. This choice is not yet an active workflow button because formal external-work records do not exist.
 - The former `schedule` navigation label is `進度中心`. It now opens three views: existing-order progress, a supply-chain foundation, and the unchanged legacy production schedule. Sales can browse this page; legacy schedule edit permissions are unchanged.
 - Order progress derives active/overdue/seven-day/no-deadline counts from the already loaded formal customer-order rows. It provides search, status filters, due-date ordering, and the existing order timeline. A missing or stale core load is disclosed rather than shown as a reliable zero/current result.
 - The supply-chain view lists the nine user-requested work categories: 電鍍、噴砂、攻牙、清洗、塑膠射出、金屬射出、沖壓、電子廠、外包組裝. The future supplier list is not yet provided. No supplier, custody event, outside quantity, inventory transfer, inbound, or QC transaction is created by this page; the empty state explicitly says formal flow records are not active.
