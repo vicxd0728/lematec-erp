@@ -10,7 +10,7 @@ const org='00000000-0000-4000-8000-000000000001';
 const op=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 
 function harness(){
-  const jobs=new Map(),suppliers=new Map(),templates=new Map(),receipts=new Map(),inventoryWrites=[];
+  const jobs=new Map(),suppliers=new Map(),templates=new Map(),workTypes=new Map(),receipts=new Map(),inventoryWrites=[];
   async function supabaseFetch(_env,path,options={}){
     const url=new URL(path,'https://db.test');
     const params=url.searchParams;
@@ -34,6 +34,10 @@ function harness(){
     if(url.pathname.endsWith('/erp_supply_templates')){
       if(options.method==='POST'){let row=JSON.parse(options.body);templates.set(row.id,row);return null;}
       const id=params.get('id')?.slice(3);return id?(templates.has(id)?[templates.get(id)]:[]):[...templates.values()];
+    }
+    if(url.pathname.endsWith('/erp_supply_work_types')){
+      if(options.method==='POST'){const row=JSON.parse(options.body);if(!workTypes.has(row.id))workTypes.set(row.id,row);return null;}
+      const id=params.get('id')?.slice(3);return id?(workTypes.has(id)?[workTypes.get(id)]:[]):[...workTypes.values()];
     }
     if(url.pathname.endsWith('/inbound_receipts')){
       const id=params.get('id')?.slice(3),number=params.get('inbound_number')?.slice(3);
@@ -64,8 +68,20 @@ function harness(){
     const response=await ctx.erpSupplyWrite(new Request('https://erp.test/api/supply/write',{method:'POST',headers:{'X-ERP-Role':'purchase','Content-Type':'application/json'},body:JSON.stringify(body)}),{},{});
     return {status:response.status,data:await response.json()};
   };
-  return {call,jobs,receipts,inventoryWrites};
+  return {call,jobs,workTypes,receipts,inventoryWrites};
 }
+
+test('new work type is saved once and can be used on a later job',async()=>{
+  const h=harness();
+  let result=await h.call({action:'add_work_type',operation_id:op(70),name:'雷射雕刻'});
+  assert.equal(result.status,200);assert.equal(result.data.row.name,'雷射雕刻');
+  result=await h.call({action:'add_work_type',operation_id:op(71),name:'雷射雕刻'});
+  assert.equal(result.status,200);assert.equal(h.workTypes.size,1);
+  result=await h.call({action:'create',operation_id:op(72),title:'試作',steps:[{type:'雷射雕刻',supplier:'甲廠'}]});
+  assert.equal(result.status,200);assert.equal(result.data.row.steps[0].type,'雷射雕刻');
+  result=await h.call({action:'create',operation_id:op(73),title:'錯誤工項',steps:[{type:'未登記加工',supplier:'甲廠'}]});
+  assert.equal(result.status,500);assert.equal(h.jobs.has(op(73)),false);
+});
 
 test('create, insert after current, advance, then close leaves inventory untouched',async()=>{
   const h=harness(),id=op(1);

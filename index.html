@@ -12631,6 +12631,7 @@ function renderProgressOrders(){
 let supplyJobs=[];
 let supplySuppliers=[];
 let supplyTemplates=[];
+let supplyWorkTypes=[];
 let supplyLoaded=false;
 let supplyLoading=false;
 let supplyError='';
@@ -12647,7 +12648,11 @@ function supplyDateTime(value){
   return Number.isNaN(d.getTime())?'—':d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
 }
 function supplyStepOptions(selected=''){
-  return `<option value="">選擇工項</option>`+SUPPLY_WORK_TYPES.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
+  const types=[...new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)])];
+  return `<option value="">選擇工項</option>`+types.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
+}
+function supplyWorkTypeField(prefix){
+  return `<select class="inp" id="${prefix}Type" aria-label="加工工項">${supplyStepOptions()}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleWorkType('${prefix}')">＋ 新增工項</button><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
 }
 function supplySupplierOptions(selected=''){
   return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+supplySuppliers.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${escapeHtml(row.name)}</option>`).join('');
@@ -12667,6 +12672,7 @@ async function loadSupplyChain(force=false){
     supplyJobs=Array.isArray(jobs.rows)?jobs.rows:[];
     supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
     supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
+    supplyWorkTypes=Array.isArray(catalog.work_types)?catalog.work_types:[];
     supplyLoaded=true;
   }catch(error){supplyError=error.message||String(error);}
   finally{supplyLoading=false;if(CURRENT_TAB==='schedule'&&progressCenterView==='supply'&&!isModalOpen())renderTab('schedule');}
@@ -12737,6 +12743,24 @@ function supplyToggleSupplier(prefix){
   const box=document.getElementById(`${prefix}SupplierNew`);
   if(box){box.style.display=box.style.display==='none'?'flex':'none';if(box.style.display==='flex')document.getElementById(`${prefix}SupplierName`)?.focus();}
 }
+function supplyToggleWorkType(prefix){
+  const box=document.getElementById(`${prefix}TypeNew`);
+  if(box){box.style.display=box.style.display==='none'?'flex':'none';if(box.style.display==='flex')document.getElementById(`${prefix}TypeName`)?.focus();}
+}
+async function supplySaveWorkType(prefix){
+  const name=(document.getElementById(`${prefix}TypeName`)?.value||'').trim();
+  if(!name)return showToast('請先輸入加工工項名稱','warn');
+  try{
+    const row=await supplyWrite('add_work_type',null,{name});
+    if(!supplyWorkTypes.some(item=>item.id===row.id))supplyWorkTypes.push(row);
+    for(const id of ['supplyType','supplyNextType','supplyInsertType']){
+      const select=document.getElementById(id);
+      if(select){const selected=id===`${prefix}Type`?row.name:select.value;select.innerHTML=supplyStepOptions(selected);select.value=selected;}
+    }
+    supplyToggleWorkType(prefix);
+    showToast('✅ 工項已加入清單，下次可直接選用','ok');
+  }catch(error){showToast('新增工項失敗：'+error.message,'err');}
+}
 async function supplySaveSupplier(prefix){
   const field=document.getElementById(`${prefix}SupplierName`);
   const name=(field?.value||'').trim();
@@ -12779,10 +12803,10 @@ function supplyOpenCreate(){
   const materialOptions=mats.filter(mat=>mat.code).slice(0,2000).map(mat=>`<option value="${escapeHtml(mat.code)}">${escapeHtml(mat.name||mat.code)}</option>`).join('');
   supplyModal(`<h3>＋ 新增外包工作</h3><div class="info-warn" style="margin-bottom:12px">只填工作名稱、第一道工項與供應商即可開始；料號與後續工序可以稍後確認。此單不會扣庫存。</div>
     <div class="form-row"><div><label class="field-label" for="supplyTitle">工作名稱或既有料號 *</label><input class="inp" id="supplyTitle" maxlength="160" list="supplyMaterials" placeholder="可手打暫稱，例如：新款接頭原料製作"><datalist id="supplyMaterials">${materialOptions}</datalist></div></div>
-    <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyType">第一道工項 *</label><select class="inp" id="supplyType">${supplyStepOptions()}</select></div><div><label class="field-label" for="supplyCreateSupplier">供應商 *</label>${supplySupplierField('supplyCreate')}</div></div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyType">第一道工項 *</label>${supplyWorkTypeField('supply')}</div><div><label class="field-label" for="supplyCreateSupplier">供應商 *</label>${supplySupplierField('supplyCreate')}</div></div>
     <details style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:10px 0"><summary style="cursor:pointer;color:var(--cyan2);font-weight:700">補填數量、日期或後續工序（選填）</summary><div style="margin-top:13px"><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyQuantity">數量</label><input class="inp" id="supplyQuantity" type="number" min="0.0001" step="any" placeholder="例如 100"></div><div><label class="field-label" for="supplyDue">預計完成日</label><input class="inp" id="supplyDue" type="date"></div></div>
     <div class="form-row"><div><label class="field-label" for="supplyTemplate">固定流程（選填）</label><div style="display:flex;gap:6px"><select class="inp" id="supplyTemplate"><option value="">不套用，之後可加關</option>${supplyTemplates.map(item=>`<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="supplyApplyTemplate()">套用</button></div></div></div>
-    <div style="font-weight:750;margin-bottom:6px">後續工序</div><div id="supplyCreateSteps"></div><div class="form-row" style="grid-template-columns:1fr 1fr"><select class="inp" id="supplyNextType" aria-label="追加工項">${supplyStepOptions()}</select><select class="inp" id="supplyNextSupplier" aria-label="後續供應商">${supplySupplierOptions()}</select></div><button class="btn btn-ghost btn-sm" onclick="supplyAddCreateStep()">＋ 加入下一關</button></div></details>
+    <div style="font-weight:750;margin-bottom:6px">後續工序</div><div id="supplyCreateSteps"></div><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyNextType">工項</label>${supplyWorkTypeField('supplyNext')}</div><div><label class="field-label" for="supplyNextSupplier">供應商</label>${supplySupplierField('supplyNext')}</div></div><button class="btn btn-ghost btn-sm" onclick="supplyAddCreateStep()">＋ 加入下一關</button></div></details>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" id="supplyCreateButton" onclick="supplyCreateJob()">建立工作</button></div>`);
   supplyCreateStepsRender();
 }
@@ -12827,7 +12851,7 @@ function supplyOpenDetail(id){
 function supplyOpenInsert(id,at){
   if(!canWriteSupplyChain())return denyViewOnlyAction();
   const job=supplyFind(id);if(!job)return;
-  supplyModal(`<h3>插入加工工序</h3><div class="info-warn" style="margin-bottom:12px">新工序會插入第 ${at} 關之後。已完成的交接紀錄不會改寫。</div><div class="form-row"><div><label class="field-label" for="supplyInsertType">工項 *</label><select class="inp" id="supplyInsertType">${supplyStepOptions()}</select></div><div><label class="field-label" for="supplyInsertSupplier">供應商（可稍後指定）</label>${supplySupplierField('supplyInsert')}</div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplyInsertStep('${id}',${at})">插入工序</button></div>`);
+  supplyModal(`<h3>插入加工工序</h3><div class="info-warn" style="margin-bottom:12px">新工序會插入第 ${at} 關之後。已完成的交接紀錄不會改寫。</div><div class="form-row"><div><label class="field-label" for="supplyInsertType">工項 *</label>${supplyWorkTypeField('supplyInsert')}</div><div><label class="field-label" for="supplyInsertSupplier">供應商（可稍後指定）</label>${supplySupplierField('supplyInsert')}</div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplyInsertStep('${id}',${at})">插入工序</button></div>`);
 }
 function supplyInsertStep(id,at){
   const type=document.getElementById('supplyInsertType')?.value||'';

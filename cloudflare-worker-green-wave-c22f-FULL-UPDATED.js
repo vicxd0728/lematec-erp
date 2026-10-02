@@ -3790,10 +3790,10 @@ function supplyText(value, max = 160) { return cleanText(value).slice(0, max); }
 function supplyConflict(cors, message, row = null) {
   return new Response(JSON.stringify({ok:false,error:message,...(row ? {row} : {})}), {status:409,headers:jh(cors)});
 }
-function supplyStep(input, requireSupplier = false) {
+function supplyStep(input, requireSupplier = false, allowedTypes = ERP_SUPPLY_TYPES) {
   const type = supplyText(input?.type, 40);
   const supplier = supplyText(input?.supplier, 120);
-  if (!ERP_SUPPLY_TYPES.has(type)) throw new Error('請選擇有效的加工工項');
+  if (!allowedTypes.has(type)) throw new Error('請選擇已建立的加工工項');
   if (requireSupplier && !supplier) throw new Error('請指定接手供應商');
   return {type,supplier};
 }
@@ -3802,6 +3802,10 @@ function supplyEvent(operationId, action, role, detail = {}) {
 }
 async function supplyGetJob(env, organizationId, id) {
   return supabaseSingle(env, `/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organizationId)}&id=eq.${encodeURIComponent(id)}&select=${ERP_SUPPLY_JOB_SELECT}&limit=1`, true);
+}
+async function supplyAllowedTypes(env, organizationId) {
+  const rows=await supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${encodeURIComponent(organizationId)}&select=name&limit=1000`);
+  return new Set([...ERP_SUPPLY_TYPES,...(Array.isArray(rows)?rows.map(row=>row.name):[])]);
 }
 async function erpSupplyJobs(request, env, cors) {
   try {
@@ -3816,11 +3820,12 @@ async function erpSupplyCatalog(request, env, cors) {
     if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const {organization} = await getSupabaseInventoryContext(env);
     const id=encodeURIComponent(organization.id);
-    const [suppliers,templates]=await Promise.all([
+    const [suppliers,templates,workTypes]=await Promise.all([
       supabaseFetch(env,`/rest/v1/erp_supply_suppliers?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=500`),
       supabaseFetch(env,`/rest/v1/erp_supply_templates?organization_id=eq.${id}&archived_at=is.null&select=id,name,steps,created_at&order=name.asc&limit=200`),
+      supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=1000`),
     ]);
-    return respOK(cors,{ok:true,suppliers,templates});
+    return respOK(cors,{ok:true,suppliers,templates,work_types:workTypes});
   } catch (error) { return resp500(cors,error.message); }
 }
 async function erpSupplyWrite(request, env, cors) {
@@ -3846,11 +3851,23 @@ async function erpSupplyWrite(request, env, cors) {
       const row=await supabaseSingle(env,`/rest/v1/erp_supply_suppliers?${orgFilter}&id=eq.${id}&select=id,name,created_at&limit=1`);
       return respOK(cors,{ok:true,row});
     }
+    if (action==='add_work_type') {
+      const name=supplyText(body?.name,40);
+      if (!name) return resp400(cors,'請輸入加工工項名稱');
+      const id=await deterministicUuid(`${organizationId}:supply-work-type:${name.toLocaleLowerCase()}`);
+      await supabaseFetch(env,'/rest/v1/erp_supply_work_types?on_conflict=id',{
+        method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
+        body:JSON.stringify({id,organization_id:organizationId,name,created_role:role}),
+      });
+      const row=await supabaseSingle(env,`/rest/v1/erp_supply_work_types?${orgFilter}&id=eq.${id}&select=id,name,created_at&limit=1`);
+      return respOK(cors,{ok:true,row});
+    }
     if (action==='save_template') {
       const name=supplyText(body?.name,120);
       const steps=Array.isArray(body?.steps)?body.steps:[];
       if (!name||!steps.length||steps.length>25) return resp400(cors,'範本名稱與 1–25 個工項為必填');
-      const cleanSteps=steps.map(step=>supplyStep(step));
+      const allowedTypes=await supplyAllowedTypes(env,organizationId);
+      const cleanSteps=steps.map(step=>supplyStep(step,false,allowedTypes));
       const id=operationId;
       await supabaseFetch(env,'/rest/v1/erp_supply_templates?on_conflict=id',{
         method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
@@ -3865,7 +3882,8 @@ async function erpSupplyWrite(request, env, cors) {
       const title=supplyText(body?.title,160);
       const steps=Array.isArray(body?.steps)?body.steps:[];
       if (!title||!steps.length||steps.length>25) return resp400(cors,'工作名稱與 1–25 個工項為必填');
-      const cleanSteps=steps.map((step,index)=>supplyStep(step,index===0));
+      const allowedTypes=await supplyAllowedTypes(env,organizationId);
+      const cleanSteps=steps.map((step,index)=>supplyStep(step,index===0,allowedTypes));
       const rawQuantity=body?.quantity;
       const quantity=rawQuantity===null||rawQuantity===undefined||rawQuantity===''?null:Number(rawQuantity);
       if (quantity!==null&&(!Number.isFinite(quantity)||quantity<=0||quantity>1e9)) return resp400(cors,'數量必須是正數');
@@ -3897,7 +3915,7 @@ async function erpSupplyWrite(request, env, cors) {
     if (action==='insert_step') {
       const at=Number(body?.at);
       if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(at)||at<=index||at>steps.length||steps.length>=25) return resp400(cors,'只能在目前工項之後插入，最多 25 關');
-      const step=supplyStep(body?.step);
+      const step=supplyStep(body?.step,false,await supplyAllowedTypes(env,organizationId));
       steps.splice(at,0,step);changes.steps=steps;detail={at,step};
     } else if (action==='move_step') {
       const from=Number(body?.from),to=Number(body?.to);
