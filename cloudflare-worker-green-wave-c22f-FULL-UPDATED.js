@@ -82,6 +82,15 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inbound/link-notion') {
       return erpInboundLinkNotion(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/supply/jobs') {
+      return erpSupplyJobs(request, env, cors);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/supply/catalog') {
+      return erpSupplyCatalog(request, env, cors);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/supply/write') {
+      return erpSupplyWrite(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/stock-log/sync') {
       return erpStockLogSync(request, env, cors);
     }
@@ -3409,6 +3418,7 @@ const ERP_ROUTE_ROLES = {
   '/api/inbound/create': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/inbound/action': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
   '/api/inbound/link-notion': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
+  '/api/supply/write': ['vic', 'manager', 'purchase', 'warehouse'],
   '/api/stock-log/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/stock-log/mark-notion': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
   '/api/stock-log/reconcile': ['vic', 'manager', 'warehouse'],
@@ -3768,6 +3778,176 @@ async function erpInboundList(request, env, cors) {
   } catch (e) {
     return resp500(cors, e.message);
   }
+}
+
+// Supply-chain work is a tracking ledger. None of these routes mutates inventory.
+// The existing inbound/QC route remains the only path from finished work to stock.
+const ERP_SUPPLY_TYPES = new Set(['電鍍', '噴砂', '攻牙', '清洗', '塑膠射出', '金屬射出', '沖壓', '電子廠', '外包組裝']);
+const ERP_SUPPLY_JOB_SELECT = 'id,organization_id,work_number,title,material_sku,quantity,unit,due_date,related_order,notes,status,current_step,steps,events,version,inbound_number,inbound_receipt_id,created_role,created_at,updated_at';
+const ERP_SUPPLY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function supplyText(value, max = 160) { return cleanText(value).slice(0, max); }
+function supplyConflict(cors, message, row = null) {
+  return new Response(JSON.stringify({ok:false,error:message,...(row ? {row} : {})}), {status:409,headers:jh(cors)});
+}
+function supplyStep(input, requireSupplier = false) {
+  const type = supplyText(input?.type, 40);
+  const supplier = supplyText(input?.supplier, 120);
+  if (!ERP_SUPPLY_TYPES.has(type)) throw new Error('請選擇有效的加工工項');
+  if (requireSupplier && !supplier) throw new Error('請指定接手供應商');
+  return {type,supplier};
+}
+function supplyEvent(operationId, action, role, detail = {}) {
+  return {event_id:operationId,action,recorded_at:new Date().toISOString(),role,detail};
+}
+async function supplyGetJob(env, organizationId, id) {
+  return supabaseSingle(env, `/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organizationId)}&id=eq.${encodeURIComponent(id)}&select=${ERP_SUPPLY_JOB_SELECT}&limit=1`, true);
+}
+async function erpSupplyJobs(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const {organization} = await getSupabaseInventoryContext(env);
+    const rows = await supabaseFetch(env, `/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organization.id)}&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=500`);
+    return respOK(cors,{ok:true,rows:Array.isArray(rows)?rows:[]});
+  } catch (error) { return resp500(cors,error.message); }
+}
+async function erpSupplyCatalog(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const {organization} = await getSupabaseInventoryContext(env);
+    const id=encodeURIComponent(organization.id);
+    const [suppliers,templates]=await Promise.all([
+      supabaseFetch(env,`/rest/v1/erp_supply_suppliers?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=500`),
+      supabaseFetch(env,`/rest/v1/erp_supply_templates?organization_id=eq.${id}&archived_at=is.null&select=id,name,steps,created_at&order=name.asc&limit=200`),
+    ]);
+    return respOK(cors,{ok:true,suppliers,templates});
+  } catch (error) { return resp500(cors,error.message); }
+}
+async function erpSupplyWrite(request, env, cors) {
+  try {
+    if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
+    const body=await request.json();
+    const action=supplyText(body?.action,40);
+    const operationId=supplyText(body?.operation_id,40);
+    if (!ERP_SUPPLY_ID.test(operationId)) return resp400(cors,'操作編號無效，請重新整理後再試');
+    const role=supplyText(request.headers.get('X-ERP-Role')||'system',20).toLowerCase();
+    const {organization}=await getSupabaseInventoryContext(env);
+    const organizationId=organization.id;
+    const orgFilter=`organization_id=eq.${encodeURIComponent(organizationId)}`;
+
+    if (action==='add_supplier') {
+      const name=supplyText(body?.name,120);
+      if (!name) return resp400(cors,'請輸入供應商名稱');
+      const id=await deterministicUuid(`${organizationId}:supply-supplier:${name.toLocaleLowerCase()}`);
+      await supabaseFetch(env,'/rest/v1/erp_supply_suppliers?on_conflict=id',{
+        method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
+        body:JSON.stringify({id,organization_id:organizationId,name,created_role:role}),
+      });
+      const row=await supabaseSingle(env,`/rest/v1/erp_supply_suppliers?${orgFilter}&id=eq.${id}&select=id,name,created_at&limit=1`);
+      return respOK(cors,{ok:true,row});
+    }
+    if (action==='save_template') {
+      const name=supplyText(body?.name,120);
+      const steps=Array.isArray(body?.steps)?body.steps:[];
+      if (!name||!steps.length||steps.length>25) return resp400(cors,'範本名稱與 1–25 個工項為必填');
+      const cleanSteps=steps.map(step=>supplyStep(step));
+      const id=operationId;
+      await supabaseFetch(env,'/rest/v1/erp_supply_templates?on_conflict=id',{
+        method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
+        body:JSON.stringify({id,organization_id:organizationId,name,steps:cleanSteps,created_role:role}),
+      });
+      const row=await supabaseSingle(env,`/rest/v1/erp_supply_templates?${orgFilter}&id=eq.${id}&select=id,name,steps,created_at&limit=1`);
+      return respOK(cors,{ok:true,row});
+    }
+    if (action==='create') {
+      const existing=await supplyGetJob(env,organizationId,operationId);
+      if (existing) return respOK(cors,{ok:true,existing:true,row:existing});
+      const title=supplyText(body?.title,160);
+      const steps=Array.isArray(body?.steps)?body.steps:[];
+      if (!title||!steps.length||steps.length>25) return resp400(cors,'工作名稱與 1–25 個工項為必填');
+      const cleanSteps=steps.map((step,index)=>supplyStep(step,index===0));
+      const rawQuantity=body?.quantity;
+      const quantity=rawQuantity===null||rawQuantity===undefined||rawQuantity===''?null:Number(rawQuantity);
+      if (quantity!==null&&(!Number.isFinite(quantity)||quantity<=0||quantity>1e9)) return resp400(cors,'數量必須是正數');
+      const dueDate=supplyText(body?.due_date,10);
+      if (dueDate&&!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return resp400(cors,'預計完成日期無效');
+      const workNumber=`SC-${taipeiISOString().slice(2,10).replace(/-/g,'')}-${operationId.replace(/-/g,'').slice(0,8).toUpperCase()}`;
+      const row={id:operationId,organization_id:organizationId,work_number:workNumber,title,
+        material_sku:supplyText(body?.material_sku,120)||null,quantity,unit:supplyText(body?.unit,20)||null,
+        due_date:dueDate||null,related_order:supplyText(body?.related_order,120)||null,notes:supplyText(body?.notes,2000)||null,
+        status:'待送出',current_step:0,steps:cleanSteps,events:[supplyEvent(operationId,'WORK_CREATED',role,{title})],created_role:role};
+      await supabaseFetch(env,'/rest/v1/erp_supply_jobs?on_conflict=id',{
+        method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(row),
+      });
+      const saved=await supplyGetJob(env,organizationId,operationId);
+      if (!saved) throw new Error('工作單建立後回讀失敗');
+      return respOK(cors,{ok:true,row:saved});
+    }
+
+    const jobId=supplyText(body?.job_id,40);
+    if (!ERP_SUPPLY_ID.test(jobId)) return resp400(cors,'工作單編號無效');
+    const current=await supplyGetJob(env,organizationId,jobId);
+    if (!current) return resp400(cors,'找不到工作單，請重新整理');
+    if ((current.events||[]).some(event=>event.event_id===operationId)) return respOK(cors,{ok:true,existing:true,row:current});
+    if (Number(body?.expected_version)!==Number(current.version)) return supplyConflict(cors,'工作單已有較新的變更，請重新整理後再操作',current);
+    const steps=Array.isArray(current.steps)?current.steps.map(step=>({...step})):[];
+    const index=Number(current.current_step)||0;
+    const changes={};
+    let detail={};
+    if (action==='insert_step') {
+      const at=Number(body?.at);
+      if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(at)||at<=index||at>steps.length||steps.length>=25) return resp400(cors,'只能在目前工項之後插入，最多 25 關');
+      const step=supplyStep(body?.step);
+      steps.splice(at,0,step);changes.steps=steps;detail={at,step};
+    } else if (action==='move_step') {
+      const from=Number(body?.from),to=Number(body?.to);
+      if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(from)||!Number.isInteger(to)||from<=index||to<=index||from>=steps.length||to>=steps.length||from===to) return resp400(cors,'只能調整尚未執行的工項');
+      const [step]=steps.splice(from,1);steps.splice(to,0,step);changes.steps=steps;detail={from,to};
+    } else if (action==='remove_step') {
+      const at=Number(body?.at);
+      if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(at)||at<=index||at>=steps.length) return resp400(cors,'只能移除尚未執行的工項');
+      const [step]=steps.splice(at,1);changes.steps=steps;detail={at,step};
+    } else if (action==='send') {
+      if (current.status!=='待送出'||!steps[index]?.supplier) return resp400(cors,'待送出工作須先指定目前供應商');
+      changes.status='加工中';detail={to:steps[index].supplier,type:steps[index].type};
+    } else if (action==='advance') {
+      if (current.status!=='加工中'||index+1>=steps.length) return resp400(cors,'目前沒有可轉交的下一關');
+      const supplier=supplyText(body?.supplier||steps[index+1].supplier,120);
+      if (!supplier) return resp400(cors,'請指定下一關供應商');
+      steps[index+1].supplier=supplier;changes.steps=steps;changes.current_step=index+1;
+      detail={from:steps[index],to:steps[index+1]};
+    } else if (action==='complete') {
+      if (current.status!=='加工中'||index!==steps.length-1) return resp400(cors,'仍有未完成的工項，請先轉交');
+      changes.status='待決定';detail={last_step:steps[index]};
+    } else if (action==='prepare_inbound') {
+      if (current.status!=='待決定') return resp400(cors,'只有已完成加工的工作可轉入入料');
+      changes.status='待入料';changes.inbound_number=`IB-SC-${jobId.replace(/-/g,'').slice(0,16).toUpperCase()}`;
+      detail={inbound_number:changes.inbound_number};
+    } else if (action==='link_inbound') {
+      if (current.status!=='待入料'||!current.inbound_number) return resp400(cors,'工作單尚未進入待入料');
+      const receiptId=supplyText(body?.inbound_receipt_id,40);
+      if (!ERP_SUPPLY_ID.test(receiptId)) return resp400(cors,'入料單 ID 無效');
+      const receipt=await supabaseSingle(env,`/rest/v1/inbound_receipts?organization_id=eq.${encodeURIComponent(organizationId)}&id=eq.${encodeURIComponent(receiptId)}&inbound_number=eq.${encodeURIComponent(current.inbound_number)}&select=id,inbound_number&limit=1`,true);
+      if (!receipt) return resp400(cors,'找不到對應的正式入料單，請先完成入料');
+      changes.status='待品檢';changes.inbound_receipt_id=receipt.id;detail={inbound_number:receipt.inbound_number};
+    } else if (action==='close') {
+      if (current.status!=='待決定') return resp400(cors,'只有已完成加工的工作可直接結案');
+      changes.status='已結案';detail={reason:supplyText(body?.reason,500)};
+    } else return resp400(cors,'不支援的供應鏈操作');
+    changes.events=[...(current.events||[]),supplyEvent(operationId,action,role,detail)];
+    changes.version=Number(current.version)+1;
+    changes.updated_at=new Date().toISOString();
+    const result=await supabaseFetch(env,`/rest/v1/erp_supply_jobs?${orgFilter}&id=eq.${encodeURIComponent(jobId)}&version=eq.${encodeURIComponent(current.version)}&select=${ERP_SUPPLY_JOB_SELECT}`,{
+      method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(changes),
+    });
+    const saved=Array.isArray(result)?result[0]:result;
+    if (!saved) {
+      const latest=await supplyGetJob(env,organizationId,jobId);
+      if ((latest?.events||[]).some(event=>event.event_id===operationId)) return respOK(cors,{ok:true,existing:true,row:latest});
+      return supplyConflict(cors,'工作單已被其他人更新，請重新整理後再操作',latest);
+    }
+    return respOK(cors,{ok:true,row:saved});
+  } catch (error) { return resp500(cors,error.message); }
 }
 
 async function erpInboundCreate(request, env, cors) {

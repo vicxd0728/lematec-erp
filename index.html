@@ -6365,6 +6365,7 @@ function openModal(type,data){
 
   // ── 入料單（批量）──
   if(type==='newInbound'){
+    window._supplyInboundJobId=null;
     const typeOpts = ['成品','半成品','零件','蝦皮用','蝦皮用(S-)'].map(t=>`<option>${t}</option>`).join('');
     mi.innerHTML=`<h3>📥 新增入料</h3>
     <div style="margin-bottom:10px">
@@ -6383,7 +6384,7 @@ function openModal(type,data){
       <div style="display:flex;gap:6px;align-items:center">
         <input class="inp" id="ib_new_code" placeholder="料號（如 Y-ABC-01）" style="flex:1">
         <select class="inp" id="ib_new_type" style="width:100px"><option value="">選類型</option>${typeOpts}</select>
-        <input class="inp" type="number" id="ib_new_qty" placeholder="數量" style="width:70px" min="1">
+        <input class="inp" type="number" id="ib_new_qty" placeholder="數量" style="width:70px" min="0.0001" step="any">
         <button type="button" class="btn btn-ghost btn-sm" onclick="addNewInboundItem()">＋</button>
       </div>
     </div>
@@ -9140,6 +9141,7 @@ function switchTab(tab){
     window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};
   }
   if(tab==='videos'&&mediaSubtab==='schedule')loadMarketingSchedule();
+  if(tab==='schedule'&&progressCenterView==='supply')loadSupplyChain();
   if(tab==='health')setTimeout(()=>runHealthCheck(false),80);
 }
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
@@ -12571,6 +12573,7 @@ function setProgressCenterView(view){
     return;
   }
   if(CURRENT_TAB==='schedule')renderTab('schedule');
+  if(view==='supply')loadSupplyChain();
 }
 
 function setProgressCenterFilter(value){
@@ -12625,10 +12628,278 @@ function renderProgressOrders(){
     </div>`;
 }
 
+let supplyJobs=[];
+let supplySuppliers=[];
+let supplyTemplates=[];
+let supplyLoaded=false;
+let supplyLoading=false;
+let supplyError='';
+let supplySearch='';
+let supplyFilter='all';
+let supplyCreateSteps=[];
+const supplyPendingOps=new Map();
+
+function canWriteSupplyChain(){return !isViewOnly()&&(isAdminRole()||ROLE==='purchase'||ROLE==='warehouse');}
+function supplyFind(id){return supplyJobs.find(row=>row.id===id);}
+function supplyDateTime(value){
+  if(!value)return '—';
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?'—':d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
+}
+function supplyStepOptions(selected=''){
+  return `<option value="">選擇工項</option>`+SUPPLY_WORK_TYPES.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
+}
+function supplySupplierOptions(selected=''){
+  return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+supplySuppliers.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${escapeHtml(row.name)}</option>`).join('');
+}
+function supplySupplierField(prefix,selected=''){
+  return `<select class="inp" id="${prefix}Supplier" aria-label="供應商">${supplySupplierOptions(selected)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleSupplier('${prefix}')">＋ 快速新增供應商</button><div id="${prefix}SupplierNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}SupplierName" maxlength="120" placeholder="輸入供應商名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveSupplier('${prefix}')">加入</button></div>`;
+}
+async function loadSupplyChain(force=false){
+  if(supplyLoading||(!force&&supplyLoaded))return;
+  supplyLoading=true;supplyError='';
+  if(CURRENT_TAB==='schedule'&&progressCenterView==='supply')renderTab('schedule');
+  try{
+    const [jobs,catalog]=await Promise.all([
+      pickingWorkerRequest('/api/supply/jobs'),
+      pickingWorkerRequest('/api/supply/catalog'),
+    ]);
+    supplyJobs=Array.isArray(jobs.rows)?jobs.rows:[];
+    supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
+    supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
+    supplyLoaded=true;
+  }catch(error){supplyError=error.message||String(error);}
+  finally{supplyLoading=false;if(CURRENT_TAB==='schedule'&&progressCenterView==='supply'&&!isModalOpen())renderTab('schedule');}
+}
 function renderSupplyChainFoundation(){
-  return `<div class="panel" style="padding:18px;margin-bottom:14px"><div style="font-size:1rem;font-weight:800;margin-bottom:6px">常用外包工項</div><div style="font-size:.75rem;color:var(--text3);margin-bottom:14px">先建立工項分類；供應商名稱與擅長項目待名單提供後建立關聯。</div><div style="display:flex;gap:8px;flex-wrap:wrap">${SUPPLY_WORK_TYPES.map(t=>`<span class="pill" style="padding:8px 11px;background:rgba(77,142,245,.12);color:var(--cyan2)">${escapeHtml(t)}</span>`).join('')}</div></div>
-    <div class="panel" style="padding:18px"><div style="font-weight:800;margin-bottom:10px">外包流轉紀錄</div><div class="info-warn" role="status" style="margin-bottom:14px">尚未啟用正式流轉紀錄。這裡不顯示「0 筆在外」；目前沒有可靠資料可以判定實際在外數量。</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:9px">${[['1','建立加工／採購工作單'],['2','依實際數量記錄每次交接'],['3','到貨後選擇入庫或結案']].map(([n,t])=>`<div style="border:1px solid var(--border);border-radius:9px;padding:11px;background:var(--bg2)"><span style="color:var(--cyan2);font-weight:800;margin-right:6px">${n}</span>${t}</div>`).join('')}</div><div style="font-size:.75rem;color:var(--text3);margin-top:14px">送外與轉廠只記錄流程，不扣主倉庫存。後續每批料的交接事件會保存來源、去向、數量、時間與確認人；多次轉廠或拆批都保留歷史。</div></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:14px"><div class="panel" style="padding:16px;border-color:rgba(46,196,138,.3)"><div style="font-weight:800;color:var(--green);margin-bottom:6px">📥 選擇入庫</div><div style="font-size:.78rem;color:var(--text2)">選用既有料號；若料號不存在，可在入料流程直接建檔。建立入料單後仍須品檢，品檢通過才增加庫存。未來會把入料單與原流轉紀錄連結。</div></div><div class="panel" style="padding:16px;border-color:rgba(77,142,245,.3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🗂️ 選擇結案</div><div style="font-size:.78rem;color:var(--text2)">只保存交接與處理結果，作為流程紀錄；不建立入料單，也不變動庫存。可註明未入庫數量的去向。</div></div></div>`;
+  const top=`<div class="panel" style="padding:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><strong style="color:var(--cyan2)">供應鏈工作追蹤</strong><div style="color:var(--text3);font-size:.75rem;margin-top:4px">送外與轉廠只記錄流程，不扣庫存。入料經品檢通過才增加庫存。</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${canWriteSupplyChain()?'<button class="btn btn-blue btn-sm" onclick="supplyOpenCreate()">＋ 新增工作</button>':''}<button class="btn btn-ghost btn-sm" onclick="loadSupplyChain(true)">重新整理</button></div></div>`;
+  if(supplyLoading&&!supplyLoaded)return top+'<div class="loading-row"><div class="spin"></div>載入正式供應鏈工作...</div>';
+  if(supplyError)return top+`<div class="info-warn" role="alert">供應鏈資料載入失敗：${escapeHtml(supplyError)}。目前不顯示舊數字為最新結果。</div>`;
+  if(!supplyLoaded)return top+'<div class="info-warn" role="status">供應鏈資料尚未載入，請稍候。</div>';
+  const today=todayStr(),soon=taipeiDateKey(new Date(Date.now()+7*86400000));
+  const active=supplyJobs.filter(row=>row.status==='待送出'||row.status==='加工中');
+  const overdue=active.filter(row=>row.due_date&&row.due_date<today);
+  const soonRows=active.filter(row=>row.due_date&&row.due_date>=today&&row.due_date<=soon);
+  const pending=supplyJobs.filter(row=>row.status==='待決定'||row.status==='待入料');
+  const kpis=[['進行中',active.length,'var(--cyan2)'],['7 天內到期',soonRows.length,'var(--amber)'],['已逾期',overdue.length,'var(--red)'],['待決定／入料',pending.length,'var(--green2)']];
+  const q=supplySearch.toLocaleLowerCase();
+  const rows=supplyJobs.filter(row=>{
+    if(supplyFilter==='active'&&!active.includes(row))return false;
+    if(supplyFilter==='overdue'&&!overdue.includes(row))return false;
+    if(supplyFilter==='pending'&&!pending.includes(row))return false;
+    if(supplyFilter==='closed'&&row.status!=='已結案')return false;
+    const step=row.steps?.[row.current_step]||{};
+    return !q||[row.title,row.work_number,row.material_sku,step.type,step.supplier].some(value=>String(value||'').toLocaleLowerCase().includes(q));
+  });
+  return top+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}</div><strong style="font-size:1.5rem;color:${color}">${count}</strong></div>`).join('')}</div>
+    <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearch)}" style="flex:1;min-width:190px" onkeydown="if(event.key==='Enter')supplySetSearch(this.value)"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料'],['closed','已結案']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select></div>
+    ${rows.length?`<div style="display:grid;gap:8px">${rows.slice(0,100).map(row=>{
+      const step=row.steps?.[row.current_step]||{};
+      const late=active.includes(row)&&row.due_date&&row.due_date<today;
+      const next=row.status==='待送出'?'登記送出':row.status==='加工中'?'記錄進度':row.status==='待決定'?'決定結果':row.status==='待入料'?'繼續入料':'查看歷程';
+      return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(row.status)}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}</div><div style="font-size:.75rem;color:var(--text3);margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · 預計 ${escapeHtml(row.due_date||'未填')}${late?' · 已逾期':''}</div></div><button class="btn ${canWriteSupplyChain()?'btn-blue':'btn-ghost'} btn-sm" onclick="supplyOpenDetail('${row.id}')">${next}</button></div>`;
+    }).join('')}</div>${rows.length>100?`<p style="margin-top:10px;color:var(--text3)">顯示前 100 筆；共 ${rows.length} 筆，可搜尋縮小範圍。</p>`:''}`:'<div style="text-align:center;color:var(--text3);padding:30px">目前沒有符合條件的工作。可以調整搜尋條件，或新增第一筆工作。</div>'}</div>`;
+}
+function supplySetSearch(value){supplySearch=String(value||'').trim();if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplySetFilter(value){supplyFilter=value;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+
+function supplyModal(markup){document.getElementById('modalInner').innerHTML=markup;openSharedModal();}
+async function supplyWrite(action,job,payload={}){
+  if(!canWriteSupplyChain()){denyViewOnlyAction();throw new Error('此角色不可修改供應鏈工作');}
+  const key=JSON.stringify([action,job?.id||'',payload]);
+  const operationId=supplyPendingOps.get(key)||crypto.randomUUID();
+  supplyPendingOps.set(key,operationId);
+  const body={action,operation_id:operationId,...payload};
+  if(job){body.job_id=job.id;body.expected_version=job.version;}
+  const result=await pickingWorkerRequest('/api/supply/write',{method:'POST',body});
+  supplyPendingOps.delete(key);
+  if(result.row?.work_number){
+    const at=supplyJobs.findIndex(row=>row.id===result.row.id);
+    if(at>=0)supplyJobs[at]=result.row;else supplyJobs.unshift(result.row);
+  }
+  return result.row;
+}
+async function supplyPerform(action,id,payload={},after=null){
+  const job=supplyFind(id);
+  if(!job)return showToast('工作單資料已變動，請重新整理','warn');
+  try{
+    const saved=await supplyWrite(action,job,payload);
+    closeModal();
+    if(CURRENT_TAB==='schedule'&&progressCenterView==='supply')renderTab('schedule');
+    showToast('✅ 工作進度已儲存並回讀','ok');
+    if(after)after(saved);else supplyOpenDetail(saved.id);
+  }catch(error){
+    showToast('❌ '+error.message+'；請確認清單後再重試','err',8000);
+    await loadSupplyChain(true);
+  }
+}
+function supplyToggleSupplier(prefix){
+  const box=document.getElementById(`${prefix}SupplierNew`);
+  if(box){box.style.display=box.style.display==='none'?'flex':'none';if(box.style.display==='flex')document.getElementById(`${prefix}SupplierName`)?.focus();}
+}
+async function supplySaveSupplier(prefix){
+  const field=document.getElementById(`${prefix}SupplierName`);
+  const name=(field?.value||'').trim();
+  if(!name){showToast('請先輸入供應商名稱','warn');return;}
+  try{
+    const row=await supplyWrite('add_supplier',null,{name});
+    if(!supplySuppliers.some(item=>item.id===row.id))supplySuppliers.push(row);
+    const select=document.getElementById(`${prefix}Supplier`);
+    if(select){select.innerHTML=supplySupplierOptions(row.name);select.value=row.name;}
+    supplyToggleSupplier(prefix);
+    showToast('✅ 供應商已加入選單','ok');
+  }catch(error){showToast('新增供應商失敗：'+error.message,'err');}
+}
+function supplyCreateStepsRender(){
+  const box=document.getElementById('supplyCreateSteps');
+  if(!box)return;
+  box.innerHTML=supplyCreateSteps.map((step,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px"><b style="color:var(--cyan2)">${i+2}</b><span style="flex:1">${escapeHtml(step.type)} · ${escapeHtml(step.supplier||'供應商稍後指定')}</span><button class="btn btn-ghost btn-xs" onclick="supplyRemoveCreateStep(${i})">移除</button></div>`).join('')||'<div style="font-size:.75rem;color:var(--text3)">可只建第一關，其他加工工項隨時在工作建立後插入。</div>';
+}
+function supplyRemoveCreateStep(index){supplyCreateSteps.splice(index,1);supplyCreateStepsRender();}
+function supplyApplyTemplate(){
+  const template=supplyTemplates.find(item=>item.id===document.getElementById('supplyTemplate')?.value);
+  if(!template)return;
+  const steps=Array.isArray(template.steps)?template.steps:[];
+  if(!steps.length)return;
+  document.getElementById('supplyType').value=steps[0].type||'';
+  const supplier=document.getElementById('supplyCreateSupplier');
+  if(supplier&&steps[0].supplier)supplier.value=steps[0].supplier;
+  supplyCreateSteps=steps.slice(1).map(step=>({type:step.type,supplier:step.supplier||''}));
+  supplyCreateStepsRender();
+}
+function supplyAddCreateStep(){
+  const type=document.getElementById('supplyNextType')?.value;
+  if(!type)return showToast('請選擇工項','warn');
+  supplyCreateSteps.push({type,supplier:document.getElementById('supplyNextSupplier')?.value||''});
+  supplyCreateStepsRender();
+}
+function supplyOpenCreate(){
+  if(!canWriteSupplyChain())return denyViewOnlyAction();
+  supplyCreateSteps=[];
+  const materialOptions=mats.filter(mat=>mat.code).slice(0,2000).map(mat=>`<option value="${escapeHtml(mat.code)}">${escapeHtml(mat.name||mat.code)}</option>`).join('');
+  supplyModal(`<h3>＋ 新增外包工作</h3><div class="info-warn" style="margin-bottom:12px">只填工作名稱、第一道工項與供應商即可開始；料號與後續工序可以稍後確認。此單不會扣庫存。</div>
+    <div class="form-row"><div><label class="field-label" for="supplyTitle">工作名稱或既有料號 *</label><input class="inp" id="supplyTitle" maxlength="160" list="supplyMaterials" placeholder="可手打暫稱，例如：新款接頭原料製作"><datalist id="supplyMaterials">${materialOptions}</datalist></div></div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyType">第一道工項 *</label><select class="inp" id="supplyType">${supplyStepOptions()}</select></div><div><label class="field-label" for="supplyCreateSupplier">供應商 *</label>${supplySupplierField('supplyCreate')}</div></div>
+    <details style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:10px 0"><summary style="cursor:pointer;color:var(--cyan2);font-weight:700">補填數量、日期或後續工序（選填）</summary><div style="margin-top:13px"><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyQuantity">數量</label><input class="inp" id="supplyQuantity" type="number" min="0.0001" step="any" placeholder="例如 100"></div><div><label class="field-label" for="supplyDue">預計完成日</label><input class="inp" id="supplyDue" type="date"></div></div>
+    <div class="form-row"><div><label class="field-label" for="supplyTemplate">固定流程（選填）</label><div style="display:flex;gap:6px"><select class="inp" id="supplyTemplate"><option value="">不套用，之後可加關</option>${supplyTemplates.map(item=>`<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="supplyApplyTemplate()">套用</button></div></div></div>
+    <div style="font-weight:750;margin-bottom:6px">後續工序</div><div id="supplyCreateSteps"></div><div class="form-row" style="grid-template-columns:1fr 1fr"><select class="inp" id="supplyNextType" aria-label="追加工項">${supplyStepOptions()}</select><select class="inp" id="supplyNextSupplier" aria-label="後續供應商">${supplySupplierOptions()}</select></div><button class="btn btn-ghost btn-sm" onclick="supplyAddCreateStep()">＋ 加入下一關</button></div></details>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" id="supplyCreateButton" onclick="supplyCreateJob()">建立工作</button></div>`);
+  supplyCreateStepsRender();
+}
+async function supplyCreateJob(){
+  const title=document.getElementById('supplyTitle')?.value.trim()||'';
+  const type=document.getElementById('supplyType')?.value||'';
+  const supplier=document.getElementById('supplyCreateSupplier')?.value||'';
+  if(!title||!type||!supplier)return showToast('請填工作名稱、第一道工項與供應商','warn');
+  const quantity=document.getElementById('supplyQuantity')?.value||'';
+  const exact=mats.find(mat=>mat.code===title);
+  const button=document.getElementById('supplyCreateButton');if(button)button.disabled=true;
+  try{
+    const saved=await supplyWrite('create',null,{title,material_sku:exact?.code||'',quantity,due_date:document.getElementById('supplyDue')?.value||'',steps:[{type,supplier},...supplyCreateSteps]});
+    closeModal();renderTab('schedule');showToast('✅ 工作單已建立並回讀','ok');supplyOpenDetail(saved.id);
+  }catch(error){showToast('建立失敗：'+error.message+'；請確認清單後再重試','err',8000);await loadSupplyChain(true);}
+  finally{if(button)button.disabled=false;}
+}
+function supplyEventLabel(event){
+  const labels={WORK_CREATED:'建立工作',insert_step:'插入工序',move_step:'調整未執行工序',remove_step:'移除未執行工序',send:'登記送出',advance:'完成本關並轉交',complete:'全部工序完成',prepare_inbound:'選擇入料',link_inbound:'正式入料單已建立',close:'僅結案'};
+  return labels[event?.action]||event?.action||'流程紀錄';
+}
+function supplyOpenDetail(id){
+  const job=supplyFind(id);if(!job)return showToast('找不到工作單，請重新整理','warn');
+  const current=job.steps?.[job.current_step]||{};
+  const editable=canWriteSupplyChain()&&['待送出','加工中'].includes(job.status);
+  const actions=canWriteSupplyChain()?(
+    job.status==='待送出'?`<button class="btn btn-blue" onclick="supplyPerform('send','${id}')">登記送出</button>`:
+    job.status==='加工中'?`<button class="btn btn-blue" onclick="supplyOpenAdvance('${id}')">完成本關／轉下一關</button>`:
+    job.status==='待決定'?`<button class="btn btn-blue" onclick="supplyOpenDecision('${id}')">決定入料或結案</button>`:
+    job.status==='待入料'?`<button class="btn btn-blue" onclick="supplyContinueInbound('${id}')">繼續建立入料單</button>`:'') : '';
+  const cards=(job.steps||[]).map((step,index)=>{
+    const past=index<job.current_step,planned=index>job.current_step;
+    return `<div style="border:1px solid var(--border);border-radius:9px;background:var(--bg3);padding:10px 12px;margin-bottom:7px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><div><b style="color:var(--cyan2)">${index+1}.</b> <b>${escapeHtml(step.type)}</b> <span style="font-size:.72rem;color:var(--text3)">${past?'已完成':planned?'未執行':'目前'}</span><div style="font-size:.75rem;color:var(--text2)">${escapeHtml(step.supplier||'供應商待指定')}</div></div>${editable&&planned?`<div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" title="上移" onclick="supplyMoveStep('${id}',${index},-1)">↑</button><button class="btn btn-ghost btn-xs" title="下移" onclick="supplyMoveStep('${id}',${index},1)">↓</button><button class="btn btn-red btn-xs" title="移除" onclick="supplyRemoveStep('${id}',${index})">×</button></div>`:''}</div></div>${editable&&!past?`<button class="btn btn-ghost btn-sm" style="margin:0 0 12px 22px;color:var(--cyan2)" onclick="supplyOpenInsert('${id}',${index+1})">＋ 在這關之後插入工序</button>`:''}`;
+  }).join('');
+  const events=[...(job.events||[])].reverse().map(event=>`<div style="border-left:2px solid var(--cyan);padding:0 0 13px 12px;margin-left:4px"><b>${escapeHtml(supplyEventLabel(event))}</b><div style="font-size:.72rem;color:var(--text3)">${escapeHtml(supplyDateTime(event.recorded_at))} · 角色 ${escapeHtml(event.role||'未知')}</div></div>`).join('');
+  supplyModal(`<h3>${escapeHtml(job.title)}</h3><div style="font-size:.75rem;color:var(--text3);margin-bottom:10px">${escapeHtml(job.work_number)} · ${escapeHtml(job.material_sku||'暫用名稱')} ${job.quantity?'· '+Number(job.quantity).toLocaleString()+' '+escapeHtml(job.unit||'件'):''}</div>
+    <div class="info-warn" style="margin-bottom:12px"><b>目前：${escapeHtml(job.status)}</b> · ${escapeHtml(current.type||'加工已完成')} · ${escapeHtml(current.supplier||'供應商待指定')}<br>預計完成：${escapeHtml(job.due_date||'未填')}。加工完成不代表已入庫。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${actions}${editable?`<button class="btn btn-ghost" onclick="supplyOpenSaveTemplate('${id}')">儲存為固定流程</button>`:''}${job.status==='待品檢'?'<button class="btn btn-ghost" onclick="closeModal();switchTab(\'inbound\')">查看入料／品檢</button>':''}</div>
+    <div style="font-weight:800;margin-bottom:9px">工序 · 建立後仍可加關</div>${cards}<div style="font-weight:800;margin:12px 0 9px">時間紀錄</div>${events||'<div style="color:var(--text3)">尚無事件</div>'}
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`);
+}
+function supplyOpenInsert(id,at){
+  if(!canWriteSupplyChain())return denyViewOnlyAction();
+  const job=supplyFind(id);if(!job)return;
+  supplyModal(`<h3>插入加工工序</h3><div class="info-warn" style="margin-bottom:12px">新工序會插入第 ${at} 關之後。已完成的交接紀錄不會改寫。</div><div class="form-row"><div><label class="field-label" for="supplyInsertType">工項 *</label><select class="inp" id="supplyInsertType">${supplyStepOptions()}</select></div><div><label class="field-label" for="supplyInsertSupplier">供應商（可稍後指定）</label>${supplySupplierField('supplyInsert')}</div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplyInsertStep('${id}',${at})">插入工序</button></div>`);
+}
+function supplyInsertStep(id,at){
+  const type=document.getElementById('supplyInsertType')?.value||'';
+  if(!type)return showToast('請先選工項','warn');
+  supplyPerform('insert_step',id,{at,step:{type,supplier:document.getElementById('supplyInsertSupplier')?.value||''}});
+}
+function supplyMoveStep(id,from,delta){
+  const job=supplyFind(id),to=from+delta;
+  if(!job||to<=job.current_step||to>=job.steps.length)return showToast('只能調整尚未執行的工序','warn');
+  supplyPerform('move_step',id,{from,to});
+}
+function supplyRemoveStep(id,at){
+  if(!confirm('移除這個尚未執行的工序？已完成紀錄不受影響。'))return;
+  supplyPerform('remove_step',id,{at});
+}
+function supplyOpenAdvance(id){
+  const job=supplyFind(id);if(!job)return;
+  const next=job.steps?.[job.current_step+1];
+  if(!next){
+    if(!confirm('確定所有加工工序已完成？完成後仍須選擇入料或僅結案，庫存現在不會增加。'))return;
+    supplyPerform('complete',id);return;
+  }
+  supplyModal(`<h3>完成本關，轉交下一關</h3><div class="info-warn" style="margin-bottom:12px">${escapeHtml(job.steps[job.current_step].type)} → ${escapeHtml(next.type)}。確認後自動記錄交接時間；不變動庫存。</div><div class="form-row"><div><label class="field-label">接手工項</label><div class="inp" style="opacity:.9">${escapeHtml(next.type)}</div></div><div><label class="field-label" for="supplyAdvanceSupplier">接手供應商 *</label>${supplySupplierField('supplyAdvance',next.supplier)}</div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplyAdvance('${id}')">確認交接</button></div>`);
+}
+function supplyAdvance(id){
+  const supplier=document.getElementById('supplyAdvanceSupplier')?.value||'';
+  if(!supplier)return showToast('請選接手供應商','warn');
+  supplyPerform('advance',id,{supplier});
+}
+function supplyOpenDecision(id){
+  const job=supplyFind(id);if(!job)return;
+  supplyModal(`<h3>加工完成，下一步？</h3><div style="display:grid;gap:10px;margin:14px 0"><button class="btn btn-green" style="text-align:left;padding:15px" onclick="supplyPrepareInbound('${id}')"><b>📥 建立入料單</b><div style="font-size:.75rem;margin-top:4px">現在才確認既有或新料號；品檢通過才增加庫存。</div></button><button class="btn btn-ghost" style="text-align:left;padding:15px" onclick="supplyOpenClose('${id}')"><b>🗂️ 僅結案</b><div style="font-size:.75rem;margin-top:4px">只保留加工與交接紀錄，不入庫。</div></button></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button></div>`);
+}
+function supplyOpenClose(id){
+  supplyModal(`<h3>僅結案</h3><div class="info-warn">結案只記錄流程，不新增入料單，也不增加庫存。</div><div class="form-row" style="margin-top:12px"><div><label class="field-label" for="supplyCloseReason">結果說明（選填）</label><input class="inp" id="supplyCloseReason" maxlength="500" placeholder="例如：試作完成，樣品留在供應商"></div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDecision('${id}')">返回</button><button class="btn btn-blue" onclick="supplyPerform('close','${id}',{reason:document.getElementById('supplyCloseReason').value})">確認結案</button></div>`);
+}
+async function supplyPrepareInbound(id){
+  const job=supplyFind(id);if(!job)return;
+  try{
+    const saved=await supplyWrite('prepare_inbound',job);
+    closeModal();renderTab('schedule');supplyContinueInbound(saved.id);
+  }catch(error){showToast('入料準備失敗：'+error.message,'err');await loadSupplyChain(true);}
+}
+function supplyContinueInbound(id){
+  const job=supplyFind(id);if(!job||job.status!=='待入料')return showToast('此工作不在待入料狀態，請重新整理','warn');
+  if(!(isAdminRole()||ROLE==='purchase'||ROLE==='warehouse'))return denyViewOnlyAction();
+  openModal('newInbound');
+  window._supplyInboundJobId=id;
+  const note=document.getElementById('ib_note');
+  if(note)note.value=`供應鏈工作單 ${job.work_number}`;
+  const mat=mats.find(item=>item.code===job.material_sku);
+  if(mat&&Number(job.quantity)>0){
+    window._ibItems=[{matId:mat.id,code:mat.code,name:mat.name||mat.code,qty:Number(job.quantity),isNew:false}];
+    renderIbItems();
+  }else if(job.material_sku){
+    const code=document.getElementById('ib_new_code');if(code)code.value=job.material_sku;
+    const qty=document.getElementById('ib_new_qty');if(qty&&Number(job.quantity)>0)qty.value=job.quantity;
+  }
+  showToast('請確認料號與數量後建立入料單；品檢通過才加庫存','warn',6500);
+}
+function supplyOpenSaveTemplate(id){
+  const job=supplyFind(id);if(!job)return;
+  supplyModal(`<h3>儲存為固定流程</h3><p style="color:var(--text2);font-size:.78rem">儲存目前工項順序供下次套用。舊工作單不會跟著修改。</p><div class="form-row" style="margin-top:12px"><div><label class="field-label" for="supplyTemplateName">範本名稱 *</label><input class="inp" id="supplyTemplateName" maxlength="120" placeholder="例如：金屬接頭製作流程"></div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplySaveTemplate('${id}')">儲存範本</button></div>`);
+}
+async function supplySaveTemplate(id){
+  const job=supplyFind(id),name=document.getElementById('supplyTemplateName')?.value.trim();
+  if(!name)return showToast('請填範本名稱','warn');
+  try{
+    const row=await supplyWrite('save_template',null,{name,steps:job.steps});
+    if(!supplyTemplates.some(item=>item.id===row.id))supplyTemplates.push(row);
+    showToast('✅ 固定流程已儲存','ok');supplyOpenDetail(id);
+  }catch(error){showToast('範本儲存失敗：'+error.message,'err');}
 }
 
 let schedules = [];
@@ -24670,7 +24941,7 @@ function filterInboundList(q){
       ${inList
         ? `<span style="font-size:0.625rem;color:var(--green)">✅ 已加入</span>`
         : `<div style="display:flex;gap:4px;align-items:center">
-            <input type="number" id="ib_qty_${m.id}" value="1" min="1" style="width:55px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--text);font-size:0.75rem">
+            <input type="number" id="ib_qty_${m.id}" value="1" min="0.0001" step="any" style="width:55px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--text);font-size:0.75rem">
             <button type="button" class="btn btn-green btn-sm" onclick="addInboundItem('${m.id}','${(m.code||'').replace(/'/g,"\\'")}','${(m.name||'').replace(/'/g,"\\'")}')">加入</button>
           </div>`
       }
@@ -24680,7 +24951,8 @@ function filterInboundList(q){
 
 function addInboundItem(matId, code, name){
   if(!window._ibItems) window._ibItems=[];
-  const qty = parseInt(document.getElementById(`ib_qty_${matId}`)?.value)||1;
+  const qty = Number(document.getElementById(`ib_qty_${matId}`)?.value);
+  if(!Number.isFinite(qty)||qty<=0){showToast('入料數量須大於 0','warn');return;}
   if(window._ibItems.find(x=>x.matId===matId)){showToast('已在清單中','warn');return;}
   window._ibItems.push({matId, code, name, qty, isNew:false});
   renderIbItems();
@@ -24690,8 +24962,9 @@ function addInboundItem(matId, code, name){
 function addNewInboundItem(){
   const code=(document.getElementById('ib_new_code')?.value||'').trim();
   const type=document.getElementById('ib_new_type')?.value||'零件';
-  const qty=parseInt(document.getElementById('ib_new_qty')?.value)||1;
+  const qty=Number(document.getElementById('ib_new_qty')?.value);
   if(!code){showToast('請填入料號','warn');return;}
+  if(!Number.isFinite(qty)||qty<=0){showToast('入料數量須大於 0','warn');return;}
   if(!window._ibItems) window._ibItems=[];
   if(window._ibItems.find(x=>x.code===code)){showToast('已在清單中','warn');return;}
   window._ibItems.push({matId:null, code, name:'（新建）', qty, isNew:true, newType:type});
@@ -24726,6 +24999,11 @@ function removeIbItem(idx){
 
 async function submitBatchInbound(){
   if(!window._ibItems||!window._ibItems.length){showToast('請先加入入料品項','warn');return;}
+  const sourceSupplyJob=window._supplyInboundJobId?supplyFind(window._supplyInboundJobId):null;
+  if(window._supplyInboundJobId&&(!sourceSupplyJob||sourceSupplyJob.status!=='待入料')){
+    showToast('供應鏈工作單資料已變動，請返回進度中心重新整理','err');return;
+  }
+  if(sourceSupplyJob&&window._ibItems.length!==1){showToast('供應鏈入料一次只接一筆料號，請保留一個入料品項','warn');return;}
   const note=(document.getElementById('ib_note')?.value||'').trim();
   const today=todayStr();
   closeModal(); showToast(`⏳ 建立 ${window._ibItems.length} 筆入料中...`,'warn');
@@ -24751,7 +25029,7 @@ async function submitBatchInbound(){
         matId = assertNotionPage(newMat,'建立料件').id;
       }
       const mat=mats.find(m=>m.id===matId);
-      const inbNo=item.inboundNo||`IB-${today.replace(/-/g,'').slice(2)}-${Date.now().toString(36).slice(-5).toUpperCase()}${String(itemIndex+1).padStart(2,'0')}`;
+      const inbNo=sourceSupplyJob?.inbound_number||item.inboundNo||`IB-${today.replace(/-/g,'').slice(2)}-${Date.now().toString(36).slice(-5).toUpperCase()}${String(itemIndex+1).padStart(2,'0')}`;
       item.inboundNo=inbNo;
       const inbResult=await pickingWorkerRequest('/api/inbound/create',{
         method:'POST',
@@ -24769,6 +25047,9 @@ async function submitBatchInbound(){
       const saved=mapSupabaseInbound(inbResult.row);
       const mirror=await updateInboundNotionMirror(saved);
       if(mirror.pending) console.warn(`入料單 ${inbNo} Notion 鏡像待補同步`);
+      if(sourceSupplyJob){
+        await supplyWrite('link_inbound',supplyFind(sourceSupplyJob.id),{inbound_receipt_id:inbResult.row.id});
+      }
       logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);
       ok++;
     }catch(e){
@@ -24779,6 +25060,7 @@ async function submitBatchInbound(){
     }
   }
   await refreshAffectedData({tabs:['inbound'],label:'入料資料已更新'});
+  if(sourceSupplyJob){if(ok&&!fail)window._supplyInboundJobId=null;await loadSupplyChain(true);}
   if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc') renderTab(CURRENT_TAB);
   showToast(`${fail?'⚠':'✅'} 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管頁會讀取入料待品檢）`,fail?'warn':'ok');
   window._ibItems=failedItems;

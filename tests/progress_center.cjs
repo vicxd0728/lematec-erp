@@ -26,26 +26,28 @@ function setup(orders = []) {
     todayStr: () => '2026-10-02',
     taipeiDateKey: () => '2026-10-09',
     isFresh: () => true,
+    isViewOnly: () => false,
+    isAdminRole: () => false,
+    ROLE: 'purchase',
   });
   vm.runInContext(moduleCode, ctx);
   return ctx;
 }
 
-test('supply view lists the nine requested processes without inventing outside stock', () => {
+test('supply view waits for official data and shows recorded jobs without inventing outside stock', () => {
   const ctx = setup();
   vm.runInContext("progressCenterView='supply'", ctx);
-  const rendered = ctx.renderProgressCenter();
+  let rendered = ctx.renderProgressCenter();
+  assert.match(rendered, /供應鏈資料尚未載入/);
   for (const work of ['電鍍', '噴砂', '攻牙', '清洗', '塑膠射出', '金屬射出', '沖壓', '電子廠', '外包組裝']) {
-    assert.match(rendered, new RegExp(work));
+    assert.match(ctx.supplyStepOptions(), new RegExp(work));
   }
-  assert.match(rendered, /尚未啟用正式流轉紀錄/);
-  assert.match(rendered, /沒有可靠資料可以判定實際在外數量/);
-  assert.match(rendered, /送外與轉廠只記錄流程，不扣主倉庫存/);
-  assert.match(rendered, /選擇入庫/);
-  assert.match(rendered, /料號不存在，可在入料流程直接建檔/);
-  assert.match(rendered, /品檢通過才增加庫存/);
-  assert.match(rendered, /選擇結案/);
-  assert.match(rendered, /不建立入料單，也不變動庫存/);
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'a',title:'零件加工',work_number:'SC-1',status:'加工中',material_sku:'Y-A',quantity:12,unit:'件',due_date:'2026-10-01',current_step:0,steps:[{type:'電鍍',supplier:'甲廠'}]}]", ctx);
+  rendered = ctx.renderProgressCenter();
+  assert.match(rendered, /SC-1/);
+  assert.match(rendered, /已逾期/);
+  assert.match(rendered, /送外與轉廠只記錄流程，不扣庫存/);
+  assert.match(rendered, /入料經品檢通過才增加庫存/);
 });
 
 test('order progress uses only active orders and filters overdue work', () => {
