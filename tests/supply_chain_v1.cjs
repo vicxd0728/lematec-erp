@@ -10,7 +10,7 @@ const org='00000000-0000-4000-8000-000000000001';
 const op=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 
 function harness(){
-  const jobs=new Map(),suppliers=new Map(),templates=new Map(),workTypes=new Map(),receipts=new Map(),inventoryWrites=[];
+  const jobs=new Map(),suppliers=new Map(),templates=new Map(),workTypes=new Map(),materials=new Set(),receipts=new Map(),inventoryWrites=[];
   async function supabaseFetch(_env,path,options={}){
     const url=new URL(path,'https://db.test');
     const params=url.searchParams;
@@ -32,8 +32,19 @@ function harness(){
       const id=params.get('id')?.slice(3);return id?(suppliers.has(id)?[suppliers.get(id)]:[]):[...suppliers.values()];
     }
     if(url.pathname.endsWith('/erp_supply_templates')){
-      if(options.method==='POST'){let row=JSON.parse(options.body);templates.set(row.id,row);return null;}
-      const id=params.get('id')?.slice(3);return id?(templates.has(id)?[templates.get(id)]:[]):[...templates.values()];
+      if(options.method==='POST'){
+        const row=JSON.parse(options.body);if(!templates.has(row.id))templates.set(row.id,{...row,version:1});return null;
+      }
+      if(options.method==='PATCH'){
+        const id=params.get('id')?.slice(3),version=Number(params.get('version')?.slice(3));
+        const row=templates.get(id);if(!row||row.version!==version)return [];
+        Object.assign(row,JSON.parse(options.body));return [{...row}];
+      }
+      const id=params.get('id')?.slice(3),sku=params.get('material_sku')?.slice(3),name=params.get('name')?.slice(3);
+      return [...templates.values()].filter(row=>(!id||row.id===id)&&(!sku||row.material_sku===sku)&&(!name||row.name===name));
+    }
+    if(url.pathname.endsWith('/materials')){
+      const sku=params.get('sku')?.slice(3);return materials.has(sku)?[{sku}]:[];
     }
     if(url.pathname.endsWith('/erp_supply_work_types')){
       if(options.method==='POST'){const row=JSON.parse(options.body);if(!workTypes.has(row.id))workTypes.set(row.id,row);return null;}
@@ -68,8 +79,25 @@ function harness(){
     const response=await ctx.erpSupplyWrite(new Request('https://erp.test/api/supply/write',{method:'POST',headers:{'X-ERP-Role':'purchase','Content-Type':'application/json'},body:JSON.stringify(body)}),{},{});
     return {status:response.status,data:await response.json()};
   };
-  return {call,jobs,workTypes,receipts,inventoryWrites};
+  return {call,jobs,templates,workTypes,materials,receipts,inventoryWrites};
 }
+
+test('saving a fixed process binds an exact SKU and updates that SKU on later saves',async()=>{
+  const h=harness(),id=op(200);h.materials.add('Y-A');
+  await h.call({action:'create',operation_id:id,title:'Y-A',material_sku:'Y-A',steps:[{type:'沖壓',supplier:'甲廠'}]});
+  let result=await h.call({action:'save_template',operation_id:op(201),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
+  assert.equal(result.status,200);assert.equal(result.data.row.material_sku,'Y-A');
+  const templateId=result.data.row.id;
+  await h.call({action:'insert_step',operation_id:op(202),job_id:id,expected_version:1,at:1,step:{type:'清洗',supplier:'乙廠'}});
+  result=await h.call({action:'save_template',operation_id:op(203),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
+  assert.equal(result.status,200);assert.equal(result.data.row.id,templateId);
+  assert.equal(result.data.row.steps.length,2);
+  assert.equal(h.templates.size,1);
+  result=await h.call({action:'save_template',operation_id:op(203),source_job_id:id,name:'Y-A 固定流程',material_sku:'Y-A'});
+  assert.equal(result.data.existing,true);
+  result=await h.call({action:'save_template',operation_id:op(204),source_job_id:id,name:'錯誤料號',material_sku:'Y-UNKNOWN'});
+  assert.equal(result.status,400);
+});
 
 test('new work type is saved once and can be used on a later job',async()=>{
   const h=harness();

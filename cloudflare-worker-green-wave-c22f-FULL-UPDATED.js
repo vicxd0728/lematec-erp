@@ -3826,7 +3826,7 @@ async function erpSupplyCatalog(request, env, cors) {
     const id=encodeURIComponent(organization.id);
     const [suppliers,templates,workTypes]=await Promise.all([
       supabaseFetch(env,`/rest/v1/erp_supply_suppliers?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=500`),
-      supabaseFetch(env,`/rest/v1/erp_supply_templates?organization_id=eq.${id}&archived_at=is.null&select=id,name,steps,created_at&order=name.asc&limit=200`),
+      supabaseFetch(env,`/rest/v1/erp_supply_templates?organization_id=eq.${id}&archived_at=is.null&select=id,name,steps,material_sku,version,updated_at,created_at&order=name.asc&limit=200`),
       supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=1000`),
     ]);
     return respOK(cors,{ok:true,suppliers,templates,work_types:workTypes});
@@ -3868,16 +3868,42 @@ async function erpSupplyWrite(request, env, cors) {
     }
     if (action==='save_template') {
       const name=supplyText(body?.name,120);
-      const steps=Array.isArray(body?.steps)?body.steps:[];
+      const sourceJobId=supplyText(body?.source_job_id,40);
+      if (sourceJobId&&!ERP_SUPPLY_ID.test(sourceJobId)) return resp400(cors,'來源工作單 ID 無效');
+      const sourceJob=sourceJobId?await supplyGetJob(env,organizationId,sourceJobId):null;
+      if (sourceJobId&&!sourceJob) return resp400(cors,'找不到來源工作單，請重新整理');
+      const steps=sourceJob?.steps||(Array.isArray(body?.steps)?body.steps:[]);
+      const materialSku=supplyText(body?.material_sku,120);
       if (!name||!steps.length||steps.length>25) return resp400(cors,'範本名稱與 1–25 個工項為必填');
+      if (materialSku) {
+        const material=await supabaseSingle(env,`/rest/v1/materials?${orgFilter}&sku=eq.${encodeURIComponent(materialSku)}&archived_at=is.null&select=sku&limit=1`,true);
+        if (!material) return resp400(cors,'綁定料號不存在於正式庫存主檔，請選擇已建檔料號');
+      }
       const allowedTypes=await supplyAllowedTypes(env,organizationId);
       const cleanSteps=steps.map(step=>supplyStep(step,false,allowedTypes));
+      const select='id,name,steps,material_sku,version,last_operation_id,updated_at,created_at';
+      let existing=materialSku?await supabaseSingle(env,`/rest/v1/erp_supply_templates?${orgFilter}&material_sku=eq.${encodeURIComponent(materialSku)}&archived_at=is.null&select=${select}&limit=1`,true):null;
+      if (!existing) {
+        const sameName=await supabaseSingle(env,`/rest/v1/erp_supply_templates?${orgFilter}&name=eq.${encodeURIComponent(name)}&archived_at=is.null&select=${select}&limit=1`,true);
+        if (sameName?.material_sku&&sameName.material_sku!==materialSku) return resp400(cors,'這個範本名稱已綁定其他料號，請換一個名稱');
+        existing=sameName;
+      }
+      if (existing?.last_operation_id===operationId) return respOK(cors,{ok:true,existing:true,row:existing});
+      if (existing) {
+        const rows=await supabaseFetch(env,`/rest/v1/erp_supply_templates?${orgFilter}&id=eq.${existing.id}&version=eq.${existing.version}&select=${select}`,{
+          method:'PATCH',headers:{Prefer:'return=representation'},
+          body:JSON.stringify({name,steps:cleanSteps,material_sku:materialSku||null,version:Number(existing.version)+1,last_operation_id:operationId,updated_at:new Date().toISOString()}),
+        });
+        const row=Array.isArray(rows)?rows[0]:rows;
+        if (!row) return supplyConflict(cors,'固定流程已被其他人更新，請重新整理後再儲存');
+        return respOK(cors,{ok:true,row});
+      }
       const id=operationId;
       await supabaseFetch(env,'/rest/v1/erp_supply_templates?on_conflict=id',{
         method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
-        body:JSON.stringify({id,organization_id:organizationId,name,steps:cleanSteps,created_role:role}),
+        body:JSON.stringify({id,organization_id:organizationId,name,steps:cleanSteps,material_sku:materialSku||null,created_role:role,last_operation_id:operationId}),
       });
-      const row=await supabaseSingle(env,`/rest/v1/erp_supply_templates?${orgFilter}&id=eq.${id}&select=id,name,steps,created_at&limit=1`);
+      const row=await supabaseSingle(env,`/rest/v1/erp_supply_templates?${orgFilter}&id=eq.${id}&select=${select}&limit=1`);
       return respOK(cors,{ok:true,row});
     }
     if (action==='create') {

@@ -78,6 +78,23 @@ test('work detail can open a process route while the default list remains unchan
   assert.match(modal.innerHTML,/返回工作詳情/);
 });
 
+test('selecting a known SKU automatically fills its saved process and keeps quantity/date editable', () => {
+  const ctx=setup(),fields={};
+  for(const id of ['supplyType','supplyCreateSupplier','supplyTemplate','supplyAutoFlowHint','supplyCreateSteps','supplyQuantity','supplyDue'])fields[id]={value:'',innerHTML:'',textContent:''};
+  fields.supplyQuantity.value='100';fields.supplyDue.value='2026-10-15';
+  ctx.document.getElementById=id=>fields[id]||null;
+  ctx.mats=[{code:'Y-A'},{code:'Y-B'}];
+  vm.runInContext("supplyTemplates=[{id:'template-a',name:'Y-A 固定流程',material_sku:'Y-A',steps:[{type:'沖壓',supplier:'甲廠'},{type:'清洗',supplier:'乙廠'}]}]",ctx);
+  ctx.supplyTitleChanged('Y-A');
+  assert.equal(fields.supplyType.value,'沖壓');
+  assert.equal(fields.supplyCreateSupplier.value,'甲廠');
+  assert.match(fields.supplyCreateSteps.innerHTML,/清洗 · 乙廠/);
+  assert.equal(fields.supplyQuantity.value,'100');assert.equal(fields.supplyDue.value,'2026-10-15');
+  ctx.supplyTitleChanged('Y-B');
+  assert.equal(fields.supplyType.value,'');
+  assert.doesNotMatch(fields.supplyCreateSteps.innerHTML,/清洗 · 乙廠/);
+});
+
 test('order progress uses only active orders and filters overdue work', () => {
   const ctx = setup([
     { id: 'a', no: 'ORD-A', status: '生產中', deadline: '2026-10-01', customer: '甲', product: 'Y-A', qty: 4 },

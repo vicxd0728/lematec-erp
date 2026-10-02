@@ -12638,6 +12638,7 @@ let supplyError='';
 let supplySearch='';
 let supplyFilter='all';
 let supplyCreateSteps=[];
+let supplyAutoBoundSku='';
 const supplyPendingOps=new Map();
 
 function canWriteSupplyChain(){return !isViewOnly()&&(isAdminRole()||ROLE==='purchase'||ROLE==='warehouse');}
@@ -12797,8 +12798,8 @@ function supplyCreateStepsRender(){
   box.innerHTML=supplyCreateSteps.map((step,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px"><b style="color:var(--cyan2)">${i+2}</b><span style="flex:1">${escapeHtml(step.type)} · ${escapeHtml(step.supplier||'供應商稍後指定')}</span><button class="btn btn-ghost btn-xs" onclick="supplyRemoveCreateStep(${i})">移除</button></div>`).join('')||'<div style="font-size:.75rem;color:var(--text3)">可只建第一關，其他加工工項隨時在工作建立後插入。</div>';
 }
 function supplyRemoveCreateStep(index){supplyCreateSteps.splice(index,1);supplyCreateStepsRender();}
-function supplyApplyTemplate(){
-  const template=supplyTemplates.find(item=>item.id===document.getElementById('supplyTemplate')?.value);
+function supplyApplyTemplate(selectedTemplate=null,automatic=false){
+  const template=selectedTemplate||supplyTemplates.find(item=>item.id===document.getElementById('supplyTemplate')?.value);
   if(!template)return;
   const steps=Array.isArray(template.steps)?template.steps:[];
   if(!steps.length)return;
@@ -12807,6 +12808,22 @@ function supplyApplyTemplate(){
   if(supplier&&steps[0].supplier)supplier.value=steps[0].supplier;
   supplyCreateSteps=steps.slice(1).map(step=>({type:step.type,supplier:step.supplier||''}));
   supplyCreateStepsRender();
+  const selector=document.getElementById('supplyTemplate');if(selector)selector.value=template.id;
+  supplyAutoBoundSku=automatic?template.material_sku||'':'';
+  const hint=document.getElementById('supplyAutoFlowHint');
+  if(hint)hint.textContent=`${automatic?'已依料號自動帶入':'已套用'}「${template.name}」共 ${steps.length} 站；可確認後調整。`;
+}
+function supplyTitleChanged(value){
+  const title=String(value||'').trim(),material=mats.find(mat=>mat.code===title);
+  const sku=material?.code||'';
+  if(supplyAutoBoundSku&&supplyAutoBoundSku!==sku){
+    supplyAutoBoundSku='';supplyCreateSteps=[];supplyCreateStepsRender();
+    for(const id of ['supplyType','supplyCreateSupplier','supplyTemplate']){const field=document.getElementById(id);if(field)field.value='';}
+  }
+  const template=sku?supplyTemplates.find(item=>item.material_sku===sku):null;
+  const hint=document.getElementById('supplyAutoFlowHint');
+  if(template&&supplyAutoBoundSku!==sku){supplyApplyTemplate(template,true);return;}
+  if(hint&&!template)hint.textContent=sku?'此料號尚無固定流程，請指定第一站；完成後可儲存並綁定。':'可輸入暫稱，或選擇既有料號自動帶入固定流程。';
 }
 function supplyAddCreateStep(){
   const type=document.getElementById('supplyNextType')?.value;
@@ -12816,13 +12833,13 @@ function supplyAddCreateStep(){
 }
 function supplyOpenCreate(){
   if(!canWriteSupplyChain())return denyViewOnlyAction();
-  supplyCreateSteps=[];
+  supplyCreateSteps=[];supplyAutoBoundSku='';
   const materialOptions=mats.filter(mat=>mat.code).slice(0,2000).map(mat=>`<option value="${escapeHtml(mat.code)}">${escapeHtml(mat.name||mat.code)}</option>`).join('');
   supplyModal(`<h3>＋ 新增外包工作</h3><div class="info-warn" style="margin-bottom:12px">填工作名稱、第一道工項與供應商後，建立即記錄送交第一站。料號與後續工序可以稍後確認；此單不會扣庫存。</div>
-    <div class="form-row"><div><label class="field-label" for="supplyTitle">工作名稱或既有料號 *</label><input class="inp" id="supplyTitle" maxlength="160" list="supplyMaterials" placeholder="可手打暫稱，例如：新款接頭原料製作"><datalist id="supplyMaterials">${materialOptions}</datalist></div></div>
+    <div class="form-row"><div><label class="field-label" for="supplyTitle">工作名稱或既有料號 *</label><input class="inp" id="supplyTitle" maxlength="160" list="supplyMaterials" placeholder="可手打暫稱，例如：新款接頭原料製作" oninput="supplyTitleChanged(this.value)" onchange="supplyTitleChanged(this.value)"><datalist id="supplyMaterials">${materialOptions}</datalist><div id="supplyAutoFlowHint" style="font-size:.73rem;color:var(--cyan2);margin-top:5px">選既有料號後，若已存固定流程會自動帶入。</div></div></div>
     <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyType">第一道工項 *</label>${supplyWorkTypeField('supply')}</div><div><label class="field-label" for="supplyCreateSupplier">供應商 *</label>${supplySupplierField('supplyCreate')}</div></div>
-    <details style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:10px 0"><summary style="cursor:pointer;color:var(--cyan2);font-weight:700">補填數量、日期或後續工序（選填）</summary><div style="margin-top:13px"><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyQuantity">數量</label><input class="inp" id="supplyQuantity" type="number" min="0.0001" step="any" placeholder="例如 100"></div><div><label class="field-label" for="supplyDue">預計完成日</label><input class="inp" id="supplyDue" type="date"></div></div>
-    <div class="form-row"><div><label class="field-label" for="supplyTemplate">固定流程（選填）</label><div style="display:flex;gap:6px"><select class="inp" id="supplyTemplate"><option value="">不套用，之後可加關</option>${supplyTemplates.map(item=>`<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="supplyApplyTemplate()">套用</button></div></div></div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyQuantity">數量</label><input class="inp" id="supplyQuantity" type="number" min="0.0001" step="any" placeholder="例如 100"></div><div><label class="field-label" for="supplyDue">預計完成日</label><input class="inp" id="supplyDue" type="date"></div></div>
+    <details style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:10px 0"><summary style="cursor:pointer;color:var(--cyan2);font-weight:700">檢查／調整固定流程與後續工序（選填）</summary><div style="margin-top:13px"><div class="form-row"><div><label class="field-label" for="supplyTemplate">固定流程</label><div style="display:flex;gap:6px"><select class="inp" id="supplyTemplate"><option value="">不套用，之後可加關</option>${supplyTemplates.map(item=>`<option value="${item.id}">${escapeHtml(item.name)}${item.material_sku?' · '+escapeHtml(item.material_sku):''}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="supplyApplyTemplate()">套用</button></div></div></div>
     <div style="font-weight:750;margin-bottom:6px">後續工序</div><div id="supplyCreateSteps"></div><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyNextType">工項</label>${supplyWorkTypeField('supplyNext')}</div><div><label class="field-label" for="supplyNextSupplier">供應商</label>${supplySupplierField('supplyNext')}</div></div><button class="btn btn-ghost btn-sm" onclick="supplyAddCreateStep()">＋ 加入下一關</button></div></details>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-blue" id="supplyCreateButton" onclick="supplyCreateJob()">建立並送出第一站</button></div>`);
   supplyCreateStepsRender();
@@ -12980,15 +12997,19 @@ function supplyContinueInbound(id){
 }
 function supplyOpenSaveTemplate(id){
   const job=supplyFind(id);if(!job)return;
-  supplyModal(`<h3>儲存為固定流程</h3><p style="color:var(--text2);font-size:.78rem">儲存目前工項順序供下次套用。舊工作單不會跟著修改。</p><div class="form-row" style="margin-top:12px"><div><label class="field-label" for="supplyTemplateName">範本名稱 *</label><input class="inp" id="supplyTemplateName" maxlength="120" placeholder="例如：金屬接頭製作流程"></div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplySaveTemplate('${id}')">儲存範本</button></div>`);
+  const existing=supplyTemplates.find(item=>item.material_sku===job.material_sku);
+  const options=mats.filter(mat=>mat.code).slice(0,2000).map(mat=>`<option value="${escapeHtml(mat.code)}">${escapeHtml(mat.name||mat.code)}</option>`).join('');
+  supplyModal(`<h3>儲存為固定流程</h3><p style="color:var(--text2);font-size:.78rem">綁定料號後，下次選這個料號會自動帶入目前 ${job.steps?.length||0} 站工序與供應商。重新儲存同一料號會更新固定流程，不會改動舊工作單。</p><div class="form-row" style="margin-top:12px"><div><label class="field-label" for="supplyTemplateSku">綁定料號</label><input class="inp" id="supplyTemplateSku" list="supplyTemplateMaterials" maxlength="120" value="${escapeHtml(job.material_sku||'')}" placeholder="選擇已建檔料號，才能下次自動帶入"><datalist id="supplyTemplateMaterials">${options}</datalist><div style="font-size:.72rem;color:var(--text3);margin-top:4px">未填料號只會儲存通用範本，必須手動套用。</div></div><div><label class="field-label" for="supplyTemplateName">流程名稱 *</label><input class="inp" id="supplyTemplateName" maxlength="120" value="${escapeHtml(existing?.name||(job.material_sku?job.material_sku+' 固定流程':''))}" placeholder="例如：金屬接頭製作流程"></div></div><div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplySaveTemplate('${id}')">儲存固定流程</button></div>`);
 }
 async function supplySaveTemplate(id){
-  const job=supplyFind(id),name=document.getElementById('supplyTemplateName')?.value.trim();
+  const job=supplyFind(id),name=document.getElementById('supplyTemplateName')?.value.trim(),sku=document.getElementById('supplyTemplateSku')?.value.trim()||'';
   if(!name)return showToast('請填範本名稱','warn');
+  if(sku&&!mats.some(mat=>mat.code===sku))return showToast('請選擇已建檔的正確料號','warn');
   try{
-    const row=await supplyWrite('save_template',null,{name,steps:job.steps});
-    if(!supplyTemplates.some(item=>item.id===row.id))supplyTemplates.push(row);
-    showToast('✅ 固定流程已儲存','ok');supplyOpenDetail(id);
+    const row=await supplyWrite('save_template',null,{name,source_job_id:job.id,material_sku:sku});
+    supplyTemplates=supplyTemplates.filter(item=>item.id!==row.id&&(!sku||item.material_sku!==sku));
+    supplyTemplates.push(row);
+    showToast(sku?`✅ ${sku} 的固定流程已儲存；下次選料號會自動帶入`:'✅ 通用範本已儲存；日後需手動套用','ok');supplyOpenDetail(id);
   }catch(error){showToast('範本儲存失敗：'+error.message,'err');}
 }
 
