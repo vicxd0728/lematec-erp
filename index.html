@@ -12632,6 +12632,8 @@ let supplyJobs=[];
 let supplySuppliers=[];
 let supplyTemplates=[];
 let supplyWorkTypes=[];
+let supplyNotionLinks={};
+let supplyNotionError='';
 let supplyLoaded=false;
 let supplyLoading=false;
 let supplyError='';
@@ -12694,13 +12696,29 @@ function supplyCardFlow(row){
   }).join('')}${hidden&&current+3<steps.length?`<span style="color:var(--text3);font-size:.72rem">→ 尚有 ${steps.length-current-3} 關</span>`:''}</div>`;
 }
 function supplyWorkTypeField(prefix,selected=''){
-  return `<select class="inp" id="${prefix}Type" aria-label="加工工項">${supplyStepOptions(selected)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleWorkType('${prefix}')">＋ 新增工項</button><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
+  return `<select class="inp" id="${prefix}Type" aria-label="加工工項" onchange="supplyRefreshSupplierChoices('${prefix}')">${supplyStepOptions(selected)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleWorkType('${prefix}')">＋ 新增工項</button><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
 }
-function supplySupplierOptions(selected=''){
-  return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+supplySuppliers.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${escapeHtml(row.name)}</option>`).join('');
+function supplySupplierOptions(selected='',type=''){
+  const rows=[...supplySuppliers].sort((a,b)=>{
+    const aMatch=type&&a.work_type_names?.includes(type)?1:0,bMatch=type&&b.work_type_names?.includes(type)?1:0;
+    return bMatch-aMatch||a.name.localeCompare(b.name,'zh-TW');
+  });
+  return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+rows.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${row.work_type_names?.includes(type)&&type?'✓ ':''}${escapeHtml(row.name)}${row.work_type_names?.length?' · '+escapeHtml(row.work_type_names.join('、')):''}</option>`).join('');
 }
-function supplySupplierField(prefix,selected=''){
-  return `<select class="inp" id="${prefix}Supplier" aria-label="供應商">${supplySupplierOptions(selected)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleSupplier('${prefix}')">＋ 快速新增供應商</button><div id="${prefix}SupplierNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}SupplierName" maxlength="120" placeholder="輸入供應商名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveSupplier('${prefix}')">加入</button></div>`;
+function supplySupplierField(prefix,selected='',type=''){
+  return `<select class="inp" id="${prefix}Supplier" aria-label="供應商">${supplySupplierOptions(selected,type)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleSupplier('${prefix}')">＋ 快速新增供應商</button><div id="${prefix}SupplierNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}SupplierName" maxlength="120" placeholder="輸入供應商名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveSupplier('${prefix}')">加入</button></div>`;
+}
+function supplyRefreshSupplierChoices(typePrefix){
+  const supplierPrefix=typePrefix==='supply'?'supplyCreate':typePrefix;
+  const select=document.getElementById(`${supplierPrefix}Supplier`);
+  if(!select)return;
+  const selected=select.value,type=document.getElementById(`${typePrefix}Type`)?.value||'';
+  select.innerHTML=supplySupplierOptions(selected,type);
+  select.value=selected;
+}
+function supplyOpenCatalog(){
+  const link=(url,label)=>url?`<a class="btn btn-ghost btn-sm" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`:'';
+  supplyModal(`<h3>管理供應商與加工工項</h3><p style="color:var(--text2)">在 Notion 新增或修改後，勾選「啟用」，回 ERP 按「重新整理」就會更新選單。供應商可在「可承接工項」連結工項；這項連結會在選擇供應商時優先提示。</p>${supplyNotionError?`<div class="info-warn" role="alert">${escapeHtml(supplyNotionError)}；目前只顯示 ERP 已建立的項目。</div>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${link(supplyNotionLinks.suppliers,'在 Notion 管理供應商')}${link(supplyNotionLinks.work_types,'在 Notion 管理加工工項')}</div><div style="font-size:.8rem;color:var(--text2)">目前選單：${supplySuppliers.length} 家供應商、${supplyWorkTypes.length+SUPPLY_WORK_TYPES.filter(name=>!supplyWorkTypes.some(row=>row.name===name)).length} 種工項。ERP 的快速新增仍可立即使用；原有工作紀錄不會因主檔修改而改寫。</div><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button class="btn btn-blue" onclick="closeModal();loadSupplyChain(true)">重新整理</button></div>`);
 }
 async function loadSupplyChain(force=false){
   if(supplyLoading||(!force&&supplyLoaded))return;
@@ -12715,12 +12733,14 @@ async function loadSupplyChain(force=false){
     supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
     supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
     supplyWorkTypes=Array.isArray(catalog.work_types)?catalog.work_types:[];
+    supplyNotionLinks=catalog.notion_links||{};
+    supplyNotionError=catalog.notion_error||'';
     supplyLoaded=true;
   }catch(error){supplyError=error.message||String(error);}
   finally{supplyLoading=false;if(CURRENT_TAB==='schedule'&&progressCenterView==='supply'&&!isModalOpen())renderTab('schedule');}
 }
 function renderSupplyChainFoundation(){
-  const top=`<div class="panel" style="padding:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><strong style="color:var(--cyan2)">供應鏈工作追蹤</strong><div style="color:var(--text3);font-size:.75rem;margin-top:4px">送外與轉廠只記錄流程，不扣庫存。入料經品檢通過才增加庫存。</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${canWriteSupplyChain()?'<button class="btn btn-blue btn-sm" onclick="supplyOpenCreate()">＋ 新增工作</button>':''}<button class="btn btn-ghost btn-sm" onclick="loadSupplyChain(true)">重新整理</button></div></div>`;
+  const top=`<div class="panel" style="padding:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><strong style="color:var(--cyan2)">供應鏈工作追蹤</strong><div style="color:var(--text3);font-size:.75rem;margin-top:4px">送外與轉廠只記錄流程，不扣庫存。入料經品檢通過才增加庫存。${supplyNotionError?' · Notion 主檔暫時無法更新':''}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${canWriteSupplyChain()?'<button class="btn btn-blue btn-sm" onclick="supplyOpenCreate()">＋ 新增工作</button>':''}<button class="btn btn-ghost btn-sm" onclick="supplyOpenCatalog()">管理供應商／工項</button><button class="btn btn-ghost btn-sm" onclick="loadSupplyChain(true)">重新整理</button></div></div>`;
   if(supplyLoading&&!supplyLoaded)return top+'<div class="loading-row"><div class="spin"></div>載入正式供應鏈工作...</div>';
   if(supplyError)return top+`<div class="info-warn" role="alert">供應鏈資料載入失敗：${escapeHtml(supplyError)}。目前不顯示舊數字為最新結果。</div>`;
   if(!supplyLoaded)return top+'<div class="info-warn" role="status">供應鏈資料尚未載入，請稍候。</div>';
@@ -12836,6 +12856,7 @@ function supplyApplyTemplate(selectedTemplate=null,automatic=false){
   if(!steps.length)return;
   document.getElementById('supplyType').value=steps[0].type||'';
   const supplier=document.getElementById('supplyCreateSupplier');
+  supplyRefreshSupplierChoices('supply');
   if(supplier&&steps[0].supplier)supplier.value=steps[0].supplier;
   supplyCreateSteps=steps.slice(1).map(step=>({type:step.type,supplier:step.supplier||'',due_at:null}));
   supplyCreateStepsRender();
@@ -12953,7 +12974,7 @@ function supplyOpenEdit(id){
   const step=job.steps?.[job.current_step]||{};
   supplyModal(`<h3>修改工作</h3><div class="info-warn" style="margin-bottom:12px">${editableStep?'可修正目前工項、供應商與基本資料；':'已完成工項不能更改，但可修正工作基本資料；'}修改會記錄原值與新值，已完成的交接歷程不會改寫。</div>
     <div class="form-row"><div><label class="field-label" for="supplyEditTitle">工作名稱 *</label><input class="inp" id="supplyEditTitle" maxlength="160" value="${escapeHtml(job.title)}"></div></div>
-    ${editableStep?`<div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyEditType">目前工項 *</label>${supplyWorkTypeField('supplyEdit',step.type)}</div><div><label class="field-label" for="supplyEditSupplier">目前供應商 *</label>${supplySupplierField('supplyEdit',step.supplier)}</div></div>`:''}
+    ${editableStep?`<div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyEditType">目前工項 *</label>${supplyWorkTypeField('supplyEdit',step.type)}</div><div><label class="field-label" for="supplyEditSupplier">目前供應商 *</label>${supplySupplierField('supplyEdit',step.supplier,step.type)}</div></div>`:''}
     <div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyEditQuantity">數量（選填）</label><input class="inp" id="supplyEditQuantity" type="number" min="0.0001" step="any" value="${job.quantity??''}"></div><div><label class="field-label" for="supplyEditUnit">單位（選填）</label><input class="inp" id="supplyEditUnit" maxlength="20" value="${escapeHtml(job.unit||'')}"></div></div><div class="form-row" style="grid-template-columns:1fr 1fr"><div><label class="field-label" for="supplyEditDue">整段流程預計完成時間 *</label><input class="inp" id="supplyEditDue" type="datetime-local" required value="${escapeHtml(supplyDueInput(job.due_at))}">${!job.due_at&&job.due_date?`<div style="font-size:.72rem;color:var(--amber);margin-top:4px">舊單原預計日期 ${escapeHtml(job.due_date)}，請補實際預計時間。</div>`:''}</div><div><label class="field-label" for="supplyEditOrder">關聯訂單（選填）</label><input class="inp" id="supplyEditOrder" maxlength="120" value="${escapeHtml(job.related_order||'')}"></div></div><div class="form-row"><div><label class="field-label" for="supplyEditNotes">備註（選填）</label><textarea class="inp" id="supplyEditNotes" maxlength="2000" rows="3">${escapeHtml(job.notes||'')}</textarea></div></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="supplyOpenDetail('${id}')">返回</button><button class="btn btn-blue" onclick="supplySubmitEdit('${id}')">儲存修改</button></div>`);
 }

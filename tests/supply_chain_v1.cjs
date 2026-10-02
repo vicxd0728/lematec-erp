@@ -9,7 +9,7 @@ const block=source.slice(source.indexOf('// Supply-chain work is a tracking ledg
 const org='00000000-0000-4000-8000-000000000001';
 const op=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 
-function harness(){
+function harness({notionTypes=[],notionSuppliers=[],notionFails=false}={}){
   const jobs=new Map(),suppliers=new Map(),templates=new Map(),workTypes=new Map(),materials=new Set(),receipts=new Map(),inventoryWrites=[];
   async function supabaseFetch(_env,path,options={}){
     const url=new URL(path,'https://db.test');
@@ -69,19 +69,57 @@ function harness(){
     resp400:(cors,error)=>Response.json({error},{status:400,headers:cors}),
     resp500:(cors,error)=>Response.json({error},{status:500,headers:cors}),
     supabaseFetch,
+    notionQueryAll:async(_token,databaseId)=>{
+      if(notionFails)throw Error('Notion unavailable');
+      return databaseId==='2d8b97a9-6a34-4eb0-b14c-107a140a0c87'?notionTypes:notionSuppliers;
+    },
     supabaseSingle:async(_env,path,allowMissing=false)=>{
       const rows=await supabaseFetch(null,path);if(rows[0])return rows[0];if(allowMissing)return null;throw Error('missing row');
     },
     taipeiISOString:()=> '2026-10-02T12:00:00+08:00',
   });
   vm.runInContext(block,ctx);
-  const call=async(body)=>{
+  const call=async(body,env={})=>{
     if(body.action==='create'&&!Object.hasOwn(body,'due_date'))body={...body,due_date:'2026-10-10'};
-    const response=await ctx.erpSupplyWrite(new Request('https://erp.test/api/supply/write',{method:'POST',headers:{'X-ERP-Role':'purchase','Content-Type':'application/json'},body:JSON.stringify(body)}),{},{});
+    const response=await ctx.erpSupplyWrite(new Request('https://erp.test/api/supply/write',{method:'POST',headers:{'X-ERP-Role':'purchase','Content-Type':'application/json'},body:JSON.stringify(body)}),env,{});
     return {status:response.status,data:await response.json()};
   };
-  return {call,jobs,templates,workTypes,materials,receipts,inventoryWrites};
+  const catalog=async()=>{
+    const response=await ctx.erpSupplyCatalog(new Request('https://erp.test/api/supply/catalog'),{NOTION_TOKEN:'fixture-only'},{});
+    return {status:response.status,data:await response.json()};
+  };
+  return {call,catalog,jobs,templates,workTypes,materials,receipts,inventoryWrites};
 }
+
+test('Notion catalog adds active suppliers and linked work types without duplicating ERP names',async()=>{
+  const typeId=op(301),supplierId=op(302);
+  const page=(id,name,active,extra={})=>({id,archived:false,properties:{'名稱':{title:[{plain_text:name}]},'啟用':{checkbox:active},...extra}});
+  const h=harness({
+    notionTypes:[page(typeId,'精密清洗',true),page(op(303),'停用工項',false)],
+    notionSuppliers:[page(supplierId,'甲供應商',true,{'可承接工項':{relation:[{id:typeId}]}}),page(op(304),'停用供應商',false)],
+  });
+  let result=await h.catalog();
+  assert.equal(result.status,200);
+  assert.deepEqual(result.data.work_types.map(row=>row.name),['精密清洗']);
+  assert.deepEqual(result.data.suppliers[0].work_type_names,['精密清洗']);
+  assert.equal(result.data.suppliers[0].source,'notion');
+  assert.match(result.data.notion_links.suppliers,/app\.notion\.com/);
+  const created=await h.call({action:'create',operation_id:op(307),title:'測試工項',steps:[{type:'精密清洗',supplier:'甲供應商'}]},{NOTION_TOKEN:'fixture-only'});
+  assert.equal(created.status,200);
+  await h.call({action:'add_supplier',operation_id:op(305),name:'甲供應商'});
+  result=await h.catalog();
+  assert.equal(result.data.suppliers.length,1);
+  assert.equal(result.data.suppliers[0].source,'notion');
+});
+
+test('Notion outage leaves ERP catalog available and exposes a read error',async()=>{
+  const h=harness({notionFails:true});
+  await h.call({action:'add_work_type',operation_id:op(306),name:'精密清洗'});
+  const result=await h.catalog();
+  assert.equal(result.status,200);
+  assert.equal(result.data.work_types[0].name,'精密清洗');
+  assert.match(result.data.notion_error,/Notion unavailable/);
+});
 
 test('saving a fixed process binds an exact SKU and updates that SKU on later saves',async()=>{
   const h=harness(),id=op(200);h.materials.add('Y-A');

@@ -3783,6 +3783,8 @@ async function erpInboundList(request, env, cors) {
 // Supply-chain work is a tracking ledger. None of these routes mutates inventory.
 // The existing inbound/QC route remains the only path from finished work to stock.
 const ERP_SUPPLY_TYPES = new Set(['電鍍', '噴砂', '攻牙', '清洗', '塑膠射出', '金屬射出', '沖壓', '電子廠', '外包組裝']);
+const ERP_SUPPLY_NOTION_TYPES_DB = '2d8b97a9-6a34-4eb0-b14c-107a140a0c87';
+const ERP_SUPPLY_NOTION_SUPPLIERS_DB = 'ea2b3fe6-7a2c-49da-88d9-4835d405eeda';
 const ERP_SUPPLY_JOB_SELECT = 'id,organization_id,work_number,title,material_sku,quantity,unit,due_date,due_at,related_order,notes,status,current_step,steps,events,version,inbound_number,inbound_receipt_id,archived_at,archived_reason,created_role,created_at,updated_at';
 const ERP_SUPPLY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -3813,7 +3815,24 @@ async function supplyGetJob(env, organizationId, id) {
 }
 async function supplyAllowedTypes(env, organizationId) {
   const rows=await supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${encodeURIComponent(organizationId)}&select=name&limit=1000`);
-  return new Set([...ERP_SUPPLY_TYPES,...(Array.isArray(rows)?rows.map(row=>row.name):[])]);
+  const notion=await supplyNotionCatalog(env);
+  return new Set([...ERP_SUPPLY_TYPES,...(Array.isArray(rows)?rows.map(row=>row.name):[]),...notion.work_types.map(row=>row.name)]);
+}
+function supplyNotionTitle(page){return (page?.properties?.['名稱']?.title||[]).map(part=>part.plain_text||part.text?.content||'').join('').trim();}
+async function supplyNotionCatalog(env){
+  const token=env.NOTION_TOKEN||env.ERP_NOTION_TOKEN;
+  const links={suppliers:`https://app.notion.com/p/${ERP_SUPPLY_NOTION_SUPPLIERS_DB.replace(/-/g,'')}`,work_types:`https://app.notion.com/p/${ERP_SUPPLY_NOTION_TYPES_DB.replace(/-/g,'')}`};
+  if(!token)return {suppliers:[],work_types:[],links,error:'Worker 尚未設定 Notion 讀取憑證'};
+  try{
+    const [typePages,supplierPages]=await Promise.all([notionQueryAll(token,ERP_SUPPLY_NOTION_TYPES_DB),notionQueryAll(token,ERP_SUPPLY_NOTION_SUPPLIERS_DB)]);
+    const allTypes=new Map(typePages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===true).map(page=>[page.id,supplyNotionTitle(page)]));
+    const work_types=[...allTypes.entries()].filter(([,name])=>name).map(([id,name])=>({id,name,notion_page_id:id,notion_url:`https://app.notion.com/p/${id.replace(/-/g,'')}`,source:'notion'}));
+    const suppliers=supplierPages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===true).map(page=>({
+      id:page.id,name:supplyNotionTitle(page),notion_page_id:page.id,notion_url:`https://app.notion.com/p/${page.id.replace(/-/g,'')}`,source:'notion',
+      work_type_names:(page.properties?.['可承接工項']?.relation||[]).map(link=>allTypes.get(link.id)).filter(Boolean),
+    })).filter(row=>row.name);
+    return {suppliers,work_types,links,error:null};
+  }catch(error){return {suppliers:[],work_types:[],links,error:`Notion 主檔暫時無法讀取：${error.message}`};}
 }
 async function erpSupplyJobs(request, env, cors) {
   try {
@@ -3832,12 +3851,18 @@ async function erpSupplyCatalog(request, env, cors) {
     if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const {organization} = await getSupabaseInventoryContext(env);
     const id=encodeURIComponent(organization.id);
-    const [suppliers,templates,workTypes]=await Promise.all([
+    const [suppliers,templates,workTypes,notion]=await Promise.all([
       supabaseFetch(env,`/rest/v1/erp_supply_suppliers?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=500`),
       supabaseFetch(env,`/rest/v1/erp_supply_templates?organization_id=eq.${id}&archived_at=is.null&select=id,name,steps,material_sku,version,updated_at,created_at&order=name.asc&limit=200`),
       supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=1000`),
+      supplyNotionCatalog(env),
     ]);
-    return respOK(cors,{ok:true,suppliers,templates,work_types:workTypes});
+    const merge=(base,linked)=>{
+      const byName=new Map((Array.isArray(base)?base:[]).map(row=>[row.name.trim().toLocaleLowerCase(),{...row,source:'erp'}]));
+      for(const row of linked)byName.set(row.name.trim().toLocaleLowerCase(),{...(byName.get(row.name.trim().toLocaleLowerCase())||{}),...row});
+      return [...byName.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-TW'));
+    };
+    return respOK(cors,{ok:true,suppliers:merge(suppliers,notion.suppliers),templates,work_types:merge(workTypes,notion.work_types),notion_links:notion.links,notion_error:notion.error});
   } catch (error) { return resp500(cors,error.message); }
 }
 async function erpSupplyWrite(request, env, cors) {
