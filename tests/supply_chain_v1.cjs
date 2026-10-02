@@ -86,19 +86,18 @@ test('new work type is saved once and can be used on a later job',async()=>{
 test('create, insert after current, advance, then close leaves inventory untouched',async()=>{
   const h=harness(),id=op(1);
   let result=await h.call({action:'create',operation_id:id,title:'外部原料製作',steps:[{type:'沖壓',supplier:'廠 A'}]});
-  assert.equal(result.status,200);assert.equal(result.data.row.status,'待送出');
+  assert.equal(result.status,200);assert.equal(result.data.row.status,'加工中');
+  assert.equal(result.data.row.events[0].detail.to,'廠 A');
   assert.equal(result.data.row.material_sku,null);
   result=await h.call({action:'insert_step',operation_id:op(2),job_id:id,expected_version:1,at:1,step:{type:'攻牙',supplier:'廠 B'}});
   assert.equal(result.status,200);assert.equal(result.data.row.steps[1].type,'攻牙');
-  result=await h.call({action:'send',operation_id:op(3),job_id:id,expected_version:2});
-  assert.equal(result.status,200);
-  result=await h.call({action:'advance',operation_id:op(4),job_id:id,expected_version:3});
+  result=await h.call({action:'advance',operation_id:op(4),job_id:id,expected_version:2});
   assert.equal(result.status,200);assert.equal(result.data.row.current_step,1);
-  result=await h.call({action:'complete',operation_id:op(5),job_id:id,expected_version:4});
+  result=await h.call({action:'complete',operation_id:op(5),job_id:id,expected_version:3});
   assert.equal(result.data.row.status,'待決定');
-  result=await h.call({action:'close',operation_id:op(6),job_id:id,expected_version:5});
+  result=await h.call({action:'close',operation_id:op(6),job_id:id,expected_version:4});
   assert.equal(result.data.row.status,'已結案');
-  assert.equal(result.data.row.events.length,6);
+  assert.equal(result.data.row.events.length,5);
   assert.equal(h.inventoryWrites.length,0);
 });
 
@@ -115,17 +114,29 @@ test('stale version and duplicated operation cannot rewrite a newer plan',async(
 test('inbound decision links only a matching accepted receipt',async()=>{
   const h=harness(),id=op(21);
   await h.call({action:'create',operation_id:id,title:'試作',steps:[{type:'電子廠',supplier:'廠 C'}]});
-  await h.call({action:'send',operation_id:op(22),job_id:id,expected_version:1});
-  await h.call({action:'complete',operation_id:op(23),job_id:id,expected_version:2});
-  let result=await h.call({action:'prepare_inbound',operation_id:op(24),job_id:id,expected_version:3});
+  await h.call({action:'complete',operation_id:op(23),job_id:id,expected_version:1});
+  let result=await h.call({action:'prepare_inbound',operation_id:op(24),job_id:id,expected_version:2});
   assert.equal(result.data.row.status,'待入料');
   const number=result.data.row.inbound_number;
-  result=await h.call({action:'link_inbound',operation_id:op(25),job_id:id,expected_version:4,inbound_receipt_id:op(26)});
+  result=await h.call({action:'link_inbound',operation_id:op(25),job_id:id,expected_version:3,inbound_receipt_id:op(26)});
   assert.equal(result.status,400);
   h.receipts.set(op(26),{id:op(26),inbound_number:number});
-  result=await h.call({action:'link_inbound',operation_id:op(25),job_id:id,expected_version:4,inbound_receipt_id:op(26)});
+  result=await h.call({action:'link_inbound',operation_id:op(25),job_id:id,expected_version:3,inbound_receipt_id:op(26)});
   assert.equal(result.status,200);assert.equal(result.data.row.status,'待品檢');
   assert.equal(h.inventoryWrites.length,0);
+});
+
+test('editing active work records the correction and preserves completed history',async()=>{
+  const h=harness(),id=op(80);
+  await h.call({action:'create',operation_id:id,title:'原工作',steps:[{type:'噴砂',supplier:'甲廠'},{type:'攻牙',supplier:'乙廠'}]});
+  let result=await h.call({action:'edit',operation_id:op(81),job_id:id,expected_version:1,title:'更正工作',quantity:100,due_date:'2026-10-10',step:{type:'清洗',supplier:'丙廠'}});
+  assert.equal(result.status,200);assert.equal(result.data.row.title,'更正工作');
+  assert.equal(result.data.row.steps[0].supplier,'丙廠');
+  assert.equal(result.data.row.events[1].detail.before.step.supplier,'甲廠');
+  await h.call({action:'advance',operation_id:op(82),job_id:id,expected_version:2});
+  result=await h.call({action:'edit',operation_id:op(83),job_id:id,expected_version:3,title:'再更正',quantity:100,step:{type:'攻牙',supplier:'丁廠'}});
+  assert.equal(result.status,200);assert.equal(result.data.row.steps[0].supplier,'丙廠');
+  assert.equal(result.data.row.steps[1].supplier,'丁廠');
 });
 
 test('worker role matrix restricts supply writes to operations roles',()=>{

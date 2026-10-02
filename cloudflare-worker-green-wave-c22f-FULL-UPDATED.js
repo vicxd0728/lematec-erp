@@ -3893,7 +3893,7 @@ async function erpSupplyWrite(request, env, cors) {
       const row={id:operationId,organization_id:organizationId,work_number:workNumber,title,
         material_sku:supplyText(body?.material_sku,120)||null,quantity,unit:supplyText(body?.unit,20)||null,
         due_date:dueDate||null,related_order:supplyText(body?.related_order,120)||null,notes:supplyText(body?.notes,2000)||null,
-        status:'待送出',current_step:0,steps:cleanSteps,events:[supplyEvent(operationId,'WORK_CREATED',role,{title})],created_role:role};
+        status:'加工中',current_step:0,steps:cleanSteps,events:[supplyEvent(operationId,'WORK_CREATED',role,{title,to:cleanSteps[0].supplier,type:cleanSteps[0].type})],created_role:role};
       await supabaseFetch(env,'/rest/v1/erp_supply_jobs?on_conflict=id',{
         method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(row),
       });
@@ -3912,7 +3912,18 @@ async function erpSupplyWrite(request, env, cors) {
     const index=Number(current.current_step)||0;
     const changes={};
     let detail={};
-    if (action==='insert_step') {
+    if (action==='edit') {
+      if (!['待送出','加工中'].includes(current.status)) return resp400(cors,'只有進行中的工作可修改');
+      const title=supplyText(body?.title,160);
+      const quantity=body?.quantity===null||body?.quantity===undefined||body?.quantity===''?null:Number(body.quantity);
+      const dueDate=supplyText(body?.due_date,10);
+      const step=supplyStep(body?.step,true,await supplyAllowedTypes(env,organizationId));
+      if (!title||quantity!==null&&(!Number.isFinite(quantity)||quantity<=0||quantity>1e9)||dueDate&&!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return resp400(cors,'工作名稱、數量或日期無效');
+      const before={title:current.title,quantity:current.quantity,due_date:current.due_date,step:steps[index]};
+      steps[index]=step;
+      Object.assign(changes,{title,quantity,due_date:dueDate||null,steps});
+      detail={before,after:{title,quantity,due_date:dueDate||null,step}};
+    } else if (action==='insert_step') {
       const at=Number(body?.at);
       if (!['待送出','加工中'].includes(current.status)||!Number.isInteger(at)||at<=index||at>steps.length||steps.length>=25) return resp400(cors,'只能在目前工項之後插入，最多 25 關');
       const step=supplyStep(body?.step,false,await supplyAllowedTypes(env,organizationId));
