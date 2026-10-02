@@ -46,6 +46,9 @@ test('supply view waits for official data and shows recorded jobs without invent
   rendered = ctx.renderProgressCenter();
   assert.match(rendered, /SC-1/);
   assert.match(rendered, /已逾期/);
+  assert.match(rendered, /加工流程；已完成 0 關，共 1 關/);
+  assert.match(rendered, /完成本關／轉下一關/);
+  assert.match(rendered, /supplyOpenAdvance\('a'\)/);
   assert.match(rendered, /送外與轉廠只記錄流程，不扣庫存/);
   assert.match(rendered, /入料經品檢通過才增加庫存/);
 });

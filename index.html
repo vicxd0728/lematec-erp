@@ -12651,6 +12651,21 @@ function supplyStepOptions(selected=''){
   const types=[...new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)])];
   return `<option value="">選擇工項</option>`+types.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
 }
+function supplyStatusLabel(status){return status==='待送出'?'待登記送出':status;}
+function supplyCardFlow(row){
+  const steps=Array.isArray(row.steps)?row.steps:[];
+  const current=Number(row.current_step)||0;
+  const completed=row.status==='待決定'||row.status==='待入料'||row.status==='待品檢'||row.status==='已結案'?steps.length:current;
+  const visible=steps.length<=6?steps:steps.slice(Math.max(0,current-1),Math.min(steps.length,current+3));
+  const hidden=steps.length-visible.length;
+  return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px" aria-label="加工流程；已完成 ${completed} 關，共 ${steps.length} 關">${current>1&&hidden?`<span style="color:var(--text3);font-size:.72rem">前 ${current-1} 關已完成 →</span>`:''}${visible.map((step,i)=>{
+    const index=steps.length<=6?i:steps.indexOf(step);
+    const done=index<completed;
+    const here=index===current&&['待送出','加工中'].includes(row.status);
+    const color=done?'var(--green2)':here?'var(--cyan2)':'var(--text3)';
+    return `<span style="border:1px solid ${color};border-radius:999px;padding:4px 8px;color:${color};font-size:.72rem;white-space:nowrap">${done?'✓ ':here?'● ':''}${escapeHtml(step.type)} · ${escapeHtml(step.supplier||'待指定')}</span>${i<visible.length-1?'<span style="color:var(--text3)">→</span>':''}`;
+  }).join('')}${hidden&&current+3<steps.length?`<span style="color:var(--text3);font-size:.72rem">→ 尚有 ${steps.length-current-3} 關</span>`:''}</div>`;
+}
 function supplyWorkTypeField(prefix){
   return `<select class="inp" id="${prefix}Type" aria-label="加工工項">${supplyStepOptions()}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleWorkType('${prefix}')">＋ 新增工項</button><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
 }
@@ -12702,8 +12717,9 @@ function renderSupplyChainFoundation(){
     ${rows.length?`<div style="display:grid;gap:8px">${rows.slice(0,100).map(row=>{
       const step=row.steps?.[row.current_step]||{};
       const late=active.includes(row)&&row.due_date&&row.due_date<today;
-      const next=row.status==='待送出'?'登記送出':row.status==='加工中'?'記錄進度':row.status==='待決定'?'決定結果':row.status==='待入料'?'繼續入料':'查看歷程';
-      return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(row.status)}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}</div><div style="font-size:.75rem;color:var(--text3);margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · 預計 ${escapeHtml(row.due_date||'未填')}${late?' · 已逾期':''}</div></div><button class="btn ${canWriteSupplyChain()?'btn-blue':'btn-ghost'} btn-sm" onclick="supplyOpenDetail('${row.id}')">${next}</button></div>`;
+      const next=row.status==='待送出'?'登記送出':row.status==='加工中'?'完成本關／轉下一關':row.status==='待決定'?'決定入料或結案':row.status==='待入料'?'繼續入料':'查看歷程';
+      const action=canWriteSupplyChain()?(row.status==='待送出'?`supplyPerform('send','${row.id}')`:row.status==='加工中'?`supplyOpenAdvance('${row.id}')`:row.status==='待決定'?`supplyOpenDecision('${row.id}')`:row.status==='待入料'?`supplyContinueInbound('${row.id}')`:`supplyOpenDetail('${row.id}')`):`supplyOpenDetail('${row.id}')`;
+      return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(supplyStatusLabel(row.status))}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}</div><div style="font-size:.75rem;color:var(--text3);margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · 預計 ${escapeHtml(row.due_date||'未填')}${late?' · 已逾期':''}</div>${row.status==='待送出'?'<div style="font-size:.72rem;color:var(--amber);margin-top:5px">尚未記錄第一站交接時間；按「登記送出」開始流程。</div>':''}${supplyCardFlow(row)}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${canWriteSupplyChain()?'btn-blue':'btn-ghost'} btn-sm" onclick="${action}">${next}</button><button class="btn btn-ghost btn-sm" onclick="supplyOpenDetail('${row.id}')">詳情</button></div></div>`;
     }).join('')}</div>${rows.length>100?`<p style="margin-top:10px;color:var(--text3)">顯示前 100 筆；共 ${rows.length} 筆，可搜尋縮小範圍。</p>`:''}`:'<div style="text-align:center;color:var(--text3);padding:30px">目前沒有符合條件的工作。可以調整搜尋條件，或新增第一筆工作。</div>'}</div>`;
 }
 function supplySetSearch(value){supplySearch=String(value||'').trim();if(CURRENT_TAB==='schedule')renderTab('schedule');}
@@ -12843,7 +12859,7 @@ function supplyOpenDetail(id){
   }).join('');
   const events=[...(job.events||[])].reverse().map(event=>`<div style="border-left:2px solid var(--cyan);padding:0 0 13px 12px;margin-left:4px"><b>${escapeHtml(supplyEventLabel(event))}</b><div style="font-size:.72rem;color:var(--text3)">${escapeHtml(supplyDateTime(event.recorded_at))} · 角色 ${escapeHtml(event.role||'未知')}</div></div>`).join('');
   supplyModal(`<h3>${escapeHtml(job.title)}</h3><div style="font-size:.75rem;color:var(--text3);margin-bottom:10px">${escapeHtml(job.work_number)} · ${escapeHtml(job.material_sku||'暫用名稱')} ${job.quantity?'· '+Number(job.quantity).toLocaleString()+' '+escapeHtml(job.unit||'件'):''}</div>
-    <div class="info-warn" style="margin-bottom:12px"><b>目前：${escapeHtml(job.status)}</b> · ${escapeHtml(current.type||'加工已完成')} · ${escapeHtml(current.supplier||'供應商待指定')}<br>預計完成：${escapeHtml(job.due_date||'未填')}。加工完成不代表已入庫。</div>
+    <div class="info-warn" style="margin-bottom:12px"><b>目前：${escapeHtml(supplyStatusLabel(job.status))}</b> · ${escapeHtml(current.type||'加工已完成')} · ${escapeHtml(current.supplier||'供應商待指定')}<br>預計完成：${escapeHtml(job.due_date||'未填')}。加工完成不代表已入庫。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${actions}${editable?`<button class="btn btn-ghost" onclick="supplyOpenSaveTemplate('${id}')">儲存為固定流程</button>`:''}${job.status==='待品檢'?'<button class="btn btn-ghost" onclick="closeModal();switchTab(\'inbound\')">查看入料／品檢</button>':''}</div>
     <div style="font-weight:800;margin-bottom:9px">工序 · 建立後仍可加關</div>${cards}<div style="font-weight:800;margin:12px 0 9px">時間紀錄</div>${events||'<div style="color:var(--text3)">尚無事件</div>'}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`);
