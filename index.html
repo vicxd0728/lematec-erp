@@ -12678,6 +12678,7 @@ function supplyWholeOverdue(job,today=todayStr()){
 }
 function supplyStepOptions(selected=''){
   const types=[...new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)])];
+  if(selected&&!types.includes(selected))types.push(selected);
   return `<option value="">選擇工項</option>`+types.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
 }
 function supplyStatusLabel(status){return status==='待送出'?'待登記送出':status;}
@@ -12703,6 +12704,7 @@ function supplySupplierOptions(selected='',type=''){
     const aMatch=type&&a.work_type_names?.includes(type)?1:0,bMatch=type&&b.work_type_names?.includes(type)?1:0;
     return bMatch-aMatch||a.name.localeCompare(b.name,'zh-TW');
   });
+  if(selected&&!rows.some(row=>row.name===selected))rows.unshift({name:selected,work_type_names:[]});
   return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+rows.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${row.work_type_names?.includes(type)&&type?'✓ ':''}${escapeHtml(row.name)}${row.work_type_names?.length?' · '+escapeHtml(row.work_type_names.join('、')):''}</option>`).join('');
 }
 function supplySupplierField(prefix,selected='',type=''){

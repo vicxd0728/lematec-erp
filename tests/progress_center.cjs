@@ -53,6 +53,18 @@ test('supply view waits for official data and shows recorded jobs without invent
   assert.match(rendered, /入料經品檢通過才增加庫存/);
 });
 
+test('Notion catalog management links and historical selections remain available',()=>{
+  const ctx=setup(),modal={innerHTML:''};
+  ctx.document.getElementById=()=>modal;ctx.openSharedModal=()=>{};
+  vm.runInContext("supplyLoaded=true;supplySuppliers=[{name:'甲廠',work_type_names:['電鍍']}];supplyNotionLinks={suppliers:'https://app.notion.com/p/suppliers',work_types:'https://app.notion.com/p/types'}",ctx);
+  assert.match(ctx.renderSupplyChainFoundation(),/管理供應商／工項/);
+  ctx.supplyOpenCatalog();
+  assert.match(modal.innerHTML,/在 Notion 管理供應商/);
+  assert.match(modal.innerHTML,/在 Notion 管理加工工項/);
+  assert.match(ctx.supplySupplierOptions('舊廠','電鍍'),/value="舊廠" selected/);
+  assert.match(ctx.supplyStepOptions('舊工項'),/value="舊工項" selected/);
+});
+
 test('removed supply work stays out of daily counts and can be found for restoration', () => {
   const ctx=setup();
   vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'b',title:'誤建加工',work_number:'SC-2',status:'加工中',archived_at:'2026-10-02T00:00:00Z',archived_reason:'建錯',current_step:0,steps:[{type:'噴砂',supplier:'乙廠'}]}]",ctx);
