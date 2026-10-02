@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Media Hub / Marketing Schedule 2026-10-02
+
+- The former `videos` main tab is labeled `影音專區` and contains `影片庫` plus `行銷行程` subtabs. The existing video library read and share behavior is unchanged.
+- Marketing schedule uses the existing Notion `行銷時程表` data source `812a963f-e986-482c-9041-cb7bd3f1a20b` directly. Notion is primary: ERP refreshes from that source and ERP writes update/create the same Notion rows. The separate ERP production `schedule` tab/database is unchanged.
+- ERP editing is shown for Vic, manager and sales; other roles browse and can open the original Notion page. Before updating an existing row, ERP re-reads its Notion `last_edited_time` and parent, then blocks a stale form. Accepted writes require a same-row Notion readback before a confirmed-success message. Unknown write outcomes require refresh before retry.
+- Only `名稱`, `日期` and `狀態` are written from ERP; assignees, attachments, page content and `狀態1` are preserved. The two status columns disagree for 290 of 372 rows as of the preflight on 2026-10-02; `狀態` drives ERP status counts, while the divergence is disclosed without auto-rewriting historical rows. A completion icon/title that conflicts with `狀態` is shown as a separate review cue.
+- Local read-only preflight using the ERP Notion token returned HTTP 200 from both the Notion data-source query and existing Worker proxy. Each release still needs exact-commit deployment and authenticated UI readback. Do not create or edit a live marketing event solely for testing.
+
 ## AI Notes Role 2026-09-30
 
 - Added an `AI` role to the existing company Notion-token login. It can browse every module, but operational writes remain blocked except the full Notes workflow (create/edit/reply/acknowledge/complete/archive, customer Notes mirror, and attachments). The permissions tab shows only a read-only explanation; Vic/manager PINs are not exposed.

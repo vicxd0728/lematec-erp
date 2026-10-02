@@ -1195,6 +1195,15 @@ td{font-size:16px;padding:16px 17px;}
 .erp-visual-row button:hover .erp-visual-label,.erp-visual-row button:focus-visible .erp-visual-label{color:var(--cyan2);text-decoration:underline;}
 @media(max-width:600px){.erp-visual-panel{padding:13px}.erp-visual-row{grid-template-columns:100px minmax(70px,1fr) 50px;gap:7px}.erp-visual-label{font-size:12px}}
 .video-shell{display:flex;flex-direction:column;gap:14px;}
+.media-subtabs{display:flex;gap:8px;flex-wrap:wrap;padding:6px;border:1px solid rgba(94,234,212,.18);border-radius:14px;background:rgba(6,13,18,.72);}
+.media-subtabs button{border:1px solid transparent;border-radius:10px;background:transparent;color:var(--text2);padding:10px 16px;font:inherit;font-weight:800;cursor:pointer;}
+.media-subtabs button[aria-selected="true"]{background:rgba(34,211,238,.14);border-color:rgba(94,234,212,.3);color:var(--cyan2);}
+.marketing-list{display:grid;gap:9px;}
+.marketing-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 15px;border:1px solid rgba(170,194,180,.16);border-radius:13px;background:rgba(7,16,22,.72);}
+.marketing-item h3{font-size:15px;margin:0 0 5px;overflow-wrap:anywhere;}
+.marketing-item p{font-size:12px;color:var(--text2);margin:0;line-height:1.5;}
+.marketing-item-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+@media(max-width:600px){.marketing-item{grid-template-columns:1fr}.marketing-item-actions{justify-content:flex-start}}
 .video-hero{
   position:relative;overflow:hidden;
   display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:16px;align-items:center;
@@ -2548,7 +2557,7 @@ const ROLES={
   viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
   ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','analytics','customers','leave','stocklog','schedule','health','permissions']},
 };
-const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影片庫',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
+const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影音專區',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'📅 排程'};
 function isAdminRole(role=ROLE){return role==='vic'||role==='manager';}
 function isViewOnly(role=ROLE){return role==='viewer'||role==='ai';}
 function canWriteNotes(role=ROLE){return !!role&&role!=='viewer';}
@@ -9130,11 +9139,12 @@ function switchTab(tab){
   if(tab==='inventory'){
     window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};
   }
+  if(tab==='videos'&&mediaSubtab==='schedule')loadMarketingSchedule();
   if(tab==='health')setTimeout(()=>runHealthCheck(false),80);
 }
 function showTab(tab){CURRENT_TAB=tab;buildNav();renderTab(tab);}
 function pill(t){const[bg,c]=Object.prototype.hasOwnProperty.call(PILL,t)?PILL[t]:['#1f2640','#6b7a9e'];return`<span class="pill" style="background:${bg};color:${c}">${escapeHtml(t||'—')}</span>`;}
-function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderVideoLibrary();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='analytics'){if(analyticsDataReady()){c.innerHTML=renderAnalytics();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入營運分析...</div>';loadAnalyticsData().then(()=>{if(CURRENT_TAB==='analytics')c.innerHTML=renderAnalytics();});}}else if(tab==='stocklog'){if(isFresh('stocklog')){c.innerHTML=renderStockLog();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}}
+function renderTab(tab){const c=document.getElementById('mainContent');if(tab==='announce'){c.innerHTML=renderAnnounce();return;}if(tab==='notes'){c.innerHTML=renderNotes();return;}if(tab==='videos'){c.innerHTML=renderMediaHub();return;}if(tab==='leave'){c.innerHTML=renderLeave();return;}if(tab==='permissions'){c.innerHTML=renderPermissionSettings();return;}if(tab==='dashboard')c.innerHTML=renderDashboard();else if(tab==='ops')c.innerHTML=renderOpsBoard();else if(tab==='health')c.innerHTML=renderHealthCheck();else if(tab==='orders')c.innerHTML=renderOrders();else if(tab==='customers')c.innerHTML=renderCustomers();else if(tab==='inventory')c.innerHTML=renderInventory();else if(tab==='picking')c.innerHTML=renderPicking();else if(tab==='inbound')c.innerHTML=renderInbound();else if(tab==='qc')c.innerHTML=renderQCTab();else if(tab==='analytics'){if(analyticsDataReady()){c.innerHTML=renderAnalytics();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入營運分析...</div>';loadAnalyticsData().then(()=>{if(CURRENT_TAB==='analytics')c.innerHTML=renderAnalytics();});}}else if(tab==='stocklog'){if(isFresh('stocklog')){c.innerHTML=renderStockLog();}else{c.innerHTML='<div class="loading-row"><div class="spin"></div>載入異動記錄...</div>';loadStockLog().then(()=>{if(CURRENT_TAB==='stocklog')c.innerHTML=renderStockLog();});}}
   else if(tab==='schedule'){c.innerHTML='<div class="loading-row"><div class="spin"></div>載入排程...</div>';loadSchedule().then(()=>{if(CURRENT_TAB==='schedule')c.innerHTML=renderSchedule();});}
   else if(tab==='corders'){
     if(window._cordersLoaded&&Date.now()-(window._cordersLoadedAt||0)<120000){c.innerHTML=renderCorders();}
@@ -16616,6 +16626,182 @@ function previewVideoLibraryItem(idx){
     </div>`;
   div.addEventListener('click',e=>{ if(e.target===div) div.remove(); });
   document.body.appendChild(div);
+}
+// 行銷時程表直接以 Notion 為主資料；ERP 不建立第二份排程副本。
+const MARKETING_SCHEDULE_SOURCE='812a963f-e986-482c-9041-cb7bd3f1a20b';
+const MARKETING_SCHEDULE_DATABASE='2d9e0df1-727c-4096-bc4f-3c874883afd6';
+const MARKETING_SCHEDULE_URL='https://app.notion.com/p/445adc3b0e3947e5a3b6bca2854c4b41';
+let marketingRows=[];
+let marketingLoadedAt=0;
+let marketingLoadError='';
+let marketingLoading=false;
+let marketingMore=false;
+let marketingReadNonce=0;
+let mediaSubtab='library';
+let marketingFilters={q:'',status:'all'};
+const MARKETING_STATUSES=['未開始','進行中','完成'];
+function canEditMarketingSchedule(role=ROLE){return role==='vic'||role==='manager'||role==='sales';}
+function marketingPageRow(p){
+  const props=p.properties||{};
+  return {
+    id:p.id,
+    title:(props['名稱']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join(''),
+    start:props['日期']?.date?.start||'',
+    end:props['日期']?.date?.end||'',
+    status:props['狀態']?.status?.name||'',
+    legacyStatus:props['狀態1']?.status?.name||'',
+    iconEmoji:p.icon?.type==='emoji'?p.icon.emoji:'',
+    owners:(props['指派']?.people||[]).map(x=>x.name||'未命名人員'),
+    edited:p.last_edited_time||'',
+    url:p.url||`https://www.notion.so/${String(p.id||'').replace(/-/g,'')}`
+  };
+}
+function marketingRowMismatch(row){
+  if((row.iconEmoji==='✅'||/^\s*✅/.test(row.title))&&row.status!=='完成')return '圖示或標題標示完成，狀態仍未完成';
+  return '';
+}
+function marketingStatusColumnsDiffer(row){return !!(row.legacyStatus&&row.status&&row.legacyStatus!==row.status);}
+async function marketingNotionRead(method,endpoint,body=null){
+  const result=await notionProxyRequest({token:TOKEN,role:ROLE,method,endpoint,body,notionVersion:'2026-03-11',cacheEpoch:Date.now()+(++marketingReadNonce)},`讀取行銷行程`);
+  if(!result||result.object==='error'||result.error)throw new Error(result?.message||result?.error||'Notion 讀取失敗');
+  return result;
+}
+async function loadMarketingSchedule(){
+  if(marketingLoading)return;
+  marketingLoading=true;
+  marketingLoadError='';
+  if(CURRENT_TAB==='videos'&&mediaSubtab==='schedule')renderTab('videos');
+  try{
+    const rows=[];
+    let cursor='';
+    let hasMore=false;
+    do{
+      const body={page_size:100};
+      if(cursor)body.start_cursor=cursor;
+      const page=await marketingNotionRead('POST',`data_sources/${MARKETING_SCHEDULE_SOURCE}/query`,body);
+      rows.push(...(page.results||[]));
+      hasMore=!!page.has_more;
+      cursor=page.next_cursor||'';
+    }while(hasMore&&cursor&&rows.length<2000);
+    marketingRows=rows.map(marketingPageRow).sort((a,b)=>String(b.start).localeCompare(String(a.start))||a.title.localeCompare(b.title));
+    marketingMore=hasMore;
+    marketingLoadedAt=Date.now();
+  }catch(e){marketingLoadError=e?.message||String(e);}
+  finally{
+    marketingLoading=false;
+    if(CURRENT_TAB==='videos'&&mediaSubtab==='schedule'&&!isModalOpen())renderTab('videos');
+  }
+}
+function switchMediaSubtab(next){
+  if(next!=='library'&&next!=='schedule')return;
+  mediaSubtab=next;
+  renderTab('videos');
+  if(next==='schedule')loadMarketingSchedule();
+}
+function renderMediaHub(){
+  const buttons=`<div class="media-subtabs" role="tablist" aria-label="影音專區內容">
+    <button type="button" role="tab" aria-selected="${mediaSubtab==='library'}" onclick="switchMediaSubtab('library')">🎬 影片庫</button>
+    <button type="button" role="tab" aria-selected="${mediaSubtab==='schedule'}" onclick="switchMediaSubtab('schedule')">🗓️ 行銷行程</button>
+  </div>`;
+  return buttons+(mediaSubtab==='schedule'?renderMarketingSchedule():renderVideoLibrary());
+}
+function marketingApplySearch(){
+  marketingFilters.q=(document.getElementById('marketingSearch')?.value||'').trim();
+  renderTab('videos');
+}
+function marketingSetStatusFilter(value){marketingFilters.status=value;renderTab('videos');}
+function renderMarketingSchedule(){
+  const q=marketingFilters.q.toLocaleLowerCase();
+  const status=marketingFilters.status;
+  const visible=marketingRows.filter(r=>(!q||[r.title,...r.owners].join(' ').toLocaleLowerCase().includes(q))&&(status==='all'||r.status===status));
+  const alerts=marketingRows.filter(marketingRowMismatch).length;
+  const statusDifferences=marketingRows.filter(marketingStatusColumnsDiffer).length;
+  const canEdit=canEditMarketingSchedule();
+  const cards=visible.map(r=>{
+    const issue=marketingRowMismatch(r);
+    const date=`${r.start||'未填日期'}${r.end&&r.end!==r.start?' → '+r.end:''}`;
+    return `<article class="marketing-item">
+      <div><h3>${escapeHtml(r.title||'未命名行程')}</h3>
+        <p>${escapeHtml(date)} · ${escapeHtml(r.status||'未填狀態')} · ${escapeHtml(r.owners.join('、')||'未指派')}${issue?` · <span style="color:var(--amber)">⚠️ ${escapeHtml(issue)}</span>`:''}</p></div>
+      <div class="marketing-item-actions"><a class="btn btn-sm btn-ghost" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">Notion 原始頁 ↗</a>${canEdit?`<button class="btn btn-sm btn-cyan" onclick="openMarketingScheduleEditor('${r.id}')">編輯</button>`:''}</div>
+    </article>`;
+  }).join('');
+  return `<div class="video-shell">
+    <section class="video-hero"><div><h2>🗓️ 行銷行程</h2><p>與美編使用同一份 Notion 行銷時程表。Notion 的修改重新載入後顯示；ERP 儲存後會回讀同一筆原始紀錄。</p></div>
+      <div class="video-hero-actions"><a class="btn btn-ghost" href="${MARKETING_SCHEDULE_URL}" target="_blank" rel="noopener">開啟 Notion ↗</a><button class="btn btn-cyan" onclick="loadMarketingSchedule()">重新載入</button>${canEdit?'<button class="btn btn-blue" onclick="openMarketingScheduleEditor()">＋ 新增行程</button>':''}</div></section>
+    <div class="video-stat-grid"><div class="video-stat" data-icon="🗓️"><span>已載入行程</span><b>${marketingRows.length}</b><small>${marketingLoadedAt?new Date(marketingLoadedAt).toLocaleString('zh-TW'):'尚未載入'}</small></div>
+      <div class="video-stat" data-icon="✅"><span>狀態為完成</span><b>${marketingRows.filter(r=>r.status==='完成').length}</b><small>依 Notion「狀態」欄，不依標題推測</small></div>
+      <div class="video-stat" data-icon="⚠️"><span>完成標記待核對</span><b>${alerts}</b><small>圖示或標題與主要狀態不一致</small></div></div>
+    ${marketingLoadError?`<div class="info-warn" role="alert">Notion 讀取失敗：${escapeHtml(marketingLoadError)}。以下為上次載入資料，請重新載入。</div>`:''}
+    ${marketingMore?'<div class="info-warn" role="alert">行程超過 2,000 筆，畫面僅顯示已載入資料；請至 Notion 核對其餘紀錄。</div>':''}
+    <section class="video-control-panel"><div class="video-search-wrap"><input id="marketingSearch" class="inp" value="${escapeHtml(marketingFilters.q)}" placeholder="搜尋行程或指派人" onkeydown="if(event.key==='Enter'&&!event.isComposing)marketingApplySearch()"><button class="btn btn-sm btn-blue" onclick="marketingApplySearch()">搜尋</button><button class="btn btn-sm btn-ghost" onclick="marketingFilters.q='';renderTab('videos')">清除</button></div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-sm ${status==='all'?'btn-blue':''}" aria-pressed="${status==='all'}" onclick="marketingSetStatusFilter('all')">全部</button>${MARKETING_STATUSES.map(s=>`<button class="btn btn-sm ${status===s?'btn-blue':''}" aria-pressed="${status===s}" onclick="marketingSetStatusFilter('${s}')">${s}</button>`).join('')}</div>
+      <div class="video-help">這裡只以 Notion「狀態」欄統計；另一欄「狀態1」有 ${statusDifferences} 筆不同，僅作來源提示，不逐筆當成異常或自動修改。ERP 的生產排程維持獨立。</div></section>
+    ${marketingLoading?'<div class="loading-row"><div class="spin"></div>正在讀取 Notion 行銷行程...</div>':''}
+    <section class="marketing-list">${cards||(!marketingLoading?'<div class="empty">沒有符合的行程；可調整搜尋條件或重新載入。</div>':'')}</section>
+  </div>`;
+}
+function openMarketingScheduleEditor(id=''){
+  if(!canEditMarketingSchedule()){showToast('此角色僅能查看行銷行程','warn');return;}
+  const row=id?marketingRows.find(r=>r.id===id):null;
+  if(id&&!row){showToast('找不到行程，請重新載入','warn');return;}
+  const mi=document.getElementById('modalInner');
+  mi.innerHTML=`<h3>${row?'✏️ 編輯行銷行程':'＋ 新增行銷行程'}</h3>
+    <div class="field"><label class="field-label">名稱 *</label><input id="marketingTitle" class="inp" maxlength="200" value="${escapeHtml(row?.title||'')}"></div>
+    <div class="form-row"><div><label class="field-label">開始日期 *</label><input id="marketingStart" class="inp" type="date" value="${escapeHtml(row?.start?.slice(0,10)||todayStr())}"></div><div><label class="field-label">結束日期</label><input id="marketingEnd" class="inp" type="date" value="${escapeHtml(row?.end?.slice(0,10)||'')}"></div></div>
+    <div class="field"><label class="field-label">狀態</label><select id="marketingStatus" class="inp">${MARKETING_STATUSES.map(s=>`<option value="${s}" ${s===(row?.status||'未開始')?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="video-help">儲存前會再次檢查 Notion 原始列；若有人已修改，這次儲存會停止。指派人與頁面附件請在 Notion 原始頁管理，不會被此表單覆寫。</div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button>${row?`<a class="btn btn-ghost" href="${escapeHtml(row.url)}" target="_blank" rel="noopener">Notion 原始頁 ↗</a>`:''}<button id="marketingSaveButton" class="btn btn-blue" onclick="saveMarketingSchedule('${row?.id||''}')">儲存</button></div>`;
+  openSharedModal();
+}
+async function marketingNotionWriteOnce(method,endpoint,body){
+  let response;
+  try{response=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,role:ROLE,method,endpoint,body,notionVersion:'2026-03-11'})});}
+  catch{throw new Error('送出後網路中斷，結果尚不確定。請先重新載入 Notion 行程，確認是否已寫入，再決定是否重試。');}
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok||result.object==='error'||result.error)throw new Error(result.message||result.error||`Notion HTTP ${response.status}`);
+  if(result.object!=='page'||!result.id)throw new Error('Notion 回應不完整；請先重新載入確認，不要直接重試。');
+  _notionCacheEpoch++;
+  return result;
+}
+async function saveMarketingSchedule(id=''){
+  if(!canEditMarketingSchedule()){showToast('此角色僅能查看行銷行程','warn');return;}
+  const title=(document.getElementById('marketingTitle')?.value||'').trim();
+  const start=document.getElementById('marketingStart')?.value||'';
+  const end=document.getElementById('marketingEnd')?.value||'';
+  const status=document.getElementById('marketingStatus')?.value||'';
+  if(!title||!start||!MARKETING_STATUSES.includes(status)){showToast('請填寫名稱、開始日期與有效狀態','warn');return;}
+  if(end&&end<start){showToast('結束日期不可早於開始日期','warn');return;}
+  const button=document.getElementById('marketingSaveButton');
+  if(button?.disabled)return;
+  if(button)button.disabled=true;
+  try{
+    const original=id?marketingRows.find(r=>r.id===id):null;
+    if(id){
+      if(!original)throw new Error('找不到原始行程，請重新載入');
+      const latest=await marketingNotionRead('GET',`pages/${id}`);
+      const parent=latest.parent||{};
+      const sameSource=String(parent.data_source_id||'').replace(/-/g,'')===MARKETING_SCHEDULE_SOURCE.replace(/-/g,'');
+      const sameDatabase=String(parent.database_id||'').replace(/-/g,'')===MARKETING_SCHEDULE_DATABASE.replace(/-/g,'');
+      if(!sameSource&&!sameDatabase)throw new Error('原始頁已不屬於行銷時程表，已停止寫入');
+      if(latest.archived||latest.in_trash||latest.last_edited_time!==original.edited)throw new Error('Notion 上已有較新的修改；請關閉表單、重新載入並核對後再編輯');
+    }
+    const properties={'名稱':{title:[{text:{content:title}}]},'日期':{date:{start,end:end||null}},'狀態':{status:{name:status}}};
+    const saved=await marketingNotionWriteOnce(id?'PATCH':'POST',id?`pages/${id}`:'pages',id?{properties}:{parent:{type:'data_source_id',data_source_id:MARKETING_SCHEDULE_SOURCE},properties});
+    let verified=false;
+    try{
+      const readback=marketingPageRow(await marketingNotionRead('GET',`pages/${saved.id}`));
+      verified=readback.title===title&&readback.start.slice(0,10)===start&&(readback.end?.slice(0,10)||'')===end&&readback.status===status;
+      if(!verified)throw new Error('Notion 回讀內容與送出資料不同');
+      closeModal();
+      await loadMarketingSchedule();
+      if(marketingLoadError)showToast('⚠️ Notion 單筆寫入已確認，但清單重新載入失敗；請稍後重試','warn',8000);
+      else showToast('✅ 行銷行程已儲存並從 Notion 回讀確認','ok',5000);
+    }catch(readError){
+      showToast(`⚠️ Notion 已接受寫入，但回讀尚未確認：${readError.message}。請重新載入核對。`,'warn',9000);
+    }
+  }catch(e){showToast('❌ '+e.message,'err',9000);}
+  finally{if(button)button.disabled=false;}
 }
 function renderVideoLibrary(){
   const filters=getVideoLibraryFilters();
