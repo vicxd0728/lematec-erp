@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center Senior Review Round 3 2026-10-03
+
+- `ERP_PROGRESS_CENTER_SENIOR_REVIEW_ROUND3_2026-10-03.md` records an 11-seat senior-role simulation, not real employee interviews. The production read-only snapshot showed 137 active customer orders and 42 overdue at that moment; those figures must not be treated as trends.
+- The order list no longer strands matches after the first 40. `progressOrderVisibleLimit` increments by 40 on demand and resets when search/filter changes; the denominator and due-date ordering stay based on all matching orders. No order, inventory, or supply job write is introduced.
+- The reusable review method is installed at `C:\Users\vicxd\.codex\skills\cross-functional-review-loop\SKILL.md` and remains separate from ERP-specific data/release rules.
+
 ## Progress Center Eight-Role Review Follow-up 2026-10-03
 
 - The second simulated review is recorded in `ERP_PROGRESS_CENTER_8_ROLE_REVIEW_2026-10-03.md`; these are role scenarios, not interviews with eight real employees.

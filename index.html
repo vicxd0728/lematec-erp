@@ -12558,6 +12558,7 @@ const SUPPLY_WORK_TYPES=['電鍍','噴砂','攻牙','清洗','塑膠射出','金
 let progressCenterView='orders';
 let progressCenterFilter='all';
 let progressCenterSearch='';
+let progressOrderVisibleLimit=40;
 let legacyScheduleLoaded=false;
 const PROGRESS_ORDER_STAGES=['待排程','生產中','待檢驗','品檢異常','待出貨'];
 const PROGRESS_DUE_BUCKETS=[
@@ -12590,12 +12591,18 @@ function setProgressCenterFilter(value){
   const allowed=['all','overdue','soon','today','later','missingDue','invalidDue','production','inspection','qcException','shipping','domestic','overseas','stageOther',...PROGRESS_ORDER_STAGES.map(stage=>'stage:'+stage)];
   if(!allowed.includes(value))return;
   progressCenterFilter=value;
+  progressOrderVisibleLimit=40;
   if(CURRENT_TAB==='schedule')renderTab('schedule');
 }
 
 function setProgressCenterSearch(value){
   progressCenterSearch=String(value||'').trim();
+  progressOrderVisibleLimit=40;
   if(CURRENT_TAB==='schedule')renderTab('schedule');
+}
+function progressShowMoreOrders(){
+  progressOrderVisibleLimit+=40;
+  if(CURRENT_TAB==='schedule'&&progressCenterView==='orders')renderTab('schedule');
 }
 
 function progressIsCustomerOrder(o){
@@ -12704,10 +12711,10 @@ function renderProgressOrders(){
     ${renderProgressOrderCharts(summary)}
     <div class="panel" style="padding:16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
-      ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,40).map(o=>{
+      ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,progressOrderVisibleLimit).map(o=>{
         const late=progressDueBucket(o.deadline,today,soonDay)==='overdue';
         return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">狀態提示：${escapeHtml(progressOrderNextAction(o))}；實際領料／品檢請查紀錄。</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查驗進度</button><button class="btn btn-ghost btn-sm" onclick="progressOpenSupplyForOrder('${o.id}')">查外包工作</button></div></div>`;
-      }).join('')}</div>${filtered.length>40?`<div style="color:var(--text3);font-size:.75rem;margin-top:10px">目前顯示前 40 筆；共符合 ${filtered.length} 筆，可用搜尋縮小範圍。</div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
+      }).join('')}</div>${filtered.length>progressOrderVisibleLimit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px"><span style="color:var(--text3);font-size:.75rem">已顯示 ${Math.min(progressOrderVisibleLimit,filtered.length)}／${filtered.length} 筆</span><button type="button" class="btn btn-ghost btn-sm" onclick="progressShowMoreOrders()">顯示更多訂單（下一批 40 筆）</button></div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
     </div>`;
 }
 

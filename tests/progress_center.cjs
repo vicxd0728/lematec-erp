@@ -339,6 +339,30 @@ test('progress search keeps headline counts and chart denominator aligned with m
   assert.doesNotMatch(rendered,/ORD-B/);
 });
 
+test('progress order list can reach records beyond the first 40 and resets after narrowing',()=>{
+  const rows=Array.from({length:45},(_,index)=>({
+    id:`order-${index+1}`,no:`ORD-${String(index+1).padStart(3,'0')}`,
+    orderType:'國內',status:'待排程',deadline:'2026-10-01',created:'2026-10-01',customer:'甲',
+  }));
+  const ctx=setup(rows);
+  let rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/已顯示 40／45 筆/);
+  assert.match(rendered,/顯示更多訂單/);
+  assert.doesNotMatch(rendered,/ORD-045/);
+  ctx.progressShowMoreOrders();
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/ORD-045/);
+  assert.doesNotMatch(rendered,/顯示更多訂單/);
+  ctx.setProgressCenterFilter('overdue');
+  assert.equal(vm.runInContext('progressOrderVisibleLimit',ctx),40);
+  ctx.progressShowMoreOrders();
+  ctx.setProgressCenterSearch('ORD-001');
+  assert.equal(vm.runInContext('progressOrderVisibleLimit',ctx),40);
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/ORD-001/);
+  assert.doesNotMatch(rendered,/ORD-045/);
+});
+
 test('view-only supply list offers one honest detail action',()=>{
   const ctx=setup();ctx.ROLE='viewer';
   vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'one',title:'接頭加工',work_number:'SC-1',status:'加工中',current_step:0,steps:[{type:'沖壓',supplier:'甲廠'}]}]",ctx);
