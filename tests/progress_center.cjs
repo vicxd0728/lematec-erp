@@ -382,6 +382,24 @@ test('supply coverage warns when the server has more rows than the loaded page',
   assert.match(rendered,/≥1/);
 });
 
+test('supply refresh hides old figures and an error can retry on the next visit',async()=>{
+  const ctx=setup();
+  vm.runInContext("supplyLoaded=true;supplyLoading=true;supplyJobs=[{id:'old',title:'舊資料',work_number:'SC-OLD',status:'加工中',current_step:0,steps:[]}]",ctx);
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/更新正式供應鏈工作中；暫不顯示舊統計/);
+  assert.doesNotMatch(rendered,/SC-OLD/);
+  vm.runInContext("supplyLoading=false;supplyError='網路中斷'",ctx);
+  ctx.isModalOpen=()=>false;
+  ctx.pickingWorkerRequest=async path=>path==='/api/supply/jobs'
+    ?{rows:[{id:'new',title:'新資料',work_number:'SC-NEW',status:'加工中',current_step:0,steps:[]}]}
+    :{suppliers:[],templates:[],work_types:[]};
+  await ctx.loadSupplyChain();
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-NEW/);
+  assert.doesNotMatch(rendered,/SC-OLD|供應鏈資料載入失敗/);
+  assert.equal(vm.runInContext('supplyError',ctx),'');
+});
+
 test('supply sorting prioritizes due work and retains recent-update alternative',()=>{
   const ctx=setup();
   const rows=[
@@ -392,6 +410,51 @@ test('supply sorting prioritizes due work and retains recent-update alternative'
   assert.deepEqual(Array.from(ctx.supplySortRows(rows,'due'),row=>row.id),['soon','late','missing']);
   assert.deepEqual(Array.from(ctx.supplySortRows(rows,'stage'),row=>row.id),['late','soon','missing']);
   assert.deepEqual(Array.from(ctx.supplySortRows(rows,'updated'),row=>row.id),['late','missing','soon']);
+});
+
+test('supply list can reach work after the first 100 and resets the batch for new filters',()=>{
+  const ctx=setup();
+  const rows=Array.from({length:105},(_,index)=>({
+    id:`job-${index+1}`,title:`加工 ${index+1}`,work_number:`SC-${String(index+1).padStart(3,'0')}`,
+    status:'加工中',due_date:'2026-10-10',current_step:0,steps:[{type:'沖壓',supplier:'甲廠'}],
+  }));
+  ctx.seedRows=rows;
+  vm.runInContext('supplyJobs=seedRows;supplyLoaded=true',ctx);
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/已顯示 100／105 筆已載入工作/);
+  assert.match(rendered,/顯示更多工作/);
+  assert.doesNotMatch(rendered,/SC-105/);
+  ctx.supplyShowMoreJobs();
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-105/);
+  assert.doesNotMatch(rendered,/顯示更多工作/);
+  ctx.supplySetFilter('active');
+  assert.equal(vm.runInContext('supplyVisibleLimit',ctx),100);
+  ctx.supplyShowMoreJobs();
+  ctx.supplySetSort('updated');
+  assert.equal(vm.runInContext('supplyVisibleLimit',ctx),100);
+  ctx.supplyShowMoreJobs();
+  ctx.supplySetSearch('SC-001');
+  assert.equal(vm.runInContext('supplyVisibleLimit',ctx),100);
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-001/);
+  assert.doesNotMatch(rendered,/SC-105/);
+});
+
+test('supply search finds a previous or planned processing step and explains the match',()=>{
+  const ctx=setup();
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'one',title:'接頭加工',work_number:'SC-1',status:'加工中',due_date:'2026-10-10',current_step:1,steps:[{type:'沖壓',supplier:'甲廠'},{type:'攻牙',supplier:'乙廠'},{type:'清洗',supplier:'丙廠'}]}]",ctx);
+  ctx.supplySetSearch('甲廠');
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-1/);
+  assert.match(rendered,/搜尋符合第 1 關：沖壓 · 甲廠/);
+  ctx.supplySetSearch('清洗');
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-1/);
+  assert.match(rendered,/搜尋符合第 3 關：清洗 · 丙廠/);
+  ctx.supplySetSearch('未見過的廠商');
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.doesNotMatch(rendered,/SC-1/);
 });
 
 test('formal order opens from supply work and order can find matching supply work',()=>{
@@ -421,6 +484,28 @@ test('formal order opens from supply work and order can find matching supply wor
   rendered=ctx.renderProgressOrders();
   assert.match(rendered,/查外包工作/);
   assert.match(rendered,/狀態提示：/);
+});
+
+test('order-linked supply empty state distinguishes hidden archived work from no association',()=>{
+  const ctx=setup([{id:'formal-id',no:'ORD-1',orderType:'國內',status:'生產中'}]);
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'archived',title:'舊加工',work_number:'SC-OLD',status:'加工中',related_order:'formal-id',archived_at:'2026-10-01',current_step:0,steps:[]}]",ctx);
+  ctx.progressOpenSupplyForOrder('formal-id');
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/已載入 1 筆關聯工作，但目前搜尋／狀態條件未顯示/);
+  assert.match(rendered,/查看已移除紀錄/);
+  assert.doesNotMatch(rendered,/此訂單未找到關聯外包工作/);
+  ctx.supplyResetContextFilters(true);
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-OLD/);
+  ctx.supplySetSearch('不相符');
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/已載入 1 筆關聯工作/);
+  ctx.supplyResetContextFilters(true);
+  assert.equal(vm.runInContext('supplySearch',ctx),'');
+  assert.equal(vm.runInContext('supplyFilter',ctx),'archived');
+  vm.runInContext('supplyJobs=[]',ctx);
+  rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/此訂單未找到關聯外包工作/);
 });
 
 test('original production schedule remains available in its own view', () => {

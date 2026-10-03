@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center Five-Round Review 2026-10-03
+
+- `ERP_PROGRESS_CENTER_FIVE_ROUNDS_2026-10-03.md` records five distinct operator journeys reviewed through ten simulated senior-role perspectives, not real staff interviews. Rounds cover supply list reachability, historical-step search, order-linked hidden/archived work, misleading all-type order-list title, and failed-refresh recovery.
+- Supply work now reveals all loaded matches in 100-row batches, resets the visible batch when context/search/filter/sort changes, and searches all processing steps with a matched-step explanation. The existing Worker upper-bound warning remains authoritative when coverage is incomplete.
+- An order-linked supply view distinguishes a genuinely absent association from one hidden by search/status or archived state; the corrective button does not create or modify work. Previously accepted order-to-supply navigation and role guards remain unchanged.
+- A failed supply refresh no longer leaves the next entry in a permanent error state; it retries. During loading/refetch, old counts are suppressed. The all-type order table is titled `訂單列表` because it also includes SFG/Shopee work.
+- Focused tests, full suite, static validation, exact deployment/production asset readback, and authenticated UI acceptance are separate gates. Do not claim post-deploy UI behavior until it is observed.
+
 ## Progress Center Senior Review Round 4 2026-10-03
 
 - `ERP_PROGRESS_CENTER_SENIOR_REVIEW_ROUND4_2026-10-03.md` records a 10-seat senior-role simulation, not real employee interviews. Authenticated production read-only acceptance confirmed the prior 40-row load-more reaches all 42 overdue matches in that snapshot; the screen warned that source data might be stale.
