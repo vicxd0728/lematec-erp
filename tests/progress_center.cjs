@@ -287,6 +287,67 @@ test('order progress counts domestic and foreign customers but excludes assembly
   assert.match(rendered,/目前沒有符合條件的進行中訂單/);
 });
 
+test('progress charts reconcile status, type, and exclusive due-date buckets',()=>{
+  const ctx=setup([
+    {id:'late',no:'ORD-LATE',orderType:'國內',status:'待排程',deadline:'2026-10-01',customer:'甲'},
+    {id:'today',no:'ORD-TODAY',orderType:'國外',status:'生產中',deadline:'2026-10-02',customer:'乙'},
+    {id:'soon',no:'ORD-SOON',orderType:'國外',status:'待檢驗',deadline:'2026-10-08',customer:'甲'},
+    {id:'later',no:'ORD-LATER',orderType:'國內',status:'待出貨',deadline:'2026-10-10',customer:'乙'},
+    {id:'missing',no:'ORD-MISSING',orderType:'國內',status:'品檢異常',deadline:'',customer:'甲'},
+    {id:'invalid',no:'ORD-INVALID',orderType:'國外',status:'自訂狀態',deadline:'2026-02-30',customer:'乙'},
+    {id:'done',no:'ORD-DONE',orderType:'國內',status:'已完成',deadline:'2026-10-01'},
+    {id:'internal',no:'SFG-1',orderType:'半成品',status:'待排程',deadline:'2026-10-01'},
+  ]);
+  const rows=ctx.orders.filter(order=>ctx.progressIsCustomerOrder(order)&&!['已完成','取消'].includes(order.status));
+  const overview=ctx.progressOrderOverview(rows,'2026-10-02','2026-10-09');
+  assert.equal(overview.total,6);
+  assert.equal(Object.values(overview.stages).reduce((a,b)=>a+b,0),6);
+  assert.equal(Object.values(overview.due).reduce((a,b)=>a+b,0),6);
+  assert.equal(overview.types.domestic+overview.types.overseas,6);
+  for(const key of ['overdue','today','soon','later','missingDue','invalidDue'])assert.equal(overview.due[key],1);
+  assert.equal(overview.stages['其他狀態'],1);
+  assert.equal(ctx.progressDueDay('2026-02-30'),null);
+  assert.equal(ctx.progressDueDay('2026-10-02junk'),null);
+  assert.equal(ctx.progressDueDay('2026-10-02T08:00:00+08:00'),'2026-10-02');
+  const chart=ctx.renderProgressOrderCharts(overview);
+  assert.match(chart,/交期分布：已逾期 1 筆、今天到期 1 筆/);
+  assert.match(chart,/其他狀態/);
+  ctx.setProgressCenterFilter('invalidDue');
+  let rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/ORD-INVALID/);
+  assert.doesNotMatch(rendered,/ORD-LATE/);
+  ctx.setProgressCenterFilter('stageOther');
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/ORD-INVALID/);
+  ctx.setProgressCenterFilter('stage:待檢驗');
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/ORD-SOON/);
+  assert.doesNotMatch(rendered,/ORD-INVALID/);
+});
+
+test('progress search keeps headline counts and chart denominator aligned with matching order rows',()=>{
+  const ctx=setup([
+    {id:'a',no:'ORD-A',orderType:'國內',status:'待排程',deadline:'2026-10-01',customer:'甲'},
+    {id:'b',no:'ORD-B',orderType:'國外',status:'待出貨',deadline:'2026-10-08',customer:'乙'},
+  ]);
+  ctx.setProgressCenterSearch('甲');
+  const rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/以目前搜尋範圍內 1 筆進行中訂單為分母/);
+  assert.match(rendered,/國內 1/);
+  assert.match(rendered,/國外 0/);
+  assert.match(rendered,/ORD-A/);
+  assert.doesNotMatch(rendered,/ORD-B/);
+});
+
+test('view-only supply list offers one honest detail action',()=>{
+  const ctx=setup();ctx.ROLE='viewer';
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'one',title:'接頭加工',work_number:'SC-1',status:'加工中',current_step:0,steps:[{type:'沖壓',supplier:'甲廠'}]}]",ctx);
+  const rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/查看詳情/);
+  assert.doesNotMatch(rendered,/onclick="supplyOpenAdvance\('one'\)"/);
+  assert.equal((rendered.match(/onclick="supplyOpenDetail\('one'\)"/g)||[]).length,1);
+});
+
 test('original production schedule remains available in its own view', () => {
   const ctx = setup();
   vm.runInContext("progressCenterView='legacy'", ctx);

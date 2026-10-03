@@ -7,9 +7,10 @@ const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const styles = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n');
 const code = source.slice(source.indexOf('const SUPPLY_WORK_TYPES='), source.indexOf('let schedules = [];', source.indexOf('const SUPPLY_WORK_TYPES=')));
 const sampleOrders = [
-  { id: 'a', no: 'ORD-2609-101', customer: '客戶 A', product: 'Z-TEST-01', qty: 100, status: '生產中', deadline: '2026-10-01' },
-  { id: 'b', no: 'ORD-2609-102', customer: '客戶 B', product: 'Y-TEST-02', qty: 40, status: '待檢驗', deadline: '2026-10-05' },
-  { id: 'c', no: 'ORD-2609-103', customer: '客戶 C', product: 'F-TEST-03', qty: 60, status: '待出貨', deadline: '2026-10-08' },
+  { id: 'a', no: 'ORD-2609-101', orderType: '國外', customer: '客戶 A', product: 'Z-TEST-01', qty: 100, status: '生產中', deadline: '2026-10-01' },
+  { id: 'b', no: 'ORD-2609-102', orderType: '國內', customer: '客戶 B', product: 'Y-TEST-02', qty: 40, status: '待檢驗', deadline: '2026-10-05' },
+  { id: 'c', no: 'ORD-2609-103', orderType: '國外', customer: '客戶 C', product: 'F-TEST-03', qty: 60, status: '待出貨', deadline: '2026-10-08' },
+  { id: 'd', no: 'ORD-2609-104', orderType: '國內', customer: '客戶 D', product: 'Z-TEST-04', qty: 20, status: '品檢異常', deadline: '' },
 ];
 const context = vm.createContext({
   orders: sampleOrders,
@@ -23,9 +24,14 @@ const context = vm.createContext({
   escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
   pill: status => `<span class="pill">${status}</span>`,
   orderProductName: order => order.product,
+  isShopeeProductionOrder: order => order.orderType === '蝦皮',
+  isSfgProductionOrder: order => order.orderType === '半成品',
+  isFresh: () => true,
+  isViewOnly: () => false,
+  isAdminRole: () => false,
+  ROLE: 'purchase',
   todayStr: () => '2026-10-02',
   taipeiDateKey: () => '2026-10-09',
-  isFresh: () => true,
 });
 vm.runInContext(code, context);
 const ordersHtml = context.renderProgressCenter();

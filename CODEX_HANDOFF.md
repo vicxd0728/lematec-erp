@@ -597,3 +597,10 @@ GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.d
 - A pending operation detail does not mean stock was not changed: the accepted quantity transaction remains evidenced in Supabase `inventory_transactions`.
 - The `可自動修復` summary action now calls the complete non-transactional retry path, so Notes and stock-log queues are included instead of retrying mirror queues only.
 - Retry actions must remain non-transactional. Do not add `/api/inventory/adjust`, `/api/inbound/action`, C-order number reservation, or any stock mutation to the reliability retry functions.
+
+## 2026-10-03 Progress center GRILL
+
+- 訂單進度的 KPI、階段圖、交期圖與待辦清單使用同一批搜尋後的國內／國外進行中訂單；仍排除組立、蝦皮補庫與 C 端訂單。
+- 階段圖明列未知狀態；交期分桶互斥，分別為逾期、今天、未來 7 天、8 天後、未填與格式異常。圖表可點選篩選清單，不修改訂單或庫存。
+- 搜尋及篩選放在圖表之前，方便手機使用；唯讀角色的供應鏈工作按鈕只顯示查看詳情。
+- 驗收入口：`node --test tests/progress_center.cjs tests/supply_chain_v1.cjs`、`node scripts/render_progress_center_preview.cjs`、`node scripts/capture_progress_center_preview.cjs`。預覽為合成資料，不可當作正式訂單數據。
