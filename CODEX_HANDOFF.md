@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center Eight-Role Review Follow-up 2026-10-03
+
+- The second simulated review is recorded in `ERP_PROGRESS_CENTER_8_ROLE_REVIEW_2026-10-03.md`; these are role scenarios, not interviews with eight real employees.
+- Supply jobs now page through unarchived and archived records with stable ordering, to 5,000 and 1,000 rows respectively. A real overflow remains flagged by Worker and shown as incomplete in the UI; a local search then covers loaded records only.
+- Formal order IDs can open a read-only order timeline from a supply job. A customer order can open the supply view filtered by its exact ID. Legacy free-text references remain unverified and are not auto-matched.
+- Supply sorting offers whole-process due date, current-stage due date, and latest update. Order cards distinguish status-derived guidance from verified picking/QC records; the single-order timeline provides a source read summary.
+- Customer-order status, external processing, picking, QC, and stock mutations remain separate. Do not infer order completion, stock receipt, shortage resolution, or reliable historical stage duration from a supply link or status chart.
+
 ## Supply Order Selection 2026-10-03
 
 - Supply work creation and editing now offer matching active orders after an exact, unique SKU is chosen. Domestic/overseas customer orders match the ordered material itself; semi-finished assembly orders match the direct BOM child. Shopee/C-end work and completed/cancelled orders are excluded. A missing BOM load makes assembly-child suggestions incomplete and is disclosed.

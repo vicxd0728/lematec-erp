@@ -35,9 +35,9 @@ const context = vm.createContext({
 });
 vm.runInContext(code, context);
 const ordersHtml = context.renderProgressCenter();
-vm.runInContext("progressCenterView='supply'", context);
+vm.runInContext("progressCenterView='supply';supplyLoaded=true;supplyJobs=[{id:'job-a',title:'接頭外包加工',work_number:'SC-TEST-1',material_sku:'Y-TEST-02',quantity:40,unit:'件',related_order:'b',status:'加工中',due_at:'2026-10-04T09:00:00Z',updated_at:'2026-10-02T03:00:00Z',current_step:0,steps:[{type:'電鍍',supplier:'測試廠',started_at:'2026-10-01T01:00:00Z',due_at:'2026-10-03T09:00:00Z'}]}]", context);
 const supplyHtml = context.renderProgressCenter();
 const output = path.join(root, 'output', 'progress-center-preview.html');
 fs.mkdirSync(path.dirname(output), { recursive: true });
-fs.writeFileSync(output, `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}\n*,*::before,*::after{animation:none!important;transition:none!important}body{padding:20px;background:#08101a;color:#f3f6f8}main{max-width:1200px;margin:auto}.preview-section{margin-bottom:44px}.preview-title{font-size:22px;margin-bottom:14px}@media(max-width:600px){body{padding:12px}.preview-title{font-size:18px}}</style><main><section class="preview-section"><h1 class="preview-title">訂單進度 · 合成資料預覽</h1>${ordersHtml}</section><section class="preview-section"><h2 class="preview-title">供應鏈追蹤 · 空狀態預覽</h2>${supplyHtml}</section></main></html>`, 'utf8');
+fs.writeFileSync(output, `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}\n*,*::before,*::after{animation:none!important;transition:none!important}body{padding:20px;background:#08101a;color:#f3f6f8}main{max-width:1200px;margin:auto}.preview-section{margin-bottom:44px}.preview-title{font-size:22px;margin-bottom:14px}@media(max-width:600px){body{padding:12px}.preview-title{font-size:18px}}</style><main><section class="preview-section"><h1 class="preview-title">訂單進度 · 合成資料預覽</h1>${ordersHtml}</section><section class="preview-section"><h2 class="preview-title">供應鏈追蹤 · 合成資料預覽</h2>${supplyHtml}</section></main></html>`, 'utf8');
 console.log(output);

@@ -348,6 +348,46 @@ test('view-only supply list offers one honest detail action',()=>{
   assert.equal((rendered.match(/onclick="supplyOpenDetail\('one'\)"/g)||[]).length,1);
 });
 
+test('supply coverage warns when the server has more rows than the loaded page',()=>{
+  const ctx=setup();
+  vm.runInContext("supplyLoaded=true;supplyCoverage={activeTruncated:true,archivedTruncated:false};supplyJobs=[{id:'one',title:'加工',work_number:'SC-1',status:'加工中',current_step:0,steps:[]}]",ctx);
+  const rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/供應鏈資料超過單次讀取上限/);
+  assert.match(rendered,/未移除工作至少 1 筆/);
+  assert.match(rendered,/（已載入）/);
+  assert.match(rendered,/≥1/);
+});
+
+test('supply sorting prioritizes due work and retains recent-update alternative',()=>{
+  const ctx=setup();
+  const rows=[
+    {id:'late',due_at:'2026-10-10T00:00:00Z',updated_at:'2026-10-03T00:00:00Z',current_step:0,steps:[{due_at:'2026-10-05T00:00:00Z'}]},
+    {id:'soon',due_at:'2026-10-04T00:00:00Z',updated_at:'2026-10-01T00:00:00Z',current_step:0,steps:[{due_at:'2026-10-08T00:00:00Z'}]},
+    {id:'missing',updated_at:'2026-10-02T00:00:00Z',current_step:0,steps:[{}]},
+  ];
+  assert.deepEqual(Array.from(ctx.supplySortRows(rows,'due'),row=>row.id),['soon','late','missing']);
+  assert.deepEqual(Array.from(ctx.supplySortRows(rows,'stage'),row=>row.id),['late','soon','missing']);
+  assert.deepEqual(Array.from(ctx.supplySortRows(rows,'updated'),row=>row.id),['late','missing','soon']);
+});
+
+test('formal order opens from supply work and order can find matching supply work',()=>{
+  const ctx=setup([{id:'formal-id',no:'ORD-1',orderType:'國內',status:'生產中'}]);
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'one',title:'加工',work_number:'SC-1',status:'加工中',related_order:'formal-id',current_step:0,steps:[]}]",ctx);
+  let rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/openOrderTimeline\('formal-id'\)/);
+  assert.match(rendered,/訂單 ORD-1/);
+  assert.match(ctx.supplyRelatedOrderLink('舊文字'),/關聯待核對/);
+  assert.doesNotMatch(ctx.supplyRelatedOrderLink('舊文字'),/openOrderTimeline/);
+  let loaded=false;ctx.loadSupplyChain=()=>{loaded=true;};
+  ctx.progressOpenSupplyForOrder('formal-id');
+  assert.equal(vm.runInContext('progressCenterView',ctx),'supply');
+  assert.equal(vm.runInContext('supplySearch',ctx),'formal-id');
+  assert.equal(loaded,true);
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/查外包工作/);
+  assert.match(rendered,/狀態提示：/);
+});
+
 test('original production schedule remains available in its own view', () => {
   const ctx = setup();
   vm.runInContext("progressCenterView='legacy'", ctx);

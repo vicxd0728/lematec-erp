@@ -54,6 +54,12 @@ async function main() {
     const target = path.join(output, `progress-center-${label}-cdp.png`);
     fs.writeFileSync(target, Buffer.from(shot.data, 'base64'));
     console.log(target);
+    await command('Runtime.evaluate', { expression: "document.querySelectorAll('.preview-section')[1].scrollIntoView()" });
+    await delay(150);
+    const supplyShot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    const supplyTarget = path.join(output, `progress-center-supply-${label}-cdp.png`);
+    fs.writeFileSync(supplyTarget, Buffer.from(supplyShot.data, 'base64'));
+    console.log(supplyTarget);
   }
   socket.close();
 }

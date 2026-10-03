@@ -84,6 +84,12 @@ test('render escapes data and explains partial failures',()=>{
  const text=c.renderOrderTimeline({...order,no:'<script>x</script>'},[{id:'x',date:'',title:'<img onerror=x>',detail:'safe',url:''}],['品檢載入失敗']);
  assert(!text.includes('<script>'));assert(!text.includes('<img'));assert(text.includes('日期未填'));assert(text.includes('品檢載入失敗'));
 });
+test('source summary distinguishes no records, failed reads, and unqueried stock',()=>{
+ const text=c.renderOrderTimeline(order,[],[],[{label:'領料',result:'0 筆紀錄（未查到）'},{label:'品檢',result:'讀取失敗'},{label:'庫存異動',result:'未查（單號未確認）'}]);
+ assert(text.includes('本次讀取摘要'));
+ assert(text.includes('未查到'));assert(text.includes('讀取失敗'));assert(text.includes('未查（單號未確認）'));
+ assert(text.includes('讀取時間'));
+});
 test('timeline query path cannot mutate operational records',()=>{
  const block=html.slice(html.indexOf('async function orderTimelineNotion'),html.indexOf('function _renderDeadlineTab'));
  assert(!/updatePage\(|applyInventory|loadQCInspections\(|loadPicks\(/.test(block));
@@ -124,6 +130,7 @@ test('partial failure still renders available order evidence',async()=>{
  context.orderTimelineQuery=async db=>db==='orders'?[{id:order.id}]:[];
  await context.openOrderTimeline(order.id);
  assert(host.innerHTML.includes('訂單建立'));assert(host.innerHTML.includes('領料載入失敗'));assert(host.innerHTML.includes('庫存異動載入失敗'));
+ assert(host.innerHTML.includes('本次讀取摘要'));assert(host.innerHTML.includes('領料：讀取失敗'));
 });
 if(process.argv.includes('--preview')){
  const styles=[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(x=>x[1]).join('\n');

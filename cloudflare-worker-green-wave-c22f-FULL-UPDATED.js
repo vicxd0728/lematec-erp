@@ -3844,11 +3844,24 @@ async function erpSupplyJobs(request, env, cors) {
     if (!(await erpClientAuthorized(request))) return unauthorizedErpClient(cors);
     const {organization} = await getSupabaseInventoryContext(env);
     const prefix=`/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organization.id)}`;
+    const readPages=async(archiveFilter,pageSize,maxRows)=>{
+      const rows=[];
+      while(rows.length<maxRows){
+        const offset=rows.length;
+        const page=await supabaseFetch(env,`${prefix}&archived_at=${archiveFilter}&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc,id.desc&limit=${pageSize}&offset=${offset}`);
+        if(!Array.isArray(page))throw new Error('供應鏈資料格式異常');
+        rows.push(...page);
+        if(page.length<pageSize)return {rows,truncated:false};
+      }
+      const probe=await supabaseFetch(env,`${prefix}&archived_at=${archiveFilter}&select=id&order=updated_at.desc,id.desc&limit=1&offset=${rows.length}`);
+      if(!Array.isArray(probe))throw new Error('供應鏈資料範圍無法確認');
+      return {rows,truncated:probe.length>0};
+    };
     const [active,archived]=await Promise.all([
-      supabaseFetch(env,`${prefix}&archived_at=is.null&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=500`),
-      supabaseFetch(env,`${prefix}&archived_at=not.is.null&select=${ERP_SUPPLY_JOB_SELECT}&order=updated_at.desc&limit=100`),
+      readPages('is.null',500,5000),
+      readPages('not.is.null',100,1000),
     ]);
-    return respOK(cors,{ok:true,rows:[...(Array.isArray(active)?active:[]),...(Array.isArray(archived)?archived:[])],active_truncated:active?.length===500,archived_truncated:archived?.length===100});
+    return respOK(cors,{ok:true,rows:[...active.rows,...archived.rows],active_truncated:active.truncated,archived_truncated:archived.truncated});
   } catch (error) { return resp500(cors,error.message); }
 }
 async function erpSupplyCatalog(request, env, cors) {

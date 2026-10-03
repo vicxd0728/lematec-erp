@@ -25,7 +25,12 @@ function harness({notionTypes=[],notionSuppliers=[],notionFails=false}={}){
         Object.assign(row,JSON.parse(options.body));return [{...row}];
       }
       const id=params.get('id')?.slice(3);
-      return id?(jobs.has(id)?[{...jobs.get(id)}]:[]):[...jobs.values()];
+      if(id)return jobs.has(id)?[{...jobs.get(id)}]:[];
+      const archiveFilter=params.get('archived_at');
+      const rows=[...jobs.values()].filter(row=>archiveFilter==='is.null'?!row.archived_at:archiveFilter==='not.is.null'?!!row.archived_at:true)
+        .sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));
+      const offset=Number(params.get('offset')||0),limit=Number(params.get('limit')||rows.length);
+      return rows.slice(offset,offset+limit).map(row=>params.get('select')==='id'?{id:row.id}:{...row});
     }
     if(url.pathname.endsWith('/erp_supply_suppliers')){
       if(options.method==='POST'){let row=JSON.parse(options.body);suppliers.set(row.id,row);return null;}
@@ -88,8 +93,40 @@ function harness({notionTypes=[],notionSuppliers=[],notionFails=false}={}){
     const response=await ctx.erpSupplyCatalog(new Request('https://erp.test/api/supply/catalog'),{NOTION_TOKEN:'fixture-only'},{});
     return {status:response.status,data:await response.json()};
   };
-  return {call,catalog,jobs,suppliers,templates,workTypes,materials,receipts,inventoryWrites};
+  const list=async()=>{
+    const response=await ctx.erpSupplyJobs(new Request('https://erp.test/api/supply/jobs'),{},{});
+    return {status:response.status,data:await response.json()};
+  };
+  return {call,catalog,list,jobs,suppliers,templates,workTypes,materials,receipts,inventoryWrites};
 }
+
+test('supply list reads the 500/100 page boundaries and flags only real overflow',async()=>{
+  const h=harness();
+  for(let i=0;i<500;i++)h.jobs.set(op(i+1),{id:op(i+1),status:'加工中',updated_at:'2026-10-03T00:00:00Z'});
+  for(let i=0;i<100;i++)h.jobs.set(op(i+1001),{id:op(i+1001),archived_at:'2026-10-01T00:00:00Z',updated_at:'2026-10-02T00:00:00Z'});
+  let result=await h.list();
+  assert.equal(result.status,200);
+  assert.equal(result.data.rows.length,600);
+  assert.equal(result.data.active_truncated,false);
+  assert.equal(result.data.archived_truncated,false);
+  h.jobs.set(op(501),{id:op(501),status:'待決定',updated_at:'2026-10-03T00:00:00Z'});
+  h.jobs.set(op(1101),{id:op(1101),archived_at:'2026-10-01T00:00:00Z',updated_at:'2026-10-02T00:00:00Z'});
+  result=await h.list();
+  assert.equal(result.status,200);
+  assert.equal(result.data.rows.length,602);
+  assert.equal(result.data.active_truncated,false);
+  assert.equal(result.data.archived_truncated,false);
+});
+
+test('supply list marks a real upper-bound overflow instead of claiming complete counts',async()=>{
+  const h=harness();
+  for(let i=0;i<5001;i++)h.jobs.set(op(i+1),{id:op(i+1),status:'加工中',updated_at:'2026-10-03T00:00:00Z'});
+  const result=await h.list();
+  assert.equal(result.status,200);
+  assert.equal(result.data.rows.length,5000);
+  assert.equal(result.data.active_truncated,true);
+  assert.equal(result.data.archived_truncated,false);
+});
 
 test('Notion catalog adds active suppliers and linked work types without duplicating ERP names',async()=>{
   const typeId=op(301),supplierId=op(302);

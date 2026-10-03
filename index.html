@@ -12705,7 +12705,7 @@ function renderProgressOrders(){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
       ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,40).map(o=>{
         const late=progressDueBucket(o.deadline,today,soonDay)==='overdue';
-        return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">下一步：${escapeHtml(progressOrderNextAction(o))}</div></div><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查看進度</button></div>`;
+        return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">狀態提示：${escapeHtml(progressOrderNextAction(o))}；實際領料／品檢請查紀錄。</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查驗進度</button><button class="btn btn-ghost btn-sm" onclick="progressOpenSupplyForOrder('${o.id}')">查外包工作</button></div></div>`;
       }).join('')}</div>${filtered.length>40?`<div style="color:var(--text3);font-size:.75rem;margin-top:10px">目前顯示前 40 筆；共符合 ${filtered.length} 筆，可用搜尋縮小範圍。</div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
     </div>`;
 }
@@ -12720,8 +12720,10 @@ let supplyNotionError='';
 let supplyLoaded=false;
 let supplyLoading=false;
 let supplyError='';
+let supplyCoverage={activeTruncated:false,archivedTruncated:false};
 let supplySearch='';
 let supplyFilter='all';
+let supplySort='due';
 let supplyCreateSteps=[];
 let supplyAutoBoundSku='';
 const supplyPendingOps=new Map();
@@ -12758,6 +12760,18 @@ function supplyStageOverdue(job,now=Date.now()){
 function supplyWholeDue(job){return job.due_at?supplyDateTime(job.due_at):job.due_date?`${job.due_date}（舊單只有日期）`:'待補';}
 function supplyWholeOverdue(job,today=todayStr()){
   return job.due_at?new Date(job.due_at).getTime()<Date.now():!!job.due_date&&job.due_date<today;
+}
+function supplySortRows(rows,mode=supplySort){
+  const dueTime=(row,stage)=>{
+    const value=stage?row.steps?.[row.current_step]?.due_at:row.due_at||row.due_date;
+    const time=value?new Date(value).getTime():NaN;
+    return Number.isFinite(time)?time:Number.POSITIVE_INFINITY;
+  };
+  return [...rows].sort((a,b)=>{
+    if(mode==='updated')return String(b.updated_at||'').localeCompare(String(a.updated_at||''));
+    const diff=dueTime(a,mode==='stage')-dueTime(b,mode==='stage');
+    return Number.isNaN(diff)?String(b.updated_at||'').localeCompare(String(a.updated_at||'')):diff||String(b.updated_at||'').localeCompare(String(a.updated_at||''));
+  });
 }
 function supplyStepOptions(selected=''){
   const disabled=new Set(supplyDisabledWorkTypes.map(name=>name.toLocaleLowerCase()));
@@ -12842,6 +12856,7 @@ async function loadSupplyChain(force=false){
       pickingWorkerRequest('/api/supply/catalog'),
     ]);
     supplyJobs=Array.isArray(jobs.rows)?jobs.rows:[];
+    supplyCoverage={activeTruncated:jobs.active_truncated===true,archivedTruncated:jobs.archived_truncated===true};
     supplyApplyCatalog(catalog);
     supplyLoaded=true;
   }catch(error){supplyError=error.message||String(error);}
@@ -12860,7 +12875,7 @@ function renderSupplyChainFoundation(){
   const pending=supplyJobs.filter(row=>!row.archived_at&&(row.status==='待決定'||row.status==='待入料'));
   const kpis=[['進行中',active.length,'var(--cyan2)'],['7 天內到期',soonRows.length,'var(--amber)'],['已逾期工作',overdue.length,'var(--red)'],['其中本關逾期',stageOverdue.length,'var(--red)'],['待決定／入料',pending.length,'var(--green2)']];
   const q=supplySearch.toLocaleLowerCase();
-  const rows=supplyJobs.filter(row=>{
+  const rows=supplySortRows(supplyJobs.filter(row=>{
     if(supplyFilter==='archived'?!row.archived_at:!!row.archived_at)return false;
     if(supplyFilter==='active'&&!active.includes(row))return false;
     if(supplyFilter==='overdue'&&!overdue.includes(row))return false;
@@ -12868,9 +12883,10 @@ function renderSupplyChainFoundation(){
     if(supplyFilter==='closed'&&row.status!=='已結案')return false;
     const step=row.steps?.[row.current_step]||{};
     return !q||[row.title,row.work_number,row.material_sku,row.related_order,supplyRelatedOrderLabel(row.related_order),step.type,step.supplier].some(value=>String(value||'').toLocaleLowerCase().includes(q));
-  });
-  return top+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}</div><strong style="font-size:1.5rem;color:${color}">${count}</strong></div>`).join('')}</div>
-    <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearch)}" style="flex:1;min-width:190px" onkeydown="if(event.key==='Enter')supplySetSearch(this.value)"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料'],['closed','已結案'],['archived','已移除']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select></div>
+  }),supplySort);
+  const coverageNote=supplyCoverage.activeTruncated||supplyCoverage.archivedTruncated?`<div class="info-warn" role="status" style="margin-bottom:12px">供應鏈資料超過單次讀取上限：${supplyCoverage.activeTruncated?'未移除工作至少 '+supplyJobs.filter(row=>!row.archived_at).length+' 筆；':''}${supplyCoverage.archivedTruncated?'已移除工作至少 '+supplyJobs.filter(row=>row.archived_at).length+' 筆；':''}下方統計與搜尋僅涵蓋已載入資料；搜尋不到不代表沒有紀錄，請由管理者查核完整資料。</div>`:'';
+  return top+coverageNote+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}${supplyCoverage.activeTruncated?'（已載入）':''}</div><strong style="font-size:1.5rem;color:${color}">${supplyCoverage.activeTruncated?'≥':''}${count}</strong></div>`).join('')}</div>
+    <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearch)}" style="flex:1;min-width:190px" onkeydown="if(event.key==='Enter')supplySetSearch(this.value)"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料'],['closed','已結案'],['archived','已移除']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select><select class="inp" aria-label="排序供應鏈工作" style="width:auto;min-width:130px" onchange="supplySetSort(this.value)">${[['due','全程交期優先'],['stage','本關預計優先'],['updated','最近更新優先']].map(([value,label])=>`<option value="${value}" ${supplySort===value?'selected':''}>${label}</option>`).join('')}</select></div><div style="font-size:.72rem;color:var(--text3);margin-bottom:10px">統計為全部已載入工作；下方清單符合目前搜尋／篩選，共 ${rows.length} 筆。</div>
     ${rows.length?`<div style="display:grid;gap:8px">${rows.slice(0,100).map(row=>{
       const step=row.steps?.[row.current_step]||{};
       const wholeLate=active.includes(row)&&supplyWholeOverdue(row,today);
@@ -12880,11 +12896,12 @@ function renderSupplyChainFoundation(){
       const canAct=canWriteSupplyChain()&&!row.archived_at;
       const next=!canAct?'查看詳情':row.status==='待送出'?'登記送出':row.status==='加工中'?'完成本關／轉下一關':row.status==='待決定'?'決定入料或結案':row.status==='待入料'?'繼續入料':'查看詳情';
       const action=canWriteSupplyChain()&&!row.archived_at?(row.status==='待送出'?`supplyPerform('send','${row.id}')`:row.status==='加工中'?`supplyOpenAdvance('${row.id}')`:row.status==='待決定'?`supplyOpenDecision('${row.id}')`:row.status==='待入料'?`supplyContinueInbound('${row.id}')`:`supplyOpenDetail('${row.id}')`):`supplyOpenDetail('${row.id}')`;
-      return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(row.archived_at?'已移除':supplyStatusLabel(row.status))}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}${row.related_order?' · 訂單 '+escapeHtml(supplyRelatedOrderLabel(row.related_order)):''}</div><div style="font-size:.75rem;color:${late?'var(--red)':'var(--text3)'};margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · ${deadlineNote}</div>${row.archived_at?`<div style="font-size:.72rem;color:var(--amber);margin-top:5px">移除原因：${escapeHtml(row.archived_reason||'未填')}</div>`:row.status==='待送出'?'<div style="font-size:.72rem;color:var(--amber);margin-top:5px">尚未記錄第一站交接時間；按「登記送出」開始流程。</div>':''}${supplyCardFlow(row)}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${canAct?'btn-blue':'btn-ghost'} btn-sm" onclick="${action}">${next}</button>${canAct?`<button class="btn btn-ghost btn-sm" onclick="supplyOpenDetail('${row.id}')">詳情</button>`:''}${row.archived_at&&canWriteSupplyChain()?`<button class="btn btn-ghost btn-sm" onclick="supplyPerform('restore','${row.id}')">還原</button>`:''}</div></div>`;
+      return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(row.archived_at?'已移除':supplyStatusLabel(row.status))}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}${row.related_order?' · '+supplyRelatedOrderLink(row.related_order):''}</div><div style="font-size:.75rem;color:${late?'var(--red)':'var(--text3)'};margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · ${deadlineNote}</div>${row.archived_at?`<div style="font-size:.72rem;color:var(--amber);margin-top:5px">移除原因：${escapeHtml(row.archived_reason||'未填')}</div>`:row.status==='待送出'?'<div style="font-size:.72rem;color:var(--amber);margin-top:5px">尚未記錄第一站交接時間；按「登記送出」開始流程。</div>':''}${supplyCardFlow(row)}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${canAct?'btn-blue':'btn-ghost'} btn-sm" onclick="${action}">${next}</button>${canAct?`<button class="btn btn-ghost btn-sm" onclick="supplyOpenDetail('${row.id}')">詳情</button>`:''}${row.archived_at&&canWriteSupplyChain()?`<button class="btn btn-ghost btn-sm" onclick="supplyPerform('restore','${row.id}')">還原</button>`:''}</div></div>`;
     }).join('')}</div>${rows.length>100?`<p style="margin-top:10px;color:var(--text3)">顯示前 100 筆；共 ${rows.length} 筆，可搜尋縮小範圍。</p>`:''}`:`<div style="text-align:center;color:var(--text3);padding:30px">目前沒有符合條件的工作。${canWriteSupplyChain()?'可以調整搜尋條件，或新增第一筆工作。':'請調整搜尋或篩選條件。'}</div>`}</div>`;
 }
 function supplySetSearch(value){supplySearch=String(value||'').trim();if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplySetFilter(value){supplyFilter=value;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplySetSort(value){if(!['due','stage','updated'].includes(value))return;supplySort=value;if(CURRENT_TAB==='schedule')renderTab('schedule');}
 
 function supplyModal(markup){document.getElementById('modalInner').innerHTML=markup;openSharedModal();}
 async function supplyWrite(action,job,payload={}){
@@ -13008,6 +13025,21 @@ function supplyRelatedOrderLabel(reference){
   const order=orders.find(item=>item.id===value);
   return order?.no||value;
 }
+function supplyRelatedOrderLink(reference){
+  const value=String(reference||'').trim();
+  if(!value)return '';
+  const order=orders.find(item=>item.id===value);
+  if(!order)return `<span title="舊文字或目前未載入的訂單，尚未驗證關聯">訂單 ${escapeHtml(value)} · 關聯待核對</span>`;
+  return `<button type="button" class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${order.id}')" title="只讀查看關聯訂單進度">訂單 ${escapeHtml(order.no||'未編號')} ↗</button>`;
+}
+function progressOpenSupplyForOrder(id){
+  if(!orders.some(order=>order.id===id))return;
+  supplySearch=id;
+  supplyFilter='all';
+  progressCenterView='supply';
+  if(CURRENT_TAB==='schedule')renderTab('schedule');
+  loadSupplyChain();
+}
 function supplyOrderSummary(sku,reference){
   if(!reference)return '';
   const match=supplyOrderCandidates(sku).find(({order})=>order.id===reference);
@@ -13099,7 +13131,7 @@ function supplyOpenDetail(id){
   }).join('');
   const events=[...(job.events||[])].reverse().map(event=>`<div style="border-left:2px solid var(--cyan);padding:0 0 13px 12px;margin-left:4px"><b>${escapeHtml(supplyEventLabel(event))}</b><div style="font-size:.72rem;color:var(--text3)">${escapeHtml(supplyDateTime(event.recorded_at))} · 角色 ${escapeHtml(event.role||'未知')}</div></div>`).join('');
   supplyModal(`<h3>${escapeHtml(job.title)}</h3><div style="font-size:.75rem;color:var(--text3);margin-bottom:10px">${escapeHtml(job.work_number)} · ${escapeHtml(job.material_sku||'暫用名稱')} ${job.quantity?'· '+Number(job.quantity).toLocaleString()+' '+escapeHtml(job.unit||'件'):''}</div>
-    <div class="info-warn" style="margin-bottom:12px"><b>目前：${escapeHtml(job.archived_at?'已移除':supplyStatusLabel(job.status))}</b> · ${escapeHtml(current.type||'加工已完成')} · ${escapeHtml(current.supplier||'供應商待指定')}<br>整段流程預計完成：${escapeHtml(supplyWholeDue(job))}。加工完成不代表已入庫。${job.related_order?`<br>關聯訂單：${escapeHtml(supplyRelatedOrderLabel(job.related_order))}`:''}${job.archived_at?`<br>移除原因：${escapeHtml(job.archived_reason||'未填')}`:''}</div>
+    <div class="info-warn" style="margin-bottom:12px"><b>目前：${escapeHtml(job.archived_at?'已移除':supplyStatusLabel(job.status))}</b> · ${escapeHtml(current.type||'加工已完成')} · ${escapeHtml(current.supplier||'供應商待指定')}<br>整段流程預計完成：${escapeHtml(supplyWholeDue(job))}。加工完成不代表已入庫。${job.related_order?`<br>關聯${supplyRelatedOrderLink(job.related_order)}`:''}${job.archived_at?`<br>移除原因：${escapeHtml(job.archived_reason||'未填')}`:''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${actions}<button class="btn btn-ghost" onclick="supplyOpenFlow('${id}')">🔗 流程圖</button>${canEditMetadata?`<button class="btn btn-ghost" onclick="supplyOpenEdit('${id}')">修改工作</button>`:''}${editable?`<button class="btn btn-ghost" onclick="supplyOpenSaveTemplate('${id}')">儲存為固定流程</button>`:''}${canWriteSupplyChain()&&job.archived_at?`<button class="btn btn-ghost" onclick="supplyPerform('restore','${id}')">還原工作</button>`:canWriteSupplyChain()&&!job.inbound_receipt_id&&job.status!=='待品檢'?`<button class="btn btn-red" onclick="supplyOpenArchive('${id}')">刪除錯誤工作</button>`:''}${job.status==='待品檢'?'<button class="btn btn-ghost" onclick="closeModal();switchTab(\'inbound\')">查看入料／品檢</button>':''}</div>
     <div style="font-weight:800;margin-bottom:9px">工序 · 建立後仍可加關</div>${cards}<div style="font-weight:800;margin:12px 0 9px">時間紀錄</div>${events||'<div style="color:var(--text3)">尚無事件</div>'}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`);
@@ -16846,11 +16878,12 @@ function orderTimelineDate(value){
   if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;
   return new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(value));
 }
-function renderOrderTimeline(order,events,issues=[]){
+function renderOrderTimeline(order,events,issues=[],sourceSummary=[]){
   const next={'待排程':'倉管／生管：確認物料並安排領料','生產中':'生管：確認生產進度與送檢安排','待檢驗':'品管：確認檢驗結果','待出貨':'業務／倉管：確認出貨安排','已完成':'目前訂單已完成，可查看履歷','取消':'目前訂單已取消，請確認相關退料紀錄'};
   return `<div data-contract="ORDER_TIMELINE_V1" style="overflow-wrap:anywhere">
     <h3>訂單進度 · ${escapeHtml(order.no||'未編號')}</h3>
     <div class="info-box info-tip">目前：<b>${escapeHtml(order.status||'未填狀態')}</b><br>${escapeHtml(next[order.status]||'請依目前狀態確認下一步')}<br>交期：${escapeHtml(order.deadline||'未填')} · 數量：${escapeHtml(String(order.qty??'—'))}</div>
+    ${sourceSummary.length?`<div class="panel" style="padding:11px;margin:10px 0"><strong>本次讀取摘要</strong><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">${sourceSummary.map(item=>`<span style="border:1px solid var(--border);border-radius:7px;padding:5px 7px;font-size:.76rem">${escapeHtml(item.label)}：${escapeHtml(item.result)}</span>`).join('')}</div><div style="font-size:.7rem;color:var(--text3);margin-top:6px">讀取時間：${escapeHtml(new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}；「未查到」不代表尚未執行。</div></div>`:''}
     <p style="color:var(--text3);font-size:.8rem">依可查證日期排列；品檢結果及領料狀態顯示目前紀錄，不代表完整的歷次狀態變更。沒有紀錄不等於尚未執行。</p>
     ${issues.map(x=>`<div class="info-box info-warn">${escapeHtml(x)}</div>`).join('')}
     <ol style="list-style:none;margin:16px 0;padding:0 0 0 14px;border-left:2px solid var(--border)">${events.map(e=>`<li style="position:relative;padding:0 0 20px 10px"><span style="position:absolute;left:-20px;top:5px;width:10px;height:10px;background:var(--blue);border-radius:50%"></span><div style="font-size:.75rem;color:var(--text3)">${escapeHtml(orderTimelineDate(e.date))}</div><b>${escapeHtml(e.title)}</b><div style="font-size:.85rem;margin-top:4px">${escapeHtml(e.detail)}</div>${e.url?`<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" class="notion-link">查看原始紀錄 ↗</a>`:''}</li>`).join('')}</ol>
@@ -16908,7 +16941,14 @@ async function openOrderTimeline(id){
     if(qc.status==='fulfilled'&&!qc.value.length)issues.push('未找到直接關聯的品檢紀錄。');
     const events=orderTimelineEvents(order,picks,qc.status==='fulfilled'?qc.value:[],stock.status==='fulfilled'?stock.value:[],allowNumber);
     if(!active())return;
-    host.innerHTML=renderOrderTimeline(order,events,issues);
+    const sourceSummary=sources.map((result,index)=>{
+      if(index===2&&!allowNumber)return {label:labels[index],result:'未查（單號未確認）'};
+      if(result.status==='rejected')return {label:labels[index],result:'讀取失敗'};
+      const rows=index===0?result.value.rows:result.value;
+      if(!Array.isArray(rows))return {label:labels[index],result:'格式異常'};
+      return {label:labels[index],result:index===0&&rows.length>=5000?`至少 ${rows.length} 筆，可能未完整`:`${rows.length} 筆紀錄${rows.length?'':'（未查到）'}`};
+    });
+    host.innerHTML=renderOrderTimeline(order,events,issues,sourceSummary);
     host.querySelector('[data-timeline-refresh]').onclick=()=>openOrderTimeline(id);
   }catch(e){if(active()){host.innerHTML='<h3>訂單進度暫時無法載入</h3><p>請稍後重新開啟進度，原有訂單作業不受影響。</p><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';}}
 }
