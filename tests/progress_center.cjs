@@ -70,6 +70,24 @@ test('Notion catalog management links and historical selections remain available
   assert.match(ctx.supplyStepOptions('電鍍'),/value="電鍍" selected/);
 });
 
+test('refreshing Notion catalog inside a work form preserves entered values',async()=>{
+  const ctx=setup(),fields={
+    supplyType:{value:'沖壓',innerHTML:''},supplyCreateSupplier:{value:'舊廠',innerHTML:''},
+    supplyTitle:{value:'已填工作'},supplyQuantity:{value:'100'},supplyDue:{value:'2026-10-10T17:00'},
+  };
+  ctx.document.getElementById=id=>fields[id]||null;
+  ctx.pickingWorkerRequest=async()=>({suppliers:[{name:'新廠',source:'notion',work_type_names:['沖壓']}],work_types:[{name:'沖壓',source:'notion'}],templates:[],disabled_work_types:[],notion_links:{suppliers:'https://app.notion.com/p/new'}});
+  ctx.showToast=()=>{};
+  await ctx.supplyRefreshCatalogInForm();
+  assert.equal(fields.supplyTitle.value,'已填工作');
+  assert.equal(fields.supplyQuantity.value,'100');
+  assert.equal(fields.supplyDue.value,'2026-10-10T17:00');
+  assert.equal(fields.supplyType.value,'沖壓');
+  assert.equal(fields.supplyCreateSupplier.value,'舊廠');
+  assert.match(fields.supplyCreateSupplier.innerHTML,/新廠/);
+  assert.match(ctx.supplySupplierField('supplyCreate'),/在 Notion 新增/);
+});
+
 test('removed supply work stays out of daily counts and can be found for restoration', () => {
   const ctx=setup();
   vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'b',title:'誤建加工',work_number:'SC-2',status:'加工中',archived_at:'2026-10-02T00:00:00Z',archived_reason:'建錯',current_step:0,steps:[{type:'噴砂',supplier:'乙廠'}]}]",ctx);

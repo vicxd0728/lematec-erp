@@ -12699,7 +12699,7 @@ function supplyCardFlow(row){
   }).join('')}${hidden&&current+3<steps.length?`<span style="color:var(--text3);font-size:.72rem">→ 尚有 ${steps.length-current-3} 關</span>`:''}</div>`;
 }
 function supplyWorkTypeField(prefix,selected=''){
-  return `<select class="inp" id="${prefix}Type" aria-label="加工工項" onchange="supplyRefreshSupplierChoices('${prefix}')">${supplyStepOptions(selected)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleWorkType('${prefix}')">＋ 新增工項</button><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
+  return `<select class="inp" id="${prefix}Type" aria-label="加工工項" onchange="supplyRefreshSupplierChoices('${prefix}')">${supplyStepOptions(selected)}</select><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn btn-ghost btn-sm" onclick="supplyToggleWorkType('${prefix}')">＋ ERP 快速新增</button>${supplyNotionLinks.work_types?`<a class="btn btn-ghost btn-sm" href="${escapeHtml(supplyNotionLinks.work_types)}" target="_blank" rel="noopener noreferrer">在 Notion 新增 ↗</a>`:''}<button type="button" class="btn btn-ghost btn-sm" onclick="supplyRefreshCatalogInForm()">更新選單</button></div><div id="${prefix}TypeNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}TypeName" maxlength="40" placeholder="輸入加工工項名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveWorkType('${prefix}')">加入</button></div>`;
 }
 function supplySupplierOptions(selected='',type=''){
   const rows=[...supplySuppliers].sort((a,b)=>{
@@ -12710,7 +12710,30 @@ function supplySupplierOptions(selected='',type=''){
   return `<option value="">${selected?'請選供應商':'選擇供應商'}</option>`+rows.map(row=>`<option value="${escapeHtml(row.name)}" ${selected===row.name?'selected':''}>${row.work_type_names?.includes(type)&&type?'✓ ':''}${escapeHtml(row.name)}${row.work_type_names?.length?' · '+escapeHtml(row.work_type_names.join('、')):''}</option>`).join('');
 }
 function supplySupplierField(prefix,selected='',type=''){
-  return `<select class="inp" id="${prefix}Supplier" aria-label="供應商">${supplySupplierOptions(selected,type)}</select><button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="supplyToggleSupplier('${prefix}')">＋ 快速新增供應商</button><div id="${prefix}SupplierNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}SupplierName" maxlength="120" placeholder="輸入供應商名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveSupplier('${prefix}')">加入</button></div>`;
+  return `<select class="inp" id="${prefix}Supplier" aria-label="供應商">${supplySupplierOptions(selected,type)}</select><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn btn-ghost btn-sm" onclick="supplyToggleSupplier('${prefix}')">＋ ERP 快速新增</button>${supplyNotionLinks.suppliers?`<a class="btn btn-ghost btn-sm" href="${escapeHtml(supplyNotionLinks.suppliers)}" target="_blank" rel="noopener noreferrer">在 Notion 新增 ↗</a>`:''}<button type="button" class="btn btn-ghost btn-sm" onclick="supplyRefreshCatalogInForm()">更新選單</button></div><div id="${prefix}SupplierNew" style="display:none;gap:6px;margin-top:7px"><input class="inp" id="${prefix}SupplierName" maxlength="120" placeholder="輸入供應商名稱"><button type="button" class="btn btn-blue btn-sm" onclick="supplySaveSupplier('${prefix}')">加入</button></div>`;
+}
+function supplyApplyCatalog(catalog){
+  supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
+  supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
+  supplyWorkTypes=Array.isArray(catalog.work_types)?catalog.work_types:[];
+  supplyDisabledWorkTypes=Array.isArray(catalog.disabled_work_types)?catalog.disabled_work_types:[];
+  supplyNotionLinks=catalog.notion_links||{};
+  supplyNotionError=catalog.notion_error||'';
+}
+async function supplyRefreshCatalogInForm(){
+  try{
+    const catalog=await pickingWorkerRequest('/api/supply/catalog');
+    supplyApplyCatalog(catalog);
+    for(const prefix of ['supply','supplyNext','supplyInsert','supplyEdit']){
+      const select=document.getElementById(`${prefix}Type`);
+      if(select){const selected=select.value;select.innerHTML=supplyStepOptions(selected);select.value=selected;}
+    }
+    for(const prefix of ['supplyCreate','supplyNext','supplyInsert','supplyEdit','supplyAdvance']){
+      const select=document.getElementById(`${prefix}Supplier`);
+      if(select){const selected=select.value,typePrefix=prefix==='supplyCreate'?'supply':prefix;const type=document.getElementById(`${typePrefix}Type`)?.value||'';select.innerHTML=supplySupplierOptions(selected,type);select.value=selected;}
+    }
+    showToast(supplyNotionError?'ERP 清單已更新；Notion 主檔暫時無法讀取':'✅ 供應商與工項選單已更新，表單內容保留',supplyNotionError?'warn':'ok');
+  }catch(error){showToast('更新選單失敗：'+error.message+'；表單內容已保留','err');}
 }
 function supplyRefreshSupplierChoices(typePrefix){
   const supplierPrefix=typePrefix==='supply'?'supplyCreate':typePrefix;
@@ -12737,12 +12760,7 @@ async function loadSupplyChain(force=false){
       pickingWorkerRequest('/api/supply/catalog'),
     ]);
     supplyJobs=Array.isArray(jobs.rows)?jobs.rows:[];
-    supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
-    supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
-    supplyWorkTypes=Array.isArray(catalog.work_types)?catalog.work_types:[];
-    supplyDisabledWorkTypes=Array.isArray(catalog.disabled_work_types)?catalog.disabled_work_types:[];
-    supplyNotionLinks=catalog.notion_links||{};
-    supplyNotionError=catalog.notion_error||'';
+    supplyApplyCatalog(catalog);
     supplyLoaded=true;
   }catch(error){supplyError=error.message||String(error);}
   finally{supplyLoading=false;if(CURRENT_TAB==='schedule'&&progressCenterView==='supply'&&!isModalOpen())renderTab('schedule');}
