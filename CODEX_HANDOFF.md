@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center LOOP/GRILL Five Rounds 2026-10-03
+
+- `ERP_PROGRESS_CENTER_LOOP_GRILL_FIVE_ROUNDS_2026-10-03.md` records five distinct journeys with ten simulated senior-role perspectives; no actual employees were interviewed.
+- Supply jobs remain readable if the optional supplier/work-type catalog fails, while a failed jobs read still hides old figures. The pending handoff metric/filter includes `待品檢`; the seven-day metric includes either whole-process or current-stage due dates, counting each job once.
+- Empty filtered order/supply lists offer a one-click reset. Existing formal order association, inbound/QC, inventory, supply write permissions, and read-only role guards are unchanged.
+- Focused/full regression, exact deployment SHA, production asset readback, and authenticated UI acceptance must be reported as separate gates.
+
 ## Progress Center Five-Round Review 2026-10-03
 
 - `ERP_PROGRESS_CENTER_FIVE_ROUNDS_2026-10-03.md` records five distinct operator journeys reviewed through ten simulated senior-role perspectives, not real staff interviews. Rounds cover supply list reachability, historical-step search, order-linked hidden/archived work, misleading all-type order-list title, and failed-refresh recovery.

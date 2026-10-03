@@ -400,6 +400,54 @@ test('supply refresh hides old figures and an error can retry on the next visit'
   assert.equal(vm.runInContext('supplyError',ctx),'');
 });
 
+test('supply jobs remain usable when the optional catalog refresh fails',async()=>{
+  const ctx=setup();ctx.isModalOpen=()=>false;
+  ctx.pickingWorkerRequest=async path=>path==='/api/supply/jobs'
+    ?{rows:[{id:'job-1',title:'沖壓',work_number:'SC-1',status:'加工中',current_step:0,steps:[{type:'沖壓',supplier:'甲廠'}]}]}
+    :Promise.reject(new Error('主檔暫時無法讀取'));
+  await ctx.loadSupplyChain();
+  const rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/SC-1/);
+  assert.match(rendered,/主檔暫時無法更新/);
+  assert.doesNotMatch(rendered,/供應鏈資料載入失敗/);
+  assert.equal(vm.runInContext('supplyLoaded',ctx),true);
+  ctx.pickingWorkerRequest=async path=>path==='/api/supply/jobs'
+    ?Promise.reject(new Error('工作清單無法讀取'))
+    :{suppliers:[]};
+  await ctx.loadSupplyChain(true);
+  assert.match(ctx.renderSupplyChainFoundation(),/供應鏈資料載入失敗/);
+  assert.doesNotMatch(ctx.renderSupplyChainFoundation(),/SC-1/);
+});
+
+test('stage due date and inbound QC handoff are visible in supply overview',()=>{
+  const ctx=setup();
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'stage',title:'本關快到期',work_number:'SC-STAGE',status:'加工中',due_date:'2026-10-20',current_step:0,steps:[{type:'沖壓',supplier:'甲廠',due_at:'2026-10-04T09:00:00Z'}]},{id:'qc',title:'品檢交接',work_number:'SC-QC',status:'待品檢',current_step:1,steps:[{type:'清洗',supplier:'乙廠'}]}]",ctx);
+  assert.equal(ctx.supplyUpcomingDeadline(ctx.supplyFind('stage'),'2026-10-02','2026-10-09'),true);
+  ctx.taipeiDateKey=date=>date.toISOString().slice(0,10);
+  assert.equal(ctx.supplyUpcomingDeadline(ctx.supplyFind('stage'),'2026-10-02','2026-10-03'),false);
+  ctx.taipeiDateKey=()=> '2026-10-09';
+  const rendered=ctx.renderSupplyChainFoundation();
+  assert.match(rendered,/7 天內到期（全程／本關）<\/div><strong[^>]*>1<\/strong>/);
+  assert.match(rendered,/待決定／入料／品檢<\/div><strong[^>]*>1<\/strong>/);
+  ctx.supplySetFilter('pending');
+  const filtered=ctx.renderSupplyChainFoundation();
+  assert.match(filtered,/SC-QC/);
+  assert.doesNotMatch(filtered,/SC-STAGE/);
+});
+
+test('empty filtered order and supply lists offer a one-click reset',()=>{
+  const ctx=setup([{id:'order-1',no:'ORD-1',orderType:'國內',status:'待排程'}]);
+  ctx.setProgressCenterSearch('找不到');
+  assert.match(ctx.renderProgressOrders(),/onclick="progressResetFilters\(\)"/);
+  ctx.progressResetFilters();
+  assert.match(ctx.renderProgressOrders(),/ORD-1/);
+  vm.runInContext("supplyLoaded=true;supplyJobs=[{id:'job-1',title:'加工',work_number:'SC-1',status:'加工中',current_step:0,steps:[]}]",ctx);
+  ctx.supplySetSearch('找不到');
+  assert.match(ctx.renderSupplyChainFoundation(),/onclick="supplyResetFilters\(\)"/);
+  ctx.supplyResetFilters();
+  assert.match(ctx.renderSupplyChainFoundation(),/SC-1/);
+});
+
 test('supply sorting prioritizes due work and retains recent-update alternative',()=>{
   const ctx=setup();
   const rows=[
