@@ -23,8 +23,8 @@ function setup(orders = []) {
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
     pill: status => `<span>${status}</span>`,
     orderProductName: order => order.product,
-    isShopeeProductionOrder: order => order.orderType === '蝦皮',
-    isSfgProductionOrder: order => order.orderType === '半成品',
+    isShopeeProductionOrder: order => ['shopee','蝦皮'].includes(order.orderType) || (!order.orderType && String(order.matCode||order.product||'').startsWith('S-')),
+    isSfgProductionOrder: order => ['sfg','半成品'].includes(order.orderType) || (!order.orderType && String(order.no||'').startsWith('SFG-')),
     todayStr: () => '2026-10-02',
     taipeiDateKey: () => '2026-10-09',
     isFresh: () => true,
@@ -181,6 +181,28 @@ test('order progress exposes inspection exceptions, missing deadlines and action
   rendered=ctx.renderProgressOrders();
   assert.match(rendered,/NO-DUE/);
   assert.doesNotMatch(rendered,/QC-EX/);
+});
+
+test('order progress counts domestic and foreign customers but excludes assembly and Shopee work',()=>{
+  const ctx=setup([
+    {id:'d',no:'ORD-D',orderType:'國內',status:'待排程',deadline:'2026-10-03',product:'Y-D'},
+    {id:'f',no:'ORD-F',orderType:'overseas',status:'生產中',deadline:'2026-10-04',product:'Y-F'},
+    {id:'legacy',no:'ORD-OLD',status:'待檢驗',deadline:'',product:'Y-OLD'},
+    {id:'assembly',no:'SFG-1',orderType:'半成品',status:'待排程',deadline:'2026-10-01',product:'Y-SFG'},
+    {id:'shopee',no:'ORD-S',orderType:'蝦皮',status:'待排程',deadline:'2026-10-01',product:'S-Y-S'},
+    {id:'legacySfg',no:'SFG-OLD',status:'待排程',deadline:'2026-10-01',product:'Y-SFG'},
+    {id:'legacyShopee',no:'ORD-S-OLD',status:'待排程',deadline:'2026-10-01',matCode:'S-Y-S'},
+    {id:'unknown',no:'ORD-X',orderType:'other',status:'待排程',deadline:'2026-10-01',product:'Y-X'},
+  ]);
+  let rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/國內／國外訂單待辦/);
+  for(const no of ['ORD-D','ORD-F','ORD-OLD'])assert.match(rendered,new RegExp(no));
+  for(const no of ['SFG-1','ORD-S','SFG-OLD','ORD-S-OLD','ORD-X'])assert.doesNotMatch(rendered,new RegExp(no));
+  assert.match(rendered,/國內訂單/);
+  assert.match(rendered,/國外訂單/);
+  ctx.setProgressCenterFilter('overdue');
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/目前沒有符合條件的進行中訂單/);
 });
 
 test('original production schedule remains available in its own view', () => {

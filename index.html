@@ -12587,12 +12587,17 @@ function setProgressCenterSearch(value){
   if(CURRENT_TAB==='schedule')renderTab('schedule');
 }
 
+function progressIsCustomerOrder(o){
+  if(isShopeeProductionOrder(o)||isSfgProductionOrder(o))return false;
+  const type=String(o?.orderType||'').trim().toLowerCase();
+  return !type||['overseas','國外','domestic','國內'].includes(type);
+}
 function progressOrderKind(o){
-  return isShopeeProductionOrder(o)?'蝦皮補庫':isSfgProductionOrder(o)?'組立單':'客戶訂單';
+  return ['domestic','國內'].includes(String(o?.orderType||'').trim().toLowerCase())?'國內訂單':'國外訂單';
 }
 function progressOrderNextAction(o){
-  if(o.status==='待排程')return isShopeeProductionOrder(o)?'業務／倉管／採購：轉入蝦皮庫存':isSfgProductionOrder(o)?'倉管／採購：確認子件並領料':'倉管／採購：確認領料或排程';
-  if(o.status==='生產中')return isShopeeProductionOrder(o)?'倉管／採購：完成補庫入庫':isSfgProductionOrder(o)?'品管／主管：確認組立完成與母件入庫':'倉管／採購：追蹤生產並送檢';
+  if(o.status==='待排程')return '倉管／採購：確認領料或排程';
+  if(o.status==='生產中')return '倉管／採購：追蹤生產並送檢';
   return {'待檢驗':'品管：確認檢驗結果','品檢異常':'品管：處理異常並安排重檢','待出貨':'業務／倉管：安排出貨'}[o.status]||'請核對目前狀態';
 }
 
@@ -12608,7 +12613,7 @@ function renderProgressCenter(){
 function renderProgressOrders(){
   if(!window._coreLoaded&&!orders.length)return '<div class="info-warn" role="status">訂單資料尚未載入，暫不顯示進度數字；請等待主資料載入或使用右上角同步。</div>';
   const today=todayStr();
-  const active=orders.filter(o=>o.status!=='已完成'&&o.status!=='取消');
+  const active=orders.filter(o=>progressIsCustomerOrder(o)&&o.status!=='已完成'&&o.status!=='取消');
   const overdue=active.filter(o=>o.deadline&&o.deadline<today);
   const soon=active.filter(o=>o.deadline&&o.deadline>=today&&o.deadline<=taipeiDateKey(new Date(Date.now()+7*86400000)));
   const noDeadline=active.filter(o=>!o.deadline);
@@ -12638,7 +12643,7 @@ function renderProgressOrders(){
   };
   return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color,filter])=>`<button type="button" class="panel" style="padding:14px;text-align:left;cursor:pointer;border-color:${progressCenterFilter===filter?color:'var(--border)'}" aria-pressed="${progressCenterFilter===filter}" onclick="setProgressCenterFilter('${filter}')"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></button>`).join('')}</div>
     <div class="panel" style="padding:16px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>訂單待辦一覽</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；此處只彙整既有訂單，領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部進行中'],['overdue','已逾交期'],['soon','7 天內交期'],['missingDue','未填交期'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
       ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,40).map(o=>{
         const late=o.deadline&&o.deadline<today;
