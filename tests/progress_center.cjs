@@ -61,8 +61,13 @@ test('Notion catalog management links and historical selections remain available
   ctx.supplyOpenCatalog();
   assert.match(modal.innerHTML,/在 Notion 管理供應商/);
   assert.match(modal.innerHTML,/在 Notion 管理加工工項/);
+  assert.match(modal.innerHTML,/甲廠/);
+  assert.match(modal.innerHTML,/可承接：電鍍/);
   assert.match(ctx.supplySupplierOptions('舊廠','電鍍'),/value="舊廠" selected/);
   assert.match(ctx.supplyStepOptions('舊工項'),/value="舊工項" selected/);
+  vm.runInContext("supplyDisabledWorkTypes=['電鍍']",ctx);
+  assert.doesNotMatch(ctx.supplyStepOptions(),/電鍍/);
+  assert.match(ctx.supplyStepOptions('電鍍'),/value="電鍍" selected/);
 });
 
 test('removed supply work stays out of daily counts and can be found for restoration', () => {

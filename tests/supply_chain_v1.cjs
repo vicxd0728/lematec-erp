@@ -88,7 +88,7 @@ function harness({notionTypes=[],notionSuppliers=[],notionFails=false}={}){
     const response=await ctx.erpSupplyCatalog(new Request('https://erp.test/api/supply/catalog'),{NOTION_TOKEN:'fixture-only'},{});
     return {status:response.status,data:await response.json()};
   };
-  return {call,catalog,jobs,templates,workTypes,materials,receipts,inventoryWrites};
+  return {call,catalog,jobs,suppliers,templates,workTypes,materials,receipts,inventoryWrites};
 }
 
 test('Notion catalog adds active suppliers and linked work types without duplicating ERP names',async()=>{
@@ -106,10 +106,32 @@ test('Notion catalog adds active suppliers and linked work types without duplica
   assert.match(result.data.notion_links.suppliers,/app\.notion\.com/);
   const created=await h.call({action:'create',operation_id:op(307),title:'測試工項',steps:[{type:'精密清洗',supplier:'甲供應商'}]},{NOTION_TOKEN:'fixture-only'});
   assert.equal(created.status,200);
-  await h.call({action:'add_supplier',operation_id:op(305),name:'甲供應商'});
+  const repeated=await h.call({action:'add_supplier',operation_id:op(305),name:'甲供應商'},{NOTION_TOKEN:'fixture-only'});
+  assert.equal(repeated.data.existing,true);
+  assert.equal(h.suppliers.size,0);
   result=await h.catalog();
   assert.equal(result.data.suppliers.length,1);
   assert.equal(result.data.suppliers[0].source,'notion');
+});
+
+test('disabled Notion entries disappear for new work while an existing step remains editable',async()=>{
+  const page=(id,name,active,extra={})=>({id,archived:false,properties:{'名稱':{title:[{plain_text:name}]},'啟用':{checkbox:active},...extra}});
+  const h=harness({notionTypes:[page(op(320),'沖壓',false)],notionSuppliers:[page(op(321),'甲廠',false)]});
+  const id=op(322);
+  let result=await h.call({action:'create',operation_id:id,title:'舊工作',steps:[{type:'沖壓',supplier:'甲廠'}]});
+  assert.equal(result.status,200);
+  result=await h.catalog();
+  assert.deepEqual(result.data.disabled_work_types,['沖壓']);
+  assert.equal(result.data.suppliers.some(row=>row.name==='甲廠'),false);
+  result=await h.call({action:'create',operation_id:op(323),title:'新工作',steps:[{type:'沖壓',supplier:'甲廠'}]},{NOTION_TOKEN:'fixture-only'});
+  assert.notEqual(result.status,200);
+  result=await h.call({action:'add_work_type',operation_id:op(324),name:'沖壓'},{NOTION_TOKEN:'fixture-only'});
+  assert.equal(result.status,400);
+  result=await h.call({action:'add_supplier',operation_id:op(325),name:'甲廠'},{NOTION_TOKEN:'fixture-only'});
+  assert.equal(result.status,400);
+  result=await h.call({action:'edit',operation_id:op(326),job_id:id,expected_version:1,title:'舊工作',quantity:12,due_date:'2026-10-10',step:{type:'沖壓',supplier:'甲廠'}},{NOTION_TOKEN:'fixture-only'});
+  assert.equal(result.status,200);
+  assert.equal(result.data.row.quantity,12);
 });
 
 test('Notion outage leaves ERP catalog available and exposes a read error',async()=>{

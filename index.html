@@ -12632,6 +12632,7 @@ let supplyJobs=[];
 let supplySuppliers=[];
 let supplyTemplates=[];
 let supplyWorkTypes=[];
+let supplyDisabledWorkTypes=[];
 let supplyNotionLinks={};
 let supplyNotionError='';
 let supplyLoaded=false;
@@ -12677,7 +12678,8 @@ function supplyWholeOverdue(job,today=todayStr()){
   return job.due_at?new Date(job.due_at).getTime()<Date.now():!!job.due_date&&job.due_date<today;
 }
 function supplyStepOptions(selected=''){
-  const types=[...new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)])];
+  const disabled=new Set(supplyDisabledWorkTypes.map(name=>name.toLocaleLowerCase()));
+  const types=[...new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)].filter(name=>!disabled.has(name.toLocaleLowerCase())))];
   if(selected&&!types.includes(selected))types.push(selected);
   return `<option value="">選擇工項</option>`+types.map(type=>`<option value="${escapeHtml(type)}" ${selected===type?'selected':''}>${escapeHtml(type)}</option>`).join('');
 }
@@ -12720,7 +12722,10 @@ function supplyRefreshSupplierChoices(typePrefix){
 }
 function supplyOpenCatalog(){
   const link=(url,label)=>url?`<a class="btn btn-ghost btn-sm" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`:'';
-  supplyModal(`<h3>管理供應商與加工工項</h3><p style="color:var(--text2)">在 Notion 新增或修改後，勾選「啟用」，回 ERP 按「重新整理」就會更新選單。供應商可在「可承接工項」連結工項；這項連結會在選擇供應商時優先提示。</p>${supplyNotionError?`<div class="info-warn" role="alert">${escapeHtml(supplyNotionError)}；目前只顯示 ERP 已建立的項目。</div>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${link(supplyNotionLinks.suppliers,'在 Notion 管理供應商')}${link(supplyNotionLinks.work_types,'在 Notion 管理加工工項')}</div><div style="font-size:.8rem;color:var(--text2)">目前選單：${supplySuppliers.length} 家供應商、${supplyWorkTypes.length+SUPPLY_WORK_TYPES.filter(name=>!supplyWorkTypes.some(row=>row.name===name)).length} 種工項。ERP 的快速新增仍可立即使用；原有工作紀錄不會因主檔修改而改寫。</div><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button class="btn btn-blue" onclick="closeModal();loadSupplyChain(true)">重新整理</button></div>`);
+  const disabled=new Set(supplyDisabledWorkTypes.map(name=>name.toLocaleLowerCase()));
+  const typeCount=new Set([...SUPPLY_WORK_TYPES,...supplyWorkTypes.map(row=>row.name)].filter(name=>!disabled.has(name.toLocaleLowerCase()))).size;
+  const supplierRows=supplySuppliers.slice(0,30).map(row=>`<div style="border-top:1px solid var(--border);padding:8px 0;font-size:.78rem"><strong>${escapeHtml(row.name)}</strong> <span style="color:var(--text3)">· ${row.source==='notion'?'Notion':'ERP 快速新增'}</span>${row.notion_url?` <a href="${escapeHtml(row.notion_url)}" target="_blank" rel="noopener noreferrer">編輯 ↗</a>`:''}<div style="color:var(--text2);margin-top:3px">${row.work_type_names?.length?'可承接：'+escapeHtml(row.work_type_names.join('、')):'尚未標註可承接工項'}</div></div>`).join('');
+  supplyModal(`<h3>管理供應商與加工工項</h3><p style="color:var(--text2)">在 Notion 新增或修改後，勾選「啟用」，回 ERP 按「重新整理」就會更新選單。供應商可在「可承接工項」連結工項；這項連結會在選擇供應商時優先提示。</p>${supplyNotionError?`<div class="info-warn" role="alert">${escapeHtml(supplyNotionError)}；目前只顯示 ERP 已建立的項目。</div>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${link(supplyNotionLinks.suppliers,'在 Notion 管理供應商')}${link(supplyNotionLinks.work_types,'在 Notion 管理加工工項')}</div><div style="font-size:.8rem;color:var(--text2)">目前選單：${supplySuppliers.length} 家供應商、${typeCount} 種工項。ERP 的快速新增仍可立即使用；原有工作紀錄不會因主檔修改而改寫。</div><div style="margin-top:12px"><strong>目前供應商與工項關聯</strong>${supplierRows||'<div style="color:var(--text3);font-size:.78rem;margin-top:8px">尚未建立供應商；可從 Notion 名單新增。</div>'}${supplySuppliers.length>30?`<div style="font-size:.75rem;color:var(--text3)">此處顯示前 30 家；完整名單請開啟 Notion。</div>`:''}</div><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button class="btn btn-blue" onclick="closeModal();loadSupplyChain(true)">重新整理</button></div>`);
 }
 async function loadSupplyChain(force=false){
   if(supplyLoading||(!force&&supplyLoaded))return;
@@ -12735,6 +12740,7 @@ async function loadSupplyChain(force=false){
     supplySuppliers=Array.isArray(catalog.suppliers)?catalog.suppliers:[];
     supplyTemplates=Array.isArray(catalog.templates)?catalog.templates:[];
     supplyWorkTypes=Array.isArray(catalog.work_types)?catalog.work_types:[];
+    supplyDisabledWorkTypes=Array.isArray(catalog.disabled_work_types)?catalog.disabled_work_types:[];
     supplyNotionLinks=catalog.notion_links||{};
     supplyNotionError=catalog.notion_error||'';
     supplyLoaded=true;
@@ -12820,9 +12826,11 @@ function supplyToggleWorkType(prefix){
 async function supplySaveWorkType(prefix){
   const name=(document.getElementById(`${prefix}TypeName`)?.value||'').trim();
   if(!name)return showToast('請先輸入加工工項名稱','warn');
+  if(supplyDisabledWorkTypes.some(item=>item.toLocaleLowerCase()===name.toLocaleLowerCase()))return showToast('此工項已在 Notion 停用，請到主檔重新啟用','warn');
   try{
-    const row=await supplyWrite('add_work_type',null,{name});
-    if(!supplyWorkTypes.some(item=>item.id===row.id))supplyWorkTypes.push(row);
+    const existing=[...SUPPLY_WORK_TYPES.map(item=>({name:item})),...supplyWorkTypes].find(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+    const row=existing||await supplyWrite('add_work_type',null,{name});
+    if(!existing&&!supplyWorkTypes.some(item=>item.name.toLocaleLowerCase()===row.name.toLocaleLowerCase()))supplyWorkTypes.push(row);
     for(const id of ['supplyType','supplyNextType','supplyInsertType','supplyEditType']){
       const select=document.getElementById(id);
       if(select){const selected=id===`${prefix}Type`?row.name:select.value;select.innerHTML=supplyStepOptions(selected);select.value=selected;}
@@ -12836,8 +12844,9 @@ async function supplySaveSupplier(prefix){
   const name=(field?.value||'').trim();
   if(!name){showToast('請先輸入供應商名稱','warn');return;}
   try{
-    const row=await supplyWrite('add_supplier',null,{name});
-    if(!supplySuppliers.some(item=>item.id===row.id))supplySuppliers.push(row);
+    const existing=supplySuppliers.find(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+    const row=existing||await supplyWrite('add_supplier',null,{name});
+    if(!supplySuppliers.some(item=>item.name.toLocaleLowerCase()===row.name.toLocaleLowerCase()))supplySuppliers.push(row);
     const select=document.getElementById(`${prefix}Supplier`);
     if(select){select.innerHTML=supplySupplierOptions(row.name);select.value=row.name;}
     supplyToggleSupplier(prefix);

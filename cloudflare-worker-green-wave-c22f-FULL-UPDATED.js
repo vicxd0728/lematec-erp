@@ -3813,26 +3813,31 @@ function supplyEvent(operationId, action, role, detail = {}) {
 async function supplyGetJob(env, organizationId, id) {
   return supabaseSingle(env, `/rest/v1/erp_supply_jobs?organization_id=eq.${encodeURIComponent(organizationId)}&id=eq.${encodeURIComponent(id)}&select=${ERP_SUPPLY_JOB_SELECT}&limit=1`, true);
 }
-async function supplyAllowedTypes(env, organizationId) {
+async function supplyAllowedTypes(env, organizationId, preservedTypes=[]) {
   const rows=await supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${encodeURIComponent(organizationId)}&select=name&limit=1000`);
   const notion=await supplyNotionCatalog(env);
-  return new Set([...ERP_SUPPLY_TYPES,...(Array.isArray(rows)?rows.map(row=>row.name):[]),...notion.work_types.map(row=>row.name)]);
+  const disabled=new Set(notion.disabled_work_types.map(name=>name.toLocaleLowerCase()));
+  return new Set([...ERP_SUPPLY_TYPES,...(Array.isArray(rows)?rows.map(row=>row.name):[])].filter(name=>!disabled.has(name.toLocaleLowerCase())).concat(notion.work_types.map(row=>row.name),preservedTypes));
 }
 function supplyNotionTitle(page){return (page?.properties?.['名稱']?.title||[]).map(part=>part.plain_text||part.text?.content||'').join('').trim();}
 async function supplyNotionCatalog(env){
   const token=env.NOTION_TOKEN||env.ERP_NOTION_TOKEN;
   const links={suppliers:`https://app.notion.com/p/${ERP_SUPPLY_NOTION_SUPPLIERS_DB.replace(/-/g,'')}`,work_types:`https://app.notion.com/p/${ERP_SUPPLY_NOTION_TYPES_DB.replace(/-/g,'')}`};
-  if(!token)return {suppliers:[],work_types:[],links,error:'Worker 尚未設定 Notion 讀取憑證'};
+  if(!token)return {suppliers:[],work_types:[],disabled_work_types:[],disabled_suppliers:[],links,error:'Worker 尚未設定 Notion 讀取憑證'};
   try{
     const [typePages,supplierPages]=await Promise.all([notionQueryAll(token,ERP_SUPPLY_NOTION_TYPES_DB),notionQueryAll(token,ERP_SUPPLY_NOTION_SUPPLIERS_DB)]);
     const allTypes=new Map(typePages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===true).map(page=>[page.id,supplyNotionTitle(page)]));
+    const activeTypeNames=new Set([...allTypes.values()].map(name=>name.toLocaleLowerCase()));
+    const disabled_work_types=typePages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===false).map(supplyNotionTitle).filter(name=>name&&!activeTypeNames.has(name.toLocaleLowerCase()));
     const work_types=[...allTypes.entries()].filter(([,name])=>name).map(([id,name])=>({id,name,notion_page_id:id,notion_url:`https://app.notion.com/p/${id.replace(/-/g,'')}`,source:'notion'}));
     const suppliers=supplierPages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===true).map(page=>({
       id:page.id,name:supplyNotionTitle(page),notion_page_id:page.id,notion_url:`https://app.notion.com/p/${page.id.replace(/-/g,'')}`,source:'notion',
       work_type_names:(page.properties?.['可承接工項']?.relation||[]).map(link=>allTypes.get(link.id)).filter(Boolean),
     })).filter(row=>row.name);
-    return {suppliers,work_types,links,error:null};
-  }catch(error){return {suppliers:[],work_types:[],links,error:`Notion 主檔暫時無法讀取：${error.message}`};}
+    const activeSupplierNames=new Set(suppliers.map(row=>row.name.toLocaleLowerCase()));
+    const disabled_suppliers=supplierPages.filter(page=>!page.archived&&page.properties?.['啟用']?.checkbox===false).map(supplyNotionTitle).filter(name=>name&&!activeSupplierNames.has(name.toLocaleLowerCase()));
+    return {suppliers,work_types,disabled_work_types,disabled_suppliers,links,error:null};
+  }catch(error){return {suppliers:[],work_types:[],disabled_work_types:[],disabled_suppliers:[],links,error:`Notion 主檔暫時無法讀取：${error.message}`};}
 }
 async function erpSupplyJobs(request, env, cors) {
   try {
@@ -3857,12 +3862,13 @@ async function erpSupplyCatalog(request, env, cors) {
       supabaseFetch(env,`/rest/v1/erp_supply_work_types?organization_id=eq.${id}&select=id,name,created_at&order=name.asc&limit=1000`),
       supplyNotionCatalog(env),
     ]);
-    const merge=(base,linked)=>{
-      const byName=new Map((Array.isArray(base)?base:[]).map(row=>[row.name.trim().toLocaleLowerCase(),{...row,source:'erp'}]));
+    const merge=(base,linked,disabledNames=[])=>{
+      const disabled=new Set(disabledNames.map(name=>name.toLocaleLowerCase()));
+      const byName=new Map((Array.isArray(base)?base:[]).filter(row=>!disabled.has(row.name.trim().toLocaleLowerCase())).map(row=>[row.name.trim().toLocaleLowerCase(),{...row,source:'erp'}]));
       for(const row of linked)byName.set(row.name.trim().toLocaleLowerCase(),{...(byName.get(row.name.trim().toLocaleLowerCase())||{}),...row});
       return [...byName.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-TW'));
     };
-    return respOK(cors,{ok:true,suppliers:merge(suppliers,notion.suppliers),templates,work_types:merge(workTypes,notion.work_types),notion_links:notion.links,notion_error:notion.error});
+    return respOK(cors,{ok:true,suppliers:merge(suppliers,notion.suppliers,notion.disabled_suppliers),templates,work_types:merge(workTypes,notion.work_types,notion.disabled_work_types),disabled_work_types:notion.disabled_work_types,notion_links:notion.links,notion_error:notion.error});
   } catch (error) { return resp500(cors,error.message); }
 }
 async function erpSupplyWrite(request, env, cors) {
@@ -3880,6 +3886,10 @@ async function erpSupplyWrite(request, env, cors) {
     if (action==='add_supplier') {
       const name=supplyText(body?.name,120);
       if (!name) return resp400(cors,'請輸入供應商名稱');
+      const notion=await supplyNotionCatalog(env);
+      if(notion.disabled_suppliers.some(item=>item.toLocaleLowerCase()===name.toLocaleLowerCase()))return resp400(cors,'此供應商已在 Notion 停用；請到主檔重新啟用或使用其他名稱');
+      const linked=notion.suppliers.find(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+      if(linked)return respOK(cors,{ok:true,existing:true,row:linked});
       const id=await deterministicUuid(`${organizationId}:supply-supplier:${name.toLocaleLowerCase()}`);
       await supabaseFetch(env,'/rest/v1/erp_supply_suppliers?on_conflict=id',{
         method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
@@ -3891,6 +3901,10 @@ async function erpSupplyWrite(request, env, cors) {
     if (action==='add_work_type') {
       const name=supplyText(body?.name,40);
       if (!name) return resp400(cors,'請輸入加工工項名稱');
+      const notion=await supplyNotionCatalog(env);
+      if(notion.disabled_work_types.some(item=>item.toLocaleLowerCase()===name.toLocaleLowerCase()))return resp400(cors,'此工項已在 Notion 停用；請到主檔重新啟用或使用其他名稱');
+      const linked=notion.work_types.find(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+      if(linked)return respOK(cors,{ok:true,existing:true,row:linked});
       const id=await deterministicUuid(`${organizationId}:supply-work-type:${name.toLocaleLowerCase()}`);
       await supabaseFetch(env,'/rest/v1/erp_supply_work_types?on_conflict=id',{
         method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},
@@ -3987,7 +4001,7 @@ async function erpSupplyWrite(request, env, cors) {
       const quantity=body?.quantity===null||body?.quantity===undefined||body?.quantity===''?null:Number(body.quantity);
       const dueDate=supplyText(body?.due_date,10);
       if (!editableStep&&body?.step) return resp400(cors,'已完成工項不可修改');
-      const step=editableStep?supplyStep(body?.step,true,await supplyAllowedTypes(env,organizationId)):steps[index];
+      const step=editableStep?supplyStep(body?.step,true,await supplyAllowedTypes(env,organizationId,[steps[index]?.type].filter(Boolean))):steps[index];
       if (!title||quantity!==null&&(!Number.isFinite(quantity)||quantity<=0||quantity>1e9)||!body?.due_at&&!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return resp400(cors,'工作名稱、數量或整段流程預計完成時間無效');
       const dueAt=supplyDueAt(body?.due_at||(current.due_at&&dueDate===current.due_date?current.due_at:`${dueDate}T23:59:00+08:00`),'整段流程');
       const wholeDueDate=new Date(new Date(dueAt).getTime()+8*3600000).toISOString().slice(0,10);
