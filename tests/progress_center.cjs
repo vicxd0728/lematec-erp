@@ -23,6 +23,8 @@ function setup(orders = []) {
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
     pill: status => `<span>${status}</span>`,
     orderProductName: order => order.product,
+    isShopeeProductionOrder: order => order.orderType === '蝦皮',
+    isSfgProductionOrder: order => order.orderType === '半成品',
     todayStr: () => '2026-10-02',
     taipeiDateKey: () => '2026-10-09',
     isFresh: () => true,
@@ -161,8 +163,50 @@ test('order progress uses only active orders and filters overdue work', () => {
   assert.doesNotMatch(rendered, /ORD-B/);
 });
 
+test('order progress exposes inspection exceptions, missing deadlines and actionable due labels',()=>{
+  const ctx=setup([
+    {id:'a',no:'QC-EX',status:'品檢異常',deadline:'2026-10-01',customer:'甲',product:'Y-A',qty:1},
+    {id:'b',no:'NO-DUE',status:'待排程',deadline:'',customer:'乙',product:'Y-B',qty:2},
+  ]);
+  let rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/品檢異常/);
+  assert.match(rendered,/逾期 1 天/);
+  assert.match(rendered,/品管：處理異常並安排重檢/);
+  assert.match(rendered,/未填交期/);
+  ctx.setProgressCenterFilter('inspection');
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/QC-EX/);
+  assert.doesNotMatch(rendered,/NO-DUE/);
+  ctx.setProgressCenterFilter('missingDue');
+  rendered=ctx.renderProgressOrders();
+  assert.match(rendered,/NO-DUE/);
+  assert.doesNotMatch(rendered,/QC-EX/);
+});
+
 test('original production schedule remains available in its own view', () => {
   const ctx = setup();
   vm.runInContext("progressCenterView='legacy'", ctx);
   assert.match(ctx.renderProgressCenter(), /legacy schedule/);
+});
+
+test('quality and viewer roles can navigate progress center without supply write permission',()=>{
+  const rolesStart=html.indexOf('const ROLES='),rolesEnd=html.indexOf('const TAB_LABELS=',rolesStart);
+  assert(rolesStart>=0&&rolesEnd>rolesStart);
+  const roleCtx=vm.createContext({});
+  vm.runInContext(html.slice(rolesStart,rolesEnd),roleCtx);
+  const roles=vm.runInContext('ROLES',roleCtx);
+  for(const role of ['qc','viewer'])assert(roles[role].tabs.includes('schedule'),`${role} can navigate`);
+  const ctx=setup();
+  for(const role of ['qc','viewer','sales','ai']){
+    ctx.ROLE=role;
+    assert.equal(ctx.canWriteSupplyChain(),false,`${role} cannot write supply jobs`);
+  }
+  ctx.ROLE='qc';
+  assert.doesNotMatch(ctx.renderProgressOrders(),/開啟訂單 →/);
+  ctx.ROLE='viewer';
+  assert.match(ctx.renderProgressOrders(),/開啟訂單 →/);
+  for(const role of ['purchase','warehouse']){
+    ctx.ROLE=role;
+    assert.equal(ctx.canWriteSupplyChain(),true,`${role} can write supply jobs`);
+  }
 });

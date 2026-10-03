@@ -2550,11 +2550,11 @@ const ROLES={
   // 倉管：庫存 + 入料 + 領料執行（發料）
   warehouse:{label:'倉管',  color:'#2ec48a', tabs:['dashboard','ops','orders','inventory','picking','inbound','analytics','announce','notes','videos','leave','stocklog','schedule']},
   // 品管：品管頁操作 + 入料瀏覽
-  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','notes','videos','leave','stocklog']},
+  qc:       {label:'品管',  color:'#f5b942', tabs:['dashboard','ops','qc','inbound','announce','notes','videos','leave','stocklog','schedule']},
   // 採購：兼生管，可查看訂單、領料、排程，並處理生產流程節點
   purchase: {label:'採購',  color:'#a78bfa', tabs:['dashboard','ops','orders','inventory','picking','inbound','analytics','announce','notes','videos','leave','stocklog','schedule']},
   // 檢視：只看主要流程，不具備建立、修改、刪除、審核等操作權限
-  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave']},
+  viewer:   {label:'檢視',  color:'#94a3b8', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','leave','schedule']},
   ai:       {label:'AI',    color:'#22d3ee', tabs:['dashboard','ops','announce','notes','videos','orders','corders','picking','inventory','inbound','qc','schedule','analytics','customers','leave','stocklog','health','permissions']},
 };
 const TAB_LABELS={dashboard:'📊 總覽',ops:'🖥️ 看板',health:'🩺 健康檢查',permissions:'🔐 權限設定',announce:'📢 公告',notes:'📝 記事',videos:'🎬 影音專區',orders:'📋 訂單',corders:'🛒 C端訂單',customers:'🏢 客戶',picking:'🗂️ 領料',inventory:'📦 庫存',inbound:'📥 入料',qc:'✅ 品管',analytics:'📈 營運分析',leave:'🗓️ 請假',stocklog:'📊 異動記錄',schedule:'🧭 進度中心'};
@@ -12577,7 +12577,7 @@ function setProgressCenterView(view){
 }
 
 function setProgressCenterFilter(value){
-  if(!['all','overdue','soon','production','inspection','shipping'].includes(value))return;
+  if(!['all','overdue','soon','missingDue','production','inspection','qcException','shipping'].includes(value))return;
   progressCenterFilter=value;
   if(CURRENT_TAB==='schedule')renderTab('schedule');
 }
@@ -12585,6 +12585,15 @@ function setProgressCenterFilter(value){
 function setProgressCenterSearch(value){
   progressCenterSearch=String(value||'').trim();
   if(CURRENT_TAB==='schedule')renderTab('schedule');
+}
+
+function progressOrderKind(o){
+  return isShopeeProductionOrder(o)?'蝦皮補庫':isSfgProductionOrder(o)?'組立單':'客戶訂單';
+}
+function progressOrderNextAction(o){
+  if(o.status==='待排程')return isShopeeProductionOrder(o)?'業務／倉管／採購：轉入蝦皮庫存':isSfgProductionOrder(o)?'倉管／採購：確認子件並領料':'倉管／採購：確認領料或排程';
+  if(o.status==='生產中')return isShopeeProductionOrder(o)?'倉管／採購：完成補庫入庫':isSfgProductionOrder(o)?'品管／主管：確認組立完成與母件入庫':'倉管／採購：追蹤生產並送檢';
+  return {'待檢驗':'品管：確認檢驗結果','品檢異常':'品管：處理異常並安排重檢','待出貨':'業務／倉管：安排出貨'}[o.status]||'請核對目前狀態';
 }
 
 function renderProgressCenter(){
@@ -12603,27 +12612,37 @@ function renderProgressOrders(){
   const overdue=active.filter(o=>o.deadline&&o.deadline<today);
   const soon=active.filter(o=>o.deadline&&o.deadline>=today&&o.deadline<=taipeiDateKey(new Date(Date.now()+7*86400000)));
   const noDeadline=active.filter(o=>!o.deadline);
-  const counts=[['進行中',active.length,'var(--cyan2)'],['已逾交期',overdue.length,'var(--red)'],['7 天內交期',soon.length,'var(--amber)'],['未填交期',noDeadline.length,'var(--text2)']];
+  const qcExceptions=active.filter(o=>o.status==='品檢異常');
+  const counts=[['進行中',active.length,'var(--cyan2)','all'],['已逾交期',overdue.length,'var(--red)','overdue'],['7 天內交期',soon.length,'var(--amber)','soon'],['品檢異常',qcExceptions.length,'var(--red)','qcException'],['未填交期',noDeadline.length,'var(--text2)','missingDue']];
   const q=progressCenterSearch.toLocaleLowerCase();
   const filtered=active.filter(o=>{
     if(progressCenterFilter==='overdue'&&!(o.deadline&&o.deadline<today))return false;
     if(progressCenterFilter==='soon'&&!(o.deadline&&o.deadline>=today&&o.deadline<=taipeiDateKey(new Date(Date.now()+7*86400000))))return false;
+    if(progressCenterFilter==='missingDue'&&o.deadline)return false;
     if(progressCenterFilter==='production'&&!['待排程','生產中'].includes(o.status))return false;
-    if(progressCenterFilter==='inspection'&&o.status!=='待檢驗')return false;
+    if(progressCenterFilter==='inspection'&&!['待檢驗','品檢異常'].includes(o.status))return false;
+    if(progressCenterFilter==='qcException'&&o.status!=='品檢異常')return false;
     if(progressCenterFilter==='shipping'&&o.status!=='待出貨')return false;
     return !q||[o.no,o.customer,o.cust,o.matCode,o.product].some(v=>String(v||'').toLocaleLowerCase().includes(q));
   }).sort((a,b)=>{
     const ad=a.deadline||'9999-99-99',bd=b.deadline||'9999-99-99';
     return ad.localeCompare(bd)||(b.created||'').localeCompare(a.created||'');
   });
-  const nextAction={'待排程':'確認領料／排程','生產中':'追蹤生產進度','待檢驗':'確認品檢結果','待出貨':'安排出貨'};
-  return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color])=>`<div class="panel" style="padding:14px"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></div>`).join('')}</div>
+  const dueLabel=deadline=>{
+    if(!deadline)return '未填交期';
+    const day=String(deadline).slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return '交期格式待核對';
+    const days=Math.round((Date.parse(`${day}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+    if(!Number.isFinite(days))return '交期格式待核對';
+    return days<0?`逾期 ${-days} 天`:days===0?'今天到期':`剩 ${days} 天`;
+  };
+  return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color,filter])=>`<button type="button" class="panel" style="padding:14px;text-align:left;cursor:pointer;border-color:${progressCenterFilter===filter?color:'var(--border)'}" aria-pressed="${progressCenterFilter===filter}" onclick="setProgressCenterFilter('${filter}')"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></button>`).join('')}</div>
     <div class="panel" style="padding:16px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>訂單待辦一覽</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；此處只彙整既有訂單，領料、品檢及出貨仍在原功能處理。</div></div><button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部進行中'],['overdue','已逾交期'],['soon','7 天內交期'],['production','待領料／生產'],['inspection','待檢驗'],['shipping','待出貨']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>訂單待辦一覽</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；此處只彙整既有訂單，領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部進行中'],['overdue','已逾交期'],['soon','7 天內交期'],['missingDue','未填交期'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
       ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,40).map(o=>{
         const late=o.deadline&&o.deadline<today;
-        return `<div style="border:1px solid ${late?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)}</div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.7rem;color:${late?'var(--red)':'var(--text3)'};margin-top:4px">交期 ${escapeHtml(o.deadline||'未填')} ${late?'· 已逾期':''} · ${escapeHtml(nextAction[o.status]||'查看訂單')}</div></div><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查看進度</button></div>`;
+        return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(dueLabel(o.deadline))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">下一步：${escapeHtml(progressOrderNextAction(o))}</div></div><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查看進度</button></div>`;
       }).join('')}</div>${filtered.length>40?`<div style="color:var(--text3);font-size:.75rem;margin-top:10px">目前顯示前 40 筆；共符合 ${filtered.length} 筆，可用搜尋縮小範圍。</div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
     </div>`;
 }
