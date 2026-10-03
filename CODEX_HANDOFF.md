@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Supply Order Selection 2026-10-03
+
+- Supply work creation and editing now offer matching active orders after an exact, unique SKU is chosen. Domestic/overseas customer orders match the ordered material itself; semi-finished assembly orders match the direct BOM child. Shopee/C-end work and completed/cancelled orders are excluded. A missing BOM load makes assembly-child suggestions incomplete and is disclosed.
+- Selecting a match saves the formal Notion order page ID in the existing `related_order` text field; the UI resolves it back to the order number in work cards and details. Existing free-text associations remain selectable and unchanged until an operator replaces them. A changed SKU clears an incompatible new selection; duplicate material codes suppress automatic matching.
+- The association is metadata only. It does not prove a shortage, reserve stock, create an inbound receipt, or bypass inbound QC. The later order-shortage-to-supply shortcut remains a separate future workflow requiring a stable order ID and shortage SKU.
+
 ## Progress Center Foundation 2026-10-02
 
 - Confirmed business rule: sending or transferring work to an external supplier is **tracking only** and does not deduct main-warehouse inventory. At the end, the operator chooses either (a) inbound, selecting an existing SKU or creating a missing SKU through the current inbound form, followed by normal QC and stock increase only on QC pass, or (b) close as a process record with no inbound and no inventory mutation. This choice is not yet an active workflow button because formal external-work records do not exist.

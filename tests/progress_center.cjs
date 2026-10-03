@@ -23,6 +23,9 @@ function setup(orders = []) {
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
     pill: status => `<span>${status}</span>`,
     orderProductName: order => order.product,
+    mats: [],
+    boms: [],
+    _bomDataReady: false,
     isShopeeProductionOrder: order => ['shopee','蝦皮'].includes(order.orderType) || (!order.orderType && String(order.matCode||order.product||'').startsWith('S-')),
     isSfgProductionOrder: order => ['sfg','半成品'].includes(order.orderType) || (!order.orderType && String(order.no||'').startsWith('SFG-')),
     todayStr: () => '2026-10-02',
@@ -145,6 +148,85 @@ test('selecting a known SKU automatically fills its saved process and keeps quan
   ctx.supplyTitleChanged('Y-B');
   assert.equal(fields.supplyType.value,'');
   assert.doesNotMatch(fields.supplyCreateSteps.innerHTML,/清洗 · 乙廠/);
+});
+
+test('supply order choices match exact customer SKU and assembly child without treating customer BOM as picked stock',()=>{
+  const ctx=setup([
+    {id:'domestic',no:'ORD-D',orderType:'國內',status:'待排程',productId:'mat-a',deadline:'2026-10-05'},
+    {id:'foreign',no:'ORD-F',orderType:'國外',status:'生產中',productId:'mat-a',deadline:'2026-10-04'},
+    {id:'assembly',no:'SFG-1',orderType:'半成品',status:'待排程',productId:'mat-parent',deadline:'2026-10-06'},
+    {id:'finished',no:'ORD-FIN',orderType:'國外',status:'待排程',productId:'mat-parent'},
+    {id:'shopee',no:'ORD-S',orderType:'蝦皮',status:'待排程',productId:'mat-a'},
+    {id:'done',no:'ORD-DONE',orderType:'國內',status:'已完成',productId:'mat-a'},
+    {id:'stale',no:'ORD-STALE',orderType:'國外',status:'待排程',productId:'mat-other',matCode:'Y-A'},
+  ]);
+  ctx.mats=[{id:'mat-a',code:'Y-A'},{id:'mat-parent',code:'F-A'},{id:'mat-other',code:'Y-B'}];
+  ctx.boms=[{parentId:'mat-parent',childId:'mat-a',qty:1}];ctx._bomDataReady=true;
+  const matches=ctx.supplyOrderCandidates('Y-A');
+  assert.deepEqual(matches.map(row=>row.order.id),['foreign','domestic','assembly']);
+  assert.deepEqual(matches.map(row=>row.basis),['訂購料號','訂購料號','組立子件']);
+  const markup=ctx.supplyOrderChooser('Y-A');
+  assert.match(markup,/ORD-D/);assert.match(markup,/ORD-F/);assert.match(markup,/SFG-1/);
+  assert.doesNotMatch(markup,/ORD-FIN|ORD-S|ORD-DONE|ORD-STALE/);
+  assert.match(ctx.supplyOrderChooser('Y-A','legacy order text'),/保留既有關聯：legacy order text/);
+  assert.equal(ctx.supplyRelatedOrderLabel('foreign'),'ORD-F');
+  assert.match(ctx.supplyOrderChooser('Y-A','foreign'),/id="supplyRelatedOrderSummary"/);
+  assert.match(ctx.supplyOrderSummary('Y-A','foreign'),/ORD-F.*訂購料號/);
+  ctx.mats.push({id:'duplicate',code:'Y-A'});
+  assert.equal(ctx.supplyOrderCandidates('Y-A').length,0);
+  assert.match(ctx.supplyOrderChooser('Y-A'),/多筆主檔/);
+  ctx.mats.pop();ctx.window._coreLoaded=false;
+  assert.match(ctx.supplyOrderChooser('Y-A'),/訂單資料尚未載入/);
+});
+
+test('changing the supply SKU clears an unrelated order choice, while editing preserves old text',()=>{
+  const ctx=setup([{id:'order-a',no:'ORD-A',orderType:'國內',status:'待排程',productId:'mat-a'}]);
+  ctx.mats=[{id:'mat-a',code:'Y-A'},{id:'mat-b',code:'Y-B'}];
+  const choice={innerHTML:''},selected={value:'order-a'},hint={textContent:''};
+  ctx.document.getElementById=id=>({supplyOrderChoices:choice,supplyRelatedOrder:selected,supplyAutoFlowHint:hint})[id]||null;
+  ctx.supplyTitleChanged('Y-B');
+  assert.doesNotMatch(choice.innerHTML,/ORD-A/);
+  assert.match(choice.innerHTML,/找到 0 張/);
+  assert.match(ctx.supplyOrderChooser('Y-A','舊訂單備註','supplyEditOrder'),/保留既有關聯：舊訂單備註/);
+  assert.match(ctx.supplyOrderChooser('不存在的料號'),/料號尚未建檔/);
+  const summary={innerHTML:''};
+  ctx.document.getElementById=id=>id==='supplyRelatedOrderSummary'?summary:null;
+  ctx.supplyOrderSelectionChanged({id:'supplyRelatedOrder',dataset:{sku:'Y-A'},value:'order-a'});
+  assert.match(summary.innerHTML,/ORD-A/);
+});
+
+test('editing an existing supply job writes a selected matching order ID and retains a legacy reference',()=>{
+  const ctx=setup([{id:'order-a',no:'ORD-A',orderType:'國外',status:'生產中',productId:'mat-a'}]);
+  ctx.mats=[{id:'mat-a',code:'Y-A'}];
+  vm.runInContext("supplyJobs=[{id:'job-a',title:'Y-A',material_sku:'Y-A',related_order:'舊訂單備註',status:'已結案',due_at:'2026-10-10T09:00:00Z',steps:[]}]",ctx);
+  const fields={supplyEditTitle:{value:'Y-A'},supplyEditDue:{value:'2026-10-10T17:00'},supplyEditOrder:{value:'舊訂單備註'},supplyEditQuantity:{value:'3'},supplyEditUnit:{value:'件'},supplyEditNotes:{value:''}};
+  ctx.document.getElementById=id=>fields[id]||null;
+  ctx.supplyDueIso=()=> '2026-10-10T09:00:00Z';
+  let payload=null,notice='';ctx.supplyPerform=(_action,_id,data)=>{payload=data;};ctx.showToast=message=>{notice=message;};
+  ctx.supplySubmitEdit('job-a');
+  assert.equal(payload.related_order,'舊訂單備註');
+  fields.supplyEditOrder.value='order-a';ctx.supplySubmitEdit('job-a');
+  assert.equal(payload.related_order,'order-a');
+  fields.supplyEditOrder.value='unrelated-id';payload=null;ctx.supplySubmitEdit('job-a');
+  assert.equal(payload,null);assert.match(notice,/關聯訂單與料號不符/);
+});
+
+test('new supply work saves selected stable order ID and rejects a stale mismatched choice',async()=>{
+  const ctx=setup([{id:'formal-order-id',no:'ORD-D',orderType:'國內',status:'待排程',productId:'mat-a'}]);
+  ctx.mats=[{id:'mat-a',code:'Y-A'},{id:'mat-b',code:'Y-B'}];
+  const fields={supplyTitle:{value:'Y-A'},supplyType:{value:'沖壓'},supplyCreateSupplier:{value:'甲廠'},supplyDue:{value:'2026-10-10T17:00'},supplyQuantity:{value:'4'},supplyRelatedOrder:{value:'formal-order-id'},supplyCreateButton:{disabled:false}};
+  ctx.document.getElementById=id=>fields[id]||null;
+  ctx.supplyDueIso=()=> '2026-10-10T09:00:00.000Z';
+  let payload=null,notice='';
+  ctx.supplyWrite=async(_action,_job,data)=>{payload=data;return {id:'job-a'};};
+  ctx.closeModal=()=>{};ctx.renderTab=()=>{};ctx.supplyOpenDetail=()=>{};ctx.showToast=message=>{notice=message;};
+  await ctx.supplyCreateJob();
+  assert.equal(payload.related_order,'formal-order-id');
+  assert.equal(fields.supplyCreateButton.disabled,false);
+  fields.supplyTitle.value='Y-B';payload=null;
+  await ctx.supplyCreateJob();
+  assert.equal(payload,null);
+  assert.match(notice,/關聯訂單與料號不符/);
 });
 
 test('order progress uses only active orders and filters overdue work', () => {
