@@ -135,7 +135,7 @@ test('dashboard highlights overdue orders and routes directly to their filtered 
   const start = html.indexOf('function dashboardTabAvailable(');
   const end = html.indexOf('function dashboardMetric(', start);
   let navigated = '';
-  ctx.getOrderFilters = () => ctx.window._ORDER_FILTERS || (ctx.window._ORDER_FILTERS = { q: '', type: 'all', status: 'all', date: '0', hide: false, deadline: '' });
+  ctx.getOrderFilters = () => ctx.window._ORDER_FILTERS || (ctx.window._ORDER_FILTERS = { q: '', type: 'domestic', status: '生產中', date: '7d', hide: true, deadline: '' });
   ctx.setOrderSearchDraft = value => { ctx.searchDraft = value; };
   ctx.switchTab = tab => { navigated = tab; };
   ctx.showToast = () => {};
@@ -144,5 +144,26 @@ test('dashboard highlights overdue orders and routes directly to their filtered 
   assert.equal(navigated, 'orders');
   assert.equal(ctx.window._ORDER_FILTERS.deadline, 'overdue');
   assert.equal(ctx.window._ORDER_FILTERS.date, '0');
+  assert.equal(ctx.window._ORDER_FILTERS.type, 'all', 'all-type overdue KPI must clear a previous order-type filter');
+  assert.equal(ctx.window._ORDER_FILTERS.status, 'all');
+  assert.equal(ctx.window._ORDER_FILTERS.hide, false);
   assert.equal(ctx.window._ORD_SUB, 'list');
+});
+
+test('production count opens exactly the two stages it counts, clearing stale filters', () => {
+  const dashboard = html.slice(html.indexOf('function renderDashboard()'), html.indexOf('function renderOrders()'));
+  const orderList = html.slice(html.indexOf('function _renderOrdersList('), html.indexOf('function orderTimelineEvents('));
+  assert.match(dashboard, /const active=orders\.filter\(o=>o\.status==='生產中'\|\|o\.status==='待排程'\)/);
+  assert.match(dashboard, /dashboardGo\('orders','production-active'\)/);
+  assert.match(orderList, /if\(_ordStatus==='production-active'\) data=data\.filter\(o=>o\.status==='待排程'\|\|o\.status==='生產中'\)/);
+
+  const ctx = makeContext('sales', ['orders'], ['core']);
+  ctx.getOrderFilters = () => ctx.window._ORDER_FILTERS || (ctx.window._ORDER_FILTERS = { q: 'old', type: 'domestic', status: '待出貨', date: '7d', hide: true, deadline: 'overdue' });
+  ctx.setOrderSearchDraft = value => { ctx.searchDraft = value; };
+  ctx.switchTab = tab => { ctx.currentTab = tab; };
+  ctx.showToast = () => {};
+  vm.runInContext(html.slice(start, end), ctx);
+  assert.equal(ctx.dashboardGo('orders', 'production-active'), true);
+  assert.equal(ctx.currentTab, 'orders');
+  assert.deepEqual({ ...ctx.window._ORDER_FILTERS }, { q: '', type: 'all', status: 'production-active', date: '0', hide: false, deadline: '' });
 });

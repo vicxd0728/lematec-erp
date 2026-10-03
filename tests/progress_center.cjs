@@ -284,7 +284,7 @@ test('order progress counts domestic and foreign customers but excludes assembly
   assert.match(rendered,/國外訂單/);
   ctx.setProgressCenterFilter('overdue');
   rendered=ctx.renderProgressOrders();
-  assert.match(rendered,/目前沒有符合條件的進行中訂單/);
+  assert.match(rendered,/目前沒有符合條件的未結案訂單/);
 });
 
 test('progress charts reconcile status, type, and exclusive due-date buckets',()=>{
@@ -332,7 +332,7 @@ test('progress search keeps headline counts and chart denominator aligned with m
   ]);
   ctx.setProgressCenterSearch('甲');
   const rendered=ctx.renderProgressOrders();
-  assert.match(rendered,/以目前搜尋範圍內 1 筆進行中訂單為分母/);
+  assert.match(rendered,/以目前搜尋範圍內 1 筆未結案國內／國外訂單為分母/);
   assert.match(rendered,/國內 1/);
   assert.match(rendered,/國外 0/);
   assert.match(rendered,/ORD-A/);

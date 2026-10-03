@@ -12665,7 +12665,7 @@ function renderProgressOrderCharts(summary){
   const dueBar=PROGRESS_DUE_BUCKETS.filter(([key])=>summary.due[key]>0).map(([key,label,color])=>`<span title="${label} ${summary.due[key]} 筆" style="display:block;width:${summary.due[key]/summary.total*100}%;height:100%;background:${color}"></span>`).join('');
   const dueLegend=PROGRESS_DUE_BUCKETS.map(([key,label,color])=>`<button type="button" class="btn btn-ghost btn-sm" style="display:inline-flex;align-items:center;gap:6px;padding:5px 7px;border-color:${progressCenterFilter===key?color:'var(--border)'}" aria-pressed="${progressCenterFilter===key}" onclick="setProgressCenterFilter('${key}')"><span aria-hidden="true" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${color}"></span>${label} ${summary.due[key]}</button>`).join('');
   return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px;margin-bottom:14px">
-    <div class="panel" style="padding:15px"><strong>訂單階段分布</strong><div style="font-size:.72rem;color:var(--text3);margin:3px 0 9px">以目前搜尋範圍內 ${summary.total} 筆進行中訂單為分母；點長條篩選下方清單。</div>${stageRows}<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px"><button class="btn btn-ghost btn-sm" style="border-color:${progressCenterFilter==='domestic'?'var(--cyan2)':'var(--border)'}" aria-pressed="${progressCenterFilter==='domestic'}" onclick="setProgressCenterFilter('domestic')">國內 ${summary.types.domestic}</button><button class="btn btn-ghost btn-sm" style="border-color:${progressCenterFilter==='overseas'?'var(--cyan2)':'var(--border)'}" aria-pressed="${progressCenterFilter==='overseas'}" onclick="setProgressCenterFilter('overseas')">國外 ${summary.types.overseas}</button></div></div>
+    <div class="panel" style="padding:15px"><strong>訂單階段分布</strong><div style="font-size:.72rem;color:var(--text3);margin:3px 0 9px">以目前搜尋範圍內 ${summary.total} 筆未結案國內／國外訂單為分母；點長條篩選下方清單。</div>${stageRows}<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px"><button class="btn btn-ghost btn-sm" style="border-color:${progressCenterFilter==='domestic'?'var(--cyan2)':'var(--border)'}" aria-pressed="${progressCenterFilter==='domestic'}" onclick="setProgressCenterFilter('domestic')">國內 ${summary.types.domestic}</button><button class="btn btn-ghost btn-sm" style="border-color:${progressCenterFilter==='overseas'?'var(--cyan2)':'var(--border)'}" aria-pressed="${progressCenterFilter==='overseas'}" onclick="setProgressCenterFilter('overseas')">國外 ${summary.types.overseas}</button></div></div>
     <div class="panel" style="padding:15px"><strong>交期分布</strong><div style="font-size:.72rem;color:var(--text3);margin:3px 0 13px">同一批 ${summary.total} 筆訂單；依台灣日期計算，各區間不重複。</div><div role="img" aria-label="交期分布：${PROGRESS_DUE_BUCKETS.map(([key,label])=>label+' '+summary.due[key]+' 筆').join('、')}" style="display:flex;height:20px;border-radius:7px;overflow:hidden;background:var(--bg3);margin-bottom:13px">${dueBar}</div><div style="display:flex;gap:6px;flex-wrap:wrap">${dueLegend}</div></div>
   </div>`;
 }
@@ -12687,7 +12687,7 @@ function renderProgressOrders(){
   const q=progressCenterSearch.toLocaleLowerCase();
   const scoped=active.filter(o=>!q||[o.no,o.customer,o.cust,o.matCode,o.product].some(v=>String(v||'').toLocaleLowerCase().includes(q)));
   const summary=progressOrderOverview(scoped,today,soonDay);
-  const counts=[['進行中',summary.total,'var(--cyan2)','all'],['已逾交期',summary.due.overdue,'var(--red)','overdue'],['7 天內交期',summary.due.today+summary.due.soon,'var(--amber)','soon'],['品檢異常',summary.stages['品檢異常'],'var(--red)','qcException'],['未填交期',summary.due.missingDue,'var(--text2)','missingDue']];
+  const counts=[['未結案客戶單',summary.total,'var(--cyan2)','all'],['已逾交期',summary.due.overdue,'var(--red)','overdue'],['7 天內交期',summary.due.today+summary.due.soon,'var(--amber)','soon'],['品檢異常',summary.stages['品檢異常'],'var(--red)','qcException'],['未填交期',summary.due.missingDue,'var(--text2)','missingDue']];
   const filtered=scoped.filter(o=>{
     const due=progressDueBucket(o.deadline,today,soonDay);
     if(progressCenterFilter==='overdue'&&due!=='overdue')return false;
@@ -12707,14 +12707,14 @@ function renderProgressOrders(){
     return ad.localeCompare(bd)||(b.created||'').localeCompare(a.created||'');
   });
   return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color,filter])=>`<button type="button" class="panel" style="padding:14px;text-align:left;cursor:pointer;border-color:${progressCenterFilter===filter?color:'var(--border)'}" aria-pressed="${progressCenterFilter===filter}" onclick="setProgressCenterFilter('${filter}')"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></button>`).join('')}</div>
-    <div class="panel" style="padding:12px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部進行中'],['overdue','已逾交期'],['soon','7 天內交期（含今天）'],['today','今天到期'],['later','8 天後'],['missingDue','未填交期'],['invalidDue','交期異常'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨'],['domestic','國內訂單'],['overseas','國外訂單'],...PROGRESS_ORDER_STAGES.map(stage=>['stage:'+stage,stage]),['stageOther','其他狀態']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="panel" style="padding:12px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部未結案'],['overdue','已逾交期'],['soon','7 天內交期（含今天）'],['today','今天到期'],['later','8 天後'],['missingDue','未填交期'],['invalidDue','交期異常'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨'],['domestic','國內訂單'],['overseas','國外訂單'],...PROGRESS_ORDER_STAGES.map(stage=>['stage:'+stage,stage]),['stageOther','其他狀態']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
     ${renderProgressOrderCharts(summary)}
     <div class="panel" style="padding:16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
       ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,progressOrderVisibleLimit).map(o=>{
         const late=progressDueBucket(o.deadline,today,soonDay)==='overdue';
         return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">狀態提示：${escapeHtml(progressOrderNextAction(o))}；實際領料／品檢請查紀錄。</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查驗進度</button><button class="btn btn-ghost btn-sm" onclick="progressOpenSupplyForOrder('${o.id}')">查外包工作</button></div></div>`;
-      }).join('')}</div>${filtered.length>progressOrderVisibleLimit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px"><span style="color:var(--text3);font-size:.75rem">已顯示 ${Math.min(progressOrderVisibleLimit,filtered.length)}／${filtered.length} 筆</span><button type="button" class="btn btn-ghost btn-sm" onclick="progressShowMoreOrders()">顯示更多訂單（下一批 40 筆）</button></div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的進行中訂單</div>'}
+      }).join('')}</div>${filtered.length>progressOrderVisibleLimit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px"><span style="color:var(--text3);font-size:.75rem">已顯示 ${Math.min(progressOrderVisibleLimit,filtered.length)}／${filtered.length} 筆</span><button type="button" class="btn btn-ghost btn-sm" onclick="progressShowMoreOrders()">顯示更多訂單（下一批 40 筆）</button></div>`:''}`:'<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的未結案訂單</div>'}
     </div>`;
 }
 
@@ -16384,9 +16384,14 @@ function dashboardGo(tab,sub=''){
   if(sub==='deadline')window._ORD_SUB='deadline';
   if(sub==='overdue'){
     const filters=getOrderFilters();
-    filters.date='0';filters.hide=false;filters.status='all';filters.q='';filters.deadline='overdue';
+    filters.date='0';filters.hide=false;filters.type='all';filters.status='all';filters.q='';filters.deadline='overdue';
     setOrderSearchDraft('');
     window._ORD_SUB='list';
+  }
+  if(sub==='production-active'){
+    const filters=getOrderFilters();
+    filters.date='0';filters.hide=false;filters.type='all';filters.status='production-active';filters.q='';filters.deadline='';
+    setOrderSearchDraft('');window._ORD_SUB='list';
   }
   if(sub.startsWith('status:')){
     const filters=getOrderFilters();
@@ -16555,12 +16560,12 @@ function renderDashboard(){
   </div>`;
 
   const quickEntryDefs=[
-    {tab:'orders',color:'var(--blue2)',title:'訂單處理',body:'新增訂單、交期提醒、領料、出貨與狀態更新集中在訂單分頁。',count:`${dashStats.activeOrders.value} 筆進行中`},
+    {tab:'orders',sub:'production-active',color:'var(--blue2)',title:'訂單處理',body:'新增訂單、交期提醒、領料、出貨與狀態更新集中在訂單分頁。',count:`${dashStats.activeOrders.value} 筆待排程／生產中`},
     {tab:'corders',color:'var(--cyan2)',title:'C端訂單',body:'S- 成品出貨、Excel 匯入預覽、SHPTW 共用序號與物流資料。',count:`${dashStats.corders.value} 筆出貨中`},
     {tab:'inventory',color:'var(--green2)',title:'庫存主檔',body:'Supabase 主資料查詢、篩選、批量調整、BOM 匯入與 Notion 鏡像狀態。',count:`${dashStats.stockAttention.value} 項需確認`},
     {tab:'ops',color:'var(--amber)',title:'現場看板',body:'快速查看今日待辦、出貨、生產、品檢與補料節點。',count:`${dashStats.todayShip.value} 筆今日出貨`},
   ].filter(e=>dashboardTabAvailable(e.tab));
-  const quickEntries=`<div class="quick-entry-grid">${quickEntryDefs.map(e=>`<button class="quick-entry-card" style="--entry-color:${e.color}" onclick="dashboardGo('${e.tab}')"><b>${e.title}</b><span>${e.body}</span><small>${e.count}</small></button>`).join('')}</div>`;
+  const quickEntries=`<div class="quick-entry-grid">${quickEntryDefs.map(e=>`<button class="quick-entry-card" style="--entry-color:${e.color}" onclick="dashboardGo('${e.tab}','${e.sub||''}')"><b>${e.title}</b><span>${e.body}</span><small>${e.count}</small></button>`).join('')}</div>`;
 
   return`${dashHero}${dashboardFreshnessStrip()}${todoSection}${quickEntries}${annSection}
 
@@ -16614,9 +16619,9 @@ function renderDashboard(){
       <div class="kpi-sub">${warnDays} 天內到期 ${window._coreLoaded?deadlineSoon.length:'—'} 筆</div>
     </div>
 
-    <div class="kpi-card kpi-amber" onclick="dashboardGo('orders')">
+    <div class="kpi-card kpi-amber" onclick="dashboardGo('orders','production-active')">
       <div class="kpi-glow"></div>
-      <div class="kpi-label">進行中</div>
+      <div class="kpi-label">待排程／生產中</div>
       <div class="kpi-num">${dashStats.orders.value==='—'?'—':active.length}</div>
       <div class="kpi-sub">待排程 + 生產中</div>
       ${dashStats.orders.state==='資料已載入'?`<div class="kpi-bar"><div class="kpi-bar-fill" style="width:${orders.length?Math.round(active.length/orders.length*100):0}%"></div></div>`:''}
@@ -16750,7 +16755,8 @@ function _renderOrdersList(tabs, soonOrders=[]){
     if(_ordType==='sfg') return (o.orderType==='sfg'||o.orderType==='半成品');
     return true;
   });
-  if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
+  if(_ordStatus==='production-active') data=data.filter(o=>o.status==='待排程'||o.status==='生產中');
+  else if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
   if(filters.deadline==='overdue'){
     const today=todayStr();
     data=data.filter(o=>o.deadline&&o.deadline<today&&o.status!=='已完成'&&o.status!=='取消');
@@ -16760,9 +16766,9 @@ function _renderOrdersList(tabs, soonOrders=[]){
   const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
   const orderShipCount=orders.filter(o=>o.status==='待出貨').length;
   const orderQcCount=orders.filter(o=>o.status==='待檢驗').length;
-  const countStatus=s=>s==='all'?orders.length:orders.filter(o=>(o.status||'')===s).length;
-  const statusChips=['all','待排程','生產中','待檢驗','待出貨','已完成','取消'].map(s=>{
-    const label=s==='all'?'全部':s;
+  const countStatus=s=>s==='all'?orders.length:s==='production-active'?orderActiveCount:orders.filter(o=>(o.status||'')===s).length;
+  const statusChips=['all','production-active','待排程','生產中','待檢驗','待出貨','已完成','取消'].map(s=>{
+    const label=s==='all'?'全部':s==='production-active'?'待排程／生產中':s;
     const active=_ordStatus===s||(!_ordStatus&&s==='all');
     return `<button class="order-status-chip${active?' active':''}" onclick="updateOrderFilter('status','${s}')">${label} <b>${countStatus(s)}</b></button>`;
   }).join('');
@@ -16786,7 +16792,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <div class="focus-stat" data-icon="🚚"><span>待出貨</span><b>${orderShipCount}</b></div>
   </div>
   <div class="source-strip">
-    <span><b>${filters.deadline==='overdue'?'分析帶入':'資料路徑'}</b>：${filters.deadline==='overdue'?'目前只顯示逾期且未完成的正式訂單。':'訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。'}</span>
+    <span><b>${filters.deadline==='overdue'?'分析帶入':'資料路徑'}</b>：${filters.deadline==='overdue'?'目前顯示所有類型逾期且未完成的正式訂單。':'訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。'}</span>
     ${filters.deadline==='overdue'?`<button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button>`:`<button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>`}
   </div>`;
 
@@ -16821,6 +16827,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
       </select>
       <select class="inp" id="ordStatusFilter" onchange="updateOrderFilter('status',this.value)">
         <option value="all" ${_ordStatus==='all'?'selected':''}>全部狀態</option>
+        <option value="production-active" ${_ordStatus==='production-active'?'selected':''}>待排程／生產中</option>
         ${orderStatusOptions.map(s=>`<option value="${escapeHtml(s)}" ${_ordStatus===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
       </select>
       <label style="font-size:0.6875rem;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">

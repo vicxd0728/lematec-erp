@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Progress Center Senior Review Round 4 2026-10-03
+
+- `ERP_PROGRESS_CENTER_SENIOR_REVIEW_ROUND4_2026-10-03.md` records a 10-seat senior-role simulation, not real employee interviews. Authenticated production read-only acceptance confirmed the prior 40-row load-more reaches all 42 overdue matches in that snapshot; the screen warned that source data might be stale.
+- Dashboard production count includes all order types but only `待排程` and `生產中`. Progress Center total includes all nonclosed domestic/overseas customer orders, including QC and shipping stages, but excludes SFG/Shopee. Distinct KPI labels now state these scopes; do not compare the two numbers as identical populations.
+- Dashboard overdue navigation now clears stale order-type filters. Production KPI and quick-entry card navigate to a new `production-active` two-status list filter after clearing stale date/type/search/deadline filters. This changes navigation and display only; no order, inventory, or supply-chain write.
+- Focused Node tests and static check should be run before deployment. Production Pages/Worker exact-commit readback and post-deploy authenticated UI acceptance remain separate gates until recorded.
+
 ## Progress Center Senior Review Round 3 2026-10-03
 
 - `ERP_PROGRESS_CENTER_SENIOR_REVIEW_ROUND3_2026-10-03.md` records an 11-seat senior-role simulation, not real employee interviews. The production read-only snapshot showed 137 active customer orders and 42 overdue at that moment; those figures must not be treated as trends.
