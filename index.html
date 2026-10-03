@@ -12571,6 +12571,7 @@ const PROGRESS_DUE_BUCKETS=[
 
 function setProgressCenterView(view){
   if(!['orders','supply','legacy'].includes(view))return;
+  if(view==='supply')supplyOrderContext='';
   progressCenterView=view;
   if(view==='legacy'&&!legacyScheduleLoaded){
     const host=document.getElementById('mainContent');
@@ -12724,6 +12725,7 @@ let supplyCoverage={activeTruncated:false,archivedTruncated:false};
 let supplySearch='';
 let supplyFilter='all';
 let supplySort='due';
+let supplyOrderContext='';
 let supplyCreateSteps=[];
 let supplyAutoBoundSku='';
 const supplyPendingOps=new Map();
@@ -12876,6 +12878,7 @@ function renderSupplyChainFoundation(){
   const kpis=[['進行中',active.length,'var(--cyan2)'],['7 天內到期',soonRows.length,'var(--amber)'],['已逾期工作',overdue.length,'var(--red)'],['其中本關逾期',stageOverdue.length,'var(--red)'],['待決定／入料',pending.length,'var(--green2)']];
   const q=supplySearch.toLocaleLowerCase();
   const rows=supplySortRows(supplyJobs.filter(row=>{
+    if(supplyOrderContext&&row.related_order!==supplyOrderContext)return false;
     if(supplyFilter==='archived'?!row.archived_at:!!row.archived_at)return false;
     if(supplyFilter==='active'&&!active.includes(row))return false;
     if(supplyFilter==='overdue'&&!overdue.includes(row))return false;
@@ -12885,7 +12888,7 @@ function renderSupplyChainFoundation(){
     return !q||[row.title,row.work_number,row.material_sku,row.related_order,supplyRelatedOrderLabel(row.related_order),step.type,step.supplier].some(value=>String(value||'').toLocaleLowerCase().includes(q));
   }),supplySort);
   const coverageNote=supplyCoverage.activeTruncated||supplyCoverage.archivedTruncated?`<div class="info-warn" role="status" style="margin-bottom:12px">供應鏈資料超過單次讀取上限：${supplyCoverage.activeTruncated?'未移除工作至少 '+supplyJobs.filter(row=>!row.archived_at).length+' 筆；':''}${supplyCoverage.archivedTruncated?'已移除工作至少 '+supplyJobs.filter(row=>row.archived_at).length+' 筆；':''}下方統計與搜尋僅涵蓋已載入資料；搜尋不到不代表沒有紀錄，請由管理者查核完整資料。</div>`:'';
-  return top+coverageNote+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}${supplyCoverage.activeTruncated?'（已載入）':''}</div><strong style="font-size:1.5rem;color:${color}">${supplyCoverage.activeTruncated?'≥':''}${count}</strong></div>`).join('')}</div>
+  return top+coverageNote+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}${supplyCoverage.activeTruncated?'（已載入）':''}</div><strong style="font-size:1.5rem;color:${color}">${supplyCoverage.activeTruncated?'≥':''}${count}</strong></div>`).join('')}</div>${supplyOrderContext?`<div class="info-warn" style="margin-bottom:12px">正在查看訂單 ${escapeHtml(supplyRelatedOrderLabel(supplyOrderContext))} 的關聯外包工作 <button class="btn btn-ghost btn-xs" onclick="supplyClearOrderContext()">清除訂單篩選</button></div>`:''}
     <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearch)}" style="flex:1;min-width:190px" onkeydown="if(event.key==='Enter')supplySetSearch(this.value)"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料'],['closed','已結案'],['archived','已移除']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select><select class="inp" aria-label="排序供應鏈工作" style="width:auto;min-width:130px" onchange="supplySetSort(this.value)">${[['due','全程交期優先'],['stage','本關預計優先'],['updated','最近更新優先']].map(([value,label])=>`<option value="${value}" ${supplySort===value?'selected':''}>${label}</option>`).join('')}</select></div><div style="font-size:.72rem;color:var(--text3);margin-bottom:10px">統計為全部已載入工作；下方清單符合目前搜尋／篩選，共 ${rows.length} 筆。</div>
     ${rows.length?`<div style="display:grid;gap:8px">${rows.slice(0,100).map(row=>{
       const step=row.steps?.[row.current_step]||{};
@@ -12897,11 +12900,12 @@ function renderSupplyChainFoundation(){
       const next=!canAct?'查看詳情':row.status==='待送出'?'登記送出':row.status==='加工中'?'完成本關／轉下一關':row.status==='待決定'?'決定入料或結案':row.status==='待入料'?'繼續入料':'查看詳情';
       const action=canWriteSupplyChain()&&!row.archived_at?(row.status==='待送出'?`supplyPerform('send','${row.id}')`:row.status==='加工中'?`supplyOpenAdvance('${row.id}')`:row.status==='待決定'?`supplyOpenDecision('${row.id}')`:row.status==='待入料'?`supplyContinueInbound('${row.id}')`:`supplyOpenDetail('${row.id}')`):`supplyOpenDetail('${row.id}')`;
       return `<div style="border:1px solid ${late?'rgba(245,101,101,.36)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-weight:800">${escapeHtml(row.title)} ${pill(row.archived_at?'已移除':supplyStatusLabel(row.status))}</div><div style="font-size:.75rem;color:var(--text2);margin-top:3px">${escapeHtml(row.work_number)}${row.material_sku?' · '+escapeHtml(row.material_sku):' · 暫用名稱'}${row.quantity?' · '+Number(row.quantity).toLocaleString()+' '+escapeHtml(row.unit||'件'):''}${row.related_order?' · '+supplyRelatedOrderLink(row.related_order):''}</div><div style="font-size:.75rem;color:${late?'var(--red)':'var(--text3)'};margin-top:4px">${escapeHtml(step.type||'加工已完成')} · ${escapeHtml(step.supplier||'供應商待指定')} · ${deadlineNote}</div>${row.archived_at?`<div style="font-size:.72rem;color:var(--amber);margin-top:5px">移除原因：${escapeHtml(row.archived_reason||'未填')}</div>`:row.status==='待送出'?'<div style="font-size:.72rem;color:var(--amber);margin-top:5px">尚未記錄第一站交接時間；按「登記送出」開始流程。</div>':''}${supplyCardFlow(row)}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${canAct?'btn-blue':'btn-ghost'} btn-sm" onclick="${action}">${next}</button>${canAct?`<button class="btn btn-ghost btn-sm" onclick="supplyOpenDetail('${row.id}')">詳情</button>`:''}${row.archived_at&&canWriteSupplyChain()?`<button class="btn btn-ghost btn-sm" onclick="supplyPerform('restore','${row.id}')">還原</button>`:''}</div></div>`;
-    }).join('')}</div>${rows.length>100?`<p style="margin-top:10px;color:var(--text3)">顯示前 100 筆；共 ${rows.length} 筆，可搜尋縮小範圍。</p>`:''}`:`<div style="text-align:center;color:var(--text3);padding:30px">目前沒有符合條件的工作。${canWriteSupplyChain()?'可以調整搜尋條件，或新增第一筆工作。':'請調整搜尋或篩選條件。'}</div>`}</div>`;
+    }).join('')}</div>${rows.length>100?`<p style="margin-top:10px;color:var(--text3)">顯示前 100 筆；共 ${rows.length} 筆，可搜尋縮小範圍。</p>`:''}`:`<div style="text-align:center;color:var(--text3);padding:30px">${supplyOrderContext?(supplyCoverage.activeTruncated?'已載入資料中未找到這張訂單的關聯外包工作；仍須查核未載入的紀錄。':'此訂單未找到關聯外包工作；這不代表沒有其他未關聯的加工紀錄。'):supplySearch||supplyFilter!=='all'?'目前沒有符合搜尋／篩選條件的工作。請調整條件。':canWriteSupplyChain()?'目前尚無工作，可新增第一筆。':'目前尚無工作。'}</div>`}</div>`;
 }
 function supplySetSearch(value){supplySearch=String(value||'').trim();if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplySetFilter(value){supplyFilter=value;if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplySetSort(value){if(!['due','stage','updated'].includes(value))return;supplySort=value;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplyClearOrderContext(){supplyOrderContext='';if(CURRENT_TAB==='schedule')renderTab('schedule');}
 
 function supplyModal(markup){document.getElementById('modalInner').innerHTML=markup;openSharedModal();}
 async function supplyWrite(action,job,payload={}){
@@ -13034,7 +13038,8 @@ function supplyRelatedOrderLink(reference){
 }
 function progressOpenSupplyForOrder(id){
   if(!orders.some(order=>order.id===id))return;
-  supplySearch=id;
+  supplySearch='';
+  supplyOrderContext=id;
   supplyFilter='all';
   progressCenterView='supply';
   if(CURRENT_TAB==='schedule')renderTab('schedule');
