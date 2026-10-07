@@ -8,7 +8,7 @@ function setup(type='國外',stock=1446){
  const ctx=vm.createContext({mats:[parent,...children],boms:children.map(c=>({parentId:parent.id,childId:c.id,qty:1})),orders:[order],
  _bomDataReady:true,_bomDataSource:'supabase',ROLE:'warehouse',todayStr:()=> '2026-09-26',console:{error:()=>{}},
  explodeBOM:()=>[],document:{getElementById:()=>field},renderPreflightCenter:x=>{preview=x;return '';},escapeHtml:x=>String(x),
- openModal:()=>{},closeModal:()=>{},showToast:(...x)=>toast.push(x),canonicalPageId:x=>x,
+ openModal:()=>{},closeModal:()=>{},loadPickShortageFollowups:async()=>{},showToast:(...x)=>toast.push(x),canonicalPageId:x=>x,
  pickingWorkerRequest:async(path,req)=>{calls.push({path,body:req.body});return {row:{id:'pick',items:req.body.items.map(i=>({matId:i.material_notion_page_id,pickedQty:0,notionId:'n-'+i.material_notion_page_id}))}};},
  mapSupabasePick:r=>({...r,no:'P1',supabaseId:r.id,notionId:'pn'}),
  ensurePickingNotionMirror:async()=>{},updateWorkflowPageAfterInventory:async()=>({pending:false}),loadPicks:async()=>{},

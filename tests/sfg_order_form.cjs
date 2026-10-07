@@ -56,7 +56,7 @@ test('picking preview places the real shortage above sufficient materials',()=>{
   resolveOrderPickPlan:()=>({prod:{code:'Z-SKC-A-03AS-1ABFH',stock:0},production:true,items:[
    {id:'good',code:'Y-SBG-06Q',name:'Y-SBG-06Q',stock:3520,needed:1},
    {id:'short',code:'F-SKC-A-01AS-2',name:'F-SKC-A-01AS-2',stock:0,needed:1}]}),
-  renderPreflightCenter:x=>{report=x;return '';},openModal:()=>{},_bomDataSource:'supabase',escapeHtml:x=>String(x)});
+  renderPreflightCenter:x=>{report=x;return '';},openModal:()=>{},loadPickShortageFollowups:async()=>{},_bomDataSource:'supabase',escapeHtml:x=>String(x)});
  vm.runInContext(section('function openPickModal(orderId){','// ══ 品管檢驗單'),ctx);
  ctx.openPickModal('order');
  assert.equal(report.errors,1);
@@ -74,7 +74,7 @@ test('missing BOM child is explained separately from stock shortage',()=>{
   showToast:()=>{},resolveOrderPickPlan:()=>({prod:{code:'parent'},production:true,items:[
    {id:'short',code:'F-SKC-A-01AS-2',stock:0,needed:1},
    {id:'',code:'Y-MISSING',missing:true,stock:0,needed:1}]}),
-  renderPreflightCenter:()=>'',openModal:()=>{},_bomDataSource:'supabase',escapeHtml:x=>String(x)});
+  renderPreflightCenter:()=>'',openModal:()=>{},loadPickShortageFollowups:async()=>{},_bomDataSource:'supabase',escapeHtml:x=>String(x)});
  vm.runInContext(section('function openPickModal(orderId){','// ══ 品管檢驗單'),ctx);
  ctx.openPickModal('order');
  assert.match(modal.innerHTML,/部分 BOM 子件庫存不足，且有子件未建檔/);

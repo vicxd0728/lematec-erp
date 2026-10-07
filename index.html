@@ -8588,6 +8588,7 @@ async function loadInbounds(){
   try{
     const data=await pickingWorkerRequest('/api/inbound/list?limit=10000');
     inbounds=(data.rows||[]).map(mapSupabaseInbound);
+    window._inboundDataSource='supabase';
     markLoaded('inbounds');
     Promise.resolve().then(()=>repairPendingInboundMirrors()).catch(e=>console.warn('入料 Notion 鏡像補同步失敗：',e));
     return;
@@ -8595,6 +8596,7 @@ async function loadInbounds(){
     console.warn('Supabase 入料讀取失敗，暫以 Notion 唯讀備援：',e);
     const r=await dbQueryAll(DB.inbound);
     inbounds=r.map(mapNotionInbound);
+    window._inboundDataSource='notion-fallback';
     markLoaded('inbounds');
   }
 }
@@ -22173,6 +22175,60 @@ function renderCorders(){
   return html+'</div></div>';
 }
 
+function pickShortageMaterialMatch(item,candidateId,candidateCode){
+  const wantedId=canonicalPageId(item?.id);
+  const actualId=canonicalPageId(candidateId);
+  if(wantedId&&actualId&&!isSupabaseShadowId(wantedId)&&!isSupabaseShadowId(actualId))return wantedId===actualId;
+  const wantedCode=normalizeSku(item?.code);
+  return !!wantedCode&&wantedCode===normalizeSku(candidateCode);
+}
+function pickShortageActiveInbound(item){
+  return inbounds.filter(ib=>pickShortageMaterialMatch(item,ib.matId,ib.matCode)
+    && ib.stStatus!=='已入庫'&&!/^退回/.test(ib.stStatus||'')
+    && !/不合格/.test(ib.qcStatus||''));
+}
+function pickShortageActiveAssemblies(item,currentOrderId){
+  return orders.filter(o=>o.id!==currentOrderId&&isSfgProductionOrder(o)
+    && pickShortageMaterialMatch(item,o.productId,o.matCode||o.product)
+    && !['已完成','取消'].includes(o.status));
+}
+function openPickShortageInbound(code){
+  if(!ROLES[ROLE]?.tabs.includes('inbound'))return;
+  const filters=inboundListFilters();
+  filters.q=code;filters.status='all';filters.date='0';filters.page=1;
+  closeModal();switchTab('inbound');
+}
+function openPickShortageAssembly(orderId){
+  if(!ROLES[ROLE]?.tabs.includes('orders'))return;
+  const o=orders.find(row=>row.id===orderId);
+  if(!o)return;
+  const filters=getOrderFilters();
+  filters.q=o.no||'';filters.type='sfg';filters.status='all';filters.date='0';filters.hide=false;filters.deadline='';
+  setOrderSearchDraft(filters.q);
+  window._ORD_SUB='list';
+  closeModal();switchTab('orders');
+}
+async function loadPickShortageFollowups(orderId,shortages){
+  const host=document.getElementById('pickShortageFollowups');
+  if(!host)return;
+  try{
+    // Pending inbound is a lead only: QC has not added it to stock or reserved it for this order.
+    await loadInbounds();
+    if(!host.isConnected||!document.getElementById('modalBg')?.classList.contains('open'))return;
+    const fallback=window._inboundDataSource==='notion-fallback';
+    host.innerHTML=`<b>缺料後續追蹤</b><div style="font-size:.74rem;color:var(--text3);margin:4px 0 8px">${fallback?'入料主資料暫時無法讀取，以下為 Notion 備援紀錄，請重新同步確認。':'以下是相同料號的進行中紀錄。'}入料與組立數量尚未保留給本訂單，品檢入庫後仍須重新檢查庫存。</div>`+
+      shortages.map(item=>{
+        const activeInbound=pickShortageActiveInbound(item);
+        const activeAssembly=pickShortageActiveAssemblies(item,orderId);
+        const inboundLine=activeInbound.length?activeInbound.slice(0,3).map(ib=>`${escapeHtml(ib.no||'入料單')}：${escapeHtml(ib.qcStatus||'待品檢')}／${escapeHtml(ib.stStatus||'待入庫')}，數量 ${Number(ib.qty)||0}`).join('<br>'):fallback?'備援紀錄未找到；主資料尚無法確認':'已載入入料中未找到進行中紀錄';
+        const assemblyLine=activeAssembly.length?activeAssembly.slice(0,3).map(o=>`<button class="btn btn-ghost btn-xs" data-order-id="${escapeHtml(o.id)}" onclick="openPickShortageAssembly(this.dataset.orderId)">${escapeHtml(o.no||'組立單')} · ${escapeHtml(o.status||'待排程')}</button>`).join(' '):'已載入訂單中未找到進行中組立單';
+        const inboundButton=activeInbound.length&&ROLES[ROLE]?.tabs.includes('inbound')?` <button class="btn btn-ghost btn-xs" data-search="${escapeHtml(activeInbound[0].no||item.code||'')}" onclick="openPickShortageInbound(this.dataset.search)">查看入料</button>`:'';
+        return `<div style="padding:9px 0;border-top:1px solid var(--border);font-size:.76rem"><b>${escapeHtml(item.code||item.name||'料件')}</b> · 缺 ${Math.max(0,Number(item.needed||0)-(Number(item.stock)||0))}<div style="margin-top:4px">入料：${inboundLine}${inboundButton}</div><div style="margin-top:4px">組立：${assemblyLine}</div></div>`;
+      }).join('');
+  }catch(e){
+    if(host.isConnected)host.innerHTML='<b>缺料後續追蹤</b><div style="margin-top:5px;color:var(--amber)">入料資料讀取失敗，無法確認是否已有補料紀錄；請稍後重新開啟領料檢查。</div>';
+  }
+}
 function openPickModal(orderId){
   const o = orders.find(x=>x.id===orderId);
   if(!o){ showToast('找不到訂單','err'); return; }
@@ -22214,6 +22270,7 @@ function openPickModal(orderId){
       <ul style="margin:8px 0 6px 18px;padding:0;font-size:.8rem">${blocked.map(row=>`<li><b>${escapeHtml(row.lineLabel)}</b>：${escapeHtml(row.detail)}</li>`).join('')}</ul>
       <div style="color:var(--text2);font-size:.76rem">${plan.transfer?'請確認一般倉庫來源料號與庫存，補足後重新整理資料，再檢查轉庫。':'請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。'}</div>
     </div>`:''}
+    ${!plan.transfer&&items.some(item=>item.id&&!item.missing&&(Number(item.stock)||0)<Number(item.needed||0))?'<div id="pickShortageFollowups" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;font-size:.8rem">正在查詢缺料後續紀錄…</div>':''}
     ${renderPreflightCenter({
       title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',
       subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
@@ -22238,6 +22295,10 @@ function openPickModal(orderId){
       <button class="btn btn-blue" ${errors?'disabled':''} onclick="doPick('${orderId}')">${plan.transfer?'確認轉入蝦皮庫存':'🗂️ 確認領料'}</button>
     </div>`;
   openModal();
+  if(!plan.transfer){
+    const shortages=items.filter(item=>item.id&&!item.missing&&(Number(item.stock)||0)<Number(item.needed||0));
+    if(shortages.length)loadPickShortageFollowups(orderId,shortages);
+  }
 }
 
 
