@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Edit and resubmit feedback review 2026-10-07
+
+- A rejected inbound receipt's resubmit form now preserves positive fractional quantities and validates them before sending. It stays open until the Worker confirms a receipt ID. An uncertain response keeps the draft and blocks repeat submission in the same page session; operators are directed to refresh and inspect QC before trying again.
+- Once inbound resubmission is accepted, a subsequent list-refresh failure is reported as a refresh issue, not a failed receipt. The C-end order edit form similarly distinguishes an accepted Notion update from a failed list refresh and retains fields when the update outcome is uncertain.
+- C-end edit rejects blank, zero, fractional or unsafe quantity values before writing. Stock-sensitive item, quantity and status fields are visibly locked in the edit form, matching the existing save-side protection. Stored customer/order fields are HTML-escaped in form attributes.
+- `tests/edit_feedback_resubmit.cjs` covers valid fractional inbound, invalid values, uncertain and accepted-with-refresh-failure outcomes, C-end quantity validation, and escaping. No production business records were written during this review. Deployment and authenticated operator acceptance remain separate gates.
+
 ## Quantity-entry guard follow-up 2026-10-07
 
 - Manual picking now rejects blank, zero, fractional and unsafe quantities instead of silently substituting one; the manually entered quantity follows an exact existing SKU. A matching display name alone no longer redirects a new SKU to a different material.

@@ -18734,7 +18734,12 @@ function renderInbound(){
   </div>`;
 }
 
+const _resubmitInboundPending=new Set();
 function openResubmitInbound(id){
+  if(_resubmitInboundPending.has(id)){
+    showToast('這張入料單的重新提交結果尚未確認，請重新整理並核對品檢狀態，勿重複送出','warn',9000);
+    return;
+  }
   const ib=inbounds.find(x=>x.id===id);
   if(!ib){showToast('找不到入料單','err');return;}
   const matOptions=[...mats].sort((a,b)=>String(a.code||a.name).localeCompare(String(b.code||b.name))).map(m=>{
@@ -18752,31 +18757,41 @@ function openResubmitInbound(id){
       <select class="inp" id="resub_mat">${matOptions}</select>
     </div>
     <div class="form-row" style="margin-bottom:10px">
-      <div><label class="field-label">入料數量</label><input class="inp" type="number" min="1" id="resub_qty" value="${Number(ib.qty)||1}"></div>
+      <div><label class="field-label">入料數量</label><input class="inp" type="number" min="0" step="any" id="resub_qty" value="${escapeHtml(ib.qty??'')}"></div>
       <div><label class="field-label">重新提交原因（選填）</label><input class="inp" id="resub_reason" placeholder="例如：修正數量 / 更正料號"></div>
     </div>
+    <div id="resub_status" role="alert" style="display:none;padding:8px 12px;margin-bottom:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:8px;font-size:.75rem;color:var(--amber)"></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitResubmitInbound('${id}')">送回品檢</button>
+      <button class="btn btn-blue" id="resub_submit" onclick="submitResubmitInbound('${id}')">送回品檢</button>
     </div>`;
   openModal();
 }
 
 async function submitResubmitInbound(id){
+  if(_resubmitInboundPending.has(id)){
+    showToast('重新提交結果尚未確認，請先重新整理並核對品檢狀態','warn',9000);return;
+  }
   const ib=inbounds.find(x=>x.id===id);
   const matId=document.getElementById('resub_mat')?.value||'';
-  const qty=parseInt(document.getElementById('resub_qty')?.value)||0;
+  const qty=Number(document.getElementById('resub_qty')?.value);
   const reason=(document.getElementById('resub_reason')?.value||'').trim();
   if(!ib){showToast('找不到入料單','err');return;}
   if(!matId){showToast('請選擇料號','warn');return;}
-  if(qty<=0){showToast('請輸入正確數量','warn');return;}
+  if(!Number.isFinite(qty)||qty<=0){showToast('入料數量請輸入大於 0 的數字','warn');return;}
+  if(!ib.supabaseId){showToast('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作','err');return;}
   const mat=mats.find(m=>m.id===matId);
+  if(!mat){showToast('找不到所選料號，請重新選擇','err');return;}
   const stamp=new Date().toLocaleString('zh-TW',{hour12:false});
   const oldNote=ib.note||'';
   const nextNote=[oldNote,`重新提交 ${stamp}${reason?'：'+reason:''}`].filter(Boolean).join('\n');
-  closeModal(); showToast('重新提交入料單中...','warn');
+  const btn=document.getElementById('resub_submit');
+  const status=document.getElementById('resub_status');
+  _resubmitInboundPending.add(id);
+  if(btn)btn.disabled=true;
+  showToast('重新提交入料單中...','warn');
+  let accepted=false;
   try{
-    if(!ib.supabaseId) throw new Error('此筆為 Notion 唯讀備援資料，請先恢復 Supabase 連線後再操作');
     const data=await pickingWorkerRequest('/api/inbound/action',{
       method:'POST',
       body:{
@@ -18788,16 +18803,29 @@ async function submitResubmitInbound(id){
         notes:nextNote
       }
     });
+    if(!data?.row?.id)throw new Error('Supabase 未回傳入料單確認資料');
+    accepted=true;
     const saved=mapSupabaseInbound(data.row);
     const mirror=await updateInboundNotionMirror(saved);
     logUserAction('重新提交入料單',ib.no||id,`${mat?.code||mat?.name||matId} x ${qty}${reason?' / '+reason:''}`,ROLE);
-    await loadInbounds();
-    renderTab('inbound');
-    showToast(
-      mirror.pending?'✅ 已重新提交；Notion 鏡像待自動補同步':'✅ 已重新提交，品管頁會回到入料待品檢',
-      mirror.pending?'warn':'ok'
-    );
-  }catch(e){showToast('❌ 重新提交失敗：'+e.message,'err');}
+    if(document.getElementById('resub_status')===status)closeModal();
+    try{
+      await loadInbounds();
+      renderTab('inbound');
+      showToast(mirror.pending?'✅ 已重新提交；Notion 鏡像待自動補同步':'✅ 已重新提交，品管頁會回到入料待品檢',mirror.pending?'warn':'ok');
+    }catch(refreshError){showToast('⚠️ 入料單已重新提交，但清單更新失敗；請重新整理查看，勿重複送出：'+refreshError.message,'warn',9000);}
+  }catch(e){
+    if(accepted){
+      if(document.getElementById('resub_status')===status)closeModal();
+      showToast('⚠️ 入料單已重新提交，但後續同步未完成；請重新整理核對，勿重複送出：'+e.message,'warn',9000);
+    }else{
+      if(status){status.style.display='block';status.textContent='重新提交結果尚未確認；表單已保留，請重新整理並核對品檢狀態，勿重複送出。';}
+      showToast('⚠️ 重新提交結果尚未確認；表單已保留，請核對品檢狀態後再操作：'+e.message,'warn',9000);
+    }
+  }finally{
+    if(accepted)_resubmitInboundPending.delete(id);
+    if(btn)btn.disabled=!accepted&&_resubmitInboundPending.has(id);
+  }
 }
 
 function renderAnnounce(){
@@ -20592,6 +20620,7 @@ function openEditCorder(id){
   const mi=document.getElementById('modalInner');
   const orderNo=String(o.no||'').trim();
   mi.innerHTML=`<h3>✏️ 編輯 C端訂單</h3>
+  <div class="help-box" style="margin-bottom:12px">料號、數量和狀態已關聯出貨扣庫，在這裡僅供查看。完成、取消或退貨請使用訂單列表的對應流程。</div>
   <div style="margin-bottom:12px">
     <label class="field-label">內部單號</label>
     <div style="display:flex;align-items:center;gap:8px">
@@ -20599,22 +20628,22 @@ function openEditCorder(id){
     </div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
-    <div><label class="field-label">買家帳號</label><input class="inp" id="eco_buyer" value="${(o.buyer||'').replace(/"/g,'&quot;')}"></div>
-    <div><label class="field-label">狀態</label><select class="inp" id="eco_status">${['出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div><label class="field-label">買家帳號</label><input class="inp" id="eco_buyer" value="${escapeHtml(o.buyer||'')}"></div>
+    <div><label class="field-label">狀態</label><select class="inp" id="eco_status" disabled>${['出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
-    <div><label class="field-label">蝦皮訂單號碼</label><input class="inp" id="eco_shopee_no" value="${(o.shopeeNo||'').replace(/"/g,'&quot;')}"></div>
-    <div><label class="field-label">寄件編號</label><input class="inp" id="eco_tracking" value="${(o.trackingNo||'').replace(/"/g,'&quot;')}"></div>
+    <div><label class="field-label">蝦皮訂單號碼</label><input class="inp" id="eco_shopee_no" value="${escapeHtml(o.shopeeNo||'')}"></div>
+    <div><label class="field-label">寄件編號</label><input class="inp" id="eco_tracking" value="${escapeHtml(o.trackingNo||'')}"></div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
-    <div><label class="field-label">品名/料號</label><input class="inp" id="eco_mat" value="${(o.matCode||o.matName||'').replace(/"/g,'&quot;')}"></div>
-    <div><label class="field-label">數量</label><input class="inp" type="number" id="eco_qty" value="${o.qty||1}" min="1"></div>
+    <div><label class="field-label">品名/料號</label><input class="inp" id="eco_mat" value="${escapeHtml(o.matCode||o.matName||'')}" readonly></div>
+    <div><label class="field-label">數量</label><input class="inp" type="number" id="eco_qty" value="${escapeHtml(o.qty??'')}" min="1" step="1" readonly></div>
   </div>
   <div class="form-row" style="margin-bottom:10px">
-    <div><label class="field-label">出貨方式</label><input class="inp" id="eco_ship" value="${(o.shipMethod||'').replace(/"/g,'&quot;')}"></div>
-    <div><label class="field-label">出日</label><input class="inp" type="date" id="eco_ship_date" value="${o.shipDate||''}"></div>
+    <div><label class="field-label">出貨方式</label><input class="inp" id="eco_ship" value="${escapeHtml(o.shipMethod||'')}"></div>
+    <div><label class="field-label">出日</label><input class="inp" type="date" id="eco_ship_date" value="${escapeHtml(o.shipDate||'')}"></div>
   </div>
-  <div style="margin-bottom:12px"><label class="field-label">備註</label><input class="inp" id="eco_note" value="${(o.note||'').replace(/"/g,'&quot;')}"></div>
+  <div style="margin-bottom:12px"><label class="field-label">備註</label><input class="inp" id="eco_note" value="${escapeHtml(o.note||'')}"></div>
   <div class="form-actions">
     <button class="btn btn-ghost" onclick="closeModal()">取消</button>
     <button class="btn btn-blue" onclick="saveEditCorder('${id}')">💾 儲存</button>
@@ -20683,6 +20712,8 @@ async function saveEditCorder(id){
   if(!o){showToast('找不到 C端訂單，請重新同步後再編輯','err');return;}
   const orderNo=String(document.getElementById('eco_order_no')?.value||'').trim();
   if(!orderNo){showToast('請輸入完整 C端內部單號','warn');return;}
+  const qty=Number(document.getElementById('eco_qty')?.value);
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('C端數量請輸入大於 0 的整數','warn');return;}
   const originalOrderNo=String(o?.no||'').trim().toUpperCase();
   const orderNoChanged=orderNo.toUpperCase()!==originalOrderNo;
   if(orderNoChanged){
@@ -20702,7 +20733,6 @@ async function saveEditCorder(id){
   const shopeeNo=(document.getElementById('eco_shopee_no')?.value||'').trim();
   const trackingNo=(document.getElementById('eco_tracking')?.value||'').trim();
   const matName=(document.getElementById('eco_mat')?.value||'').trim();
-  const qty=parseInt(document.getElementById('eco_qty')?.value)||1;
   const status=document.getElementById('eco_status')?.value||'出貨中';
   const ship=(document.getElementById('eco_ship')?.value||'').trim();
   const shipDate=document.getElementById('eco_ship_date')?.value||'';
@@ -20723,7 +20753,7 @@ async function saveEditCorder(id){
     showToast('C端品名/料號已牽涉出貨扣庫，不可在一般編輯直接修改；請用取消回料、重新建立或庫存調整並留原因','err',10000);
     return;
   }
-  closeModal(); showToast('C端訂單更新中...','warn');
+  showToast('C端訂單更新中...','warn');
   try{
     const props={
       '訂單號碼':{title:[{text:{content:orderNo}}]},
@@ -20739,10 +20769,15 @@ async function saveEditCorder(id){
     if(shipDate) props['出日']={date:{start:shipDate}};
     await updatePage(id,props);
     if(o){Object.assign(o,{no:orderNo,buyer,shopeeNo,trackingNo,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
-    await loadCorders();
-    renderTab('corders');
-    showToast('✅ C端訂單已更新','ok');
-  }catch(e){showToast('❌ '+e.message,'err');}
+    closeModal();
+    try{
+      await loadCorders();
+      renderTab('corders');
+      showToast('✅ C端訂單已更新','ok');
+    }catch(refreshError){
+      showToast('⚠️ C端訂單已儲存，但清單更新失敗；請重新整理查看，勿重複送出：'+refreshError.message,'warn',9000);
+    }
+  }catch(e){showToast('⚠️ C端訂單更新結果未確認；表單已保留，請先重新整理核對：'+e.message,'warn',9000);}
 }
 
 async function deleteCorder(id, matId, qty, status){
