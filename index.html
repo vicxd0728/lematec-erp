@@ -1825,6 +1825,7 @@ html[data-theme="warm"] #themePanel{
 </div>
 <button id="syncFloat" class="sync-float" type="button" onclick="refreshAll(true)" title="點一下立即同步">同步狀態</button>
 
+<script src="./erp-action-receipts.js"></script>
 <script>
 async function openStatusModal(id, cur){
   if(denyViewOnlyAction()) return;
@@ -9153,6 +9154,34 @@ function goHome(){
   const content=document.getElementById('mainContent');
   if(content)content.scrollTop=0;
 }
+
+function renderActionReceiptPanel(){
+  const receipts=(window.erpActionReceipts?.list?.()||[]).filter(row=>row.role===ROLE&&({inbound_resubmit:'inbound',corder_edit:'corders',order_create:'orders'}[row.kind]||'')&&ROLES[ROLE]?.tabs.includes({inbound_resubmit:'inbound',corder_edit:'corders',order_create:'orders'}[row.kind])).slice(0,6);
+  if(!receipts.length)return '';
+  const names={inbound_resubmit:'入料重新提交',corder_edit:'C端訂單編輯',order_create:'建立客戶訂單'};
+  return `<section class="panel" aria-label="最近操作核對" style="padding:15px;margin-bottom:15px"><strong>最近操作核對</strong><p style="font-size:.75rem;color:var(--text3);margin:5px 0 10px">僅保存在本瀏覽器，不能代替正式資料。結果不明時請先查看清單，勿重複送出。</p><div style="display:grid;gap:7px">${receipts.map(row=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:7px"><span style="font-size:.77rem"><b>${escapeHtml(names[row.kind])}</b> · ${escapeHtml(row.reference||'未編號')} · <span style="color:${row.state==='accepted'?'var(--green)':'var(--amber)'}">${row.state==='accepted'?'已接受':'待核對'}</span></span><span style="display:flex;gap:5px"><button type="button" class="btn btn-ghost btn-xs" data-receipt-id="${escapeHtml(row.id)}" onclick="openActionReceipt(this.dataset.receiptId)">查看正式清單</button><button type="button" class="btn btn-ghost btn-xs" data-receipt-id="${escapeHtml(row.id)}" onclick="dismissActionReceipt(this.dataset.receiptId)">已核對，隱藏</button></span></div>`).join('')}</div></section>`;
+}
+function openActionReceipt(id){
+  const row=window.erpActionReceipts?.list?.().find(item=>item.id===id&&item.role===ROLE);
+  if(!row)return;
+  const target={inbound_resubmit:'inbound',corder_edit:'corders',order_create:'orders'}[row.kind];
+  if(!target||!ROLES[ROLE]?.tabs.includes(target))return;
+  if(target==='inbound'){
+    const filters=inboundListFilters();filters.q=row.reference;filters.status='all';filters.date='0';filters.page=1;
+  }else if(target==='corders'){
+    window._CO_Q=row.reference;setCorderSearchDraft(row.reference);
+  }else{
+    const filters=getOrderFilters();filters.q=row.reference;filters.type='all';filters.status='all';filters.date='0';filters.hide=false;filters.deadline='';setOrderSearchDraft(row.reference);
+  }
+  switchTab(target);
+  showToast('已開啟正式清單；請核對料號、數量與狀態後再決定是否重試','warn',8000);
+}
+function dismissActionReceipt(id){
+  const row=window.erpActionReceipts?.list?.().find(item=>item.id===id&&item.role===ROLE);
+  if(!row)return;
+  window.erpActionReceipts.dismiss(id);
+  if(CURRENT_TAB==='dashboard')renderTab('dashboard');
+}
 function switchTab(tab){
   const previousTab=CURRENT_TAB;
   CURRENT_TAB=tab;
@@ -12659,6 +12688,29 @@ function progressOrderNextAction(o){
   if(o.status==='生產中')return '倉管／採購：追蹤生產並送檢';
   return {'待檢驗':'品管：確認檢驗結果','品檢異常':'品管：處理異常並安排重檢','待出貨':'業務／倉管：安排出貨'}[o.status]||'請核對目前狀態';
 }
+function progressOrderActionTarget(o){
+  if(['待檢驗','品檢異常'].includes(o.status)&&ROLES[ROLE]?.tabs.includes('qc'))return {tab:'qc',label:'前往訂單檢驗'};
+  if(ROLES[ROLE]?.tabs.includes('orders'))return {tab:'orders',label:'前往訂單'};
+  return null;
+}
+function progressOpenNextStep(id){
+  const order=orders.find(row=>row.id===id);
+  if(!order||!progressIsCustomerOrder(order))return;
+  const target=progressOrderActionTarget(order);
+  if(!target)return;
+  if(target.tab==='qc'){
+    QC_SUB='order_qc';
+    switchTab('qc');
+    showToast('已開啟訂單檢驗；請依訂單號核對品檢紀錄','warn',6500);
+    return;
+  }
+  const filters=getOrderFilters();
+  filters.q=order.no||'';filters.type='all';filters.status='all';filters.date='0';filters.hide=false;filters.deadline='';
+  setOrderSearchDraft(filters.q);
+  window._ORD_SUB='list';
+  switchTab('orders');
+  showToast('已篩選來源訂單；執行前請核對領料／品檢實際紀錄','warn',6500);
+}
 function progressDueDay(value){
   if(!value)return '';
   const raw=String(value),day=raw.slice(0,10);
@@ -12754,7 +12806,8 @@ function renderProgressOrders(){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
       ${filtered.length?`<div style="display:grid;gap:8px">${filtered.slice(0,progressOrderVisibleLimit).map(o=>{
         const late=progressDueBucket(o.deadline,today,soonDay)==='overdue';
-        return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">狀態提示：${escapeHtml(progressOrderNextAction(o))}；實際領料／品檢請查紀錄。</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查驗進度</button><button class="btn btn-ghost btn-sm" onclick="progressOpenSupplyForOrder('${o.id}')">查外包工作</button></div></div>`;
+        const next=progressOrderActionTarget(o);
+        return `<div style="border:1px solid ${late||o.status==='品檢異常'?'rgba(245,101,101,.32)':'var(--border)'};background:var(--bg2);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="min-width:190px;flex:1"><div style="font-weight:750">${escapeHtml(o.no||'未編號')} ${pill(o.status)} <span style="font-size:.7rem;color:var(--text3)">${escapeHtml(progressOrderKind(o))}</span></div><div style="font-size:.75rem;color:var(--text2);margin-top:4px">${escapeHtml(o.customer||o.cust||'—')} · ${escapeHtml(orderProductName(o)||o.matCode||'—')} × ${Number(o.qty)||0}</div><div style="font-size:.72rem;color:${late||o.status==='品檢異常'?'var(--red)':'var(--text3)'};margin-top:5px">交期 ${escapeHtml(o.deadline||'未填')} · ${escapeHtml(progressDueLabel(o.deadline,today))}</div><div style="font-size:.72rem;color:var(--text2);margin-top:3px">狀態提示：${escapeHtml(progressOrderNextAction(o))}；實際領料／品檢請查紀錄。</div></div><div style="display:flex;gap:6px;flex-wrap:wrap">${next?`<button type="button" class="btn btn-blue btn-sm" onclick="progressOpenNextStep('${o.id}')">${escapeHtml(next.label)}</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openOrderTimeline('${o.id}')">查驗進度</button><button class="btn btn-ghost btn-sm" onclick="progressOpenSupplyForOrder('${o.id}')">查外包工作</button></div></div>`;
       }).join('')}</div>${filtered.length>progressOrderVisibleLimit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px"><span style="color:var(--text3);font-size:.75rem">已顯示 ${Math.min(progressOrderVisibleLimit,filtered.length)}／${filtered.length} 筆</span><button type="button" class="btn btn-ghost btn-sm" onclick="progressShowMoreOrders()">顯示更多訂單（下一批 40 筆）</button></div>`:''}`:`<div style="padding:24px;text-align:center;color:var(--text3)">目前沒有符合條件的未結案訂單${progressCenterSearch||progressCenterFilter!=='all'?'<div style="margin-top:10px"><button type="button" class="btn btn-ghost btn-sm" onclick="progressResetFilters()">清除搜尋與篩選</button></div>':''}</div>`}
     </div>`;
 }
@@ -16635,7 +16688,7 @@ function renderDashboard(){
   ].filter(e=>dashboardTabAvailable(e.tab));
   const quickEntries=`<div class="quick-entry-grid">${quickEntryDefs.map(e=>`<button class="quick-entry-card" style="--entry-color:${e.color}" onclick="dashboardGo('${e.tab}','${e.sub||''}')"><b>${e.title}</b><span>${e.body}</span><small>${e.count}</small></button>`).join('')}</div>`;
 
-  return`${dashHero}${dashboardFreshnessStrip()}${todoSection}${quickEntries}${annSection}
+  return`${dashHero}${dashboardFreshnessStrip()}${renderActionReceiptPanel()}${todoSection}${quickEntries}${annSection}
 
   <!-- KPI Row 1: 核心指標 -->
   <div class="dash-kpi-grid">
@@ -18787,6 +18840,7 @@ async function submitResubmitInbound(id){
   const nextNote=[oldNote,`重新提交 ${stamp}${reason?'：'+reason:''}`].filter(Boolean).join('\n');
   const btn=document.getElementById('resub_submit');
   const status=document.getElementById('resub_status');
+  const actionReceiptId=window.erpActionReceipts?.start('inbound_resubmit',ib.no||id,ib.supabaseId,ROLE);
   _resubmitInboundPending.add(id);
   if(btn)btn.disabled=true;
   showToast('重新提交入料單中...','warn');
@@ -18805,6 +18859,7 @@ async function submitResubmitInbound(id){
     });
     if(!data?.row?.id)throw new Error('Supabase 未回傳入料單確認資料');
     accepted=true;
+    if(actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'accepted');
     const saved=mapSupabaseInbound(data.row);
     const mirror=await updateInboundNotionMirror(saved);
     logUserAction('重新提交入料單',ib.no||id,`${mat?.code||mat?.name||matId} x ${qty}${reason?' / '+reason:''}`,ROLE);
@@ -18819,6 +18874,7 @@ async function submitResubmitInbound(id){
       if(document.getElementById('resub_status')===status)closeModal();
       showToast('⚠️ 入料單已重新提交，但後續同步未完成；請重新整理核對，勿重複送出：'+e.message,'warn',9000);
     }else{
+      if(actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'uncertain');
       if(status){status.style.display='block';status.textContent='重新提交結果尚未確認；表單已保留，請重新整理並核對品檢狀態，勿重複送出。';}
       showToast('⚠️ 重新提交結果尚未確認；表單已保留，請核對品檢狀態後再操作：'+e.message,'warn',9000);
     }
@@ -20753,6 +20809,7 @@ async function saveEditCorder(id){
     showToast('C端品名/料號已牽涉出貨扣庫，不可在一般編輯直接修改；請用取消回料、重新建立或庫存調整並留原因','err',10000);
     return;
   }
+  const actionReceiptId=window.erpActionReceipts?.start('corder_edit',orderNo,id,ROLE);
   showToast('C端訂單更新中...','warn');
   try{
     const props={
@@ -20768,6 +20825,7 @@ async function saveEditCorder(id){
     };
     if(shipDate) props['出日']={date:{start:shipDate}};
     await updatePage(id,props);
+    if(actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'accepted');
     if(o){Object.assign(o,{no:orderNo,buyer,shopeeNo,trackingNo,matCode:matName,matName,qty,status,shipMethod:ship,shipDate,note});}
     closeModal();
     try{
@@ -20777,7 +20835,7 @@ async function saveEditCorder(id){
     }catch(refreshError){
       showToast('⚠️ C端訂單已儲存，但清單更新失敗；請重新整理查看，勿重複送出：'+refreshError.message,'warn',9000);
     }
-  }catch(e){showToast('⚠️ C端訂單更新結果未確認；表單已保留，請先重新整理核對：'+e.message,'warn',9000);}
+  }catch(e){if(actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'uncertain');showToast('⚠️ C端訂單更新結果未確認；表單已保留，請先重新整理核對：'+e.message,'warn',9000);}
 }
 
 async function deleteCorder(id, matId, qty, status){
@@ -26778,6 +26836,7 @@ async function submitNormalOrder(isDomestic){
     for(let i=0;i<buildItems.length;i++){
       const item=buildItems[i];
       let writeAttempted=false;
+      let actionReceiptId='';
       try{
         const mat=item.matId?mats.find(m=>m.id===item.matId):await ensureOrderProduct(item.model);
         if(!mat) throw new Error('找不到料號 '+(item.model||''));
@@ -26794,12 +26853,15 @@ async function submitNormalOrder(isDomestic){
         };
         if(unitPriceRaw) props['產品單價']={number:unitPrice};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
+        actionReceiptId=window.erpActionReceipts?.start('order_create',orderNo,mat.id,ROLE)||'';
         writeAttempted=true;
         const created=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
         if(created?.object==='error'||!created?.id)throw new Error(created?.message||'訂單資料庫未確認建立成功');
+        if(actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'accepted');
         ok++;
         try{logUserAction('建立訂單',orderNo,`${custName||'未知'} ${mat?.code||mat?.name||''} x ${Number(item.qty)||1}`,ROLE);}catch(e){console.warn('訂單操作紀錄待補：',e);}
       }catch(itemErr){
+        if(writeAttempted&&actionReceiptId)window.erpActionReceipts.mark(actionReceiptId,'uncertain');
         fail++;
         failList.push(`${item.model||product?.code||'未知料號'}（${itemErr.message||'建立失敗'}）`);
         console.error('建立訂單品項失敗:',item,itemErr);

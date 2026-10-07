@@ -18,6 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Verify front-end actions and deploy assets
+        run: |
+          node --test tests/action_receipts.cjs tests/progress_center.cjs tests/edit_feedback_resubmit.cjs tests/batch_creation_feedback.cjs
+          python -m unittest tests.test_daily_erp_quality tests.test_verify_erp_static
+          python scripts/verify_erp_static.py
+
       - name: Prepare deploy assets
         shell: bash
         env:
@@ -27,6 +33,7 @@ jobs:
           rm -rf _publish
           mkdir -p _publish
           cp index.html _publish/index.html
+          cp erp-action-receipts.js _publish/erp-action-receipts.js
           python - <<'PY'
           import os
           from pathlib import Path

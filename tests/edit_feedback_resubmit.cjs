@@ -17,7 +17,7 @@ function resubmit(extra={}){
  const receipt={id:'local-1',supabaseId:'receipt-1',no:'IB-1',qty:1,matId:'page-a',note:'',qcStatus:'品檢不合格',stStatus:'退回倉管'};
  const fields={resub_mat:{value:'page-a'},resub_qty:{value:'0.5'},resub_reason:{value:'修正數量'},
   resub_submit:{disabled:false},resub_status:{style:{display:'none'},textContent:''},modalInner:{innerHTML:''}};
- const ctx=vm.createContext({inbounds:[receipt],mats:[{id:'page-a',code:'Y-A',name:'A',type:'零件'}],
+ const ctx=vm.createContext({window:{},inbounds:[receipt],mats:[{id:'page-a',code:'Y-A',name:'A',type:'零件'}],
   document:{getElementById:id=>fields[id]||null},escapeHtml,
   showToast:(...args)=>calls.push(['toast',...args]),closeModal:()=>calls.push(['close']),openModal:()=>{},
   pickingWorkerRequest:async(route,{body})=>{calls.push(['write',body.quantity]);return {row:{id:'receipt-1'}};},

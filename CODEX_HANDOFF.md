@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Operation guidance and daily read-only quality 2026-10-07
+
+- `erp-action-receipts.js` is the first extracted browser helper. Normal customer-order creation, rejected-inbound resubmission, and C-end order edits record a role-scoped local action reference before a formal write and mark it accepted only after the formal source responds. The dashboard shows recent references across reloads and opens the relevant formal list for manual verification. These records are not server receipts or proof of success, are limited to the current browser, and never contain credentials or full business payloads.
+- Progress Center order cards now include a role-appropriate next-step button. Pending/abnormal QC opens the order-inspection subtab when available; otherwise authorized staff reach a filtered formal order list. The button never changes order, QC, picking, or stock data. Existing shortage-to-prefilled-assembly/inbound guidance remains the authority for shortages.
+- `.github/workflows/erp-daily-quality.yml` schedules a read-only 06:15 Taiwan snapshot. `scripts/daily_erp_quality.py` checks Supabase material coverage/negative stock, 60-day transaction-to-staff-detail reconciliation, raw Notion material mirror differences, mirror-job counts, C-end order identity conflicts, and recent QC/order inconsistencies. Raw mirror differences include queued jobs; negative stock is a current count, not a new-incident delta. No repair endpoints are called. This first run must be inspected before treating the schedule as accepted.
+- `README.md` now describes the current Cloudflare/Supabase/Notion arrangement instead of the retired Netlify setup. `scripts/verify_erp_static.py`, Pages packaging, and the service worker include the extracted helper. Staff login is unchanged. Static/regression checks, daily scheduled readback, deployment SHA/version, and authenticated UI acceptance remain distinct gates.
+
 ## Edit and resubmit feedback review 2026-10-07
 
 - A rejected inbound receipt's resubmit form now preserves positive fractional quantities and validates them before sending. It stays open until the Worker confirms a receipt ID. An uncertain response keeps the draft and blocks repeat submission in the same page session; operators are directed to refresh and inspect QC before trying again.

@@ -1,57 +1,23 @@
-# LEMATEC ERP 系統
+# LEMATEC ERP
 
-製造業 ERP 系統，前端搭配 Notion 資料庫。
+本儲存庫包含既有 LEMATEC ERP 網頁與 Cloudflare Worker。正式前端來源是部署到 Cloudflare Pages 的 `index.html`；Worker 來源是 `cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`。`erp-action-receipts.js` 是第一個抽出的瀏覽器模組，只保存本機操作參照，不是業務主資料。
 
-## 部署方式（GitHub + Netlify）
+## 目前資料權責
 
-### Step 1 — 上傳到 GitHub
+| 範圍 | 正式資料 | 次要介面 |
+| --- | --- | --- |
+| 庫存、BOM、正式異動、領料、入料／品檢、記事結構資料 | 經 Worker 寫入 Supabase | Notion 人員可讀鏡像或明確標示的唯讀備援 |
+| 一般／C 端訂單、客戶、請假、行銷行程 | Notion | ERP 畫面與操作流程 |
+| 記事附件與內文區塊 | Notion | ERP 記事畫面 |
 
-1. 前往 [github.com](https://github.com) 建立帳號（免費）
-2. 點右上角「+」→「New repository」
-3. 名稱填：`lematec-erp`，設定為 **Public**，點「Create repository」
-4. 把這個資料夾的所有檔案上傳：
-   - 點「uploading an existing file」
-   - 把整個資料夾拖進去（包含 `netlify/` 子資料夾）
-   - 點「Commit changes」
+修改寫入流程前，先讀 [ERP_DATA_FLOW.md](ERP_DATA_FLOW.md) 與 [ERP_CURRENT_STATE.md](ERP_CURRENT_STATE.md)。Notion 鏡像失敗不可重做已接受的庫存交易。部署或本機測試成功，不等於員工已完成實際操作驗收。
 
-### Step 2 — 部署到 Netlify
+## 本機檢查與部署
 
-1. 前往 [netlify.com](https://netlify.com) 用 GitHub 帳號登入
-2. 點「Add new site」→「Import an existing project」
-3. 選「Deploy with GitHub」→ 選剛才建的 `lematec-erp`
-4. 設定保持預設 → 點「Deploy site」
-5. 等 1-2 分鐘後會得到網址，例如：`https://lematec-erp.netlify.app`
+執行 `python scripts/verify_erp_static.py` 與相關流程的測試。Worker 變更另需執行 `node --check cloudflare-worker-green-wave-c22f-FULL-UPDATED.js`。[Worker 工作流程](.github/workflows/cloudflare-worker.yml)與 [Pages 工作流程](.github/workflows/cloudflare-pages.yml)從 `main` 部署；Pages 會等待相同 commit 的 Worker 成功，並把 `V.LOCAL` 換成正式版本。部署後須讀回 Worker SHA、Pages 版本與無快取的正式檔案。
 
-### Step 3 — 取得 Notion Token
+[每日資料品質工作流程](.github/workflows/erp-daily-quality.yml)只讀檢查。鏡像差異是原始比對，可能包含尚在排隊的同步工作；排程不會修復庫存、訂單、品檢或鏡像。
 
-1. 前往 [notion.so/profile/integrations](https://notion.so/profile/integrations)
-2. 點「New integration」→ 名稱填「LEMATEC ERP」→ 儲存
-3. 複製「Internal Integration Secret」（`ntn_` 開頭）
-4. 在 Notion 打開「工廠 ERP」主頁 → 右上角「⋯」→「Connect to」→ 選「LEMATEC ERP」
+不得把整合 Token、service-role key、資料庫網址或其他憑證寫入儲存庫、Issue 或報告。員工登入仍沿用公司 Token＋角色；部署密鑰在原始碼之外設定。
 
-### Step 4 — 使用系統
-
-開啟你的 Netlify 網址，輸入 Notion Token，選角色，進入系統。
-
-## 檔案結構
-
-```
-lematec-erp/
-├── index.html                    # 主網頁
-├── netlify.toml                  # Netlify 設定
-├── netlify/
-│   └── functions/
-│       └── notion.js             # Notion API Proxy（解決 CORS）
-└── README.md
-```
-
-## 角色說明
-
-| 角色 | 功能 |
-|------|------|
-| 廠長 | 全部功能 |
-| 業務 | 建立訂單、客戶管理 |
-| 生管 | 產出領料單、自動扣料 |
-| 倉管 | 庫存查詢、入料登錄 |
-| 品管 | 品檢確認、自動入庫 |
-| 採購 | 庫存警示、入料登錄 |
+操作細節見 [CODEX_HANDOFF.md](CODEX_HANDOFF.md)、[異動紀錄手冊](supabase/STOCK_LOG_RUNBOOK.md)、[領料手冊](supabase/PICKING_RUNBOOK.md)與[入料手冊](supabase/INBOUND_RUNBOOK.md)。

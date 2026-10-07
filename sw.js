@@ -1,6 +1,7 @@
-const CACHE_NAME = 'lematec-erp-v35';
+const CACHE_NAME = 'lematec-erp-v36';
 const CORE_ASSETS = [
   './manifest.webmanifest',
+  './erp-action-receipts.js',
   './icons/icon-192-v2.png',
   './icons/icon-512-v2.png',
   './icons/maskable-512-v2.png',
@@ -47,9 +48,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // The ERP app logic is bundled in index.html. Always prefer the network for
-  // same-origin HTML so installed mobile PWAs do not keep running stale code.
-  if (url.origin === self.location.origin && (url.pathname === '/' || url.pathname.endsWith('.html'))) {
+  // Prefer fresh app logic, including extracted helpers, while retaining offline fallback.
+  if (url.origin === self.location.origin && (url.pathname === '/' || url.pathname.endsWith('.html') || url.pathname.endsWith('/erp-action-receipts.js'))) {
     event.respondWith(
       fetch(request, { cache: 'no-store' })
         .then((response) => {

@@ -34,6 +34,7 @@ function setup(orders = []) {
     isViewOnly: () => false,
     isAdminRole: () => false,
     ROLE: 'purchase',
+    ROLES: {purchase:{tabs:['orders','qc','schedule']},qc:{tabs:['qc','schedule']},viewer:{tabs:['schedule']}},
   });
   vm.runInContext(moduleCode, ctx);
   return ctx;
@@ -56,6 +57,26 @@ test('supply view waits for official data and shows recorded jobs without invent
   assert.match(rendered, /supplyOpenAdvance\('a'\)/);
   assert.match(rendered, /送外與轉廠只記錄流程，不扣庫存/);
   assert.match(rendered, /入料經品檢通過才增加庫存/);
+});
+
+test('progress next-step navigates to the permitted work list without changing an order',()=>{
+  const order={id:'o-1',no:'ORD-1',orderType:'國內',status:'待檢驗',deadline:'2026-10-10'};
+  const ctx=setup([order]),opened=[];
+  const filters={q:'',type:'old',status:'old',date:'30',hide:true,deadline:'old'};
+  ctx.getOrderFilters=()=>filters;ctx.setOrderSearchDraft=()=>{};
+  ctx.switchTab=tab=>opened.push(tab);ctx.showToast=()=>{};
+  assert.match(ctx.renderProgressOrders(),/前往訂單檢驗/);
+  ctx.progressOpenNextStep('o-1');
+  assert.deepEqual(opened,['qc']);
+  assert.equal(order.status,'待檢驗');
+  ctx.ROLE='purchase';
+  order.status='待排程';
+  ctx.progressOpenNextStep('o-1');
+  assert.equal(filters.q,'ORD-1');
+  assert.equal(filters.date,'0');
+  assert.deepEqual(opened,['qc','orders']);
+  ctx.ROLE='viewer';
+  assert.doesNotMatch(ctx.renderProgressOrders(),/前往訂單檢驗|前往訂單<\/button>/);
 });
 
 test('Notion catalog management links and historical selections remain available',()=>{

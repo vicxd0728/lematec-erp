@@ -1,0 +1,26 @@
+name: ERP daily read-only quality
+
+on:
+  schedule:
+    # 06:15 Asia/Taipei daily (22:15 UTC previous day).
+    - cron: "15 22 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: erp-daily-read-only-quality
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify read-only audit logic
+        run: python -m unittest tests.test_daily_erp_quality
+      - name: Read formal ERP and Notion snapshots
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          ERP_WORKER_URL: https://green-wave-c22f.vic-e93.workers.dev
+        run: python scripts/daily_erp_quality.py
