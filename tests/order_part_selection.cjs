@@ -55,10 +55,11 @@ for(const domestic of [false,true]){
     ctx.getSelectedPIItems=()=>[];
     ctx.parseMoneyNumber=Number;
     ctx.closeModal=()=>{};
-    ctx.showToast=()=>{};
+    const messages=[];
+    ctx.showToast=message=>messages.push(message);
     ctx.notionAPI=async(method,endpoint,payload)=>{writes.push({method,endpoint,payload});return {id:'order'};};
     ctx.ensureOrderProduct=()=>{throw Error('existing SKU must not create a material');};
-    ctx.syncToDomesticTrade115=async()=>{};
+    ctx.syncToDomesticTrade115=async()=>{throw Error('legacy order mirror must not run');};
     ctx.logUserAction=()=>{};
     ctx.refreshAffectedData=async()=>{};
     ctx.console={error:()=>{}};
@@ -70,5 +71,7 @@ for(const domestic of [false,true]){
     assert.equal(writes[0].payload.properties['成品'].relation[0].id,mats[0].id);
     assert.equal(writes[0].payload.properties['訂購數量'].number,2);
     assert.equal(writes[0].payload.properties['訂單類型'].select.name,domestic?'國內':'國外');
+    assert.match(messages.at(-1),/建立 1\/1 筆訂單/);
+    assert.doesNotMatch(messages.at(-1),/115年貿易商|失敗/);
   });
 }

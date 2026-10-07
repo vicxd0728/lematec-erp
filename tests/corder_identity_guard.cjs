@@ -75,7 +75,7 @@ const stockOrder = {id: 'order-1', no: 'SHPTW16283', shopeeNo: 'SHOP1', buyer: '
 test('historical internal-number collision blocks stock-changing actions', async () => {
   const ctx = stockSetup({results: [stockRow('order-1', 'SHOP1', 'BUYER1'), stockRow('order-2', 'SHOP2', 'BUYER2')], has_more: false});
   await assert.rejects(ctx.assertCorderStockActionIdentity(stockOrder), /不同蝦皮單號或買家/);
-  const cancel = html.slice(html.indexOf('async function openCorderCancelDeleteFlow('), html.indexOf('async function syncToDomesticTrade115('));
+  const cancel = html.slice(html.indexOf('async function openCorderCancelDeleteFlow('), html.indexOf('async function cancelCorder('));
   const returns = html.slice(html.indexOf('async function submitReturnCorder('), html.indexOf('function openEditCorder('));
   assert.equal((cancel.match(/await assertCorderStockActionIdentity\(o\)/g)||[]).length, 2);
   assert(returns.indexOf('await assertCorderStockActionIdentity(o)') < returns.indexOf('await returnCorderStock('));

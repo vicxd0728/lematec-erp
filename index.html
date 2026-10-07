@@ -6272,7 +6272,7 @@ function openModal(type,data){
     <!-- 國內訂單 block -->
     <div id="blockDomestic" style="display:none">
       <div style="margin-bottom:10px">
-        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">國內客戶（同步 115年貿易商）</label>
+        <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">國內客戶</label>
         <select class="inp" id="m_dom_cust"><option value="">— 選擇客戶 —</option>${domOpts}</select>
         <div style="font-size:0.625rem;color:var(--text3);margin:6px 0;text-align:center">或</div>
         <input class="inp" id="m_dom_manual" placeholder="手動輸入國內客戶名稱，例如：福桑、晶元、齊萌">
@@ -20357,25 +20357,6 @@ async function processCorderDeleteDecision(id,mode,stockMode){
     _corderDeleteLocks.delete(lockKey);
   }
 }
-async function syncToDomesticTrade115({orderNo,custName,custCode,productName,qty,deadline,note}){
-  if(!DB.domesticTrade) return;
-  const d=new Date();
-  const reg=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
-  const props={
-    '登記':{title:[{text:{content:reg}}]},
-    '訂單編號':{rich_text:[{text:{content:orderNo||''}}]},
-    '數量':{number:Number(qty)||0},
-    '備註說明':{rich_text:[{text:{content:[productName?`品：${productName}`:'',deadline?`預出：${deadline.replace(/-/g,'/')}`:'',note||''].filter(Boolean).join(' / ')}}]},
-  };
-  if(custName) props['客戶']={select:{name:custName}};
-  if(custCode) props['客編']={select:{name:custCode}};
-  if(productName) props['品名']={select:{name:productName}};
-  if(deadline) props['預出貨日']={date:{start:deadline}};
-  const r=await notionAPI('POST','pages',{parent:{database_id:DB.domesticTrade},properties:props});
-  if(!r||r.object==='error') throw new Error('115年貿易商同步失敗：'+(r?.message||r?.code||'未知錯誤'));
-  logUserAction('同步115年貿易商',orderNo,`${custName||''} ${productName||''} x ${qty}`,ROLE);
-}
-
 async function cancelCorder(id, matId, qty){
   await openCorderCancelDeleteFlow(id,'cancel');
 }
@@ -26534,17 +26515,6 @@ async function submitNormalOrder(isDomestic){
         if(unitPriceRaw) props['產品單價']={number:unitPrice};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
         await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
-        if(isDomestic){
-          await syncToDomesticTrade115({
-            orderNo,
-            custName:custName||'未知',
-            custCode,
-            productName:mat?.code||mat?.name||'',
-            qty:Number(item.qty)||1,
-            deadline,
-            note
-          });
-        }
         logUserAction('建立訂單',orderNo,`${custName||'未知'} ${mat?.code||mat?.name||''} x ${Number(item.qty)||1}`,ROLE);
         ok++;
       }catch(itemErr){
@@ -26554,7 +26524,7 @@ async function submitNormalOrder(isDomestic){
       }
     }
     await refreshAffectedData({core:true,label:'訂單資料已更新'});
-    showToast(`${fail?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${isDomestic?'，已同步 115年貿易商':''}${fail?'，失敗：'+failList.join('、'):''}`,fail?'warn':'ok');
+    showToast(`${fail?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${fail?'，失敗：'+failList.join('、'):''}`,fail?'warn':'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
 }
 

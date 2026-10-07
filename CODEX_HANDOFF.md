@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Domestic Order Mirror Retirement 2026-10-07
+
+- New domestic orders continue writing to the formal `ERP 客戶訂單` Notion database (`DB.orders`) with their material relation, quantity, status and deadline. The extra `syncToDomesticTrade115` write to `115年貿易商` has been removed at the user's request; the create form and success toast no longer claim a mirror write.
+- Keep `DB.domesticTrade` read access for existing domestic customer choices and the historical Notion link. No historical `115年貿易商` rows are deleted or changed. Customer-order downstream picking and progress still use the formal ERP order page ID.
+- Prior failure mode: formal order creation could succeed, then legacy mirror failure was counted as order failure, inviting a duplicate retry. The new focused test requires exactly one formal order create and no legacy mirror call for domestic and overseas orders. Deployment and production acceptance must be verified separately.
+
 ## Progress Center LOOP/GRILL Five Rounds 2026-10-03
 
 - `ERP_PROGRESS_CENTER_LOOP_GRILL_FIVE_ROUNDS_2026-10-03.md` records five distinct journeys with ten simulated senior-role perspectives; no actual employees were interviewed.

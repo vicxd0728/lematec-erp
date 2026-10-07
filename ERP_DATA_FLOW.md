@@ -2,6 +2,8 @@
 
 ## Current Effective Summary 2026-09-07
 
+Domestic order addendum (2026-10-07): New domestic and overseas customer orders write only to the formal Notion `ERP 客戶訂單` database (`DB.orders`). The former additional domestic-order write to `115年貿易商` has stopped. That legacy database remains a read source for existing domestic customer choices; stopping the order mirror does not delete historical rows or remove that customer lookup.
+
 Marketing schedule addendum (2026-10-02): `影音專區 > 行銷行程` reads and writes the existing Notion `行銷時程表` data source directly. Notion is the sole authoritative store for these rows; the ERP production schedule is separate. ERP checks an existing row's last edit and parent before writing, then reads the saved row back. Notion-side changes appear after reloading the ERP subtab. The `狀態1` column is not written by ERP.
 
 This section overrides older dated timeline sections below when they conflict.
