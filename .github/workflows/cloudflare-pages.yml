@@ -22,10 +22,24 @@ jobs:
         shell: bash
         env:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ERP_PAGES_RUN_NUMBER: ${{ github.run_number }}
         run: |
           rm -rf _publish
           mkdir -p _publish
           cp index.html _publish/index.html
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path('_publish/index.html')
+          source = path.read_text(encoding='utf-8')
+          marker = '<span class="topbar-version" data-erp-version>V.LOCAL</span>'
+          if source.count(marker) != 1:
+              raise SystemExit('ERP version marker missing or duplicated')
+          version = f"V.{os.environ['ERP_PAGES_RUN_NUMBER']}"
+          path.write_text(source.replace(marker, f'<span class="topbar-version" data-erp-version>{version}</span>'), encoding='utf-8', newline='\n')
+          print(f'ERP Pages version: {version}')
+          PY
           if [ -n "$SUPABASE_ANON_KEY" ]; then
             python -c "import os,pathlib; p=pathlib.Path('_publish/index.html'); t=p.read_text(encoding='utf-8'); p.write_text(t.replace('__SUPABASE_ANON_KEY__', os.environ['SUPABASE_ANON_KEY']), encoding='utf-8', newline='\n')"
           else
