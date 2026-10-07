@@ -16,7 +16,7 @@ function form(){
  const mats=[{id:'a',code:'AI303-R1',name:'AI303-R1',type:'半成品'},
   {id:'b',code:'AI303-R2',name:'AI303-R2',type:'半成品'}];
  const calls=[];
- const context=vm.createContext({mats,document:{getElementById:id=>elements[id]||null},
+ const context=vm.createContext({mats,window:{},document:{getElementById:id=>elements[id]||null},
   escapeHtml:x=>String(x),normalizeSku:x=>String(x||'').toUpperCase().replace(/\s/g,''),
   showToast:(...args)=>calls.push(['toast',...args]),closeModal:()=>{},todayStr:()=> '2026-09-26',
   notionAPI:async(...args)=>{calls.push(['write',...args]);return {id:'order'};},
@@ -47,6 +47,16 @@ test('assembly creation writes the visible quantity and rejects invalid numbers'
   await next.context.submitSFGOrder();
   assert.equal(next.calls.some(x=>x[0]==='write'),false);
  }
+});
+
+test('shortage-sourced assembly keeps its source order in the saved note',async()=>{
+ const h=form();h.elements.m_sfg_qty.value='40';h.context.selectSfgMaterial('a');
+ h.context.window._pickShortageDraft={materialId:'a',orderId:'source-order'};
+ h.elements.m_note.value='缺料來源訂單：ORD-123 [source-order]；料號：AI303-R1';
+ await h.context.submitSFGOrder();
+ const write=h.calls.find(x=>x[0]==='write');
+ assert.match(write[3].properties['業務備註'].rich_text[0].text.content,/ORD-123 \[source-order\]/);
+ assert.equal(write[3].properties['訂購數量'].number,40);
 });
 
 test('picking preview places the real shortage above sufficient materials',()=>{

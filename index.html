@@ -6232,6 +6232,7 @@ function openModal(type,data){
   // ── 新增訂單 ──
   if(type==='newOrder'){
     const orderTypeTab = data?.tab||'overseas';
+    window._pickShortageDraft=data?.shortageSource||null;
     // 從全域 customers 陣列篩出國外/國內客戶
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
     const domesticCustomers = customers.filter(c=>c.type==='domestic');
@@ -6289,6 +6290,7 @@ function openModal(type,data){
     <!-- 半成品 block -->
     <div id="blockSfg" style="display:none">
       <div style="padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;margin-bottom:12px;font-size:0.6875rem;color:var(--amber)">⚙️ 半成品生產單 — QC 通過後自動入庫，不需填寫客戶及包材</div>
+      <div id="sfgShortageSource" style="display:none;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:.75rem"></div>
       <div style="margin-bottom:10px">
         <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">半成品料號 *</label>
         <input class="inp" id="m_sfg_search" placeholder="輸入料號或名稱，完整料號會自動選取" oninput="filterSfgList(this.value)" autocomplete="off">
@@ -6363,6 +6365,15 @@ function openModal(type,data){
     renderItems();
     switchOrderTab(orderTypeTab);
     document.getElementById('m_date').value=todayStr();
+    if(window._pickShortageDraft&&orderTypeTab==='sfg'){
+      const source=window._pickShortageDraft;
+      selectSfgMaterial(source.materialId);
+      const qty=document.getElementById('m_sfg_qty');if(qty)qty.value=String(source.suggestedQty);
+      renderSfgSelectionSummary();
+      const note=document.getElementById('m_note');if(note)note.value=`缺料來源訂單：${source.orderNo} [${source.orderId}]；料號：${source.code}`;
+      const info=document.getElementById('sfgShortageSource');
+      if(info){info.style.display='block';info.textContent=`由訂單 ${source.orderNo} 的 ${source.code} 缺料帶入；建議組立 ${source.suggestedQty} 件。請確認 BOM、其他待補單及實際需求後再建立。`}
+    }
     openModal();
     return;
   }
@@ -22208,6 +22219,41 @@ function openPickShortageAssembly(orderId){
   window._ORD_SUB='list';
   closeModal();switchTab('orders');
 }
+function pickShortageCanAssemble(item){
+  const mat=mats.find(m=>m.id===item.id);
+  if(!mat||!['半成品','成品'].includes(mat.type)||!_bomDataReady)return false;
+  const direct=boms.filter(b=>b.parentId===mat.id);
+  return !!direct.length&&direct.every(b=>b.childId!==mat.id&&Number(b.qty)>0
+    &&mats.some(child=>child.id===b.childId));
+}
+function openPickShortageNewAssembly(orderId,materialId){
+  if(!dashboardCanCreateOrder())return showToast('此職務沒有開放建立組立單','warn');
+  const order=orders.find(o=>o.id===orderId);
+  if(!order)return showToast('找不到來源訂單，請重新整理','warn');
+  const item=resolveOrderPickPlan(order).items.find(row=>row.id===materialId);
+  if(!item||!pickShortageCanAssemble(item))return showToast('料號或 BOM 已變動，請重新檢查缺料','warn');
+  if(pickShortageActiveAssemblies(item,orderId).length)return showToast('已有進行中的同料號組立單，請先核對','warn');
+  const missing=Number(item.needed||0)-(Number(item.stock)||0);
+  if(!(missing>0))return showToast('此料號目前沒有缺料，請重新檢查','warn');
+  openModal('newOrder',{tab:'sfg',shortageSource:{orderId,orderNo:order.no||orderId,materialId,code:item.code||item.name||'',suggestedQty:Math.ceil(missing)}});
+}
+function openPickShortageNewInbound(orderId,materialId){
+  if(!dashboardCanCreateInbound())return showToast('此職務沒有開放新增入料','warn');
+  if(window._inboundDataSource!=='supabase'||!isFresh('inbounds'))return showToast('入料主資料尚未確認或已過期，請重新開啟領料檢查','warn');
+  const order=orders.find(o=>o.id===orderId);
+  if(!order)return showToast('找不到來源訂單，請重新整理','warn');
+  const item=resolveOrderPickPlan(order).items.find(row=>row.id===materialId);
+  if(!item||!mats.some(m=>m.id===item.id))return showToast('料號已變動，請重新檢查缺料','warn');
+  if(pickShortageActiveInbound(item).length)return showToast('已有進行中的同料號入料單，請先核對','warn');
+  if(!(Number(item.needed||0)>Number(item.stock||0)))return showToast('此料號目前沒有缺料，請重新檢查','warn');
+  openModal('newInbound');
+  const search=document.getElementById('ib_search');if(search)search.value=item.code||'';
+  filterInboundList(item.code||'');
+  const quantity=document.getElementById(`ib_qty_${item.id}`);
+  if(quantity){quantity.value='';quantity.focus();}
+  const note=document.getElementById('ib_note');if(note)note.value=`缺料來源訂單：${order.no||orderId} [${orderId}]；料號：${item.code||item.name||''}`;
+  showToast('僅在實物已到倉庫時建立入料；請填實收數量，品檢通過後才增加庫存','warn',8000);
+}
 async function loadPickShortageFollowups(orderId,shortages){
   const host=document.getElementById('pickShortageFollowups');
   if(!host)return;
@@ -22223,7 +22269,9 @@ async function loadPickShortageFollowups(orderId,shortages){
         const inboundLine=activeInbound.length?activeInbound.slice(0,3).map(ib=>`${escapeHtml(ib.no||'入料單')}：${escapeHtml(ib.qcStatus||'待品檢')}／${escapeHtml(ib.stStatus||'待入庫')}，數量 ${Number(ib.qty)||0}`).join('<br>'):fallback?'備援紀錄未找到；主資料尚無法確認':'已載入入料中未找到進行中紀錄';
         const assemblyLine=activeAssembly.length?activeAssembly.slice(0,3).map(o=>`<button class="btn btn-ghost btn-xs" data-order-id="${escapeHtml(o.id)}" onclick="openPickShortageAssembly(this.dataset.orderId)">${escapeHtml(o.no||'組立單')} · ${escapeHtml(o.status||'待排程')}</button>`).join(' '):'已載入訂單中未找到進行中組立單';
         const inboundButton=activeInbound.length&&ROLES[ROLE]?.tabs.includes('inbound')?` <button class="btn btn-ghost btn-xs" data-search="${escapeHtml(activeInbound[0].no||item.code||'')}" onclick="openPickShortageInbound(this.dataset.search)">查看入料</button>`:'';
-        return `<div style="padding:9px 0;border-top:1px solid var(--border);font-size:.76rem"><b>${escapeHtml(item.code||item.name||'料件')}</b> · 缺 ${Math.max(0,Number(item.needed||0)-(Number(item.stock)||0))}<div style="margin-top:4px">入料：${inboundLine}${inboundButton}</div><div style="margin-top:4px">組立：${assemblyLine}</div></div>`;
+        const createAssembly=!activeAssembly.length&&pickShortageCanAssemble(item)&&dashboardCanCreateOrder()?` <button class="btn btn-blue btn-xs" data-material-id="${escapeHtml(item.id)}" onclick="openPickShortageNewAssembly('${orderId}',this.dataset.materialId)">建立組立單</button>`:'';
+        const createInbound=!fallback&&!activeInbound.length&&dashboardCanCreateInbound()?` <button class="btn btn-ghost btn-xs" data-material-id="${escapeHtml(item.id)}" onclick="openPickShortageNewInbound('${orderId}',this.dataset.materialId)">實物已到 → 新增入料</button>`:'';
+        return `<div style="padding:9px 0;border-top:1px solid var(--border);font-size:.76rem"><b>${escapeHtml(item.code||item.name||'料件')}</b> · 缺 ${Math.max(0,Number(item.needed||0)-(Number(item.stock)||0))}<div style="margin-top:4px">入料：${inboundLine}${inboundButton}${createInbound}</div><div style="margin-top:4px">組立：${assemblyLine}${createAssembly}</div></div>`;
       }).join('');
   }catch(e){
     if(host.isConnected)host.innerHTML='<b>缺料後續追蹤</b><div style="margin-top:5px;color:var(--amber)">入料資料讀取失敗，無法確認是否已有補料紀錄；請稍後重新開啟領料檢查。</div>';
@@ -25406,11 +25454,14 @@ function filterInboundList(q){
   const list = document.getElementById('ib_list');
   if(!list) return;
   const lower = (q||'').toLowerCase();
+  const key=normalizeSku(q);
   let filtered = mats.filter(m=>{
     const matchType = !typeFilter || m.type===typeFilter;
     const matchQ = !lower || (m.code||'').toLowerCase().includes(lower) || (m.name||'').toLowerCase().includes(lower);
     return matchType && matchQ;
-  }).slice(0,50);
+  });
+  if(key)filtered.sort((a,b)=>Number(normalizeSku(b.code)===key)-Number(normalizeSku(a.code)===key));
+  filtered=filtered.slice(0,50);
   if(!filtered.length){
     list.innerHTML='<div style="padding:10px;font-size:0.75rem;color:var(--text3)">無符合結果</div>';
     return;
@@ -26623,6 +26674,7 @@ async function submitSFGOrder(){
   if(!sfgId){showToast('請選擇半成品料號','warn');return;}
   if(!Number.isSafeInteger(qty)||qty<=0){showToast('組立數量請輸入大於 0 的整數','warn');return;}
   const sfgMat=mats.find(m=>m.id===sfgId);
+  if(window._pickShortageDraft&&window._pickShortageDraft.materialId!==sfgId){showToast('帶入的組立料號已變更；請從缺料檢查重新開啟','warn');return;}
   const today=todayStr();
   const yr=today.slice(2,4); const mo=today.slice(5,7);
   const orderNo=`SFG-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
@@ -26716,6 +26768,10 @@ async function autoCompleteCordersAfter7Days(){
 }
 
 function switchOrderTab(type){
+  if(type!=='sfg'&&window._pickShortageDraft){
+    window._pickShortageDraft=null;
+    const note=document.getElementById('m_note');if(note)note.value='';
+  }
   const tabs = ['overseas','domestic','sfg','shopee'];
   tabs.forEach(t=>{
     const block = document.getElementById('block'+t.charAt(0).toUpperCase()+t.slice(1));

@@ -14,14 +14,15 @@ const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 function context(extra={}){
   const host={innerHTML:'',isConnected:true};
   const ctx=vm.createContext({
-    inbounds:[],orders:[],ROLE:'warehouse',ROLES:{warehouse:{tabs:['orders','inbound']},sales:{tabs:['orders']}},
+    inbounds:[],orders:[],mats:[],boms:[],_bomDataReady:true,ROLE:'warehouse',ROLES:{warehouse:{tabs:['orders','inbound']},sales:{tabs:['orders']}},
     window:{_inboundDataSource:'supabase'},
     document:{getElementById:id=>id==='pickShortageFollowups'?host:id==='modalBg'?{classList:{contains:()=>true}}:null},
     canonicalPageId:value=>String(value||'').replace(/-/g,'').toLowerCase(),
     normalizeSku:value=>String(value||'').toUpperCase().replace(/\s/g,''),
     isSupabaseShadowId:value=>String(value||'').startsWith('supabase:'),
     isSfgProductionOrder:o=>o.orderType==='sfg',escapeHtml,
-    loadInbounds:async()=>{},closeModal:()=>{},switchTab:()=>{},
+    loadInbounds:async()=>{},isFresh:()=>true,closeModal:()=>{},switchTab:()=>{},
+    dashboardCanCreateOrder:()=>false,dashboardCanCreateInbound:()=>false,
     inboundListFilters:()=>({}),getOrderFilters:()=>({}),setOrderSearchDraft:()=>{},
     console,...extra,
   });
@@ -75,4 +76,66 @@ test('inbound shortcut is hidden from roles without that tab',async()=>{
   await ctx.loadPickShortageFollowups('current',[{id:'aaa',code:'Y-1',stock:0,needed:3}]);
   assert.match(host.innerHTML,/IN-1/);
   assert.doesNotMatch(host.innerHTML,/查看入料/);
+});
+
+test('assembly shortcut opens the existing form with exact shortage and source order',()=>{
+  const calls=[];
+  const material={id:'half',code:'F-ABC',type:'半成品',stock:60,needed:100};
+  const order={id:'source-order',no:'ORD-123',orderType:'overseas'};
+  const {ctx}=context({
+    orders:[order],mats:[material,{id:'part',code:'Y-ABC',type:'零件'}],boms:[{parentId:'half',childId:'part',qty:1}],
+    dashboardCanCreateOrder:()=>true,
+    resolveOrderPickPlan:()=>({items:[material]}),
+    openModal:(...args)=>calls.push(args),showToast:()=>{},
+  });
+  ctx.openPickShortageNewAssembly('source-order','half');
+  assert.equal(calls.length,1);
+  assert.equal(calls[0][0],'newOrder');
+  assert.equal(calls[0][1].tab,'sfg');
+  assert.equal(calls[0][1].shortageSource.suggestedQty,40);
+  assert.equal(calls[0][1].shortageSource.orderId,'source-order');
+});
+
+test('assembly shortcut refuses an existing active same-material assembly',()=>{
+  const calls=[];
+  const material={id:'half',code:'F-ABC',type:'半成品',stock:60,needed:100};
+  const {ctx}=context({
+    orders:[{id:'source-order',no:'ORD-123'},{id:'other',orderType:'sfg',productId:'half',status:'生產中'}],
+    mats:[material,{id:'part',code:'Y-ABC',type:'零件'}],boms:[{parentId:'half',childId:'part',qty:1}],
+    dashboardCanCreateOrder:()=>true,resolveOrderPickPlan:()=>({items:[material]}),
+    openModal:(...args)=>calls.push(args),showToast:()=>{},
+  });
+  ctx.openPickShortageNewAssembly('source-order','half');
+  assert.equal(calls.length,0);
+});
+
+test('inbound shortcut refuses fallback data and never submits a receipt',()=>{
+  const calls=[];
+  const material={id:'part',code:'Y-ABC',type:'零件',stock:0,needed:5};
+  const {ctx}=context({
+    orders:[{id:'source-order',no:'ORD-123'}],mats:[material],
+    window:{_inboundDataSource:'notion-fallback'},dashboardCanCreateInbound:()=>true,
+    resolveOrderPickPlan:()=>({items:[material]}),openModal:(...args)=>calls.push(args),showToast:()=>{},
+  });
+  ctx.openPickShortageNewInbound('source-order','part');
+  assert.equal(calls.length,0);
+});
+
+test('inbound shortcut opens a draft with SKU, source, and blank actual quantity',()=>{
+  const fields={ib_search:{value:''},'ib_qty_part':{value:'1',focus(){this.focused=true;}},ib_note:{value:''}};
+  const calls=[];
+  const material={id:'part',code:'Y-ABC',type:'零件',stock:0,needed:5};
+  const {ctx}=context({
+    orders:[{id:'source-order',no:'ORD-123'}],mats:[material],
+    dashboardCanCreateInbound:()=>true,resolveOrderPickPlan:()=>({items:[material]}),
+    document:{getElementById:id=>fields[id]||null},
+    openModal:(...args)=>calls.push(args),filterInboundList:code=>calls.push(['filter',code]),showToast:()=>{},
+  });
+  ctx.openPickShortageNewInbound('source-order','part');
+  assert.equal(calls[0][0],'newInbound');
+  assert.equal(fields.ib_search.value,'Y-ABC');
+  assert.equal(fields['ib_qty_part'].value,'');
+  assert.equal(fields['ib_qty_part'].focused,true);
+  assert.match(fields.ib_note.value,/ORD-123 \[source-order\]/);
+  assert.equal(calls.some(call=>call[0]==='submitBatchInbound'),false);
 });
