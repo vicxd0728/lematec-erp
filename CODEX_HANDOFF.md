@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Multi-Flow Creation Feedback Review 2026-10-07
+
+- Confirmed from current code: batch inbound could report failure after Supabase accepted a receipt when supply-job linking or list refresh failed; Shopee order quantity silently fell back to 1, and a partial batch cleared all drafts; manual picking could report creation failure after an accepted Supabase write when the list refresh failed.
+- Batch inbound now retains only unconfirmed items with their original inbound numbers for the Worker's idempotent retry. An accepted receipt is counted separately from pending Notion mirror, supply-job association, and UI refresh. The form stays open on partial failure and blocks double submission.
+- Shopee order creation rejects invalid quantity, retains uncreated batch items, stops after an uncertain Notion write, and keeps a draft when switching tabs. Manual picking preserves the form and blocks repeated submission after an uncertain create. Stock deduction and QC rules are unchanged.
+- New inbound materials require an explicit type, and inbound/Shopee list and preview text are HTML-escaped. `tests/batch_creation_feedback.cjs` covers accepted/uncertain/partial outcomes and rendering. Static, CI, production readback, and authenticated operator acceptance remain separate gates.
+
 ## Domestic Order GRILL/LOOP 2026-10-07
 
 - Reviewed three operator journeys after retiring the `115年貿易商` write: domestic customer selection, order acceptance/refresh feedback, and SKU/quantity entry. This is a code and simulated-failure review, not a real staff interview or live test order.

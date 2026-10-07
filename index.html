@@ -6231,9 +6231,12 @@ function openModal(type,data){
 
   // ── 新增訂單 ──
   if(type==='newOrder'){
+    if(window._shopeeCreateRunning){showToast('上一批蝦皮訂單正在建立，請等待完成','warn');return;}
     const orderTypeTab = data?.tab||'overseas';
     window._pickShortageDraft=data?.shortageSource||null;
     window._sfgCreateUncertain=false;
+    window._shopeeCreateUncertain=false;
+    window._shopeeOrderItems=[];
     // 從全域 customers 陣列篩出國外/國內客戶
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
     const domesticCustomers = customers.filter(c=>c.type==='domestic');
@@ -6349,6 +6352,7 @@ function openModal(type,data){
         </div>
       </div>
       <div style="margin-bottom:12px"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_shopee_note" placeholder="備註（選填）"></div>
+      <div id="shopeeCreateStatus" role="status" style="display:none;padding:8px 12px;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:.75rem;white-space:pre-line"></div>
     </div>
 
     <div id="itemAddRow" style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end"></div>
@@ -6361,7 +6365,7 @@ function openModal(type,data){
       <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="備註"></div>
     </div>
     <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-ghost" id="orderCancelBtn" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
     </div>`;
     renderItems();
@@ -6385,6 +6389,7 @@ function openModal(type,data){
 
   // ── 入料單（批量）──
   if(type==='newInbound'){
+    if(window._ibCreating){showToast('上一批入料正在建立，請等待完成','warn');return;}
     window._supplyInboundJobId=null;
     const typeOpts = ['成品','半成品','零件','蝦皮用','蝦皮用(S-)'].map(t=>`<option>${t}</option>`).join('');
     mi.innerHTML=`<h3>📥 新增入料</h3>
@@ -6418,9 +6423,10 @@ function openModal(type,data){
       <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">備註</label>
       <input class="inp" id="ib_note" placeholder="入料備註（選填）">
     </div>
+    <div id="ibCreateStatus" role="status" style="display:none;padding:8px 12px;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:.75rem;white-space:pre-line"></div>
     <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitBatchInbound()">📥 確認入料</button>
+      <button class="btn btn-ghost" id="inboundCancelBtn" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" id="inboundSubmitBtn" onclick="submitBatchInbound()">📥 確認入料</button>
     </div>`;
     openModal();
     window._ibItems=[];
@@ -18258,6 +18264,7 @@ function _invRender(){
 
 let _mpItems=[];
 function openManualPickModal(){
+  if(window._manualPickCreateRunning){showToast('上一張補料單正在建立，請等待完成','warn');return;}
   _mpItems=[];
   const mi=document.getElementById('modalInner');
   const typeOpts=['零件','半成品','成品','蝦皮用(S-)','蝦皮用'].map(t=>`<option value="${t}">${t}</option>`).join('');
@@ -18293,10 +18300,12 @@ function openManualPickModal(){
       <label class="field-label">備註 / 用途</label>
       <textarea class="inp" id="mp_note" placeholder="例如：組裝缺料、瑕疵替換、產線補領..." style="min-height:72px"></textarea>
     </div>
+    <div id="mpCreateStatus" role="alert" style="display:none;padding:8px 12px;margin-bottom:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:8px;font-size:.75rem;color:var(--amber)"></div>
     <div class="form-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitManualPick()">建立待領料單</button>
+      <button class="btn btn-ghost" id="manualPickCancelBtn" onclick="closeModal()">取消</button>
+      <button class="btn btn-blue" id="manualPickSubmitBtn" onclick="submitManualPick()">建立待領料單</button>
     </div>`;
+  window._manualPickCreateUncertain=false;
   openModal();
   filterManualPickList('');
   renderManualPickItems();
@@ -18347,13 +18356,21 @@ function renderManualPickItems(){
 }
 async function submitManualPick(){
   if(!_mpItems.length){showToast('請至少加入一個料號','warn');return;}
+  if(window._manualPickCreateRunning||window._manualPickCreateUncertain){showToast('上次補料單建立結果尚未確認；請先查領料清單，避免重複建單','warn',8000);return;}
   const note=(document.getElementById('mp_note')?.value||'').trim();
   const today=todayStr();
   const now=new Date();
   const time=[now.getHours(),now.getMinutes(),now.getSeconds()].map(v=>String(v).padStart(2,'0')).join('');
   const random=String(crypto.getRandomValues(new Uint16Array(1))[0]%100).padStart(2,'0');
   const no=`MP-${today.slice(2).replace(/-/g,'')}-${time}-${random}`;
-  closeModal(); showToast('建立臨時領料單中...','warn');
+  const btn=document.getElementById('manualPickSubmitBtn');
+  const cancel=document.getElementById('manualPickCancelBtn');
+  const status=document.getElementById('mpCreateStatus');
+  window._manualPickCreateRunning=true;
+  if(btn)btn.disabled=true;
+  if(cancel)cancel.disabled=true;
+  showToast('建立臨時領料單中...','warn');
+  let accepted=false;
   try{
     const payload={
       pick_number:no,
@@ -18378,6 +18395,9 @@ async function submitManualPick(){
       method:'POST',
       body:payload,
     });
+    if(!result?.row?.id)throw new Error('補料單建立結果未確認');
+    accepted=true;
+    if(document.getElementById('mpCreateStatus')===status)closeModal();
     const pick=mapSupabasePick({
       ...result.row,
       pick_type:'臨時補料',
@@ -18401,9 +18421,22 @@ async function submitManualPick(){
       return;
     }
     logUserAction('建立臨時補料單',no,note||'臨時補料',ROLE);
-    await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
-    showToast('✅ 臨時補料單已建立於 Supabase，Notion 鏡像完成','ok');
-  }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
+    try{
+      await loadPicks(); window._PICK_SUB='manual'; renderTab('picking');
+      showToast('✅ 臨時補料單已建立於 Supabase，Notion 鏡像完成','ok');
+    }catch(e){showToast('⚠ 補料單已建立，但清單更新失敗；請重新整理確認，勿重複建單：'+e.message,'warn',8000);}
+  }catch(e){
+    if(accepted)showToast(`⚠ 補料單 ${no} 已建立，但後續同步或畫面更新失敗；請重新整理確認，勿重複建單：${e.message}`,'warn',10000);
+    else{
+      window._manualPickCreateUncertain=true;
+      if(status&&document.getElementById('mpCreateStatus')===status){status.style.display='block';status.textContent=`補料單 ${no} 建立結果未確認；請先查領料清單，勿重複建單。`;}
+      showToast(`⚠ 補料單 ${no} 建立結果未確認；表單已保留，請先查領料清單，勿重複建單：${e.message}`,'warn',10000);
+    }
+  }finally{
+    window._manualPickCreateRunning=false;
+    if(btn)btn.disabled=false;
+    if(cancel)cancel.disabled=false;
+  }
 }
 const _manualPickLocks=new Set();
 const ORDER_RETURN_REQUEST_STATUS='待回料確認';
@@ -25349,7 +25382,7 @@ async function submitMultiOrders(){
 
 
 function initShopeeOrderList(){
-  window._shopeeOrderItems=[];
+  window._shopeeOrderItems=window._shopeeOrderItems||[];
   _renderShopeeList('');
   renderShopeeOrderItems();
 }
@@ -25405,15 +25438,16 @@ function onShopeeSkuChange(matId){
   }
   const mat = mats.find(m=>m.id===matId);
   if(!mat){info.style.display='none';return;}
-  const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
+  const qty=Number(document.getElementById('m_shopee_qty')?.value);
+  if(!Number.isSafeInteger(qty)||qty<=0){bom.textContent='數量須為大於 0 的整數';info.style.display='';return;}
   let items;
   try{items=getShopeeBomItems(mat,qty);}catch(e){bom.textContent=e.message;info.style.display='';return;}
   let html = items.length
     ? items.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
-        <span>${x.missing?'⚠ ':''}${x.code||x.name}</span>
-        <b style="color:${x.missing?'var(--red)':'var(--amber)'}">扣 ${x.needed}</b>
+        <span>${x.missing?'⚠ ':''}${escapeHtml(x.code||x.name)}</span>
+        <b style="color:${x.missing?'var(--red)':'var(--amber)'}">扣 ${escapeHtml(x.needed)}</b>
       </div>`).join('')
-    : `<div style="color:var(--red)">未找到 BOM。請在 Notion BOM 或程式對照表建立 ${mat.code||mat.name} 的扣料規則。</div>`;
+    : `<div style="color:var(--red)">未找到 BOM。請在 Notion BOM 或程式對照表建立 ${escapeHtml(mat.code||mat.name)} 的扣料規則。</div>`;
   const source='一般倉庫一對一轉入 S- 庫存';
   html+=items.length?`<div style="font-size:0.625rem;color:var(--text3);margin-top:6px">來源：${source}</div>`:'';
   bom.innerHTML=html;
@@ -25422,7 +25456,8 @@ function onShopeeSkuChange(matId){
 
 async function addShopeeOrderItem(manual=false){
   let matId=document.getElementById('m_shopee_sku')?.value||'';
-  const qty=parseInt(document.getElementById('m_shopee_qty')?.value)||1;
+  const qty=Number(document.getElementById('m_shopee_qty')?.value);
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('蝦皮補庫數量須為大於 0 的整數','warn');return;}
   let mat=null;
   const manualSku=(document.getElementById('m_shopee_manual')?.value||document.getElementById('shopee_search')?.value||'').trim();
   const newSkuFromSelect=(document.getElementById('m_shopee_sku')?.value||'').startsWith('NEW::')?(document.getElementById('m_shopee_sku')?.value||'').slice(5):'';
@@ -25465,7 +25500,7 @@ function renderShopeeOrderItems(){
     return;
   }
   box.innerHTML=items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border)">
-    <div><b style="font-family:var(--f-mono);color:var(--cyan2)">${it.code}</b><span style="color:var(--text2);margin-left:8px">× ${it.qty}</span><div style="font-size:0.6875rem;color:var(--text3)">${it.name||''}</div></div>
+    <div><b style="font-family:var(--f-mono);color:var(--cyan2)">${escapeHtml(it.code)}</b><span style="color:var(--text2);margin-left:8px">× ${escapeHtml(it.qty)}</span><div style="font-size:0.6875rem;color:var(--text3)">${escapeHtml(it.name||'')}</div></div>
     <button type="button" class="btn btn-ghost btn-sm" onclick="removeShopeeOrderItem(${i})">✕</button>
   </div>`).join('');
 }
@@ -25494,15 +25529,15 @@ function filterInboundList(q){
     const inList = (window._ibItems||[]).find(x=>x.matId===m.id);
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--border)">
       <div>
-        <span style="font-size:0.8125rem;font-weight:600">${m.code||''}</span>
-        ${m.name&&m.name!==m.code?`<span style="font-size:0.6875rem;color:var(--text3);margin-left:6px">${m.name}</span>`:''}
-        <span style="font-size:0.625rem;color:var(--text3);margin-left:6px">[${m.type||''}] 庫存:${m.qty??m.stock??0}</span>
+        <span style="font-size:0.8125rem;font-weight:600">${escapeHtml(m.code||'')}</span>
+        ${m.name&&m.name!==m.code?`<span style="font-size:0.6875rem;color:var(--text3);margin-left:6px">${escapeHtml(m.name)}</span>`:''}
+        <span style="font-size:0.625rem;color:var(--text3);margin-left:6px">[${escapeHtml(m.type||'')}] 庫存:${escapeHtml(m.qty??m.stock??0)}</span>
       </div>
       ${inList
         ? `<span style="font-size:0.625rem;color:var(--green)">✅ 已加入</span>`
         : `<div style="display:flex;gap:4px;align-items:center">
-            <input type="number" id="ib_qty_${m.id}" value="1" min="0.0001" step="any" style="width:55px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--text);font-size:0.75rem">
-            <button type="button" class="btn btn-green btn-sm" onclick="addInboundItem('${m.id}','${(m.code||'').replace(/'/g,"\\'")}','${(m.name||'').replace(/'/g,"\\'")}')">加入</button>
+            <input type="number" id="ib_qty_${escapeHtml(m.id)}" value="1" min="0.0001" step="any" style="width:55px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--text);font-size:0.75rem">
+            <button type="button" class="btn btn-green btn-sm" data-material-id="${escapeHtml(m.id)}" onclick="addInboundItem(this.dataset.materialId)">加入</button>
           </div>`
       }
     </div>`;
@@ -25511,19 +25546,22 @@ function filterInboundList(q){
 
 function addInboundItem(matId, code, name){
   if(!window._ibItems) window._ibItems=[];
+  const mat=mats.find(m=>m.id===matId);
+  if(!mat){showToast('料件清單已變動，請重新整理','warn');return;}
   const qty = Number(document.getElementById(`ib_qty_${matId}`)?.value);
   if(!Number.isFinite(qty)||qty<=0){showToast('入料數量須大於 0','warn');return;}
   if(window._ibItems.find(x=>x.matId===matId)){showToast('已在清單中','warn');return;}
-  window._ibItems.push({matId, code, name, qty, isNew:false});
+  window._ibItems.push({matId, code:mat.code||code, name:mat.name||name, qty, isNew:false});
   renderIbItems();
   filterInboundList(document.getElementById('ib_search')?.value||'');
 }
 
 function addNewInboundItem(){
   const code=(document.getElementById('ib_new_code')?.value||'').trim();
-  const type=document.getElementById('ib_new_type')?.value||'零件';
+  const type=document.getElementById('ib_new_type')?.value||'';
   const qty=Number(document.getElementById('ib_new_qty')?.value);
   if(!code){showToast('請填入料號','warn');return;}
+  if(!['零件','半成品','成品','蝦皮用','蝦皮用(S-)'].includes(type)){showToast('請選擇新料號的類型','warn');return;}
   if(!Number.isFinite(qty)||qty<=0){showToast('入料數量須大於 0','warn');return;}
   if(!window._ibItems) window._ibItems=[];
   if(window._ibItems.find(x=>x.code===code)){showToast('已在清單中','warn');return;}
@@ -25543,8 +25581,8 @@ function renderIbItems(){
   container.innerHTML=window._ibItems.map((item,i)=>`
     <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border)">
       <div style="font-size:0.8125rem">
-        <b>${item.code}</b>${item.isNew?` <span style="font-size:0.625rem;color:var(--amber)">[新建 ${item.newType}]</span>`:''}
-        <span style="font-size:0.75rem;color:var(--text2);margin-left:6px">× ${item.qty}</span>
+        <b>${escapeHtml(item.code)}</b>${item.isNew?` <span style="font-size:0.625rem;color:var(--amber)">[新建 ${escapeHtml(item.newType)}]</span>`:''}
+        <span style="font-size:0.75rem;color:var(--text2);margin-left:6px">× ${escapeHtml(item.qty)}</span>
       </div>
       <button type="button" class="btn btn-ghost btn-sm" onclick="removeIbItem(${i})">✕</button>
     </div>`).join('');
@@ -25559,6 +25597,7 @@ function removeIbItem(idx){
 
 async function submitBatchInbound(){
   if(!window._ibItems||!window._ibItems.length){showToast('請先加入入料品項','warn');return;}
+  if(window._ibCreating){showToast('入料單正在建立，請勿重複送出','warn');return;}
   const sourceSupplyJob=window._supplyInboundJobId?supplyFind(window._supplyInboundJobId):null;
   if(window._supplyInboundJobId&&(!sourceSupplyJob||sourceSupplyJob.status!=='待入料')){
     showToast('供應鏈工作單資料已變動，請返回進度中心重新整理','err');return;
@@ -25566,13 +25605,21 @@ async function submitBatchInbound(){
   if(sourceSupplyJob&&window._ibItems.length!==1){showToast('供應鏈入料一次只接一筆料號，請保留一個入料品項','warn');return;}
   const note=(document.getElementById('ib_note')?.value||'').trim();
   const today=todayStr();
-  closeModal(); showToast(`⏳ 建立 ${window._ibItems.length} 筆入料中...`,'warn');
-  let ok=0, fail=0, failMsgs=[], failedItems=[];
-  for(let itemIndex=0;itemIndex<window._ibItems.length;itemIndex++){
-    const item=window._ibItems[itemIndex];
+  const items=[...window._ibItems];
+  const btn=document.getElementById('inboundSubmitBtn');
+  const cancel=document.getElementById('inboundCancelBtn');
+  const status=document.getElementById('ibCreateStatus');
+  window._ibCreating=true;
+  if(btn){btn.disabled=true;btn.textContent='建立中...';}
+  if(cancel)cancel.disabled=true;
+  showToast(`⏳ 建立 ${items.length} 筆入料中...`,'warn');
+  let ok=0, failMsgs=[], failedItems=[], followupMsgs=[], sourceLinked=false;
+  try{
+  for(let itemIndex=0;itemIndex<items.length;itemIndex++){
+    const item=items[itemIndex];
     try{
       let matId = item.matId;
-      const inboundType = ['零件','半成品','成品'].includes(item.newType) ? item.newType : '零件';
+      const inboundType = ['零件','半成品','成品','蝦皮用','蝦皮用(S-)'].includes(item.newType) ? item.newType : '零件';
       // Always check the primary master: a previous attempt may already have created the SKU.
       const existing=await readLiveInventoryMaterial(item.code,{allowMissing:true});
       if(existing?.notion_page_id) matId=existing.notion_page_id;
@@ -25604,30 +25651,48 @@ async function submitBatchInbound(){
           notes:note
         }
       });
-      const saved=mapSupabaseInbound(inbResult.row);
-      const mirror=await updateInboundNotionMirror(saved);
-      if(mirror.pending) console.warn(`入料單 ${inbNo} Notion 鏡像待補同步`);
-      if(sourceSupplyJob){
-        await supplyWrite('link_inbound',supplyFind(sourceSupplyJob.id),{inbound_receipt_id:inbResult.row.id});
-      }
-      logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);
+      if(!inbResult?.row?.id)throw new Error('入料單建立結果未確認，請按原單號核對後重試');
       ok++;
+      try{
+        const saved=mapSupabaseInbound(inbResult.row);
+        const mirror=await updateInboundNotionMirror(saved);
+        if(mirror.pending)followupMsgs.push(`${inbNo}：Notion 鏡像待補同步`);
+      }catch(e){followupMsgs.push(`${inbNo}：Notion 鏡像待補同步`);}
+      if(sourceSupplyJob){
+        try{
+          await supplyWrite('link_inbound',supplyFind(sourceSupplyJob.id),{inbound_receipt_id:inbResult.row.id});
+          sourceLinked=true;
+        }catch(e){followupMsgs.push(`${inbNo}：已建立入料單，但供應鏈關聯結果未確認；請回進度中心核對並續接（${e.message}）`);}
+      }
+      try{logUserAction('建立入料單',inbNo,`${item.code||''} x ${item.qty}`);}catch(e){console.warn('入料操作紀錄待補：',e);}
     }catch(e){
-      fail++;
       failedItems.push(item);
       failMsgs.push(`${item.code||'未命名'}：${e.message}`);
       console.error('入料失敗:',item.code,e);
     }
   }
-  await refreshAffectedData({tabs:['inbound'],label:'入料資料已更新'});
-  if(sourceSupplyJob){if(ok&&!fail)window._supplyInboundJobId=null;await loadSupplyChain(true);}
-  if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc') renderTab(CURRENT_TAB);
-  showToast(`${fail?'⚠':'✅'} 入料完成：${ok} 筆成功${fail?`，${fail} 筆失敗`:''}（品管頁會讀取入料待品檢）`,fail?'warn':'ok');
   window._ibItems=failedItems;
-  if(failMsgs.length){
-    renderIbItems();
-    alert('以下入料建立失敗，清單已保留，可直接重試；已成功的項目不會再次送出：\n\n'+failMsgs.join('\n'));
-    openSharedModal();
+  let refreshError='';
+  try{
+    await refreshAffectedData({tabs:['inbound'],label:'入料資料已更新'});
+    if(CURRENT_TAB==='inbound'||CURRENT_TAB==='qc')renderTab(CURRENT_TAB);
+  }catch(e){refreshError=e.message||String(e);}
+  if(sourceSupplyJob){
+    if(sourceLinked)window._supplyInboundJobId=null;
+    try{await loadSupplyChain(true);}catch(e){followupMsgs.push('供應鏈清單更新失敗，請回進度中心重新整理');}
+  }
+  if(document.getElementById('ibCreateStatus')===status){
+    if(failedItems.length){
+      renderIbItems();
+      if(status){status.style.display='block';status.textContent=`已建立 ${ok} 筆；以下 ${failedItems.length} 筆未確認，保留原入料單號供安全重試：\n${failMsgs.join('\n')}`;}
+    }else closeModal();
+  }
+  const warnings=[...followupMsgs,refreshError?`清單更新失敗，請重新整理：${refreshError}`:''];
+  showToast(`${failedItems.length||warnings.some(Boolean)?'⚠':'✅'} 入料已建立 ${ok}/${items.length} 筆${failedItems.length?`；${failedItems.length} 筆未確認，表單已保留`:''}${warnings.some(Boolean)?'；'+warnings.filter(Boolean).join('；'):''}`,failedItems.length||warnings.some(Boolean)?'warn':'ok',9000);
+  }finally{
+    window._ibCreating=false;
+    if(btn){btn.disabled=false;btn.textContent='📥 確認入料';}
+    if(cancel)cancel.disabled=false;
   }
 }
 
@@ -26804,6 +26869,7 @@ async function autoCompleteCordersAfter7Days(){
 }
 
 function switchOrderTab(type){
+  if(window._shopeeCreateRunning){showToast('蝦皮訂單正在建立，請等待完成','warn');return;}
   if(type!=='sfg'&&window._pickShortageDraft){
     window._pickShortageDraft=null;
     const note=document.getElementById('m_note');if(note)note.value='';
@@ -26837,7 +26903,12 @@ async function submitAllOrders(){
   if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
   const shopeeBlock = document.getElementById('blockShopee');
   const isShopee = shopeeBlock && shopeeBlock.style.display !== 'none';
-  if(isShopee){ await submitShopeeOrdersV2(); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';} return; }
+  if(isShopee){
+    try{await submitShopeeOrdersV2();}
+    catch(e){showToast('蝦皮訂單建立未完成：'+e.message,'warn');}
+    finally{if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
+    return;
+  }
   const isSfg      = document.getElementById('blockSfg')?.style.display !== 'none';
   const isDomestic = !isSfg && document.getElementById('blockDomestic')?.style.display !== 'none';
   const orderTypeTab = isSfg?'sfg':isDomestic?'domestic':'overseas';
@@ -26855,10 +26926,14 @@ async function submitAllOrders(){
 }
 
 async function submitShopeeOrdersV2(){
+  if(window._shopeeCreateRunning){showToast('蝦皮訂單正在建立，請勿重複送出','warn');return;}
+  if(window._shopeeCreateUncertain){showToast('上次蝦皮訂單建立結果未確認；請先核對訂單清單，避免重複建單','warn',8000);return;}
   const note=document.getElementById('m_shopee_note')?.value?.trim()||'';
-  let items=window._shopeeOrderItems||[];
+  let items=[...(window._shopeeOrderItems||[])];
   const selected=document.getElementById('m_shopee_sku')?.value;
   if(!items.length&&selected){
+    const qty=Number(document.getElementById('m_shopee_qty')?.value);
+    if(!Number.isSafeInteger(qty)||qty<=0){showToast('蝦皮補庫數量須為大於 0 的整數','warn');return;}
     let mat=null;
     if(selected.startsWith('NEW::')){
       mat=await ensureShopeeParentMaterial(selected.slice(5));
@@ -26866,21 +26941,28 @@ async function submitShopeeOrdersV2(){
     }else{
       mat=mats.find(m=>m.id===selected)||findMatBySku(selected);
     }
-    if(mat) items=[{matId:mat.id,qty:parseInt(document.getElementById('m_shopee_qty')?.value)||1,code:mat.code||mat.name,name:mat.name||mat.code}];
+    if(mat) items=[{matId:mat.id,qty,code:mat.code||mat.name,name:mat.name||mat.code}];
   }
   if(!items.length){showToast('請至少加入一個 S-料號','warn');return;}
+  if(items.some(it=>!Number.isSafeInteger(Number(it.qty))||Number(it.qty)<=0)){showToast('清單中有無效數量，請改為大於 0 的整數','warn');return;}
   const today=todayStr();
   const yr=today.slice(2,4), mo=today.slice(5,7);
-  closeModal(); showToast('⏳ 建立蝦皮待排程訂單...','ok');
-  let ok=0, fail=0, messages=[];
+  const status=document.getElementById('shopeeCreateStatus');
+  const cancel=document.getElementById('orderCancelBtn');
+  window._shopeeCreateRunning=true;
+  if(cancel)cancel.disabled=true;
+  showToast('⏳ 建立蝦皮待排程訂單...','warn');
+  let ok=0, messages=[], remaining=[];
+  try{
   for(let i=0;i<items.length;i++){
     const it=items[i];
     let mat=mats.find(m=>m.id===it.matId)||findMatBySku(it.code||it.name||it.matId);
     if(!mat){
       try{mat=await ensureShopeeParentMaterial(it.code||it.name||it.matId);}
-      catch(e){fail++;messages.push((it.code||it.name||'')+'：'+e.message);continue;}
+      catch(e){remaining.push(it);messages.push((it.code||it.name||'')+'：'+e.message);continue;}
     }
     const orderNo=`ORD-${yr}${mo}-S${String(i+1).padStart(2,'0')}-${Math.floor(Math.random()*900+100)}`;
+    let writeAttempted=false;
     try{
       await ensureShopeeBomRows(mat);
       const bomItems=getShopeeBomItems(mat,it.qty);
@@ -26897,19 +26979,35 @@ async function submitShopeeOrdersV2(){
         '業務備註':{rich_text:[{text:{content:[`S料號：${mat.code||mat.name}`,note,'預計扣料：'+bomItems.map(x=>(x.code||x.name)+'×'+x.needed).join('、')].filter(Boolean).join(' / ')}}]},
       };
       props['交期']={date:{start:today}};
+      writeAttempted=true;
       const r=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
-      if(!r||r.object!=='page') throw new Error(r?.message||'訂單建立失敗');
-      logUserAction('建立蝦皮訂單',orderNo,`${mat.code||mat.name} x ${it.qty}`,ROLE);
+      if(!r||r.object!=='page'||!r.id) throw new Error(r?.message||'訂單建立結果未確認');
       ok++;
+      try{logUserAction('建立蝦皮訂單',orderNo,`${mat.code||mat.name} x ${it.qty}`,ROLE);}catch(e){console.warn('蝦皮操作紀錄待補：',e);}
     }catch(e){
-      fail++;
-      messages.push((mat.code||mat.name)+'：'+e.message);
+      remaining.push(it);
+      messages.push((mat.code||mat.name)+`（${orderNo}）：`+e.message);
+      if(writeAttempted){
+        window._shopeeCreateUncertain=true;
+        remaining.push(...items.slice(i+1));
+        messages.push('建立結果未確認；後續品項未送出。請先核對訂單清單，勿直接重試。');
+        break;
+      }
     }
   }
-  window._shopeeOrderItems=[];
-  await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});
-  showToast(`✅ 蝦皮待排程訂單建立 ${ok} 筆${fail?'，失敗 '+fail+' 筆':''}；下一步請由倉管/採購確認轉庫：扣一般倉庫，同時增加 S- 庫存`,fail?'warn':'ok',9000);
-  if(messages.length) alert('以下蝦皮訂單未完成建立（不代表料號未建立）：\n\n'+messages.join('\n'));
+  window._shopeeOrderItems=remaining;
+  if(remaining.length&&document.getElementById('shopeeCreateStatus')===status)renderShopeeOrderItems();
+  let refreshError='';
+  if(ok){try{await refreshAffectedData({core:true,label:'蝦皮生產訂單已更新'});}catch(e){refreshError=e.message||String(e);}}
+  if(document.getElementById('shopeeCreateStatus')===status){
+    if(!remaining.length)closeModal();
+    else if(status){status.style.display='block';status.textContent=`已確認建立 ${ok} 筆；剩餘 ${remaining.length} 筆保留在表單。\n${messages.join('\n')}`;}
+  }
+  showToast(`${remaining.length||refreshError?'⚠':'✅'} 蝦皮待排程訂單已確認建立 ${ok}/${items.length} 筆${remaining.length?'；未完成品項已保留，請先核對提示':''}${refreshError?'；列表更新失敗，請重新整理確認：'+refreshError:''}${ok?'；後續由倉管／採購確認轉庫':''}`,remaining.length||refreshError?'warn':'ok',9000);
+  }finally{
+    window._shopeeCreateRunning=false;
+    if(cancel)cancel.disabled=false;
+  }
 }
 
 async function submitShopeeOrder(){
