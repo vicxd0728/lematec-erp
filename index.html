@@ -26100,11 +26100,17 @@ function clearCustSelect(){
 function initDomesticList(){
   const sel=document.getElementById('m_dom_cust');
   if(!sel) return;
-  const domCusts=customers.filter(c=>c.type==='domestic');
+  const unique=new Map();
+  customers.filter(c=>c.type==='domestic').forEach(c=>{
+    const label=`${c.name||''}${c.code?' ('+c.code+')':''}`;
+    const key=label.trim().replace(/\s+\(/g,'(').toLocaleLowerCase();
+    if(!unique.has(key)||unique.get(key).source==='domesticTrade'&&c.source==='custDomestic')unique.set(key,c);
+  });
+  const domCusts=[...unique.values()];
   const prev=sel.value;
   sel.innerHTML='<option value="">— 選擇國內客戶 —</option>'
     +domCusts.sort((a,b)=>(a.name||'').localeCompare(b.name||''))
-    .map(c=>`<option value="${c.id}" data-name="${(c.name||'').replace(/"/g,'&quot;')}" data-code="${(c.code||'').replace(/"/g,'&quot;')}" ${c.id===prev?'selected':''}>${c.name||''}${c.code?' ('+c.code+')':''}</option>`).join('');
+    .map(c=>`<option value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name||'')}" data-code="${escapeHtml(c.code||'')}" ${c.id===prev?'selected':''}>${escapeHtml(c.name||'')}${c.code?' ('+escapeHtml(c.code)+')':''}</option>`).join('');
 }
 
 function filterSfgList(q){

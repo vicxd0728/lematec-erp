@@ -6,6 +6,7 @@
 - Domestic customer selection now loads the formal `國內客戶` master independently and first; failure of the legacy trade database no longer hides that master. Historical trade names still supplement the choices.
 - Normal order creation checks the returned Notion page ID/error before reporting success. A failed list refresh after an accepted page reports the accepted order separately, avoiding an unsafe duplicate retry. Invalid manual or PI quantities are rejected rather than silently changed to 1.
 - New SKU creation from an order, including the `建檔` button, starts with stock 0. Order quantity never becomes stock; real receipts still use inbound/QC. No existing balance or historical order was changed. Focused tests cover error responses, refresh failure, legacy read failure, invalid quantity, and zero-stock SKU creation.
+- Authenticated sales-role readback exposed spacing-only duplicate customer options (for example `大壬 (E0413)` and `大壬(E0413)`). The domestic order selector now collapses only equal labels after spacing before parentheses is normalized, prefers the formal master, and retains distinct customer codes; the source customer records remain unchanged.
 - Remaining boundary: no new production business order was created for acceptance; an ambiguous network failure during Notion create still requires checking the formal order database by order number before retrying.
 
 ## Domestic Order Mirror Retirement 2026-10-07

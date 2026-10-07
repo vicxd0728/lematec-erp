@@ -187,3 +187,21 @@ test('manual SKU creation does not treat order quantity as inbound stock',async(
   assert.equal(args.length,1);
   assert.equal(args[0].length,1);
 });
+
+test('domestic selector collapses spacing-only duplicate labels and keeps distinct customer codes',()=>{
+  const select={value:'',innerHTML:''};
+  const ctx=vm.createContext({
+    document:{getElementById:id=>id==='m_dom_cust'?select:null},
+    customers:[
+      {id:'formal',name:'大壬',code:'E0413',type:'domestic',source:'custDomestic'},
+      {id:'legacy',name:'大壬(E0413)',code:'',type:'domestic',source:'domesticTrade'},
+      {id:'other-code',name:'大壬',code:'E0414',type:'domestic',source:'custDomestic'},
+    ],
+    escapeHtml:x=>String(x),
+  });
+  vm.runInContext(html.slice(html.indexOf('function initDomesticList(){'),html.indexOf('function filterSfgList(')),ctx);
+  ctx.initDomesticList();
+  assert.match(select.innerHTML,/value="formal"/);
+  assert.doesNotMatch(select.innerHTML,/value="legacy"/);
+  assert.match(select.innerHTML,/value="other-code"/);
+});
