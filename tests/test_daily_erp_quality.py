@@ -38,7 +38,18 @@ class DailyQualityTests(unittest.TestCase):
         self.assertEqual(report["findings"]["negative_stock"], 1)
         self.assertEqual(report["findings"]["stock_transaction_missing_detail"], 1)
         self.assertEqual(report["findings"]["mirror_stock_mismatch_raw"], 1)
+        self.assertEqual(report["findings"]["mirror_sku_mismatch"], 0)
         self.assertEqual(report["findings"]["pending_mirror_jobs"], 3)
+
+    def test_sku_display_spacing_is_not_a_new_mirror_identity_conflict(self):
+        inventory = {"source": "supabase", "count": 1, "materials": [
+            {"notion_page_id": "p1", "sku": "Y-FLT-D-07", "stock": 1},
+        ]}
+        report = summarize(inventory, {"counts": {"materials": 1}},
+                           [mirror("p1", "Y-FLT- D-07", 1)],
+                           {"dry_run": True, "missing_count": 0},
+                           {"source": "supabase"}, [], [], [])
+        self.assertEqual(report["findings"]["mirror_sku_mismatch"], 0)
 
     def test_rejects_incomplete_or_fallback_inventory(self):
         with self.assertRaisesRegex(RuntimeError, "incomplete"):

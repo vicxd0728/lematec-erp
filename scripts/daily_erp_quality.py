@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.request
 from collections import defaultdict
@@ -18,6 +19,10 @@ from audit_qc_order_consistency import (
 WORKER = "https://green-wave-c22f.vic-e93.workers.dev"
 DB_MATERIALS = "43d801b4-a787-4101-bd12-d8b8199385c7"
 CORDERS_DB_ID = "64d6326e-c82a-4f5f-bccc-b34833f823c3"
+
+
+def normalized_sku(value: object) -> str:
+    return re.sub(r"\s+", "", str(value or "")).upper()
 
 
 def material_from_page(page: dict) -> dict:
@@ -95,7 +100,7 @@ def summarize(inventory: dict, versions: dict, mirror_pages: list[dict],
         if not mirror:
             mirror_missing += 1
             continue
-        if str(row.get("sku") or "").strip().upper() != str(mirror.get("sku") or "").strip().upper():
+        if normalized_sku(row.get("sku")) != normalized_sku(mirror.get("sku")):
             mirror_sku_mismatch += 1
         if Decimal(str(row.get("stock") or 0)) != Decimal(str(mirror.get("stock") or 0)):
             mirror_stock_mismatch += 1
