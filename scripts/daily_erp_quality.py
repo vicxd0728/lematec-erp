@@ -15,10 +15,19 @@ from audit_qc_order_consistency import (
     ORDERS_DB_ID, QC_DB_ID, classify, map_inspections, map_orders, query_all,
     rich_text, title_text,
 )
-from supabase_inventory_dry_run import DB_MATERIALS, material_from_page
-
 WORKER = "https://green-wave-c22f.vic-e93.workers.dev"
+DB_MATERIALS = "43d801b4-a787-4101-bd12-d8b8199385c7"
 CORDERS_DB_ID = "64d6326e-c82a-4f5f-bccc-b34833f823c3"
+
+
+def material_from_page(page: dict) -> dict:
+    props = page.get("properties") or {}
+    by_id = {item.get("id"): item for item in props.values()}
+    code = "".join(item.get("plain_text", "") for item in (by_id.get("R%40aj") or {}).get("rich_text", []))
+    if not code:
+        code = "".join(item.get("plain_text", "") for item in (by_id.get("title") or {}).get("title", []))
+    return {"notion_page_id": page.get("id"), "sku": code.strip(),
+            "stock": (by_id.get("C~uR") or {}).get("number")}
 
 
 def worker_get(path: str, token: str = "") -> dict:
