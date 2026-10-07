@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Domestic Order GRILL/LOOP 2026-10-07
+
+- Reviewed three operator journeys after retiring the `115年貿易商` write: domestic customer selection, order acceptance/refresh feedback, and SKU/quantity entry. This is a code and simulated-failure review, not a real staff interview or live test order.
+- Domestic customer selection now loads the formal `國內客戶` master independently and first; failure of the legacy trade database no longer hides that master. Historical trade names still supplement the choices.
+- Normal order creation checks the returned Notion page ID/error before reporting success. A failed list refresh after an accepted page reports the accepted order separately, avoiding an unsafe duplicate retry. Invalid manual or PI quantities are rejected rather than silently changed to 1.
+- New SKU creation from an order, including the `建檔` button, starts with stock 0. Order quantity never becomes stock; real receipts still use inbound/QC. No existing balance or historical order was changed. Focused tests cover error responses, refresh failure, legacy read failure, invalid quantity, and zero-stock SKU creation.
+- Remaining boundary: no new production business order was created for acceptance; an ambiguous network failure during Notion create still requires checking the formal order database by order number before retrying.
+
 ## Domestic Order Mirror Retirement 2026-10-07
 
 - New domestic orders continue writing to the formal `ERP 客戶訂單` Notion database (`DB.orders`) with their material relation, quantity, status and deadline. The extra `syncToDomesticTrade115` write to `115年貿易商` has been removed at the user's request; the create form and success toast no longer claim a mirror write.

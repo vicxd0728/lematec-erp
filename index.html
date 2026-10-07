@@ -8128,26 +8128,8 @@ async function loadCustomersOnly(){
     type:'overseas',
   })).filter(c=>c.name);
   let domesticCustomers=[];
+  const seenDom=new Map();
   try{
-    const tradeR=await dbQueryAll(DB.domesticTrade);
-    const seenDom=new Map();
-    tradeR.forEach(p=>{
-      const name=p.properties?.['客戶']?.select?.name||'';
-      if(!name)return;
-      const code=p.properties?.['客編']?.select?.name||p.properties?.['客戶編號']?.select?.name||getRichText(p.properties,'客編','客戶編號')||'';
-      if(!seenDom.has(name))seenDom.set(name,{
-        id:'domtrade-'+name,
-        name,
-        code,
-        region:p.properties?.['出貨國家']?.select?.name||'',
-        shipped:p.properties?.['出貨']?.status?.name||p.properties?.['出貨']?.select?.name||'',
-        grade:'',
-        area:p.properties?.['出貨國家']?.select?.name||'',
-        type:'domestic',
-        source:'domesticTrade',
-      });
-    });
-    domesticCustomers=[...seenDom.values()];
     const domR=await dbQueryAll(DB.custDomestic);
     domR.map(p=>({
       id:p.id,
@@ -8159,8 +8141,28 @@ async function loadCustomersOnly(){
       area:p.properties?.['地區']?.select?.name||'',
       type:'domestic',
       source:'custDomestic',
-    })).filter(c=>c.name).forEach(c=>{if(!seenDom.has(c.name))domesticCustomers.push(c);});
-  }catch(e){console.warn('國內客戶載入失敗:',e);}
+    })).filter(c=>c.name).forEach(c=>{if(!seenDom.has(c.name))seenDom.set(c.name,c);});
+  }catch(e){console.warn('國內客戶主檔載入失敗:',e);}
+  try{
+    const tradeR=await dbQueryAll(DB.domesticTrade);
+    tradeR.forEach(p=>{
+      const name=p.properties?.['客戶']?.select?.name||'';
+      if(!name||seenDom.has(name))return;
+      const code=p.properties?.['客編']?.select?.name||p.properties?.['客戶編號']?.select?.name||getRichText(p.properties,'客編','客戶編號')||'';
+      seenDom.set(name,{
+        id:'domtrade-'+name,
+        name,
+        code,
+        region:p.properties?.['出貨國家']?.select?.name||'',
+        shipped:p.properties?.['出貨']?.status?.name||p.properties?.['出貨']?.select?.name||'',
+        grade:'',
+        area:p.properties?.['出貨國家']?.select?.name||'',
+        type:'domestic',
+        source:'domesticTrade',
+      });
+    });
+  }catch(e){console.warn('舊貿易商客戶載入失敗，沿用國內客戶主檔:',e);}
+  domesticCustomers=[...seenDom.values()];
   customers=[...overseasCustomers,...domesticCustomers];
   markLoaded('customers');
 }
@@ -25076,11 +25078,11 @@ function getSelectedPIItems(){
     const chk=document.getElementById('chk_'+i);
     const qtyEl=document.getElementById('qty_'+i);
     if(chk&&!chk.checked) return null;
-    return {...item,qty:parseInt(qtyEl?.value)||item.qty||1};
+    return {...item,qty:qtyEl?Number(qtyEl.value):Number(item.qty)};
   }).filter(Boolean);
 }
 
-async function ensureOrderProduct(model,initialStock=100){
+async function ensureOrderProduct(model){
   const key=String(model||'').trim();
   if(!key) return null;
   let mat=findMaterialByReference(key);
@@ -25089,10 +25091,10 @@ async function ensureOrderProduct(model,initialStock=100){
     '料件名稱':{title:[{text:{content:key}}]},
     '料件編號':{rich_text:[{text:{content:key}}]},
     '類型':{select:{name:'成品'}},
-    '目前庫存':{number:Number(initialStock)||0},
+    '目前庫存':{number:0},
     '安全庫存':{number:0},
   });
-  mat={id:created.id,name:key,code:key,type:'成品',stock:Number(initialStock)||0,safe:0};
+  mat={id:created.id,name:key,code:key,type:'成品',stock:0,safe:0};
   mats.push(mat);
   showToast(`✅ 已建立新料號 ${key}`,'ok');
   return mat;
@@ -26221,13 +26223,12 @@ function onProductSelectChange(){
 
 async function createProductFromInput(){
   const input=(document.getElementById('m_product_search')?.value||'').trim();
-  const qty=parseInt(document.getElementById('m_qty')?.value)||1;
   if(!input){showToast('請先輸入料號','warn');return;}
   try{
-    const mat=await ensureOrderProduct(input,qty);
+    const mat=await ensureOrderProduct(input);
     filterProductList(input);
     selectProduct(mat.id);
-    showToast(`✅ 已建檔 ${mat.code||mat.name}，預設庫存 ${qty}`,'ok');
+    showToast(`✅ 已建檔 ${mat.code||mat.name}，初始庫存 0；入庫請走入料流程`,'ok');
   }catch(e){
     showToast('建檔失敗：'+e.message,'err');
   }
@@ -26475,7 +26476,7 @@ async function submitNormalOrder(isDomestic){
   const custCode = selectedCust?.code || '';
   const productId=document.getElementById('m_product')?.value;
   const productInput=(document.getElementById('m_product_search')?.value||'').trim();
-  const qty=parseInt(document.getElementById('m_qty')?.value)||1;
+  const qty=Number(document.getElementById('m_qty')?.value);
   const unitPriceRaw=(document.getElementById('m_unit_price')?.value||'').trim();
   const unitPrice=unitPriceRaw?parseMoneyNumber(unitPriceRaw):null;
   const deadline=document.getElementById('m_date')?.value||'';
@@ -26489,6 +26490,9 @@ async function submitNormalOrder(isDomestic){
   if(!deadline){showToast('請填入交期','warn');return;}
   if(!manualOrderNo){showToast('請輸入訂單號，或先讀取 PI 自動帶入','warn');return;}
   if(!piItems.length&&!productId&&!productInput){showToast('請選擇成品、輸入新料號，或先讀取 PI 品項','warn');return;}
+  if(!piItems.length&&(!Number.isSafeInteger(qty)||qty<=0)){showToast('訂購數量請輸入大於 0 的整數','warn');return;}
+  if(piItems.some(item=>!Number.isSafeInteger(Number(item.qty))||Number(item.qty)<=0)){showToast('PI 品項數量請輸入大於 0 的整數','warn');return;}
+  if(unitPriceRaw&&(!Number.isFinite(unitPrice)||unitPrice<0)){showToast('產品單價請輸入有效的非負數字','warn');return;}
 
   const product=mats.find(m=>m.id===productId);
   closeModal(); showToast('建立訂單中...','warn');
@@ -26499,13 +26503,13 @@ async function submitNormalOrder(isDomestic){
     for(let i=0;i<buildItems.length;i++){
         const item=buildItems[i];
       try{
-        const mat=item.matId?mats.find(m=>m.id===item.matId):await ensureOrderProduct(item.model,100);
+        const mat=item.matId?mats.find(m=>m.id===item.matId):await ensureOrderProduct(item.model);
         if(!mat) throw new Error('找不到料號 '+(item.model||''));
         const orderNo=manualOrderNo;
         const props={
           '訂單號':    {title:[{text:{content:orderNo}}]},
           '客戶名稱':  {select:{name:(!isDomestic&&(custCode||selectedCust?.code))||custName||'未知'}},
-          '訂購數量':  {number:Number(item.qty)||1},
+          '訂購數量':  {number:Number(item.qty)},
           '狀態':      {select:{name:'待排程'}},
           '訂單類型':  {select:{name:orderType}},
           '業務備註':  {rich_text:[{text:{content:[note,piNo?`PI: ${piNo}`:''].filter(Boolean).join(' / ')}}]},
@@ -26514,17 +26518,22 @@ async function submitNormalOrder(isDomestic){
         };
         if(unitPriceRaw) props['產品單價']={number:unitPrice};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
-        await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+        const created=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+        if(created?.object==='error'||!created?.id)throw new Error(created?.message||'訂單資料庫未確認建立成功');
         logUserAction('建立訂單',orderNo,`${custName||'未知'} ${mat?.code||mat?.name||''} x ${Number(item.qty)||1}`,ROLE);
         ok++;
       }catch(itemErr){
         fail++;
-        failList.push(item.model||product?.code||'未知料號');
+        failList.push(`${item.model||product?.code||'未知料號'}（${itemErr.message||'建立失敗'}）`);
         console.error('建立訂單品項失敗:',item,itemErr);
       }
     }
-    await refreshAffectedData({core:true,label:'訂單資料已更新'});
-    showToast(`${fail?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${fail?'，失敗：'+failList.join('、'):''}`,fail?'warn':'ok');
+    let refreshError='';
+    if(ok){
+      try{await refreshAffectedData({core:true,label:'訂單資料已更新'});}
+      catch(e){refreshError=e.message||'請手動重新整理';}
+    }
+    showToast(`${fail||refreshError?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${fail?'，失敗：'+failList.join('、'):''}${refreshError?'；訂單已建立，但列表更新失敗，請重新整理確認：'+refreshError:''}`,fail||refreshError?'warn':'ok');
   }catch(e){showToast('❌ 建立失敗：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
 }
 
