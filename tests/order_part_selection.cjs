@@ -14,7 +14,7 @@ function setup(){
     {id:'part-1',code:'Y-FLT-D-07-1',name:'Y-FLT-D-07-1',type:'零件',stock:5000},
     {id:'finished',code:'Z-FLT-E-02',name:'Z-FLT-E-02',type:'成品',stock:5},
   ];
-  const ctx=vm.createContext({mats,document:{getElementById:id=>fields[id]||null},
+  const ctx=vm.createContext({mats,window:{},document:{getElementById:id=>fields[id]||null},
     normalizeSku:x=>String(x||'').trim().toUpperCase(),
     materialReferenceKeys:m=>new Set([String(m.code||'').toUpperCase(),String(m.name||'').toUpperCase()]),
     escapeHtml:x=>String(x)});
@@ -116,7 +116,35 @@ test('refresh failure after accepted order does not report creation failure',asy
   await ctx.submitNormalOrder(true);
   assert.equal(refreshCount(),1);
   assert.match(messages.at(-1),/建立 1\/1 筆訂單/);
-  assert.match(messages.at(-1),/訂單已建立，但列表更新失敗/);
+ assert.match(messages.at(-1),/訂單已建立，但列表更新失敗/);
+});
+
+test('uncertain PI line stops later writes and blocks repeat submission',async()=>{
+  const {ctx,fields,messages}=setupOrderFailure({writeResult:{id:'accepted'}});
+  fields.normalOrderCreateStatus={style:{display:'none'},textContent:''};
+  ctx.getSelectedPIItems=()=>['A','B','C'].map(model=>({model,matId:'part',qty:1}));
+  let writes=0;
+  ctx.notionAPI=async()=>{writes++;if(writes===2)throw Error('timeout');return {id:'accepted'};};
+  await ctx.submitNormalOrder(false);
+  assert.equal(writes,2);
+  assert.equal(ctx.window._normalOrderCreateBlocked,true);
+  assert.match(fields.normalOrderCreateStatus.textContent,/後續 1 筆未送出/);
+  await ctx.submitNormalOrder(false);
+  assert.equal(writes,2);
+  assert.match(messages.at(-1),/避免重複建單/);
+});
+
+test('partial PI success keeps the form and blocks replay of its accepted line',async()=>{
+  const {ctx,fields}=setupOrderFailure({writeResult:{id:'accepted'}});
+  fields.normalOrderCreateStatus={style:{display:'none'},textContent:''};
+  ctx.getSelectedPIItems=()=>[{model:'MISSING',qty:1},{model:'Y-FLT-D-07',matId:'part',qty:2}];
+  let writes=0;
+  ctx.notionAPI=async()=>{writes++;return {id:'accepted'};};
+  await ctx.submitNormalOrder(false);
+  assert.equal(writes,1);
+  assert.equal(ctx.window._normalOrderCreateBlocked,true);
+  assert.match(fields.normalOrderCreateStatus.textContent,/已確認建立 1\/2 筆/);
+  assert.match(fields.normalOrderCreateStatus.textContent,/MISSING/);
 });
 
 test('invalid manual order quantity is rejected before writing',async()=>{

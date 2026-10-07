@@ -6231,11 +6231,12 @@ function openModal(type,data){
 
   // ── 新增訂單 ──
   if(type==='newOrder'){
-    if(window._shopeeCreateRunning){showToast('上一批蝦皮訂單正在建立，請等待完成','warn');return;}
+    if(window._shopeeCreateRunning||window._normalOrderCreateRunning){showToast('上一批訂單正在建立，請等待完成','warn');return;}
     const orderTypeTab = data?.tab||'overseas';
     window._pickShortageDraft=data?.shortageSource||null;
     window._sfgCreateUncertain=false;
     window._shopeeCreateUncertain=false;
+    window._normalOrderCreateBlocked=false;
     window._shopeeOrderItems=[];
     // 從全域 customers 陣列篩出國外/國內客戶
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
@@ -6364,6 +6365,7 @@ function openModal(type,data){
       <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">交期／預出貨日</label><input class="inp" type="date" id="m_date"></div>
       <div style="flex:1"><label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">備註</label><input class="inp" id="m_note" placeholder="備註"></div>
     </div>
+    <div id="normalOrderCreateStatus" role="alert" style="display:none;padding:8px 12px;margin-bottom:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:8px;font-size:.75rem;color:var(--amber);white-space:pre-line"></div>
     <div class="form-actions">
       <button class="btn btn-ghost" id="orderCancelBtn" onclick="closeModal()">取消</button>
       <button class="btn btn-blue" id="orderSubmitBtn" onclick="submitAllOrders()">📋 建立訂單</button>
@@ -26684,6 +26686,8 @@ function onPIFile(input){
 // ──────────────────────────────────────────
 
 async function submitNormalOrder(isDomestic){
+  if(window._normalOrderCreateRunning){showToast('訂單正在建立，請勿重複送出','warn');return;}
+  if(window._normalOrderCreateBlocked){showToast('上次訂單有已建立或結果未確認的品項；請先核對訂單清單，避免重複建單','warn',8000);return;}
   const btn=document.getElementById('orderSubmitBtn');
   const domSel=document.getElementById('m_dom_cust');
   const domManual=(document.getElementById('m_dom_manual')?.value||'').trim();
@@ -26714,13 +26718,18 @@ async function submitNormalOrder(isDomestic){
   if(unitPriceRaw&&(!Number.isFinite(unitPrice)||unitPrice<0)){showToast('產品單價請輸入有效的非負數字','warn');return;}
 
   const product=mats.find(m=>m.id===productId);
-  closeModal(); showToast('建立訂單中...','warn');
+  const status=document.getElementById('normalOrderCreateStatus');
+  const cancel=document.getElementById('orderCancelBtn');
+  window._normalOrderCreateRunning=true;
+  if(cancel)cancel.disabled=true;
+  showToast('建立訂單中...','warn');
   try{
     if(unitPriceRaw) await ensureDatabaseNumberProperty(DB.orders,'產品單價');
     const buildItems=piItems.length?piItems:[{model:product?.code||product?.name||productInput,qty,matId:productId}];
-    let ok=0,fail=0,failList=[];
+    let ok=0,fail=0,failList=[],unknown=false,unattempted=0;
     for(let i=0;i<buildItems.length;i++){
-        const item=buildItems[i];
+      const item=buildItems[i];
+      let writeAttempted=false;
       try{
         const mat=item.matId?mats.find(m=>m.id===item.matId):await ensureOrderProduct(item.model);
         if(!mat) throw new Error('找不到料號 '+(item.model||''));
@@ -26737,23 +26746,31 @@ async function submitNormalOrder(isDomestic){
         };
         if(unitPriceRaw) props['產品單價']={number:unitPrice};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
+        writeAttempted=true;
         const created=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
         if(created?.object==='error'||!created?.id)throw new Error(created?.message||'訂單資料庫未確認建立成功');
-        logUserAction('建立訂單',orderNo,`${custName||'未知'} ${mat?.code||mat?.name||''} x ${Number(item.qty)||1}`,ROLE);
         ok++;
+        try{logUserAction('建立訂單',orderNo,`${custName||'未知'} ${mat?.code||mat?.name||''} x ${Number(item.qty)||1}`,ROLE);}catch(e){console.warn('訂單操作紀錄待補：',e);}
       }catch(itemErr){
         fail++;
         failList.push(`${item.model||product?.code||'未知料號'}（${itemErr.message||'建立失敗'}）`);
         console.error('建立訂單品項失敗:',item,itemErr);
+        if(writeAttempted){unknown=true;unattempted=buildItems.length-i-1;break;}
       }
     }
+    if(unknown||(ok>0&&ok<buildItems.length))window._normalOrderCreateBlocked=true;
     let refreshError='';
     if(ok){
       try{await refreshAffectedData({core:true,label:'訂單資料已更新'});}
       catch(e){refreshError=e.message||'請手動重新整理';}
     }
-    showToast(`${fail||refreshError?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${fail?'，失敗：'+failList.join('、'):''}${refreshError?'；訂單已建立，但列表更新失敗，請重新整理確認：'+refreshError:''}`,fail||refreshError?'warn':'ok');
-  }catch(e){showToast('❌ 建立失敗：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
+    if(ok===buildItems.length&&document.getElementById('normalOrderCreateStatus')===status)closeModal();
+    else{
+      if(status&&document.getElementById('normalOrderCreateStatus')===status){status.style.display='block';status.textContent=`訂單 ${manualOrderNo} 已確認建立 ${ok}/${buildItems.length} 筆。${unknown?'有一筆建立結果未確認；':'有品項未建立；'}${unattempted?`後續 ${unattempted} 筆未送出。`:''}\n${failList.join('\n')}\n${window._normalOrderCreateBlocked?'請先核對訂單清單；此表單已停止重複送出。':'表單已保留，可修正後重試。'}`;}
+    }
+    showToast(`${fail||refreshError?'⚠':'✅'} 建立 ${ok}/${buildItems.length} 筆訂單${fail?'，未完成：'+failList.join('、'):''}${unknown?'；建立結果未確認，後續品項已停止送出，請先核對':''}${refreshError?'；訂單已建立，但列表更新失敗，請重新整理確認：'+refreshError:''}`,fail||refreshError?'warn':'ok',9000);
+  }catch(e){showToast('❌ 尚未建立訂單：'+e.message,'err'); if(btn){btn.disabled=false;btn.textContent='📋 建立訂單';}}
+  finally{window._normalOrderCreateRunning=false;if(cancel)cancel.disabled=false;}
 }
 
 async function submitSFGOrder(){
@@ -26869,7 +26886,7 @@ async function autoCompleteCordersAfter7Days(){
 }
 
 function switchOrderTab(type){
-  if(window._shopeeCreateRunning){showToast('蝦皮訂單正在建立，請等待完成','warn');return;}
+  if(window._shopeeCreateRunning||window._normalOrderCreateRunning){showToast('訂單正在建立，請等待完成','warn');return;}
   if(type!=='sfg'&&window._pickShortageDraft){
     window._pickShortageDraft=null;
     const note=document.getElementById('m_note');if(note)note.value='';
