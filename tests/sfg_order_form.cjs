@@ -11,7 +11,7 @@ function section(start,end){
 
 function form(){
  const elements={};
- for(const id of ['m_sfg_sel','m_sfg_search','sfgSearchResults','sfgSearchMsg','sfgBomList','m_sfg_qty','m_note'])
+ for(const id of ['m_sfg_sel','m_sfg_search','sfgSearchResults','sfgSearchMsg','sfgBomList','sfgCreateStatus','m_sfg_qty','m_note'])
   elements[id]={value:'',style:{},innerHTML:'',textContent:''};
  const mats=[{id:'a',code:'AI303-R1',name:'AI303-R1',type:'半成品'},
   {id:'b',code:'AI303-R2',name:'AI303-R2',type:'半成品'}];
@@ -57,6 +57,26 @@ test('shortage-sourced assembly keeps its source order in the saved note',async(
  const write=h.calls.find(x=>x[0]==='write');
  assert.match(write[3].properties['業務備註'].rich_text[0].text.content,/ORD-123 \[source-order\]/);
  assert.equal(write[3].properties['訂購數量'].number,40);
+});
+
+test('accepted assembly write is not reported as failed when list refresh fails',async()=>{
+ const h=form();h.elements.m_sfg_qty.value='2';h.context.selectSfgMaterial('a');
+ h.context.refreshAffectedData=async()=>{throw Error('offline');};
+ await h.context.submitSFGOrder();
+ assert.equal(h.calls.filter(x=>x[0]==='write').length,1);
+ assert.ok(h.calls.some(x=>x[0]==='toast'&&/已建立，但列表更新失敗/.test(x[1])));
+ assert.ok(!h.calls.some(x=>x[0]==='toast'&&/建立失敗/.test(x[1])));
+});
+
+test('uncertain assembly write retains form and blocks a repeat submit',async()=>{
+ const h=form();h.elements.m_sfg_qty.value='2';h.context.selectSfgMaterial('a');
+ h.context.notionAPI=async(...args)=>{h.calls.push(['write',...args]);throw Error('timeout');};
+ await h.context.submitSFGOrder();
+ assert.equal(h.context.window._sfgCreateUncertain,true);
+ assert.equal(h.elements.sfgCreateStatus.style.display,'block');
+ assert.match(h.elements.sfgCreateStatus.textContent,/避免重複開單/);
+ await h.context.submitSFGOrder();
+ assert.equal(h.calls.filter(x=>x[0]==='write').length,1);
 });
 
 test('picking preview places the real shortage above sufficient materials',()=>{

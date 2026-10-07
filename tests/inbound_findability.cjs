@@ -16,6 +16,7 @@ function context(rows) {
     dashboardCanCreateInbound: () => false,
     applyDateFilterValue: (value, items) => value === '0' ? items : items.filter(item => item.date >= '2026-07-01'),
     applySort: (name, items) => items,
+    shortageSourceOrderLink: () => '',
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
     TH: () => '<th>欄</th>', pill: value => `<span>${value}</span>`,
   });

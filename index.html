@@ -6233,6 +6233,7 @@ function openModal(type,data){
   if(type==='newOrder'){
     const orderTypeTab = data?.tab||'overseas';
     window._pickShortageDraft=data?.shortageSource||null;
+    window._sfgCreateUncertain=false;
     // 從全域 customers 陣列篩出國外/國內客戶
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
     const domesticCustomers = customers.filter(c=>c.type==='domestic');
@@ -6290,6 +6291,7 @@ function openModal(type,data){
     <!-- 半成品 block -->
     <div id="blockSfg" style="display:none">
       <div style="padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;margin-bottom:12px;font-size:0.6875rem;color:var(--amber)">⚙️ 半成品生產單 — QC 通過後自動入庫，不需填寫客戶及包材</div>
+      <div id="sfgCreateStatus" role="alert" style="display:none;padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:8px;margin-bottom:10px;font-size:.75rem;color:var(--amber)"></div>
       <div id="sfgShortageSource" style="display:none;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:.75rem"></div>
       <div style="margin-bottom:10px">
         <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">半成品料號 *</label>
@@ -16783,6 +16785,28 @@ function orderCustomerLabel(o){
   const c=findOrderCustomer(o);
   return c?.code||raw;
 }
+function shortageSourceOrderFromNote(note){
+  const match=String(note||'').match(/缺料來源訂單：[^\[]*\[([0-9a-fA-F-]{32,36})\]/);
+  if(!match||!isNotionPageIdCandidate(match[1]))return null;
+  return orders.find(o=>canonicalPageId(o.id)===canonicalPageId(match[1]))||null;
+}
+function openShortageSourceOrder(orderId){
+  if(!ROLES[ROLE]?.tabs.includes('orders'))return;
+  const order=orders.find(o=>o.id===orderId);
+  if(!order)return showToast('來源訂單尚未載入，請重新整理','warn');
+  const filters=getOrderFilters();
+  filters.q=order.no||'';filters.type='all';filters.status='all';filters.date='0';filters.hide=false;filters.deadline='';
+  setOrderSearchDraft(filters.q);window._ORD_SUB='list';
+  closeModal();switchTab('orders');
+}
+function shortageSourceOrderLink(note){
+  const source=shortageSourceOrderFromNote(note);
+  if(!source)return '';
+  const label=`↩ 來源 ${source.no||'訂單'}`;
+  return ROLES[ROLE]?.tabs.includes('orders')
+    ?`<button class="btn btn-ghost btn-xs" data-order-id="${escapeHtml(source.id)}" onclick="openShortageSourceOrder(this.dataset.orderId)">${escapeHtml(label)}</button>`
+    :`<span style="font-size:.66rem;color:var(--text3)">${escapeHtml(label)}</span>`;
+}
 
 // ══════════════════════════════════════
 // 原有訂單列表
@@ -16899,7 +16923,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
   <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
-    <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button></div></td>
+    <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
     <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
     <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
@@ -18660,7 +18684,7 @@ function renderInbound(){
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matName||mat?.name||'—')}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matName||mat?.name||'—')}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}${shortageSourceOrderLink(i.note)}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div>`;
@@ -26668,6 +26692,7 @@ async function submitNormalOrder(isDomestic){
 }
 
 async function submitSFGOrder(){
+  if(window._sfgCreateUncertain){showToast('上次組立單建立結果未確認；請先在訂單列表查核，避免重複開單','warn',8000);return;}
   const sfgId=document.getElementById('m_sfg_sel')?.value;
   const qty=Number(document.getElementById('m_sfg_qty')?.value);
   const note=document.getElementById('m_note')?.value?.trim()||'';
@@ -26678,7 +26703,7 @@ async function submitSFGOrder(){
   const today=todayStr();
   const yr=today.slice(2,4); const mo=today.slice(5,7);
   const orderNo=`SFG-${yr}${mo}-${Math.floor(Math.random()*9000+1000)}`;
-  closeModal(); showToast('建立半成品生產單...','warn');
+  showToast('建立半成品生產單...','warn');
   try{
     const props={
       '訂單號':    {title:[{text:{content:orderNo}}]},
@@ -26689,11 +26714,22 @@ async function submitSFGOrder(){
       '業務備註':  {rich_text:[{text:{content:note}}]},
     };
     if(sfgId) props['成品']={relation:[{id:sfgId}]};
-    await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
-    logUserAction('建立半成品單',orderNo,`${sfgMat?.code||sfgMat?.name||''} x ${qty}`,ROLE);
+    const created=await notionAPI('POST','pages',{parent:{database_id:DB.orders},properties:props});
+    if(created?.object==='error'||!created?.id)throw new Error(created?.message||'訂單資料庫未確認建立成功');
+  }catch(e){
+    window._sfgCreateUncertain=true;
+    const warning=`組立單 ${orderNo} 建立結果未確認；表單已保留，請先查訂單列表，避免重複開單。`;
+    const status=document.getElementById('sfgCreateStatus');
+    if(status){status.textContent=warning;status.style.display='block';}
+    showToast(`⚠ ${warning}${e.message?' '+e.message:''}`,'warn',10000);
+    return;
+  }
+  closeModal();
+  logUserAction('建立半成品單',orderNo,`${sfgMat?.code||sfgMat?.name||''} x ${qty}`,ROLE);
+  try{
     await refreshAffectedData({core:true,label:'半成品訂單已更新'});
     showToast(`✅ 半成品生產單 ${orderNo} 建立完成`,'ok');
-  }catch(e){showToast('❌ 建立失敗：'+e.message,'err');}
+  }catch(e){showToast(`⚠ 半成品生產單 ${orderNo} 已建立，但列表更新失敗；請重新整理確認：${e.message}`,'warn',10000);}
 }
 
 async function loadCorders(options={}){
