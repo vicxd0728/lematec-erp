@@ -520,6 +520,7 @@ html[data-theme="board"] td{font-size:18px;padding:19px 20px;}
 .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(16,185,129,.6);flex-shrink:0;}
 .role-badge{padding:2px 9px;border-radius:20px;font-size:0.6875rem;font-weight:600;}
 #syncStatus{font-size:0.625rem;color:var(--text3);font-family:var(--f-mono);}
+#onlineCount{white-space:nowrap;flex-shrink:0;}
 #liveClock{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid rgba(34,211,238,.18);background:rgba(34,211,238,.06);color:var(--cyan2);font-size:0.6875rem;font-family:var(--f-mono);font-weight:600;white-space:nowrap;}
 
 /* Nav */
@@ -1796,7 +1797,7 @@ html[data-theme="warm"] #themePanel{
 
 <div class="app" id="app">
   <div class="topbar">
-    <button class="topbar-home" type="button" onclick="switchTab('dashboard')" title="回首頁（總覽）" aria-label="回首頁（總覽）">
+    <button class="topbar-home" type="button" onclick="goHome()" title="回首頁（總覽）" aria-label="回首頁（總覽）">
       <span class="topbar-home-title"><span class="topbar-brand">LEMATEC</span><span class="topbar-sub">ERP</span></span>
       <span class="topbar-version" data-erp-version>V.LOCAL</span>
     </button>
@@ -9124,6 +9125,11 @@ function formatOptionalMoney(n){
 // NAV & RENDERS
 // ═══════════════════════════════════════════════
 function buildNav(){const nav=document.getElementById('roleNav');nav.innerHTML='';ROLES[ROLE].tabs.forEach(tab=>{const btn=document.createElement('button');btn.className='tab-btn'+(tab===CURRENT_TAB?' active':'');const label=TAB_LABELS[tab]||tab;const m=label.match(/^(\S+)\s*(.*)$/);btn.innerHTML=`<span class="tab-ico">${m?m[1]:''}</span><span class="tab-text">${m?m[2]:label}</span>`;btn.onclick=()=>switchTab(tab);nav.appendChild(btn);});}
+function goHome(){
+  switchTab('dashboard');
+  const content=document.getElementById('mainContent');
+  if(content)content.scrollTop=0;
+}
 function switchTab(tab){
   const previousTab=CURRENT_TAB;
   CURRENT_TAB=tab;

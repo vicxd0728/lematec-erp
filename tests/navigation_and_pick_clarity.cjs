@@ -28,6 +28,19 @@ test('switching to another module starts at its top', async () => {
   assert.equal(content.scrollTop, 0);
 });
 
+test('brand home returns to the top even when dashboard is already selected', () => {
+  const content = { scrollTop: 980 };
+  const calls = [];
+  const ctx = vm.createContext({
+    switchTab: tab => calls.push(tab),
+    document: { getElementById: id => id === 'mainContent' ? content : null },
+  });
+  vm.runInContext(section('function goHome(){', 'function switchTab(tab){'), ctx);
+  ctx.goHome();
+  assert.deepEqual(calls, ['dashboard']);
+  assert.equal(content.scrollTop, 0);
+});
+
 test('Shopee transfer shortage explains the transfer and escapes order text', () => {
   const modal = { innerHTML: '' };
   const ctx = vm.createContext({
