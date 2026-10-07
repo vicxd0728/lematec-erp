@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Quantity-entry guard follow-up 2026-10-07
+
+- Manual picking now rejects blank, zero, fractional and unsafe quantities instead of silently substituting one; the manually entered quantity follows an exact existing SKU. A matching display name alone no longer redirects a new SKU to a different material.
+- The manual picking search and selected-item rows escape staff-entered material text. C-end manual order entry and stock preview reject invalid quantity before number reservation, Notion order creation or stock deduction.
+- `tests/manual_quantity_guard.cjs` covers these boundaries with no production writes. Deployment and authenticated operator acceptance remain separate checks.
+
 ## Multi-Flow Creation Feedback Review 2026-10-07
 
 - Confirmed from current code: batch inbound could report failure after Supabase accepted a receipt when supply-job linking or list refresh failed; Shopee order quantity silently fell back to 1, and a partial batch cleared all drafts; manual picking could report creation failure after an accepted Supabase write when the list refresh failed.

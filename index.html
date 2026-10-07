@@ -6516,7 +6516,7 @@ function openModal(type,data){
       <div id="co_stock_hint" style="font-size:0.8125rem;color:var(--text3);margin-top:6px">目前只列出類型為「蝦皮用 / 蝦皮用(S-)」或料號 S- 開頭的料件。</div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
-      <div><label class="field-label">數量 *</label><input class="inp" type="number" id="co_qty" value="1" min="1" oninput="previewCorderMatStock()"></div>
+      <div><label class="field-label">數量 *</label><input class="inp" type="number" id="co_qty" value="1" min="1" step="1" oninput="previewCorderMatStock()"></div>
       <div><label class="field-label">出貨方式</label><input class="inp" id="co_ship" placeholder="蝦皮 / 7-11 / 新竹物流..."></div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
@@ -18319,15 +18319,18 @@ function filterManualPickList(q){
   const data=mats.filter(m=>(!type||m.type===type)&&(!s||(m.code||'').toLowerCase().includes(s)||(m.name||'').toLowerCase().includes(s))).slice(0,80);
   if(!data.length){list.innerHTML='<div style="padding:14px;color:var(--text3);font-size:14px">找不到符合料號，可用下方手動新增</div>';return;}
   list.innerHTML=data.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
-    <div style="flex:1;min-width:0"><div style="font-weight:800;color:var(--text);font-size:14px">${m.code||m.name}</div><div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.name||''} · ${m.type||'—'} · 庫存 ${m.stock??0}</div></div>
-    <input class="inp" type="number" id="mp_qty_${m.id}" value="1" min="1" style="width:86px">
-    <button class="btn btn-blue btn-sm" onclick="addManualPickItem('${m.id}')">加入</button>
+    <div style="flex:1;min-width:0"><div style="font-weight:800;color:var(--text);font-size:14px">${escapeHtml(m.code||m.name)}</div><div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.name||'')} · ${escapeHtml(m.type||'—')} · 庫存 ${escapeHtml(m.stock??0)}</div></div>
+    <input class="inp" type="number" id="mp_qty_${escapeHtml(m.id)}" value="1" min="1" step="1" style="width:86px">
+    <button class="btn btn-blue btn-sm" data-mat-id="${escapeHtml(m.id)}" onclick="addManualPickItem(this.dataset.matId)">加入</button>
   </div>`).join('');
 }
-function addManualPickItem(matId){
+function addManualPickItem(matId,requestedQty){
   const m=mats.find(x=>x.id===matId); if(!m) return;
-  const qty=parseInt(document.getElementById('mp_qty_'+matId)?.value)||1;
+  const raw=requestedQty===undefined?document.getElementById('mp_qty_'+matId)?.value:requestedQty;
+  const qty=Number(raw);
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('補料數量請輸入大於 0 的整數','warn');return;}
   const ex=_mpItems.find(x=>x.matId===matId);
+  if(ex&&!Number.isSafeInteger(Number(ex.qty)+qty)){showToast('補料數量超出可處理範圍','warn');return;}
   if(ex) ex.qty+=qty; else _mpItems.push({matId:m.id,code:m.code||m.name,name:m.name||m.code,type:m.type||'零件',qty});
   renderManualPickItems();
 }
@@ -18335,15 +18338,16 @@ async function addManualPickNewItem(){
   const code=(document.getElementById('mp_new_code')?.value||'').trim();
   const name=(document.getElementById('mp_new_name')?.value||'').trim()||code;
   const type=document.getElementById('mp_new_type')?.value||'零件';
-  const qty=parseInt(document.getElementById('mp_new_qty')?.value)||1;
+  const qty=Number(document.getElementById('mp_new_qty')?.value);
   if(!code){showToast('請輸入料號','warn');return;}
-  const found=findMatBySku(code)||mats.find(m=>(m.name||'').toLowerCase()===name.toLowerCase());
-  if(found){addManualPickItem(found.id);return;}
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('補料數量請輸入大於 0 的整數','warn');return;}
+  const found=findMatBySku(code);
+  if(found){addManualPickItem(found.id,qty);return;}
   showToast('建立新料號中...','warn');
   try{
     const created=await createMaterialFromSku(code,type,0,0,'臨時補料手動建檔');
     created.name=name||created.name;
-    addManualPickItem(created.id);
+    addManualPickItem(created.id,qty);
     filterManualPickList(document.getElementById('mp_search')?.value||'');
   }catch(e){showToast('❌ 建立料號失敗：'+e.message,'err');}
 }
@@ -18351,13 +18355,18 @@ function renderManualPickItems(){
   const box=document.getElementById('mp_items'); if(!box) return;
   if(!_mpItems.length){box.innerHTML='<div style="padding:12px;color:var(--text3);font-size:14px;background:var(--bg3);border-radius:10px">尚未選擇料號</div>';return;}
   box.innerHTML=_mpItems.map((it,i)=>`<div style="display:flex;align-items:center;gap:10px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:7px">
-    <div style="flex:1"><b>${it.code}</b><span style="color:var(--text3);font-size:12px;margin-left:8px">${it.name} · ${it.type}</span></div>
-    <input class="inp" type="number" value="${it.qty}" min="1" style="width:86px" oninput="_mpItems[${i}].qty=parseInt(this.value)||1">
+    <div style="flex:1"><b>${escapeHtml(it.code)}</b><span style="color:var(--text3);font-size:12px;margin-left:8px">${escapeHtml(it.name)} · ${escapeHtml(it.type)}</span></div>
+    <input class="inp" type="number" value="${escapeHtml(it.qty)}" min="1" step="1" style="width:86px" oninput="_mpItems[${i}].qty=Number(this.value)">
     <button class="btn btn-red btn-sm" onclick="_mpItems.splice(${i},1);renderManualPickItems()">移除</button>
   </div>`).join('');
 }
 async function submitManualPick(){
   if(!_mpItems.length){showToast('請至少加入一個料號','warn');return;}
+  if(_mpItems.some(it=>!Number.isSafeInteger(Number(it.qty))||Number(it.qty)<=0)){
+    showToast('清單中有無效補料數量，請輸入大於 0 的整數','warn');return;
+  }
+  const totalQty=_mpItems.reduce((sum,it)=>sum+Number(it.qty),0);
+  if(!Number.isSafeInteger(totalQty)){showToast('補料總數量超出可處理範圍','warn');return;}
   if(window._manualPickCreateRunning||window._manualPickCreateUncertain){showToast('上次補料單建立結果尚未確認；請先查領料清單，避免重複建單','warn',8000);return;}
   const note=(document.getElementById('mp_note')?.value||'').trim();
   const today=todayStr();
@@ -18379,7 +18388,7 @@ async function submitManualPick(){
       pick_type:'臨時補料',
       source:'ERP_MANUAL',
       product_display:'臨時補料',
-      production_quantity:_mpItems.reduce((s,x)=>s+(parseInt(x.qty)||0),0),
+      production_quantity:totalQty,
       picker_display:ROLE||'',
       notes:note,
       items:_mpItems.map(it=>({
@@ -18387,7 +18396,7 @@ async function submitManualPick(){
         sku:it.code,
         name:it.name||it.code,
         type:it.type||'零件',
-        required_quantity:parseInt(it.qty)||1,
+        required_quantity:Number(it.qty),
         picked_quantity:0,
         status:'足夠',
         notes:note,
@@ -20214,13 +20223,16 @@ function previewCorderMatStock(){
   if(!sel||!hint) return;
   const opt=sel.options[sel.selectedIndex];
   if(!opt||!opt.value){hint.textContent='目前只列出類型為「蝦皮用 / 蝦皮用(S-)」或料號 S- 開頭的料件。';return;}
+  const qty=Number(document.getElementById('co_qty')?.value);
+  if(!Number.isSafeInteger(qty)||qty<=0){hint.textContent='數量請輸入大於 0 的整數';return;}
   try{
-    const plan=resolveCorderShipPlan(mats.find(m=>m.id===opt.value),Number(document.getElementById('co_qty')?.value||1));
+    const plan=resolveCorderShipPlan(mats.find(m=>m.id===opt.value),qty);
     hint.textContent=plan.items.map(x=>`${x.code||x.name}：庫存 ${x.stock}，扣 ${x.needed}，剩 ${Number(x.stock)-x.needed}`).join('；');
   }catch(e){hint.textContent=e.message;}
 }
 async function deductCorderStock(mat, qty, refNo, operator, operationKey=''){
-  const need=parseInt(qty)||1;
+  const need=Number(qty);
+  if(!Number.isSafeInteger(need)||need<=0)throw new Error('C端扣庫數量必須是正整數');
   const stockMove=await applyInventoryDeltaAndMirror(mat.id,{
     delta:-need,
     reason:'C端出貨扣庫',
@@ -25786,12 +25798,13 @@ async function submitCorder(){
   const buyer=(document.getElementById('co_buyer')?.value||'').trim();
   const trackingNo=(document.getElementById('co_tracking')?.value||'').trim();
   const matId=(document.getElementById('co_mat')?.value||'').trim();
-  const qty=Number(document.getElementById('co_qty')?.value)||1;
+  const qty=Number(document.getElementById('co_qty')?.value);
   const shipMethod=(document.getElementById('co_ship')?.value||'').trim();
   const shipDate=(document.getElementById('co_ship_date')?.value||'').trim();
   const payDate=(document.getElementById('co_pay_date')?.value||'').trim();
   const note=(document.getElementById('co_note')?.value||'').trim();
   if(!matId){showToast('請選擇蝦皮料號','warn');return;}
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('C端訂單數量請輸入大於 0 的整數','warn');return;}
   const mat=mats.find(m=>m.id===matId);
   if(!mat){showToast('找不到料件','err');return;}
   CORDER_SUBMIT_BUSY=true;
