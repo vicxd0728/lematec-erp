@@ -27,6 +27,8 @@ function makeContext(overrides = {}) {
     stockLogIsInventoryMove: () => true,
     stockLogDisplayName: row => row.matCode || row.material_name || '—',
     buildStockLogAuditReport: () => ({ issues: [], errors: 0, warnings: 0 }),
+    isShopeeProductionOrder: row => row.orderType === 'shopee' || row.customer === '蝦皮',
+    isSfgProductionOrder: row => row.orderType === 'sfg' || row.customer === '組立單',
     ...overrides,
   });
   vm.runInContext(html.slice(dateStart, dateEnd), ctx);
@@ -207,6 +209,38 @@ test('analytics inventory drilldown does not hide an in-stock SKU or falsify unk
   ctx.analyticsGo('inventory', 'unknown', '庫存數值待確認');
   assert.equal(ctx.window._invState.stockStatus, 'unknown');
   assert.equal(ctx.window._invState.q, '');
+});
+
+test('action insight counts only assessable pending customer orders and exposes overdue shortages', () => {
+  const ctx = makeContext({
+    orders: [
+      { id: 'o1', no: 'ORD-1', productId: 'm1', qty: 10, status: '待排程', deadline: '2026-09-20', created: '2026-09-16' },
+      { id: 'o2', no: 'ORD-2', productId: 'm1', qty: 2, status: '待排程', deadline: '2026-10-02', created: '2026-09-18' },
+      { id: 'o3', no: 'ORD-3', productId: 'm2', qty: 2, status: '待排程', created: '2026-09-18' },
+      { id: 'o4', no: 'SFG-4', productId: 'm1', qty: 10, status: '待排程', orderType: 'sfg', created: '2026-09-18' },
+      { id: 'o5', no: 'ORD-5', productId: 'm1', qty: 10, status: '生產中', deadline: '2026-09-20', created: '2026-09-18' },
+    ],
+    mats: [{ id: 'm1', code: 'Y-PART', stock: 3 }, { id: 'm2', code: 'Y-UNKNOWN', stock: null }],
+  });
+  const insight = ctx.buildOperationsAnalytics().orderAction;
+  assert.equal(insight.pending, 3);
+  assert.equal(insight.checked, 2);
+  assert.equal(insight.blocked.length, 1);
+  assert.equal(insight.blocked[0].short, 7);
+  assert.equal(insight.overdueBlocked.length, 1);
+  assert.equal(insight.unknown.length, 1);
+  assert.equal(ctx.analyticsOrderActionInsight(ctx.orders, ctx.mats, '2026-09-26').stages.find(row => row.status === '生產中').median, 8);
+  const markup = ctx.renderAnalytics();
+  assert.match(markup, /可計算 2\/3 筆待領料訂單/);
+  assert.match(markup, /ORD-1[\s\S]*?Y-PART · 缺 7/);
+  assert.match(markup, /不是進入該階段後停留的天數/);
+});
+
+test('invalid or future creation dates are not presented as stage age', () => {
+  const ctx = makeContext();
+  assert.equal(ctx.analyticsAgeDays('2026-02-30', '2026-09-26'), null);
+  assert.equal(ctx.analyticsAgeDays('2026-09-27', '2026-09-26'), null);
+  assert.equal(ctx.analyticsAgeDays('2026-09-20', '2026-09-26'), 6);
 });
 
 test('analytics stock-log drilldown keeps the selected 90-day window', () => {

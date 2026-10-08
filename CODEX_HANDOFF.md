@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Actionable operations analytics 2026-10-08
+
+- `營運分析` now shows domestic/overseas customer orders waiting for picking whose ordered SKU quantity exceeds the currently loaded Supabase stock. It separates assessable orders from missing/invalid material, quantity, or balance data, and highlights overdue shortages with order-number drilldown. Counts compare each order independently; stock is not reserved across orders, and a stale core snapshot is explicitly flagged.
+- The stage table shows the age of orders currently in each stage from original order creation, including median/oldest values and date coverage. It is **not** actual time spent in that stage because historical status-transition timestamps are not available from the loaded order source. Do not rename this metric as stage duration until a verified transition log is available.
+- This is a read-only frontend calculation. It does not change order, BOM, picking, inventory, or supplier records. Supplier on-time rate remains deferred until reliable supplier-stage history exists. Source-list and authenticated operator acceptance are separate from static tests and deployment.
+
 ## Operation guidance and daily read-only quality 2026-10-07
 
 - `erp-action-receipts.js` is the first extracted browser helper. Normal customer-order creation, rejected-inbound resubmission, and C-end order edits record a role-scoped local action reference before a formal write and mark it accepted only after the formal source responds. The dashboard shows recent references across reloads and opens the relevant formal list for manual verification. These records are not server receipts or proof of success, are limited to the current browser, and never contain credentials or full business payloads.

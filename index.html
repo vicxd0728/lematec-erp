@@ -12071,6 +12071,38 @@ function analyticsIsActive(status){
   const s=String(status||'');
   return !analyticsIsCompleted(s)&&!s.includes('取消')&&!s.includes('刪除')&&!s.includes('退貨');
 }
+function analyticsCustomerOrder(row){
+  return !isShopeeProductionOrder(row)&&!isSfgProductionOrder(row);
+}
+function analyticsAgeDays(created,today){
+  const day=String(created||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return null;
+  const start=Date.parse(`${day}T00:00:00Z`),end=Date.parse(`${today}T00:00:00Z`);
+  if(!Number.isFinite(start)||!Number.isFinite(end)||new Date(start).toISOString().slice(0,10)!==day||start>end)return null;
+  return Math.floor((end-start)/86400000);
+}
+function analyticsOrderActionInsight(orderRows,materials,today){
+  const active=orderRows.filter(row=>analyticsCustomerOrder(row)&&analyticsIsActive(row.status));
+  const stageOrder=['待排程','生產中','待檢驗','品檢異常','待出貨'];
+  const stages=stageOrder.map(status=>{
+    const rows=active.filter(row=>row.status===status);
+    const dated=rows.map(row=>({row,days:analyticsAgeDays(row.created,today)})).filter(item=>item.days!==null);
+    const sorted=dated.map(item=>item.days).sort((a,b)=>a-b);
+    const middle=Math.floor(sorted.length/2);
+    return {status,total:rows.length,covered:dated.length,median:sorted.length?(sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2):null,oldest:sorted.length?sorted[sorted.length-1]:null};
+  });
+  const materialById=new Map(materials.map(row=>[String(row.id||''),row]));
+  const pending=active.filter(row=>row.status==='待排程');
+  const blocked=[],unknown=[];
+  for(const order of pending){
+    const qty=Number(order.qty),material=materialById.get(String(order.productId||''));
+    if(!material||!Number.isSafeInteger(qty)||qty<=0){unknown.push(order);continue;}
+    const balance=analyticsInventoryState(material);
+    if(balance.stock===null){unknown.push(order);continue;}
+    if(balance.stock<qty)blocked.push({order,sku:String(material.code||order.matCode||'未填料號'),needed:qty,stock:balance.stock,short:qty-balance.stock,overdue:!!order.deadline&&/^\d{4}-\d{2}-\d{2}$/.test(String(order.deadline).slice(0,10))&&String(order.deadline).slice(0,10)<today});
+  }
+  return {active,stages,pending:pending.length,checked:pending.length-unknown.length,unknown,blocked,overdueBlocked:blocked.filter(item=>item.overdue)};
+}
 function analyticsIsConsumptionLog(row){
   const t=String(row?.type||'');
   return stockLogIsInventoryMove(row)&&['領料','C端出貨'].some(x=>t.includes(x));
@@ -12353,6 +12385,7 @@ function buildOperationsAnalytics(){
   const safetyStockUnsetCount=(mats||[]).filter(m=>analyticsInventoryState(m).state==='unset').length;
   const missingCorderSku=corderRows.filter(o=>!String(o.matCode||'').trim()&&!String(o.matId||'').trim());
   const audit=typeof buildStockLogAuditReport==='function'?buildStockLogAuditReport(stockLogs):{issues:[],errors:0,warnings:0};
+  const orderAction=analyticsOrderActionInsight(orders||[],mats||[],today);
   return {
     range,orderRows,corderRows,logRows,doneOrders,activeOrders,doneCorders,activeCorders,overdue,
     countableOrders:[...orderRows,...corderRows].filter(analyticsIsCountableOrder),
@@ -12360,8 +12393,24 @@ function buildOperationsAnalytics(){
     cReturnEvents,cReturnReasons,cReturnProducts,cReturnQty,cSoldQty,
     consumptionBySku,consumptionCoverage,lowStockRisk,missingCorderSku,
     noBomFinished:noBomCandidates.slice(0,8),noBomFinishedCount:noBomCandidates.length,
-    stockUnknownCount,safetyStockUnsetCount,audit
+    stockUnknownCount,safetyStockUnsetCount,audit,orderAction
   };
+}
+function analyticsOrderActionPanel(data){
+  const shortageRows=[...data.blocked].sort((a,b)=>Number(b.overdue)-Number(a.overdue)||b.short-a.short).slice(0,12);
+  const stageRows=data.stages.map(stage=>`<button type="button" class="analytics-row-link" style="display:grid;grid-template-columns:minmax(78px,1fr) 58px 90px 90px;gap:8px;width:100%;border:0;background:transparent;color:var(--text);text-align:left" onclick="analyticsGo('orders','status',this.dataset.status)" data-status="${escapeHtml(stage.status)}"><b>${escapeHtml(stage.status)}</b><span>${stage.total} 筆</span><span>${stage.median===null?'—':`${stage.median} 天`}</span><span>${stage.oldest===null?'—':`${stage.oldest} 天`}</span></button>`).join('');
+  const shortageList=shortageRows.length?shortageRows.map(item=>`<div class="analytics-row-link" style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><div><b>${escapeHtml(item.order.no||'未編號')}</b> · ${escapeHtml(item.sku)} · 缺 ${analyticsNum(item.short)}<div style="font-size:.72rem;color:var(--text3)">需要 ${analyticsNum(item.needed)}，目前 ${analyticsNum(item.stock)}；${item.overdue?`交期 ${escapeHtml(item.order.deadline)} 已逾期`:`交期 ${escapeHtml(item.order.deadline||'未填')}`}</div></div><button type="button" class="btn btn-ghost btn-xs" data-order="${escapeHtml(item.order.no||'')}" onclick="analyticsGo('orders','customer',this.dataset.order)">查訂單</button></div>`).join(''):'<div style="color:var(--text3);font-size:.78rem;padding:10px 0">已核對的待領料訂單，沒有單筆需求高於目前庫存的項目。</div>';
+  return `<div class="analytics-panel-grid">
+    <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>待領料缺料與逾期</h3><p>僅國內／國外、目前「待排程」的訂單；依所訂料號本身與目前庫存逐單比對，不展開 BOM，也不代表已預留庫存。</p></div></div>
+      ${!isFresh('core')?'<div class="info-warn" role="status">訂單或庫存快照可能不是最新；請先使用右上角同步，再核對缺料判斷。</div>':''}
+      <div class="analytics-source-strip" style="margin-bottom:10px">可計算 ${data.checked}/${data.pending} 筆待領料訂單；其中缺料 ${data.blocked.length} 筆，交期已逾期且缺料 ${data.overdueBlocked.length} 筆。${data.unknown.length?'其餘料號關聯、數量或庫存待確認。':''}</div>
+      ${shortageList}<div style="font-size:.7rem;color:var(--text3);margin-top:8px">顯示前 ${shortageRows.length}/${data.blocked.length} 筆；多張訂單共用料號時，尚未扣除彼此需求，實際領料仍以執行前檢查為準。</div>
+    </section>
+    <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>各階段訂單年齡</h3><p>目前處於該階段的國內／國外訂單，從建單日至今天的中位數及最久天數；不是進入該階段後停留的天數。</p></div></div>
+      <div style="display:grid;grid-template-columns:minmax(78px,1fr) 58px 90px 90px;gap:8px;padding:5px 8px;color:var(--text3);font-size:.72rem"><span>目前階段</span><span>單數</span><span>年齡中位</span><span>最久</span></div>${stageRows}
+      <div style="font-size:.7rem;color:var(--text3);margin-top:8px">可計算建立日 ${data.stages.reduce((sum,row)=>sum+row.covered,0)}/${data.stages.reduce((sum,row)=>sum+row.total,0)} 筆；歷史訂單沒有可靠的逐階段切換日期，故不推算真正階段停留時間。</div>
+    </section>
+  </div>`;
 }
 function renderAnalytics(){
   const a=buildOperationsAnalytics();
@@ -12449,6 +12498,7 @@ function renderAnalytics(){
   </div>
   <div class="analytics-decision-grid">${decisionCards}</div>
   <div class="kpi-grid">${orderKpis}</div>
+  ${analyticsOrderActionPanel(a.orderAction)}
   <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單建立趨勢</h3><p>依建立日期統計新建單量；近 30 天按日、近 90 天按週、全部資料按月呈現。取消單仍計入建立量。</p></div></div>${analyticsTrendChart(a.orderRows,a.corderRows,a.range)}</div>
   <div class="analytics-panel-grid">
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</div>
