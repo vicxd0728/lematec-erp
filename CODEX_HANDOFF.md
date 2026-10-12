@@ -2,6 +2,8 @@
 
 ## Picking/inbound navigation and fallback review 2026-10-12
 
+- Release attempt 97ed0b6 Pages run 38248747635 failed when GitHub's Worker-status API returned HTTP 502; Worker run 38248747657 itself succeeded. `wait_worker_acceptance.py` now retries bounded transient HTTP/connection failures, never treats an unavailable status as acceptance, and still blocks permanent authentication errors, failed Workers and timeouts. Seven recovery/acceptance tests are included in Pages CI.
+
 - `goToOrderPickingRows` clears prior date/status/page filters before locating the order; picking status charts, chips and subtab switches share `setPickingView` and reset to page 1. A focused order remains focused when changing status; manual mode or explicit clear removes focus.
 - A filtered empty picking list now says no matching rows and recommends changing filters instead of recreating an order. The return workflow explains view-only roles accurately.
 - Picking loader records primary/fallback source even for empty lists. Picking and inbound show explicit Notion read-only fallback banners and suppress mutation controls while fallback data is displayed; underlying Worker write/role/idempotency rules are unchanged.

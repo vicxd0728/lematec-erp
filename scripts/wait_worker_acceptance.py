@@ -3,6 +3,7 @@ import json
 import os
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 
 def acceptance(runs, sha):
@@ -24,23 +25,37 @@ def failure_summary(runs, sha):
     return f"Worker run #{latest.get('run_number')} attempt {latest.get('run_attempt', 1)} concluded {latest.get('conclusion')}: {url}"
 
 
-def main():
+def main(attempts=120, interval=10):
     sha = os.environ['RELEASE_SHA']
     repo = os.environ['GH_REPO']
     url = f'https://api.github.com/repos/{repo}/actions/workflows/cloudflare-worker.yml/runs?head_sha={sha}&per_page=100'
-    for attempt in range(120):
+    for attempt in range(attempts):
         request = Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
             'Accept': 'application/vnd.github+json', 'User-Agent': 'lematec-pages-acceptance'})
-        with urlopen(request, timeout=30) as response:
-            runs = json.load(response)['workflow_runs']
+        try:
+            with urlopen(request, timeout=30) as response:
+                runs = json.load(response)['workflow_runs']
+        except HTTPError as exc:
+            if exc.code not in (408, 429, 500, 502, 503, 504):
+                raise SystemExit(f'GitHub Worker status request rejected (HTTP {exc.code}); Pages publication blocked.') from None
+            print(f'GitHub Worker status temporarily unavailable (HTTP {exc.code}); retry {attempt + 1}/{attempts}', flush=True)
+            if attempt + 1 < attempts:
+                time.sleep(interval)
+            continue
+        except (URLError, TimeoutError, ConnectionError):
+            print(f'GitHub Worker status connection unavailable; retry {attempt + 1}/{attempts}', flush=True)
+            if attempt + 1 < attempts:
+                time.sleep(interval)
+            continue
         state = acceptance(runs, sha)
         if state == 'success':
             print('Exact-commit Worker workflow including production acceptance: PASS')
             return
         if state == 'failed':
             raise SystemExit('Worker workflow failed or was cancelled; Pages publication blocked. ' + failure_summary(runs, sha))
-        print(f'Waiting for complete Worker acceptance ({attempt + 1}/120)', flush=True)
-        time.sleep(10)
+        print(f'Waiting for complete Worker acceptance ({attempt + 1}/{attempts})', flush=True)
+        if attempt + 1 < attempts:
+            time.sleep(interval)
     raise SystemExit('Worker acceptance timed out; Pages publication blocked.')
 
 
