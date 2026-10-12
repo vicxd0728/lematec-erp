@@ -8416,6 +8416,7 @@ async function loadPicks(){
   try{
     const data=await pickingWorkerRequest('/api/picking/list?limit=5000');
     picks=(data.rows||[]).map(mapSupabasePick);
+    window._pickingDataSource='supabase';
     markLoaded('picks');
     Promise.resolve().then(()=>repairPendingPickingMirrors()).catch(e=>console.warn('領料 Notion 鏡像補同步失敗：',e));
     return;
@@ -8438,6 +8439,7 @@ async function loadPicks(){
       items:[],
       fallback:true,
     }));
+    window._pickingDataSource='notion-fallback';
     markLoaded('picks');
   }
 }
@@ -18688,11 +18690,11 @@ function renderPickingStatusVisual(rows){
   const counts={return:0,shortage:0,picked:0,reversed:0,other:0};
   for(const row of rows)counts[pickingVisualStage(row)]++;
   const chartRows=[
-    {label:'待回料確認',count:counts.return,color:'var(--amber)',action:"window._PICK_STATUS='return';renderTab('picking')"},
-    {label:'缺料待補',count:counts.shortage,color:'var(--red2)',action:"window._PICK_STATUS='shortage';renderTab('picking')"},
-    {label:'已領料',count:counts.picked,color:'var(--cyan2)',action:"window._PICK_STATUS='picked';renderTab('picking')"},
-    {label:'已沖銷',count:counts.reversed,color:'var(--green2)',action:"window._PICK_STATUS='reversed';renderTab('picking')"},
-    {label:'其他狀態',count:counts.other,color:'var(--text3)',action:"window._PICK_STATUS='other';renderTab('picking')"}
+    {label:'待回料確認',count:counts.return,color:'var(--amber)',action:"setPickingView('auto','return')"},
+    {label:'缺料待補',count:counts.shortage,color:'var(--red2)',action:"setPickingView('auto','shortage')"},
+    {label:'已領料',count:counts.picked,color:'var(--cyan2)',action:"setPickingView('auto','picked')"},
+    {label:'已沖銷',count:counts.reversed,color:'var(--green2)',action:"setPickingView('auto','reversed')"},
+    {label:'其他狀態',count:counts.other,color:'var(--text3)',action:"setPickingView('auto','other')"}
   ];
   return `<section class="erp-visual-panel" aria-label="訂單領料狀態分布"><div class="erp-visual-head"><div><h3>訂單領料狀態分布</h3><p>目前期間與訂單範圍共 ${rows.length} 張；一張單只計入一種狀態。舊紀錄「已確認扣料」併入「已領料」。點項目查看下方領料紀錄。</p></div></div>${rows.length?renderErpVisualRows(chartRows):'<div class="empty">目前範圍沒有訂單領料紀錄</div>'}</section>`;
 }
@@ -18713,17 +18715,18 @@ function renderPicking(){
   const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
   window._PICK_PAGE=Math.min(Math.max(1,Number(window._PICK_PAGE)||1),pageCount);
   const pageRows=data.slice((window._PICK_PAGE-1)*pageSize,window._PICK_PAGE*pageSize);
-  const canOperate=!isViewOnly();
+  const fallback=window._pickingDataSource==='notion-fallback'||picks.some(p=>p.fallback);
+  const canOperate=!isViewOnly()&&!fallback;
   const returnRequests=scopedAutoData.filter(isPickingReturnRequest);
   const pickedRows=scopedAutoData.filter(isPickingPicked);
   const reversedRows=scopedAutoData.filter(isPickingReversed);
   const shortageRows=scopedAutoData.filter(isPickingShortage);
   const otherRows=scopedAutoData.filter(p=>pickingVisualStage(p)==='other');
   const returnQty=buildPickingReversalRows(returnRequests).reduce((sum,row)=>sum+Number(row.qty||0),0);
-  const roleAction=canConfirmOrderReturnRequest()?'倉管確認實物已回倉':'業務只需送出申請';
+  const roleAction=fallback?'主資料連線恢復後再操作':isViewOnly()?'目前職務僅可檢視':canConfirmOrderReturnRequest()?'倉管確認實物已回倉':'業務只需送出申請';
   const tabs=`<div class="module-tabs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-    <button class="module-tab${sub==='auto'?' active':''}" onclick="window._PICK_SUB='auto';renderTab('picking')">🧾 訂單領料</button>
-    <button class="module-tab${sub==='manual'?' active':''}" onclick="window._PICK_SUB='manual';window._PICK_FOCUS_ORDER='';window._PICK_STATUS='all';renderTab('picking')">🧰 臨時補料</button>
+    <button class="module-tab${sub==='auto'?' active':''}" onclick="setPickingView('auto')">🧾 訂單領料</button>
+    <button class="module-tab${sub==='manual'?' active':''}" onclick="setPickingView('manual')">🧰 臨時補料</button>
   </div>`;
   const workflowBoard=sub==='auto'?`<div class="picking-workflow-board" data-contract="PICKING_RETURN_REQUEST_BOARD_V1">
     <div class="picking-flow-card is-action">
@@ -18731,14 +18734,14 @@ function renderPicking(){
       <div class="picking-flow-value">${returnRequests.length}</div>
       <div class="picking-flow-sub">${returnRequests.length?`有 ${returnRequests.length} 張領料單等待倉管確認，預計回倉數量 ${returnQty}`:'目前沒有等待回料確認的領料單'}</div>
       <div class="picking-flow-actions">
-        <button class="btn btn-yellow btn-xs" onclick="window._PICK_SUB='auto';window._PICK_STATUS='return';window._PICK_FOCUS_ORDER='';renderTab('picking')">只看待回料</button>
-        ${canConfirmOrderReturnRequest()?'<span class="pill" style="background:rgba(46,196,138,.12);color:var(--green2)">倉管可確認</span>':'<span class="pill" style="background:rgba(245,185,66,.12);color:var(--yellow)">等待倉管</span>'}
+        <button class="btn btn-yellow btn-xs" onclick="setPickingView('auto','return',true)">只看待回料</button>
+        ${canOperate&&canConfirmOrderReturnRequest()?'<span class="pill" style="background:rgba(46,196,138,.12);color:var(--green2)">倉管可確認</span>':'<span class="pill" style="background:rgba(245,185,66,.12);color:var(--yellow)">僅供查詢／等待倉管</span>'}
       </div>
     </div>
     <div class="picking-flow-card">
       <div class="picking-flow-label">角色下一步</div>
       <div class="picking-flow-value small">${roleAction}</div>
-      <div class="picking-flow-sub">${canConfirmOrderReturnRequest()?'確認後才會補庫存、寫異動紀錄並放行訂單。':'送出申請後不改庫存，後續由倉管確認實物。'}</div>
+      <div class="picking-flow-sub">${!canOperate?'可查閱流程紀錄，目前無法執行回料確認。':canConfirmOrderReturnRequest()?'確認後才會補庫存、寫異動紀錄並放行訂單。':'送出申請後不改庫存，後續由倉管確認實物。'}</div>
     </div>
     <div class="picking-flow-card">
       <div class="picking-flow-label">已領料未沖銷</div>
@@ -18755,7 +18758,7 @@ function renderPicking(){
     <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
-  return _notionBar + tabs + workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `<div class="filter-bar">
+  return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + tabs + workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `<div class="filter-bar">
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="updatePickingDate(this.value)"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     ${sub==='auto'?`<span class="filter-label">狀態：</span>
@@ -18767,9 +18770,9 @@ function renderPicking(){
     ${pickingStatusChip('other','其他狀態',statusFilter,otherRows.length)}`:''}
     ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
   </div>
-  ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="window._PICK_FOCUS_ORDER='';renderTab('picking')">顯示全部領料</button></div>`:''}
+  ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="setPickingView('auto','all',true)">顯示全部領料</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">第 ${window._PICK_PAGE}/${pageCount} 頁</span></div>
-  ${!data.length?`<div class="loading-row">${sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
@@ -18786,7 +18789,14 @@ function pickingStatusFilterLabel(v){
 }
 function pickingStatusChip(value,label,current,count){
   const active=value===current;
-  return `<button class="filter-chip ${active?'active':''}" onclick="window._PICK_STATUS='${value}';renderTab('picking')">${label} <b>${count}</b></button>`;
+  return `<button class="filter-chip ${active?'active':''}" onclick="setPickingView('auto','${value}')">${label} <b>${count}</b></button>`;
+}
+function setPickingView(sub,status='all',clearFocus=false){
+  window._PICK_SUB=sub;
+  window._PICK_STATUS=status;
+  window._PICK_PAGE=1;
+  if(sub==='manual'||clearFocus)window._PICK_FOCUS_ORDER='';
+  renderTab('picking');
 }
 function updatePickingDate(value){
   window._PICK_DATE=value;
@@ -18831,14 +18841,15 @@ function changeInboundPage(delta){
 }
 function renderInbound(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
-  const canAdd=dashboardCanCreateInbound();
+  const fallback=window._inboundDataSource==='notion-fallback'||inbounds.some(i=>i.fallback);
+  const canAdd=dashboardCanCreateInbound()&&!fallback;
   const filters=inboundListFilters();
   const dateVal=filters.date||'6';
   const data=applySort('inbound',filterInboundRows(inbounds,filters));
   const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
   filters.page=Math.min(Math.max(1,Number(filters.page)||1),pageCount);
   const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
-  return _notionBar + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)">
       <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option></select>
@@ -18849,7 +18860,7 @@ function renderInbound(){
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}</div>`:`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matName||mat?.name||'—')}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}${shortageSourceOrderLink(i.note)}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}${shortageSourceOrderLink(i.note)}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div>`;
@@ -23624,6 +23635,9 @@ function renderPickingReversalPreview(rows){
 }
 function goToOrderPickingRows(orderId){
   window._PICK_SUB='auto';
+  window._PICK_DATE='0';
+  window._PICK_STATUS='all';
+  window._PICK_PAGE=1;
   window._PICK_FOCUS_ORDER=canonicalPageId(orderId);
   closeModal();
   switchTab('picking');

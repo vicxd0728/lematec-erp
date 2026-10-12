@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Picking/inbound navigation and fallback review 2026-10-12
+
+- `goToOrderPickingRows` clears prior date/status/page filters before locating the order; picking status charts, chips and subtab switches share `setPickingView` and reset to page 1. A focused order remains focused when changing status; manual mode or explicit clear removes focus.
+- A filtered empty picking list now says no matching rows and recommends changing filters instead of recreating an order. The return workflow explains view-only roles accurately.
+- Picking loader records primary/fallback source even for empty lists. Picking and inbound show explicit Notion read-only fallback banners and suppress mutation controls while fallback data is displayed; underlying Worker write/role/idempotency rules are unchanged.
+- Inbound rows show the exact SKU plus a different display name, so a matched part can be verified by staff. `tests/picking_navigation.cjs` covers these findings; CI also runs the existing list/findability/visual tests. Failed before repair: 5 of 6 new tests. Production mutations were not used for testing. Authenticated UI proof is separate from local test/deployment results.
+
 ## Three-round analytics acceptance and repair 2026-10-12
 
 - Round 1: Analytics order drilldowns clear retained order type; inventory drilldowns clear type/min/max; default C-end drilldowns clear search drafts. These stale filters could hide the source row. Production/assembly BOM risks now exclude direct-stock customer orders; C-end ranking explicitly counts created order quantities including cancelled/unfinished orders, not actual shipments.
