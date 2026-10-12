@@ -19,10 +19,11 @@ function context(overrides={}){
   return ctx;
 }
 test('order-to-picking navigation resets conflicting date status and page',()=>{
-  const ctx=context({window:{_PICK_DATE:'7d',_PICK_STATUS:'reversed',_PICK_PAGE:4}});
+  const ctx=context({window:{_PICK_DATE:'7d',_PICK_STATUS:'reversed',_PICK_PAGE:4,_PICK_Q:'unrelated search'}});
   ctx.goToOrderPickingRows('order-123');
   assert.equal(ctx.window._PICK_FOCUS_ORDER,'order123');
   assert.equal(ctx.window._PICK_DATE,'0');assert.equal(ctx.window._PICK_STATUS,'all');assert.equal(ctx.window._PICK_PAGE,1);
+  assert.equal(ctx.window._PICK_Q,'');
 });
 test('changing status and subtab returns to the first page without losing order focus',()=>{
   const ctx=context({window:{_PICK_PAGE:4,_PICK_FOCUS_ORDER:'order'}});

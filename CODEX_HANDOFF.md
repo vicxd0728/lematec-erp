@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Operator findability and combined demand 2026-10-12
+
+- Picking now searches loaded records by picking/order number, customer, ordered material, picked-child SKU/name, picker and notes. Search resets pagination and preserves the caret; order-to-picking navigation clears stale search. Each linked picking row shows the source order/customer and offers a read-only jump to the formal order list with conflicting filters cleared. Missing source orders are labeled rather than guessed.
+- Inbound adds clickable status counts scoped to the current search/date and a reset action that clears search/status/date/page, including in filtered-empty results. Existing Supabase/fallback and role write guards remain intact.
+- Operations analytics adds a material-ID-based combined demand table for currently pending domestic/overseas customer orders. One current balance is compared against summed demand; unknown balances/invalid relations remain excluded and disclosed, same-looking SKUs with different material IDs never merge, and unsafe summed quantities are labeled uncomputable. Assembly, Shopee replenishment and C-end orders are excluded. This is a planning snapshot, not a reservation, purchase quantity or inventory transaction.
+- Tests: 326 Node CJS checks and 14 focused Python checks passed; static syntax/asset checks passed. The old dashboard inbound-button assertion already failed against prior HEAD because it omitted the existing fallback guard; it now requires that guard. Pages CI includes the new operator/demand regression tests. Service-worker cache bumped to v37. Synthetic desktop/390px previews inspected; live authenticated acceptance and deployment must be recorded separately.
+- Evidence and limits: `ERP_OPERATOR_PAINPOINT_REVIEW_2026-10-12.md`. No business records were created or modified during testing; preserve unrelated working-tree changes.
+
 ## Picking/inbound navigation and fallback review 2026-10-12
 
 - Release attempt 97ed0b6 Pages run 38248747635 failed when GitHub's Worker-status API returned HTTP 502; Worker run 38248747657 itself succeeded. `wait_worker_acceptance.py` now retries bounded transient HTTP/connection failures, never treats an unavailable status as acceptance, and still blocks permanent authentication errors, failed Workers and timeouts. Seven recovery/acceptance tests are included in Pages CI.

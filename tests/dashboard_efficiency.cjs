@@ -80,7 +80,7 @@ test('active role navigation tab scrolls into view when it is outside the horizo
 
 test('module create buttons and dashboard shortcuts share the same role guards', () => {
   assert.match(html, /function renderOrders\(\)[\s\S]*?const canAdd=dashboardCanCreateOrder\(\);/);
-  assert.match(html, /function renderInbound\(\)[\s\S]*?const canAdd=dashboardCanCreateInbound\(\);/);
+  assert.match(html, /function renderInbound\(\)[\s\S]*?const canAdd=dashboardCanCreateInbound\(\)&&!fallback;/);
   assert.match(html, /keepActiveNavTabVisible\(tab\);\s*renderTab\(tab\);/);
   assert.match(html, /dashboardOpenNewOrder\(\)/);
   assert.match(html, /dashboardOpenNewInbound\(\)/);

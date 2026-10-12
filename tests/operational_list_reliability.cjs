@@ -81,17 +81,17 @@ test('picking date choice persists and long lists keep their total while paging'
     renderPickingStatusVisual:()=>'',pickingStatusChip:()=>'',pickingStatusFilterLabel:()=> '全部',isViewOnly:()=>true,
     completedOrderPickingRows:()=>[],TH:()=>'<th>欄</th>',pill:value=>`<span>${escapeHtml(value)}</span>`,escapeHtml,
   });
-  vm.runInContext(section(html,'function applyDateFilterValue(','function getOrderFilters(')+section(html,'function renderPicking(){','function isPickingReturnRequest('),ctx);
+  vm.runInContext(section(html,'function applyDateFilterValue(','function getOrderFilters(')+section(html,'function pickingSearchRows(','function isPickingReturnRequest('),ctx);
   let markup=ctx.renderPicking();
   assert.match(markup,/value="1" selected>近1個月/);
   assert.match(markup,/訂單領料主單 <span class="badge">150<\/span>/);
   assert.match(markup,/第 1\/2 頁/);
   assert.match(markup,/&lt;img src=x&gt;/);
-  assert.doesNotMatch(markup,/P-100<\/td>/);
-  assert.doesNotMatch(markup,/P-OLD<\/td>/);
+  assert.doesNotMatch(markup,/P-100(?:<div|<\/td>)/);
+  assert.doesNotMatch(markup,/P-OLD(?:<div|<\/td>)/);
   ctx.window._PICK_PAGE=2;
   markup=ctx.renderPicking();
-  assert.match(markup,/P-100<\/td>/);
+  assert.match(markup,/P-100(?:<div|<\/td>)/);
 });
 
 test('schedule save errors keep the edit open and never announce success',async()=>{

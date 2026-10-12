@@ -12103,15 +12103,20 @@ function analyticsOrderActionInsight(orderRows,materials,today){
   });
   const materialById=new Map(materials.map(row=>[String(row.id||''),row]));
   const pending=active.filter(row=>row.status==='待排程');
-  const blocked=[],unknown=[];
+  const blocked=[],unknown=[],demandByMaterial=new Map();
   for(const order of pending){
     const qty=Number(order.qty),material=materialById.get(String(order.productId||''));
     if(!material||!Number.isSafeInteger(qty)||qty<=0){unknown.push(order);continue;}
     const balance=analyticsInventoryState(material);
     if(balance.stock===null){unknown.push(order);continue;}
+    const key=String(material.id);
+    if(!demandByMaterial.has(key))demandByMaterial.set(key,{id:key,sku:String(material.code||order.matCode||'未填料號'),needed:0,stock:balance.stock,orders:[]});
+    const demand=demandByMaterial.get(key);
+    demand.needed+=qty;demand.orders.push(order);
     if(balance.stock<qty)blocked.push({order,sku:String(material.code||order.matCode||'未填料號'),needed:qty,stock:balance.stock,short:qty-balance.stock,overdue:!!order.deadline&&/^\d{4}-\d{2}-\d{2}$/.test(String(order.deadline).slice(0,10))&&String(order.deadline).slice(0,10)<today});
   }
-  return {active,stages,pending:pending.length,checked:pending.length-unknown.length,unknown,blocked,overdueBlocked:blocked.filter(item=>item.overdue)};
+  const materialDemand=[...demandByMaterial.values()].map(row=>({...row,short:Number.isSafeInteger(row.needed)?Math.max(0,row.needed-row.stock):null}));
+  return {active,stages,pending:pending.length,checked:pending.length-unknown.length,unknown,blocked,materialDemand,overdueBlocked:blocked.filter(item=>item.overdue)};
 }
 function analyticsIsConsumptionLog(row){
   const t=String(row?.type||'');
@@ -12410,6 +12415,20 @@ function analyticsShowMoreShortages(){
   window._analyticsShortageLimit=(window._analyticsShortageLimit||12)+12;
   if(CURRENT_TAB==='analytics')document.getElementById('mainContent').innerHTML=renderAnalytics();
 }
+function analyticsShowMoreDemand(){
+  window._analyticsDemandLimit=(window._analyticsDemandLimit||12)+12;
+  if(CURRENT_TAB==='analytics')document.getElementById('mainContent').innerHTML=renderAnalytics();
+}
+function analyticsMaterialDemandPanel(data){
+  const all=(data.materialDemand||[]).filter(row=>row.short===null||row.short>0).sort((a,b)=>(b.short||0)-(a.short||0));
+  const rows=all.slice(0,window._analyticsDemandLimit||12);
+  return `<section class="analytics-panel" aria-label="同料號合併需求缺口"><div class="analytics-panel-head"><div><h3>同料號合併需求缺口</h3><p>將目前待排程的國內／國外訂單依料件 ID 合併，庫存只比較一次。可找出「逐單足夠、合計不足」；不含組立、蝦皮補庫及 C 端訂單。</p></div></div>
+    ${!isFresh('core')?'<div class="info-warn" role="status">目前快照可能已過期，請重新整理後再確認需求。</div>':''}
+    <div class="analytics-source-strip">${all.length} 個料號需確認 · 已核對 ${data.checked}/${data.pending} 筆待領料訂單${data.unknown.length?` · ${data.unknown.length} 筆因關聯、數量或庫存未知，未納入計算`:''}。這是需求試算，不代表庫存預留、採購量或已承諾交期。</div>
+    ${rows.length?`<div class="table-wrap"><table><tr><th>料號／來源訂單</th><th>合計需求</th><th>目前庫存</th><th>合計缺口</th><th>查詢</th></tr>${rows.map(row=>`<tr><td><b>${escapeHtml(row.sku)}</b><details><summary style="cursor:pointer;font-size:.75rem">${row.orders.length} 張來源訂單</summary>${row.orders.map(order=>`<div style="margin:6px 0"><button class="btn btn-ghost btn-xs" data-order-id="${escapeHtml(order.id)}" onclick="openPickingSourceOrder(this.dataset.orderId)">${escapeHtml(order.no||'未編號訂單')}</button> × ${analyticsNum(order.qty)} · ${escapeHtml(order.deadline||'交期未填')}</div>`).join('')}</details></td><td>${Number.isSafeInteger(row.needed)?analyticsNum(row.needed):'需求超出安全計算範圍'}</td><td>${analyticsNum(row.stock)}</td><td style="color:var(--red2)">${row.short===null?'待確認':analyticsNum(row.short)}</td><td><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></td></tr>`).join('')}</table></div>`:'<div class="empty">已核對範圍內，合併需求沒有高於目前庫存；未知資料仍須另行確認。</div>'}
+    ${rows.length<all.length?'<button class="btn btn-ghost btn-sm" onclick="analyticsShowMoreDemand()">顯示更多缺口料號</button>':''}<div style="font-size:.7rem;color:var(--text3);margin-top:8px">顯示 ${rows.length}/${all.length} 個料號；沒有扣除其他訂單、待入庫或未來供應，實際領料仍需重新檢查。</div>
+  </section>`;
+}
 function analyticsOrderActionPanel(data){
   const shortageRows=[...data.blocked].sort((a,b)=>Number(b.overdue)-Number(a.overdue)||b.short-a.short).slice(0,window._analyticsShortageLimit||12);
   const stageRows=data.stages.map(stage=>`<button type="button" class="analytics-row-link analytics-stage-row" style="width:100%;border:0;background:transparent;color:var(--text);text-align:left" onclick="analyticsGo('orders','status',this.dataset.status)" data-status="${escapeHtml(stage.status)}"><b>${escapeHtml(stage.status)}</b><span>${stage.total} 筆</span><span>${stage.median===null?'—':`${stage.median} 天`}</span><span>${stage.oldest===null?'—':`${stage.oldest} 天`}</span></button>`).join('');
@@ -12519,6 +12538,7 @@ function renderAnalytics(){
   <div class="analytics-decision-grid">${decisionCards}</div>
   <div class="kpi-grid">${orderKpis}</div>
   ${analyticsOrderActionPanel(a.orderAction)}
+  ${analyticsMaterialDemandPanel(a.orderAction)}
   <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單建立趨勢</h3><p>依建立日期統計新建單量；近 30 天按日、近 90 天按週、全部資料按月呈現。取消單仍計入建立量。</p></div></div>${analyticsTrendChart(a.orderRows,a.corderRows,a.range)}</div>
   <div class="analytics-panel-grid">
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</div>
@@ -18698,6 +18718,46 @@ function renderPickingStatusVisual(rows){
   ];
   return `<section class="erp-visual-panel" aria-label="訂單領料狀態分布"><div class="erp-visual-head"><div><h3>訂單領料狀態分布</h3><p>目前期間與訂單範圍共 ${rows.length} 張；一張單只計入一種狀態。舊紀錄「已確認扣料」併入「已領料」。點項目查看下方領料紀錄。</p></div></div>${rows.length?renderErpVisualRows(chartRows):'<div class="empty">目前範圍沒有訂單領料紀錄</div>'}</section>`;
 }
+function pickingSearchRows(rows,query){
+  const q=String(query||'').trim().toLocaleLowerCase();
+  if(!q)return rows;
+  const byOrder=new Map(orders.map(o=>[canonicalPageId(o.id),o]));
+  const byMaterial=new Map(mats.map(m=>[m.id,m]));
+  return rows.filter(p=>{
+    const order=byOrder.get(canonicalPageId(p.orderId))||{},material=byMaterial.get(order.productId)||{};
+    const values=[p.no,p.product,p.note,p.person,order.no,order.customer,order.cust,order.product,order.matCode,material.code,material.name];
+    for(const item of p.items||[]){const mat=byMaterial.get(item.matId)||{};values.push(item.code,item.name,item.matCode,item.matName,mat.code,mat.name);}
+    return values.some(value=>String(value||'').toLocaleLowerCase().includes(q));
+  });
+}
+function updatePickingSearch(input){
+  window._PICK_Q=input.value;window._PICK_PAGE=1;
+  const cursor=input.selectionStart;
+  renderTab('picking');
+  const next=document.getElementById('pickingSearch');
+  if(next){next.focus();try{next.setSelectionRange(cursor,cursor);}catch(e){}}
+}
+function resetPickingFilters(){
+  window._PICK_Q='';window._PICK_DATE='0';window._PICK_FOCUS_ORDER='';
+  setPickingView(window._PICK_SUB||'auto','all',true);
+}
+function openPickingSourceOrder(orderId){
+  if(!ROLES[ROLE]?.tabs.includes('orders'))return showToast('此職務沒有訂單查詢入口','warn');
+  const order=orders.find(o=>canonicalPageId(o.id)===canonicalPageId(orderId));
+  if(!order)return showToast('來源訂單尚未載入，請先同步後再查詢','warn');
+  if(!order.no)return showToast('來源訂單缺少單號，請先同步確認','warn');
+  const filters=getOrderFilters();
+  Object.assign(filters,{q:order.no,type:'all',status:'all',date:'0',hide:false,deadline:''});
+  setOrderSearchDraft(filters.q);window._ORD_SUB='list';
+  closeModal();switchTab('orders');
+}
+function pickingSourceOrderLink(p){
+  if(!p.orderId)return '';
+  const order=orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId));
+  if(!order)return '<div style="font-size:.7rem;color:var(--text3)">來源訂單未載入，請同步確認</div>';
+  const label=`${order.no||'未編號'}${order.customer||order.cust?' · '+(order.customer||order.cust):''}`;
+  return typeof ROLES!=='undefined'&&typeof ROLE!=='undefined'&&ROLES[ROLE]?.tabs.includes('orders')?`<div><button class="btn btn-ghost btn-xs" style="margin-top:5px;white-space:normal;text-align:left" data-order-id="${escapeHtml(p.orderId)}" onclick="openPickingSourceOrder(this.dataset.orderId)">${escapeHtml(label)}</button></div>`:`<div style="font-size:.7rem;color:var(--text3)">${escapeHtml(label)}</div>`;
+}
 function renderPicking(){
   if(!window._PICK_SUB) window._PICK_SUB='auto';
   if(!window._PICK_STATUS) window._PICK_STATUS='all';
@@ -18706,8 +18766,9 @@ function renderPicking(){
   const _notionBar='<div class="notion-bar"><span class="notion-bar-label">📌 Notion：</span><a href="https://www.notion.so/55552dd1eb314d68812763cc062a93f8" target="_blank" class="notion-link">📄 領料主單</a><a href="https://www.notion.so/267f16cfe88a41ed8049d39d618a1275" target="_blank" class="notion-link">📝 領料明細</a><a href="https://www.notion.so/6b67dc8dbafb49e89c39bf66046a99fe" target="_blank" class="notion-link">🔩 BOM清單</a></div>';
   const dateVal=window._PICK_DATE||'6';
   const allData=applySort('picking',applyDateFilterValue(dateVal,picks,'date'));
-  const autoData=allData.filter(p=>p.orderId);
-  const manualData=allData.filter(p=>!p.orderId);
+  const searchedData=pickingSearchRows(allData,window._PICK_Q||'');
+  const autoData=searchedData.filter(p=>p.orderId);
+  const manualData=searchedData.filter(p=>!p.orderId);
   const focusOrder=window._PICK_FOCUS_ORDER||'';
   const scopedAutoData=focusOrder?autoData.filter(p=>canonicalPageId(p.orderId)===focusOrder):autoData;
   const filteredAutoData=statusFilter==='all'?scopedAutoData:scopedAutoData.filter(p=>pickingVisualStage(p)===statusFilter);
@@ -18759,6 +18820,8 @@ function renderPicking(){
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
   return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + tabs + workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `<div class="filter-bar">
+    <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶或備註" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)">
+    <button class="btn btn-ghost btn-xs" onclick="resetPickingFilters()">清除篩選</button>
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="updatePickingDate(this.value)"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     ${sub==='auto'?`<span class="filter-label">狀態：</span>
@@ -18772,9 +18835,9 @@ function renderPicking(){
   </div>
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="setPickingView('auto','all',true)">顯示全部領料</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">第 ${window._PICK_PAGE}/${pageCount} 頁</span></div>
-  ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}</div>`:`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整搜尋、日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetPickingFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table>
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
-  ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
+  ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}${pickingSourceOrderLink(p)}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===1?'disabled':''} onclick="changePickingPage(-1)">上一頁</button><span style="font-size:.75rem">${window._PICK_PAGE} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===pageCount?'disabled':''} onclick="changePickingPage(1)">下一頁</button></div>`:''}
   </div>`;
@@ -18813,6 +18876,14 @@ function changePickingPage(delta){
 function inboundListFilters(){
   return window._INBOUND_FILTERS||(window._INBOUND_FILTERS={q:'',status:'all',date:'6',page:1});
 }
+function resetInboundFilters(){
+  Object.assign(inboundListFilters(),{q:'',status:'all',date:'0',page:1});
+  renderTab('inbound');
+}
+function setInboundStatus(status){
+  inboundListFilters().status=status;inboundListFilters().page=1;
+  renderTab('inbound');
+}
 function filterInboundRows(rows,filters=inboundListFilters()){
   const q=String(filters.q||'').trim().toLocaleLowerCase();
   return applyDateFilterValue(filters.date||'6',rows,'date').filter(i=>{
@@ -18849,16 +18920,20 @@ function renderInbound(){
   const pageSize=100,pageCount=Math.max(1,Math.ceil(data.length/pageSize));
   filters.page=Math.min(Math.max(1,Number(filters.page)||1),pageCount);
   const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
+  const scoped=filterInboundRows(inbounds,{...filters,status:'all'});
+  const quickStatuses=[['all','全部'],['pending','待品檢／入庫'],['stocked','已入庫'],['returned','品檢退回']];
   return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)">
+      <button class="btn btn-ghost btn-xs" onclick="resetInboundFilters()">清除篩選</button>
       <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option></select>
       <select class="inp" id="inboundDateFilter" aria-label="入料日期" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="inboundListFilters().date=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     </div>
     ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
   </div>
+  <div class="filter-bar" aria-label="入料狀態統計">${quickStatuses.map(([value,label])=>`<button class="filter-chip ${filters.status===value?'active':''}" onclick="setInboundStatus('${value}')">${label} ${value==='all'?scoped.length:filterInboundRows(scoped,{q:'',date:'0',status:value}).length}</button>`).join('')}<span style="font-size:.7rem;color:var(--text3)">依目前搜尋與日期統計；點擊篩選</span></div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
-  ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}</div>`:`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table>
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
   ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}${shortageSourceOrderLink(i.note)}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
   </table></div>`}
@@ -23634,6 +23709,7 @@ function renderPickingReversalPreview(rows){
   </table></div>`;
 }
 function goToOrderPickingRows(orderId){
+  window._PICK_Q='';
   window._PICK_SUB='auto';
   window._PICK_DATE='0';
   window._PICK_STATUS='all';
