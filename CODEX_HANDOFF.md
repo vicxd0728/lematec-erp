@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Three-round analytics acceptance and repair 2026-10-12
+
+- Round 1: Analytics order drilldowns clear retained order type; inventory drilldowns clear type/min/max; default C-end drilldowns clear search drafts. These stale filters could hide the source row. Production/assembly BOM risks now exclude direct-stock customer orders; C-end ranking explicitly counts created order quantities including cancelled/unfinished orders, not actual shipments.
+- Round 2: Analytics refresh forces core inventory/BOM/orders, C-end and movement reads for the selected period. C-end reads use `skipAutoComplete:true,strict:true`. Rejected sources settle independently; core/C-end failure replaces metrics with a retry screen, and movement failure cannot imply a verified clean audit. Retry clears a successful source's error state. Core force refresh bypasses inventory/BOM version-cache reuse.
+- Round 3: Live AI-role V.349 had 69 shortages but only 12 reachable rows. Added incremental 12-row expansion and flexible mobile stage columns/panel widths. This remains a read-only analytics correction; no deduction, inbound, order status, login or role permissions changed.
+- Evidence: `ERP_THREE_ROUND_REVIEW_2026-10-12.md`; 92 Node checks and 7 Python checks passed locally, with static script syntax/asset checks. Deployment and authenticated UI proof must be recorded separately from local regression tests. Preserve unrelated existing working-tree changes.
+
 ## Actionable operations analytics 2026-10-08
 
 - `營運分析` now shows domestic/overseas customer orders waiting for picking whose ordered SKU quantity exceeds the currently loaded Supabase stock. It separates assessable orders from missing/invalid material, quantity, or balance data, and highlights overdue shortages with order-number drilldown. Counts compare each order independently; stock is not reserved across orders, and a stale core snapshot is explicitly flagged.

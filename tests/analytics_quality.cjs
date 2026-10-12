@@ -13,7 +13,8 @@ assert(dateStart >= 0 && dateEnd > dateStart && start >= 0 && end > start, 'date
 
 function makeContext(overrides = {}) {
   const ctx = vm.createContext({
-    window: { corders: [], _ANALYTICS_RANGE: '30', _cordersLoaded: true },
+    window: { corders: [], _ANALYTICS_RANGE: '30', _cordersLoaded: true, _coreLoaded: true },
+    document: { getElementById: () => null }, CURRENT_TAB: 'dashboard',
     orders: [], mats: [], boms: [], stockLogs: [],
     DATA_LOAD_MODE: { corders: 'recent', stocklog: 'recent' },
     DATA_LOAD_COUNT: { corders: 0, stocklog: 0 },
@@ -31,6 +32,7 @@ function makeContext(overrides = {}) {
     isSfgProductionOrder: row => row.orderType === 'sfg' || row.customer === '組立單',
     ...overrides,
   });
+  ctx.window._coreLoaded ??= true;
   vm.runInContext(html.slice(dateStart, dateEnd), ctx);
   vm.runInContext(html.slice(start, end), ctx);
   return ctx;
@@ -166,12 +168,12 @@ test('all-history trend preserves empty months instead of implying continuous vo
 
 test('BOM-risk metric counts all matching materials while retaining a bounded drilldown sample', () => {
   const mats = Array.from({ length: 11 }, (_, i) => ({ id: `m${i}`, code: `SKU-${i}`, stock: 5, safe: 2 }));
-  const orders = mats.map((mat, i) => ({ id: `o${i}`, created: '2026-09-20', customer: `客戶${i}`, matCode: mat.code, qty: 1, status: '待排程' }));
+  const orders = mats.map((mat, i) => ({ id: `o${i}`, created: '2026-09-20', orderType: 'sfg', customer: `客戶${i}`, matCode: mat.code, qty: 1, status: '待排程' }));
   const ctx = makeContext({ mats, orders, boms: [], stockLogs: [] });
   const result = ctx.buildOperationsAnalytics();
   assert.equal(result.noBomFinishedCount, 11);
   assert.equal(result.noBomFinished.length, 8);
-  assert.match(ctx.renderAnalytics(), /正式訂單 BOM 風險[\s\S]*?11/);
+  assert.match(ctx.renderAnalytics(), /生產／組立單 BOM 風險[\s\S]*?11/);
 });
 
 test('consumption coverage keeps unknown balances distinct and estimates known-stock days', () => {
@@ -251,4 +253,70 @@ test('analytics stock-log drilldown keeps the selected 90-day window', () => {
   ctx.analyticsGo('stocklog', 'audit');
   assert.equal(ctx.window._STOCKLOG_FILTERS.date, '90d');
   assert.match(html, /<option value="90d"/);
+});
+
+test('analytics drilldowns clear filters that would hide their source rows', () => {
+  const filters = {type:'sfg',status:'取消',date:'7d',deadline:'overdue'};
+  const ctx = makeContext({getOrderFilters:()=>filters,setOrderSearchDraft:()=>{},switchTab:()=>{}});
+  ctx.analyticsGo('orders','customer','ORD-TEST');
+  assert.equal(filters.type,'all');
+  ctx.window._invState={type:'半成品',stockMin:'500',stockMax:'600',q:'old'};
+  ctx.analyticsGo('inventory','sku','Y-TEST');
+  assert.equal(ctx.window._invState.type,'all');
+  assert.equal(ctx.window._invState.stockMin,'');
+  assert.equal(ctx.window._invState.stockMax,'');
+  ctx.window._CO_Q='old';ctx.window._CO_Q_DRAFT='old';
+  ctx.analyticsGo('corders');
+  assert.equal(ctx.window._CO_Q,'');
+});
+
+test('explicit analytics refresh rereads all selected sources and recovers from a rejected loader', async () => {
+  const host={innerHTML:''},calls=[];
+  const ctx=makeContext({document:{getElementById:()=>host},CURRENT_TAB:'analytics',
+    loadCoreEssentials:async options=>{calls.push('core');assert.equal(options.force,true);throw new Error('offline');},
+    loadCorders:async options=>{calls.push('corders');assert.equal(options.skipAutoComplete,true);},
+    loadStockLog:async()=>{calls.push('stocklog');},renderTab:()=>{}});
+  await ctx.setAnalyticsRange('30',{force:true});
+  assert.deepEqual(calls.sort(),['corders','core','stocklog']);
+  assert.match(host.innerHTML,/重新嘗試/);
+  assert.doesNotMatch(host.innerHTML,/更新營運分析\.\.\./);
+});
+
+test('shortage list can reach the thirteenth order through load more', () => {
+  const ctx=makeContext();
+  const data=ctx.analyticsOrderActionInsight(Array.from({length:13},(_,i)=>({id:`o${i}`,no:`ORD-${i}`,productId:'m',qty:2,status:'待排程'})),[{id:'m',code:'Y-TEST',stock:0}],'2026-10-12');
+  assert.match(ctx.analyticsOrderActionPanel(data),/顯示更多缺料訂單/);
+  ctx.window._analyticsShortageLimit=24;
+  assert.match(ctx.analyticsOrderActionPanel(data),/ORD-12/);
+});
+
+test('customer direct-stock orders do not require BOM while production orders do', () => {
+  const ctx=makeContext({window:{_ANALYTICS_RANGE:'all',_cordersLoaded:true,corders:[]},
+    mats:[{id:'m1',code:'Y-PART'},{id:'m2',code:'F-ASSEMBLY'}],
+    orders:[{matCode:'Y-PART',qty:1,status:'待排程'},{matCode:'F-ASSEMBLY',orderType:'sfg',qty:1,status:'待排程'}]});
+  const result=ctx.buildOperationsAnalytics();
+  assert.equal(result.noBomFinishedCount,1);
+  assert.equal(result.noBomFinished[0].code,'F-ASSEMBLY');
+});
+
+test('refresh retry removes rejected-source state and restores metrics', async () => {
+  const host={innerHTML:''};let fail=true;
+  const ctx=makeContext({document:{getElementById:()=>host},CURRENT_TAB:'analytics',
+    loadCoreEssentials:async()=>{if(fail)throw Error('offline');},
+    loadCorders:async()=>{},loadStockLog:async()=>{}});
+  await ctx.setAnalyticsRange('30',{force:true});
+  assert.match(host.innerHTML,/重新嘗試/);
+  fail=false;
+  await ctx.setAnalyticsRange('30',{force:true});
+  assert.match(host.innerHTML,/訂單總量/);
+  assert.equal(ctx.window._analyticsLoading,false);
+});
+
+test('rejected stock-log refresh cannot imply a verified clean audit', async () => {
+  const host={innerHTML:''};
+  const ctx=makeContext({document:{getElementById:()=>host},CURRENT_TAB:'analytics',
+    loadCoreEssentials:async()=>{},loadCorders:async()=>{},loadStockLog:async()=>{throw Error('offline');}});
+  await ctx.setAnalyticsRange('30',{force:true});
+  assert.match(host.innerHTML,/異動資料載入失敗/);
+  assert.doesNotMatch(host.innerHTML,/已載入範圍內未發現異常/);
 });
