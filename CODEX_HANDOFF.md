@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Half-A4 leave printing 2026-10-13
+
+- Pending cards and historical leave rows offer `列印請假單` to existing leave readers, including view-only roles; mutation permissions are unchanged. A sandboxed, script-free srcdoc iframe previews the currently loaded record. Printing waits for document load/fonts and uses the browser print dialog; no Notion/stock/approval writes occur.
+- The fixed form occupies the upper half of A4 portrait (190mm x 128.5mm within 10mm page margins), with employee/title/type/proxy/date range/duration/reason, explicit online review status/person/time, blank applicant/supervisor signatures, full record ID and Taiwan timestamp including year. Long content is retained and may extend beyond half a sheet. Source has dates and total hours, not daily start/end times; do not invent times or signatures. The preview reminds staff to refresh after Notion edits.
+- Six focused print tests plus the complete 332 Node checks and static checks passed. Synthetic browser preview measured the normal form at 718.1 x 485.7 CSS px (190 x 128.5mm). Pages/Worker publication, production preview and actual print-dialog acceptance are separate gates; record them under `output/leave-print-20261013/`.
+
 ## Operator findability and combined demand 2026-10-12
 
 - Picking now searches loaded records by picking/order number, customer, ordered material, picked-child SKU/name, picker and notes. Search resets pagination and preserves the caret; order-to-picking navigation clears stale search. Each linked picking row shows the source order/customer and offers a read-only jump to the formal order list with conflicting filters cleared. Missing source orders are labeled rather than guessed.

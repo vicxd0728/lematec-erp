@@ -19103,6 +19103,69 @@ function syncLeaveDaysFromHours(prefix='lv'){
   if(d) d.value=leaveDaysFromHours(h);
 }
 
+function leavePrintDateTime(value){
+  if(!value) return '—';
+  const d=new Date(value);
+  if(!Number.isFinite(d.getTime())) return String(value);
+  return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+}
+
+function buildLeavePrintDocument(l,printedAt=new Date().toISOString()){
+  const text=v=>escapeHtml(String(v??'').trim()||'—');
+  const status=normalizeLeaveStatus(l.status);
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>LEMATEC 請假單</title>
+  <style>
+  @page{size:A4 portrait;margin:10mm}
+  *{box-sizing:border-box}body{margin:0;background:white;color:#111;font:10pt/1.4 "Microsoft JhengHei",sans-serif}
+  .sheet{width:190mm;min-height:128.5mm;border:1px solid #222;padding:5mm;display:flex;flex-direction:column}
+  h1{text-align:center;font-size:18pt;letter-spacing:5pt;margin:0 0 2mm}h1 small{font-size:11pt;letter-spacing:1pt}
+  .meta{display:flex;justify-content:space-between;gap:4mm;font-size:9pt;margin-bottom:2mm;overflow-wrap:anywhere}
+  table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #333;padding:2mm;vertical-align:top;overflow-wrap:anywhere}
+  th{width:18%;font-weight:normal;background:#f3f3f3;text-align:left}td{width:32%;white-space:pre-wrap}
+  .reason{min-height:17mm;white-space:pre-wrap;overflow-wrap:anywhere}.sign{height:15mm;vertical-align:top}
+  .foot{margin-top:auto;padding-top:2mm;font-size:8pt;overflow-wrap:anywhere}.record{font-size:7pt}
+  @media screen{body{padding:8px}.sheet{max-width:100%;width:190mm}h1{font-size:17pt}}
+  @media print{.sheet{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}}
+  </style></head><body><article class="sheet" aria-label="請假單">
+  <h1><small>LEMATEC</small> 請假單</h1>
+  <div class="meta"><span>申請時間：${text(leavePrintDateTime(l.applyDate))}</span><span>線上狀態：${text(status)}</span></div>
+  <table aria-label="請假內容"><tbody>
+  <tr><th>申請人姓名</th><td>${text(l.name)}</td><th>職稱</th><td>${text(l.title)}</td></tr>
+  <tr><th>假別</th><td>${text(l.type)}</td><th>職務代理人</th><td>${text(l.proxy)}</td></tr>
+  <tr><th>請假日期起</th><td>${text(l.dateFrom)}</td><th>請假日期迄</th><td>${text(l.dateTo||l.dateFrom)}</td></tr>
+  <tr><th>請假天數／時數</th><td colspan="3">${text(leaveDurationLabel(l))}</td></tr>
+  <tr><th>請假事由</th><td colspan="3"><div class="reason">${text(l.reason)}</div></td></tr>
+  <tr><th>線上審核紀錄</th><td colspan="3">${text(status)}　審核人：${text(l.reviewer)}　審核時間：${text(leavePrintDateTime(l.reviewDate))}${l.rejectReason?'\n不通過原因：'+text(l.rejectReason):''}</td></tr>
+  <tr><td colspan="2" class="sign">申請人簽名：</td><td colspan="2" class="sign">主管簽核：</td></tr>
+  </tbody></table>
+  <footer class="foot">本單依線上請假紀錄產生；列印不代表核准，簽名欄供紙本簽核。<br>
+  列印時間：${text(leavePrintDateTime(printedAt))}（台灣時間）<br><span class="record">紀錄編號：${text(l.id)}</span></footer>
+  </article></body></html>`;
+}
+
+function openLeavePrint(id){
+  if(!ROLES[ROLE]?.tabs.includes('leave')){showToast('目前角色無法檢視請假','warn');return;}
+  const l=leaves.find(x=>x.id===id);
+  if(!l){showToast('找不到請假紀錄，請重新整理後再列印','warn');return;}
+  document.getElementById('modalInner').innerHTML=`<h3>列印請假單</h3>
+    <p style="color:var(--text2);font-size:12px">固定半張 A4 格式，印在 A4 上半張。列印請選 A4、直向、縮放 100%，關閉頁首與頁尾；也可另存 PDF。過長內容會延伸，完整保留。</p>
+    <p style="color:var(--text3);font-size:12px">內容依目前已載入紀錄；如剛在 Notion 修改，請先重新整理請假清單。</p>
+    <iframe id="leavePrintFrame" title="請假單列印預覽" sandbox="allow-same-origin allow-modals" onload="this.dataset.ready='true';document.getElementById('leavePrintButton').disabled=false" style="width:100%;height:52vh;border:1px solid var(--border);background:white;border-radius:6px"></iframe>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button id="leavePrintButton" class="btn btn-blue" disabled onclick="printLeaveDocument()">列印／另存 PDF</button></div>`;
+  document.getElementById('leavePrintFrame').srcdoc=buildLeavePrintDocument(l);
+  openSharedModal();
+}
+
+async function printLeaveDocument(){
+  const frame=document.getElementById('leavePrintFrame');
+  if(!frame||frame.dataset.ready!=='true'){showToast('預覽尚未載入完成，請稍後再試','warn');return;}
+  try{
+    if(frame.contentDocument?.fonts) await frame.contentDocument.fonts.ready;
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  }catch(e){showToast('無法開啟列印視窗，請使用電腦版瀏覽器重試','warn');}
+}
+
 function renderLeave(){
   if(!window._LEAVE_SUB) window._LEAVE_SUB='record';
   if(!window._LEAVE_DATE) window._LEAVE_DATE='0';
@@ -19182,13 +19245,14 @@ function renderLeave(){
           <div style="font-size:12px;color:var(--text2)">代：${l.proxy}</div>
           <div style="font-size:10px;color:var(--text3)">代理人</div>
         </div>`:''}
-        ${(canApprove||canManageLeave)?`<div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="openLeavePrint('${escapeHtml(l.id)}')">列印請假單</button>
           ${canManageLeave?`<button class="btn btn-ghost btn-sm" onclick="openEditLeave('${l.id}')">✏ 編輯</button>
           <button class="btn btn-red btn-sm" onclick="openDeleteLeave('${l.id}')">🗑 刪除</button>`:''}
           ${canApprove?`
           <button class="btn btn-green btn-sm" onclick="doApproveLeave('${l.id}','審核通過')">✓ 核准</button>
           <button class="btn btn-red btn-sm" onclick="doApproveLeave('${l.id}','不通過')">✗ 不通過</button>`:''}
-        </div>`:''}
+        </div>
       </div>`).join('')}
     </div>` : '';
 
@@ -19215,8 +19279,9 @@ function renderLeave(){
           <td style="font-size:11px;color:var(--text2)">${l.proxy||'—'}</td>
           <td>${pill(l.status)}</td>
           <td style="white-space:nowrap">
+            <button class="btn btn-ghost btn-sm" onclick="openLeavePrint('${escapeHtml(l.id)}')">列印請假單</button>
             ${canManageLeave?`<button class="btn btn-ghost btn-sm" onclick="openEditLeave('${l.id}')">✏ 編輯</button>
-            <button class="btn btn-red btn-sm" onclick="openDeleteLeave('${l.id}')">🗑 刪除</button>`:'—'}
+            <button class="btn btn-red btn-sm" onclick="openDeleteLeave('${l.id}')">🗑 刪除</button>`:''}
           </td>
         </tr>`).join('')}
       </table></div>`}
