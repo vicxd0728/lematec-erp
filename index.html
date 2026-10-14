@@ -8915,7 +8915,9 @@ function getShopeeBomRows(mat){
 function getShopeeBomItems(mat,qty){
   const code=String(mat?.code||mat?.name||'').trim(),need=Number(qty);
   if(!code.startsWith('S-')||code.startsWith('S-S-')||!Number.isSafeInteger(need)||need<=0)throw new Error('蝦皮轉庫料號或數量無效');
-  const sourceCode=code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim().toUpperCase()===sourceCode.toUpperCase());
+  // Explicitly confirmed 2026-10-14; never infer aliases by removing descriptions.
+  const confirmedSources={"S-LEI-16":"LEI-16(碳化矽#100)","S-LEI-17":"LEI-17(棕剛玉#60)","S-LEI-17-1":"LEI-17-1(棕剛玉#120)","S-LEI-17-2":"LEI-17-2(棕剛玉#220)"};
+  const sourceCode=confirmedSources[code.toUpperCase()]||code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim().toUpperCase()===sourceCode.toUpperCase());
   if(matches.length>1)throw new Error('一般倉庫來源料號重複：'+sourceCode);
   return [{...(matches[0]||{id:'',code:sourceCode,name:sourceCode,stock:0,missing:true}),needed:need,source:'transfer'}];
 }
@@ -20111,7 +20113,7 @@ async function ensureShopeeParentMaterial(sku){
   let mat=findMatBySku(code);
   if(mat) return mat;
   showToast('⏳ 建立蝦皮料號 '+code+'...','warn',5000);
-  mat=await createMaterialFromSku(code,'蝦皮用',0,0,'一對一蝦皮轉庫來源：'+code.slice(2));
+  mat=await createMaterialFromSku(code,'蝦皮用',0,0,'一對一蝦皮轉庫來源：'+getShopeeBomItems({code},1)[0].code);
   return mat;
 }
 async function ensureShopeeBomRows(parentMat){
@@ -25821,7 +25823,7 @@ function onShopeeSkuChange(matId){
   if(!matId){info.style.display='none';return;}
   if(matId.startsWith('NEW::')){
     const sku=matId.slice(5);
-    bom.innerHTML=`<div>一對一轉庫：扣 ${escapeHtml(sku.slice(2))}，增加 ${escapeHtml(sku)}；建檔庫存為 0，確認轉庫才異動數量。</div>`;
+    bom.innerHTML=`<div>一對一轉庫：扣 ${escapeHtml(getShopeeBomItems({code:sku},1)[0].code)}，增加 ${escapeHtml(sku)}；建檔庫存為 0，確認轉庫才異動數量。</div>`;
     info.style.display='';
     return;
   }

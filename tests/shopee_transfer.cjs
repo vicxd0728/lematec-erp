@@ -76,3 +76,19 @@ test('replenishment ignores BOM while requiring an exact single S counterpart',(
  c.mats=[{id:'mixed',code:'F-DTC-16-43cm',stock:10}];
  assert.equal(c.getShopeeBomItems({code:'S-F-DTC-16-43CM'},3)[0].id,'mixed');
 });
+
+test('confirmed sand media sources match in browser and server without merging S inventory',async()=>{
+ const expected={'S-LEI-16':'LEI-16(碳化矽#100)','S-LEI-17':'LEI-17(棕剛玉#60)','S-LEI-17-1':'LEI-17-1(棕剛玉#120)','S-LEI-17-2':'LEI-17-2(棕剛玉#220)'};
+ for(const code of [html,worker])assert.deepEqual(JSON.parse(code.match(/const confirmedSources=(\{[^;]+\});/)[1]),expected);
+ for(const [targetSku,sourceSku] of Object.entries(expected)){
+  const c=vm.createContext({mats:[{id:'approved',code:sourceSku,stock:10},{id:'bare',code:targetSku.slice(2),stock:500}]});
+  vm.runInContext(html.slice(html.indexOf('function getShopeeBomItems'),html.indexOf('async function deductShopeeBom')),c);
+  assert.equal(c.getShopeeBomItems({code:targetSku},3)[0].id,'approved');
+  c.mats=c.mats.filter(m=>m.id==='bare');assert(c.getShopeeBomItems({code:targetSku},3)[0].missing);
+  const h=setup({sourceSku,targetSku});assert.equal((await h.run()).status,200);assert.deepEqual(h.balances,[7,5]);
+  const stale=setup({sourceSku:targetSku.slice(2),targetSku});assert.equal((await stale.run()).status,400);assert.equal(stale.calls,0);
+  const spoof=setup({sourceSku,targetSku});assert.equal((await spoof.run([{sku:targetSku.slice(2),delta:-3},{sku:targetSku,delta:3}])).status,400);assert.equal(spoof.calls,0);
+  const changed=setup({sourceSku,targetSku});await changed.run();changed.order.properties['訂購數量'].number=4;
+  assert.equal((await changed.run([{sku:sourceSku,delta:-4},{sku:targetSku,delta:4}])).status,400);assert.deepEqual(changed.balances,[7,5]);
+ }
+});

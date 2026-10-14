@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Shopee / C-end workbook data refresh 2026-10-14
+
+- Source `(2).xlsx` workbooks, sheet `蝦皮用`; data-only update, no frontend/Worker release. User confirmed `LEI-18-01` is existing `LEI-18-1`, including its single S- counterpart. Preserve sales combo SKU `S-LEI-18-01+2` as named in the workbook, with direct children `S-LEI-18-1` x1 and `S-LEI-18-02` x1. Created that combo at stock zero and added the `S-LEI-18-02` self-consumption sales recipe. Two changed parents / three relations accepted by Supabase and verified in Notion. All 216 supplied sales parents / 361 relations match primary readback; no observed existing stock changes.
+- RESOLVED USER HOLD: user subsequently said `撤掉提醒 確認沿用`. Keep the four existing bare S- sand-media SKUs and their IDs/balances, explicitly map transfer sources to `LEI-16(碳化矽#100)`, `LEI-17(棕剛玉#60)`, `LEI-17-1(棕剛玉#120)`, `LEI-17-2(棕剛玉#220)` respectively. Frontend preview and Worker resolve the same four approved exact mappings; all other SKUs still strip one S-. Never fall back to bare warehouse SKUs if an approved source is missing. Server resolves from its own formal order target and rechecks requested stock legs, old ledger and fixed idempotency key. No balances or C-end recipes change. The reminder automation `erp` was deleted, confirmed by the tool. This code follow-up requires the normal Pages/Worker release gates; record deployed acceptance separately.
+- Evidence, source hashes, snapshots, journal, full scoped readback, held mappings and rollback notes: `output/shopee-20261014/更新驗收與待確認.md`, `complete-report.json`. Runner: `output/shopee_20261014_update.py`. Original Excel files unchanged.
+
 ## Half-B5 batch leave printing 2026-10-14
 
 - Supersedes the prior A4 form: B5 JIS 182 x 257mm, 7mm page margins, 168 x 119mm cards, two vertically per sheet with a 4mm gap. Odd batches leave the final lower slot blank. Removed both signature fields and the paper-signature disclaimer; keep explicit online review status/person/date and a 35 x 15mm stamp box at the bottom.
