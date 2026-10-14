@@ -1054,6 +1054,10 @@ td{font-size:16px;padding:16px 17px;}
 .order-secondary-actions{min-width:110px}.order-secondary-actions>div{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .order-row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;min-width:160px}
 .order-mobile-sort{display:none}
+.inbound-mobile-sort{display:none}
+.inbound-note{margin-top:6px;max-width:440px;font-size:.75rem;color:var(--text2)}
+.inbound-note summary{cursor:pointer;color:var(--cyan2)}
+.inbound-note-content{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px}
 .pick-disclosure{margin-top:12px;border-top:1px solid var(--border);padding-top:4px}
 .order-work-hint summary:focus-visible,.order-secondary-actions summary:focus-visible,.pick-disclosure summary:focus-visible{outline:2px solid var(--cyan2);outline-offset:3px;border-radius:4px}
 @media(max-width:640px){.order-work-hint{max-width:190px;min-width:140px}.order-row-actions{min-width:140px}.order-secondary-actions summary{min-height:44px}.preflight-row code{white-space:normal;overflow-wrap:anywhere}}
@@ -1067,6 +1071,12 @@ td{font-size:16px;padding:16px 17px;}
   .order-list-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
   .order-list-table .order-work-hint{max-width:100%;min-width:0}
   .order-list-table .order-row-actions{min-width:0}
+  .inbound-mobile-sort{display:flex;gap:8px;align-items:center;padding:12px;flex-wrap:wrap}
+  .inbound-list-table,.inbound-list-table tbody{display:block;width:100%;min-width:0!important}
+  .inbound-list-table tr{display:grid;grid-template-columns:1fr;gap:8px;padding:16px;border-bottom:1px solid var(--border)}
+  .inbound-list-table tr:first-child{display:none}
+  .inbound-list-table td,.inbound-list-table td.hide-m{display:block!important;padding:0!important;white-space:normal!important;min-width:0;overflow-wrap:anywhere;border:0!important}
+  .inbound-list-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
 }
 .order-action-panel{overflow:hidden;border-radius:18px;border:1px solid rgba(103,232,249,.18);background:linear-gradient(180deg,rgba(10,19,28,.84),rgba(7,13,18,.9));}
 .order-action-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 17px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(30,41,59,.5),rgba(15,23,42,.18));}
@@ -18037,8 +18047,8 @@ function renderInventory(){
   if(getInventoryReadSource()==='supabase'&&!_supabaseInventoryState.loaded&&!_supabaseInventoryState.running&&!_supabaseInventoryState.error){
     setTimeout(()=>loadSupabaseInventoryForPage(false),0);
   }
-  const low=invMats.filter(m=>(Number(m.safe)||0)>0&&(Number(m.stock)||0)<=Number(m.safe));
-  const outOfStock=invMats.filter(m=>(Number(m.stock)||0)<=0).length;
+  const low=invMats.filter(m=>inventoryVisualStatus(m)!=='unknown'&&(Number(m.safe)||0)>0&&Number(m.stock)<=Number(m.safe));
+  const outOfStock=invMats.filter(m=>inventoryVisualStatus(m)==='out').length;
   const pendingMirror=invMats.filter(m=>!m.notionId).length;
   const bomParentIds=new Set(boms.map(b=>b.parentId).filter(Boolean));
   const bomChildIds=new Set(boms.map(b=>b.childId).filter(Boolean));
@@ -18059,8 +18069,8 @@ function renderInventory(){
     data=data.filter(m=>(m.name||'').toLowerCase().includes(q)||(m.code||'').toLowerCase().includes(q));
   }
   if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
-  if(INV.stockMin!=='') data=data.filter(m=>(Number(m.stock)||0)>=Number(INV.stockMin));
-  if(INV.stockMax!=='') data=data.filter(m=>(Number(m.stock)||0)<=Number(INV.stockMax));
+  if(INV.stockMin!=='') data=data.filter(m=>inventoryVisualStatus(m)!=='unknown'&&Number(m.stock)>=Number(INV.stockMin));
+  if(INV.stockMax!=='') data=data.filter(m=>inventoryVisualStatus(m)!=='unknown'&&Number(m.stock)<=Number(INV.stockMax));
   if(INV.stockStatus!=='all')data=data.filter(m=>inventoryVisualStatus(m)===INV.stockStatus);
   if(INV.quick==='s') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('S-'));
   if(INV.quick==='y') data=data.filter(m=>normalizeSku(m.code||m.name).startsWith('Y-'));
@@ -18141,7 +18151,7 @@ function renderInventory(){
       <!-- 關鍵字搜尋 -->
       <div style="flex:1;min-width:160px">
         <div style="font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">搜尋料件名稱 / 料件編號</div>
-        <input class="inp" id="inv_q" value="${INV.q.replace(/"/g,'&quot;')}"
+        <input class="inp" id="inv_q" aria-label="搜尋料件名稱或編號" value="${escapeHtml(INV.q)}"
           placeholder="輸入關鍵字..." style="padding:7px 12px;font-size:0.8125rem"
           oninput="if(!this._composing)_invFilter('q',this.value)"
           oncompositionstart="this._composing=true"
@@ -18191,7 +18201,7 @@ function renderInventory(){
     <div style="padding:6px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border)">
       <span style="font-size:0.75rem;color:var(--text3)">
         共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${invMats.length} 筆
-        ${INV.page>1||total<invMats.length?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
+        ${total&&(INV.page>1||total<invMats.length)?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
         ${usingSupabase&&canEditStock&&selectedCount?`　已勾選 <b style="color:var(--green2)">${selectedCount}</b> 筆可設定安全庫存`:''}
       </span>
       <div style="display:flex;align-items:center;gap:6px">
@@ -18226,31 +18236,32 @@ function renderInventory(){
         <th>操作</th>
       </tr>
       ${pageData.length?pageData.map(m=>{
+        const unknownStock=inventoryVisualStatus(m)==='unknown';
         const stock=Number(m.stock)||0;
         const safe=Number(m.safe)||0;
         const pct=safe>0?Math.min(100,(stock/(safe*2))*100):(stock>0?80:0);
-        const fill=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
-        const sc=stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
+        const fill=unknownStock?'var(--text3)':stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
+        const sc=fill;
         return`<tr>
         ${usingSupabase&&canEditStock?`<td style="text-align:center"><input type="checkbox" aria-label="勾選 ${escapeHtml(m.code||m.name||'料件')}" ${m.notionId?'':'disabled'} ${selectedIds.has(String(m.id))?'checked':''} onclick="event.stopPropagation()" onchange='toggleInvSelect(${JSON.stringify(String(m.id))},this.checked)' style="width:16px;height:16px;accent-color:var(--green)"></td>`:''}
-        <td style="font-weight:600">${m.name}${m.code?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${m.code}</div>`:''}</td>
-        <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${m.code||'—'}</td>
+        <td style="font-weight:600">${escapeHtml(m.name||'—')}${m.code&&m.code!==m.name?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${escapeHtml(m.code)}</div>`:''}</td>
+        <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${escapeHtml(m.code||'—')}</td>
         <td class="hide-m">${pill(m.type)}</td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
-            <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div>
-            <span style="font-family:monospace;font-size:0.8125rem;font-weight:600;color:${sc}">${stock}</span>
+            ${unknownStock?'':`<div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div>`}
+            <span style="font-family:monospace;font-size:0.8125rem;font-weight:600;color:${sc}">${unknownStock?'待確認':stock}</span>
           </div>
         </td>
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
-        <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
+        <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${unknownStock?'數值不明':stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td style="white-space:nowrap">
           ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
         </td>
       </tr>`;}).join('')
-      :`<tr><td colspan="${usingSupabase&&canEditStock?8:7}" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件</td></tr>`}
+      :`<tr><td colspan="${usingSupabase&&canEditStock?8:7}" style="text-align:center;padding:28px;color:var(--text3)">無符合條件的料件<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="_invReset()">清除篩選並顯示全部</button></div></td></tr>`}
     </table>
     </div>
     ${maxPage>1?`<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:4px">${pageBtns()}</div>`:''}
@@ -18965,6 +18976,20 @@ function changeInboundPage(delta){
   const content=document.getElementById('mainContent');
   if(content)content.scrollTop=0;
 }
+function renderInboundNote(note){
+  const text=String(note||'');
+  if(!text)return '';
+  if(text.length<=80)return `<div class="inbound-note inbound-note-content">${escapeHtml(text)}</div>`;
+  return `<details class="inbound-note"><summary>查看完整備註（${text.length} 字）</summary><div class="inbound-note-content">${escapeHtml(text)}</div></details>`;
+}
+function setInboundMobileSort(value){
+  if(value===''){delete SORT.inbound;inboundListFilters().page=1;renderTab('inbound');return;}
+  const [col,dir]=String(value||'').split(':');
+  if(!['no','qty','supplier','date','qcStatus','stStatus'].includes(col)||!['asc','desc'].includes(dir))return;
+  SORT.inbound={col,dir,type:col==='qty'?'num':'str'};
+  inboundListFilters().page=1;
+  renderTab('inbound');
+}
 function renderInbound(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const fallback=window._inboundDataSource==='notion-fallback'||inbounds.some(i=>i.fallback);
@@ -18988,9 +19013,9 @@ function renderInbound(){
   </div>
   <div class="filter-bar" aria-label="入料狀態統計">${quickStatuses.map(([value,label])=>`<button class="filter-chip ${filters.status===value?'active':''}" onclick="setInboundStatus('${value}')">${label} ${value==='all'?scoped.length:filterInboundRows(scoped,{q:'',date:'0',status:value}).length}</button>`).join('')}<span style="font-size:.7rem;color:var(--text3)">依目前搜尋與日期統計；點擊篩選</span></div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
-  ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="inbound-mobile-sort"><label for="inboundMobileSort">排序</label><select class="inp" id="inboundMobileSort" onchange="setInboundMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.inbound?'selected':''}>原始順序</option>${[['no','入料單號'],['qty','數量'],['supplier','供應商'],['date','日期'],['qcStatus','品管'],['stStatus','入庫']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.inbound?.col===key&&SORT.inbound?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap"><table class="inbound-list-table">
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${i.note?`<div style="font-size:0.625rem;color:var(--text3);margin-top:3px">${escapeHtml(i.note).slice(-80)}</div>`:''}${shortageSourceOrderLink(i.note)}</td><td style="font-family:monospace">${Number(i.qty)||0}</td><td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td>${pill(i.qcStatus)}</td><td class="hide-m">${pill(i.stStatus)}</td><td>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td data-label="入料單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td data-label="料件" style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${renderInboundNote(i.note)}${shortageSourceOrderLink(i.note)}</td><td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td><td data-label="供應商" class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td data-label="日期" class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td data-label="品管">${pill(i.qcStatus)}</td><td data-label="入庫" class="hide-m">${pill(i.stStatus)}</td><td data-label="操作">${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div>`;
@@ -23213,7 +23238,7 @@ function renderQCTab(){
   const tabs=`<div class="qc-tabs" style="margin-bottom:12px">
     <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">⚡ 待處理<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span><small>入料</small></button>
     <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span><small>待檢驗</small></button>
-    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">📥 入料檢驗<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':allInspections.length}</span><small>含歷史</small></button>
+    <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">📥 入料檢驗<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':_qcInspectionsError?'讀取失敗':!qcInspectionsReady()?'未載入':allInspections.length}</span><small>含歷史</small></button>
     <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="selectQCSub('report')">📈 歷史紀錄/報表${_qcInspectionsLoading?'<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">讀取中</span>':''}<small>${qcRangeLabel}</small></button>
   </div>`;
 

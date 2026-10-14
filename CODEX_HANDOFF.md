@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Operator UI review 2026-10-14 wave 2
+
+- Authenticated AI read-only inspection reproduced inventory empty search displaying `1–0`, mobile inbound hiding supplier/date/stock state, and unloaded QC history badge displaying zero. Code review additionally found unknown inventory rendered/count-filtered as zero and inbound notes permanently truncated to their final 80 escaped characters.
+- Inventory now preserves unknown as `待確認` / `數值不明`, excludes unknown rows from numeric bounds and shortage totals, escapes material text, avoids the inverted empty range and offers an empty-state reset. Stock writes and source choice are unchanged.
+- Mobile inbound uses labeled cards retaining supplier/date/QC/stock state and an allowlisted sort selector (numeric quantity sorting; original source order available). Long notes have escaped full-text disclosure. Existing pagination, filters, fallback and resubmit guards stay intact. QC history badge distinguishes loading, failed, uninitialized and loaded count.
+- Seven new regression cases plus full Node/Python/static checks; local synthetic rendering and production read-only acceptance must be recorded separately. No business transactions are used for acceptance. Broad inventory search rendering refactor, global navigation redesign and metric additions are deferred to distinct journeys.
+
 ## Order / picking UI hierarchy 2026-10-14
 
 - Applied Enterprise UI knowledge to the existing order list and picking modal. Pending order rows show a read-only expandable work summary from the existing resolver: shortage quantities, unknown data, or stale snapshot. Other active statuses show their next task. This is loaded-snapshot guidance, never a reservation or permission to execute; no loader, mutation, role or deduction path changed.
