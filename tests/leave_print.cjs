@@ -50,11 +50,11 @@ test('continuation preserves unicode and newlines and stays in bounded chunks',(
  assert.match(c.buildLeavePrintDocument({id:'long',reason:raw}),/續頁/);
 });
 test('batch selection deduplicates across filtered sets, clears all and rejects stale records',()=>{
- const button={},els=[{value:'a'},{value:'b'}];let opened=[],warn=[];
+ const button={setAttribute(k,v){this[k]=v;}},els=[{value:'a'},{value:'b'}];let opened=[],warn=[];
  const c=setup({leaves:[{id:'a'},{id:'b'},{id:'c'}],document:{getElementById:()=>button,querySelectorAll:()=>els},showToast:m=>warn.push(m)});
  c.openLeavePrintPreview=rows=>opened.push(rows.map(x=>x.id));
  c.openBatchLeavePrint();assert.equal(warn.length,1);
- c.selectVisibleLeavePrint();c.toggleLeavePrintSelection('a',true);c.toggleLeavePrintSelection('c',true);c.openBatchLeavePrint();assert.deepEqual(Array.from(opened[0]),['a','b','c']);assert.match(button.textContent,/3/);
+ c.selectVisibleLeavePrint();c.toggleLeavePrintSelection('a',true);c.toggleLeavePrintSelection('c',true);c.openBatchLeavePrint();assert.deepEqual(Array.from(opened[0]),['a','b','c']);assert.match(button.textContent,/3/);assert.equal(button['aria-label'],button.textContent);
  c.leaves.pop();c.openBatchLeavePrint();assert.equal(opened.length,1);assert.equal(warn.length,2);
  c.selectVisibleLeavePrint(true);assert.match(button.textContent,/0/);assert.ok(els.every(el=>!el.checked));
 });

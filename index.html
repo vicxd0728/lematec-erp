@@ -19165,7 +19165,7 @@ function buildLeavePrintDocument(input,printedAt=new Date().toISOString()){
 let LEAVE_PRINT_SELECTED=new Set();
 function toggleLeavePrintSelection(id,checked){
   if(checked)LEAVE_PRINT_SELECTED.add(id);else LEAVE_PRINT_SELECTED.delete(id);
-  const b=document.getElementById('leaveBatchPrintButton');if(b)b.textContent=`批量列印（${LEAVE_PRINT_SELECTED.size}）`;
+  const b=document.getElementById('leaveBatchPrintButton');if(b){b.textContent=`批量列印（${LEAVE_PRINT_SELECTED.size}）`;b.setAttribute('aria-label',b.textContent);}
 }
 function selectVisibleLeavePrint(clear=false){
   if(clear)LEAVE_PRINT_SELECTED.clear();
