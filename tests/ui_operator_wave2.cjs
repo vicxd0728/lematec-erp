@@ -22,6 +22,10 @@ test('numeric stock bounds exclude unknown rows instead of treating them as zero
  const ctx=inventory([{id:'a',name:'unknown',stock:undefined,safe:5},{id:'b',name:'zero',stock:0,safe:5}],{stockMin:'0',stockMax:'0'});
  const out=ctx.renderInventory();assert.match(out,/共 <b[^>]*>1<\/b> 筆/);assert.doesNotMatch(out,/>unknown</);
 });
+test('mobile inventory retains safety threshold and unknown/low status context',()=>{
+ const out=inventory([{id:'a',name:'未知',stock:null,safe:5},{id:'b',name:'低庫存',stock:2,safe:5,type:'零件'}]).renderInventory();
+ assert.match(out,/安全庫存：5/);assert.match(out,/庫存數值不明，待確認/);assert.match(out,/低於或等於安全庫存/);assert.match(out,/零件 · 安全庫存/);
+});
 test('inventory empty results never display inverted page ranges and offer reset',()=>{
  const out=inventory([{id:'a',name:'part',stock:1}],{q:'no-match'}).renderInventory();
  assert.doesNotMatch(out,/顯示 1–0/);assert.match(out,/清除篩選並顯示全部/);

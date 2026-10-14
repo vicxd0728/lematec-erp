@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## QC history filters / mobile stock context 2026-10-14 wave 4
+
+- Confirmed by renderer analysis and regression fixtures: legacy inbound supplements ignored pass/fail filters; the deduplication set used only filtered formal inspections, so a filtered-out formal inspection could reappear as a legacy supplement. Supplements now apply result/date/type/query consistently; all loaded formal inbound references suppress duplicate legacy rows.
+- Inspection-history view adds an explicit Enter/button search for inspection/order/SKU/person, a separate draft, scoped result counts and a reset that preserves date range. Typing alone does not render or fetch. Pending QC actions, historical report metrics, source loaders and stock/QC mutation paths are unchanged.
+- Mobile inventory rows retain type, safety threshold and classification alongside the existing stock display. No stock values or role permissions change.
+- Eight new regression cases, complete 365 Node suite and static validation. Browser transport became unresponsive during the baseline check; after bounded recovery failed, further CUA retries stopped. Do not claim live visual acceptance or reuse prior screenshots as this release's proof. Exact production asset/Worker checks and remaining authenticated UI gaps belong in `output/ui-wave4-20261014/`.
+
 ## Inventory search / UI density 2026-10-14 wave 3
 
 - Inventory query and numeric-bound typing preserve the original controls. `_invRender(true)` builds the current snapshot in an inert template and replaces only `invResultSummary` / `invResults`; focus, selection and composition remain on the original input. No keystroke API call. Missing regions fall back to the existing full render. Reset and non-text filter paths retain their prior full-render behavior.

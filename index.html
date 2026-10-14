@@ -18238,7 +18238,7 @@ function renderInventory(){
         const sc=fill;
         return`<tr>
         ${usingSupabase&&canEditStock?`<td style="text-align:center"><input type="checkbox" aria-label="勾選 ${escapeHtml(m.code||m.name||'料件')}" ${m.notionId?'':'disabled'} ${selectedIds.has(String(m.id))?'checked':''} onclick="event.stopPropagation()" onchange='toggleInvSelect(${JSON.stringify(String(m.id))},this.checked)' style="width:16px;height:16px;accent-color:var(--green)"></td>`:''}
-        <td style="font-weight:600">${escapeHtml(m.name||'—')}${m.code&&m.code!==m.name?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${escapeHtml(m.code)}</div>`:''}</td>
+        <td style="font-weight:600">${escapeHtml(m.name||'—')}${m.code&&m.code!==m.name?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${escapeHtml(m.code)}</div>`:''}<div class="m-only" style="font-size:.7rem;color:var(--text3);margin-top:5px">${escapeHtml(m.type||'類型未填')} · 安全庫存：${Number.isFinite(Number(m.safe))&&Number(m.safe)>0?Number(m.safe):'未設定'}<br>${({unknown:'庫存數值不明，待確認',out:'缺貨／零庫存',low:'低於或等於安全庫存',ok:'高於安全庫存',unset:'未設定安全庫存'})[inventoryVisualStatus(m)]}</div></td>
         <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${escapeHtml(m.code||'—')}</td>
         <td class="hide-m">${pill(m.type)}</td>
         <td>
@@ -23197,6 +23197,24 @@ function setQCDateRange(days){
   }else if(CURRENT_TAB==='qc')renderTab('qc');
 }
 
+function qcHistorySearchState(){
+  return window._qcHistorySearch=window._qcHistorySearch||{q:'',draft:''};
+}
+function applyQCHistorySearch(){
+  const state=qcHistorySearchState();
+  state.q=String(document.getElementById('qcHistorySearch')?.value??state.draft).trim();
+  state.draft=state.q;
+  renderTab('qc');
+}
+function resetQCHistoryFilters(){
+  window._qcHistorySearch={q:'',draft:''};
+  QC_FILTER='all';QC_KIND='all';
+  renderTab('qc');
+}
+function qcHistoryMatches(row,query,material){
+  const q=String(query||'').trim().toLowerCase();
+  return !q||[row.no,row.orderRef,row.matName,row.matCode,row.inspector,row.note,material?.name,material?.code].map(v=>String(v||'')).join(' ').toLowerCase().includes(q);
+}
 function renderQCTab(){
   if(QC_SUB==='history')QC_SUB='inspect';
   const _notionBar=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
@@ -23337,6 +23355,8 @@ function renderQCTab(){
       return qcBrief+_notionBar+tabs+`<div class="panel"><div class="loading-row"><div class="spin"></div>讀取品管檢驗資料... ${qcLoadLabel}</div><div style="padding:0 24px 22px;color:var(--text3);font-size:.78rem">預設先讀 ${qcRangeLabel}；切換成全部才會抓完整歷史。</div></div>`;
     }
     const inspections = allInspections;
+    const historySearch=qcHistorySearchState();
+    const searchBar=`<div class="filter-bar" style="margin-bottom:10px"><label for="qcHistorySearch">搜尋檢驗紀錄</label><input class="inp" id="qcHistorySearch" style="flex:1;min-width:150px" placeholder="檢驗單號、關聯單號、料號或人員" value="${escapeHtml(historySearch.draft)}" oninput="qcHistorySearchState().draft=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;qcHistorySearchState().draft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing&&!this._composing){event.preventDefault();applyQCHistorySearch()}"><button class="btn btn-blue btn-sm" onclick="applyQCHistorySearch()">搜尋</button><button class="btn btn-ghost btn-sm" onclick="resetQCHistoryFilters()">清除搜尋與結果／類型篩選</button><span style="width:100%;font-size:.72rem;color:var(--text3)">按 Enter 或搜尋套用；僅搜尋目前已載入的 ${qcRangeLabel} 紀錄，清除篩選會保留時間範圍。</span></div>`;
     const _qcDateOpts=[['30','近30天'],['14','近14天'],['7','近7天'],['90','近3個月'],['0','全部（較慢）']];
     const _qcKindOpts=[
       ['all','全部'],
@@ -23361,6 +23381,7 @@ function renderQCTab(){
       return 'manual';
     }
     function insFilter(ins){
+      if(!qcHistoryMatches(ins,historySearch.q))return false;
       if(QC_FILTER==='pass' && ins.result!=='通過' && ins.result!=='條件通過') return false;
       if(QC_FILTER==='fail' && ins.result!=='不通過') return false;
       if(QC_KIND!=='all'&&qcInspectionKind(ins)!==QC_KIND)return false;
@@ -23387,7 +23408,7 @@ function renderQCTab(){
       <td style="font-size:0.6875rem">${escapeHtml(ins.matName||ins.matCode||'—')}</td>
       <td style="font-family:monospace">${Number(ins.qtyAct)||0}/${Number(ins.qtyReq)||0}</td>
       <td style="font-family:monospace;color:var(--red)">${Number(ins.qtyBad)||0}</td>
-      <td><span style="font-size:0.6875rem;font-weight:600;color:${statusColors[ins.result]||'var(--text3)'}">${ins.result||'—'}</span></td>
+      <td><span style="font-size:0.6875rem;font-weight:600;color:${statusColors[ins.result]||'var(--text3)'}">${escapeHtml(ins.result||'—')}</span></td>
       <td style="font-size:0.6875rem;color:var(--text3)">${escapeHtml(ins.date||'—')}</td>
       <td style="font-size:0.6875rem">${escapeHtml(ins.inspector||'—')}</td>
       <td><a href="https://www.notion.so/${(ins.id||'').replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-xs">🔗</a></td>
@@ -23406,11 +23427,14 @@ function renderQCTab(){
 
     const thead = `<tr><th>檢驗單號</th><th>類型</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
     const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th></tr>`;
-    const linkedInboundNos=new Set(ibIns.map(i=>i.orderRef||'').filter(Boolean));
+    const linkedInboundNos=new Set(inspections.filter(i=>qcInspectionKind(i)==='inbound').map(i=>i.orderRef||'').filter(Boolean));
     const inboundHistoryCutoff=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
     const extraDoneInbound=doneInbound.filter(i=>{
       if(QC_KIND!=='all'&&QC_KIND!=='inbound')return false;
       if(linkedInboundNos.has(i.no))return false;
+      if(QC_FILTER==='pass'&&i.qcStatus!=='品檢通過')return false;
+      if(QC_FILTER==='fail'&&i.qcStatus!=='品檢不合格')return false;
+      if(!qcHistoryMatches(i,historySearch.q,mats.find(m=>m.id===i.matId)))return false;
       if(!inboundHistoryCutoff)return true;
       const t=new Date(i.date||'').getTime();
       return t&&t>=inboundHistoryCutoff;
@@ -23443,9 +23467,10 @@ function renderQCTab(){
         <div class="table-wrap"><table>${inboundHistoryHead}${applySort('qch',extraDoneInbound).map(inboundHistoryRow).join('')}</table></div>
       </div>`;
     }
-    if(!content) content = `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有符合條件的檢驗紀錄</div></div>`;
+    if(!content) content = `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有符合條件的檢驗紀錄<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="resetQCHistoryFilters()">清除搜尋與結果／類型篩選</button></div></div></div>`;
 
-    return qcBrief+_notionBar+tabs+filterBar+content;
+    const resultSummary=`<div class="source-strip" aria-live="polite"><span>符合：正式檢驗 ${filteredInspections.length} 筆／舊入料補充 ${extraDoneInbound.length} 筆；已載入正式檢驗 ${inspections.length} 筆。${historySearch.q?' 搜尋：'+escapeHtml(historySearch.q):''}</span></div>`;
+    return qcBrief+_notionBar+tabs+searchBar+filterBar+resultSummary+content;
   }
 
   QC_SUB='inspect';
