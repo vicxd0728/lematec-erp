@@ -16,7 +16,7 @@ function inbound(rows,canAdd=false){
 }
 test('inventory missing values remain unknown in rows and counters; zero stays zero',()=>{
  const ctx=inventory([{id:'a',name:'unknown',stock:null,safe:5},{id:'b',name:'zero',stock:0,safe:5}]);
- const out=ctx.renderInventory();assert.match(out,/待確認/);assert.match(out,/數值不明/);assert.match(out,/<span>缺料<\/span><b>1<\/b>/);assert.match(out,/>0<\/span>/);
+ const out=ctx.renderInventory();assert.match(out,/待確認/);assert.match(out,/數值不明/);assert.match(out,/缺貨／零庫存 <b>1<\/b>/);assert.match(out,/>0<\/span>/);
 });
 test('numeric stock bounds exclude unknown rows instead of treating them as zero',()=>{
  const ctx=inventory([{id:'a',name:'unknown',stock:undefined,safe:5},{id:'b',name:'zero',stock:0,safe:5}],{stockMin:'0',stockMax:'0'});

@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Inventory search / UI density 2026-10-14 wave 3
+
+- Inventory query and numeric-bound typing preserve the original controls. `_invRender(true)` builds the current snapshot in an inert template and replaces only `invResultSummary` / `invResults`; focus, selection and composition remain on the original input. No keystroke API call. Missing regions fall back to the existing full render. Reset and non-text filter paths retain their prior full-render behavior.
+- Inventory totals now live in header pills; duplicate large cards were removed. Distribution chart and original Notion links are in a named disclosure, while source status/error, reload/source controls and stock-log entry stay visible. All original actions and stock rules are retained. QC similarly removes duplicate large cards, retaining header totals, history range/load state and all subtabs.
+- Four input-stability regressions plus prior wave tests; visual changes are verified through actual deployed desktop/mobile read-only UI, separately from simulations and stock write acceptance. No claim of measured latency improvement without timing evidence.
+
 ## Operator UI review 2026-10-14 wave 2
 
 - Authenticated AI read-only inspection reproduced inventory empty search displaying `1–0`, mobile inbound hiding supplier/date/stock state, and unloaded QC history badge displaying zero. Code review additionally found unknown inventory rendered/count-filtered as zero and inbound notes permanently truncated to their final 80 escaped characters.
