@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Half-B5 batch leave printing 2026-10-14
+
+- Supersedes the prior A4 form: B5 JIS 182 x 257mm, 7mm page margins, 168 x 119mm cards, two vertically per sheet with a 4mm gap. Odd batches leave the final lower slot blank. Removed both signature fields and the paper-signature disclaimer; keep explicit online review status/person/date and a 35 x 15mm stamp box at the bottom.
+- Leave records have individual checkboxes, select-current-display, clear-all and a selected-count batch action. Selection persists across time filters (disclosed), deduplicates by record ID and refuses stale/missing selected records. Existing single-print path remains. All paths are read-only and use the existing leave tab access guard.
+- Long reasons/rejection notes are retained in numbered continuation cards. Preview waits for fonts, checks rendered bounds and disables printing on overflow rather than clipping. Print settings: B5 JIS, portrait, 100%, headers/footers off. No approval or business-data mutations; physical printer feed/driver output still needs staff validation.
+- Ten focused print tests, complete Node regression and offline static gates; rendered batch evidence and live release acceptance under `output/leave-b5-20261014/`. Preserve unrelated dirty files.
+
 ## Half-A4 leave printing 2026-10-13
 
 - Pending cards and historical leave rows offer `列印請假單` to existing leave readers, including view-only roles; mutation permissions are unchanged. A sandboxed, script-free srcdoc iframe previews the currently loaded record. Printing waits for document load/fonts and uses the browser print dialog; no Notion/stock/approval writes occur.

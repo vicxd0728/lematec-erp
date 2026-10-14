@@ -19110,57 +19110,109 @@ function leavePrintDateTime(value){
   return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 }
 
-function buildLeavePrintDocument(l,printedAt=new Date().toISOString()){
-  const text=v=>escapeHtml(String(v??'').trim()||'—');
-  const status=normalizeLeaveStatus(l.status);
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>LEMATEC 請假單</title>
-  <style>
-  @page{size:A4 portrait;margin:10mm}
-  *{box-sizing:border-box}body{margin:0;background:white;color:#111;font:10pt/1.4 "Microsoft JhengHei",sans-serif}
-  .sheet{width:190mm;min-height:128.5mm;border:1px solid #222;padding:5mm;display:flex;flex-direction:column}
-  h1{text-align:center;font-size:18pt;letter-spacing:5pt;margin:0 0 2mm}h1 small{font-size:11pt;letter-spacing:1pt}
-  .meta{display:flex;justify-content:space-between;gap:4mm;font-size:9pt;margin-bottom:2mm;overflow-wrap:anywhere}
-  table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #333;padding:2mm;vertical-align:top;overflow-wrap:anywhere}
-  th{width:18%;font-weight:normal;background:#f3f3f3;text-align:left}td{width:32%;white-space:pre-wrap}
-  .reason{min-height:17mm;white-space:pre-wrap;overflow-wrap:anywhere}.sign{height:15mm;vertical-align:top}
-  .foot{margin-top:auto;padding-top:2mm;font-size:8pt;overflow-wrap:anywhere}.record{font-size:7pt}
-  @media screen{body{padding:8px}.sheet{max-width:100%;width:190mm}h1{font-size:17pt}}
-  @media print{.sheet{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}}
-  </style></head><body><article class="sheet" aria-label="請假單">
-  <h1><small>LEMATEC</small> 請假單</h1>
-  <div class="meta"><span>申請時間：${text(leavePrintDateTime(l.applyDate))}</span><span>線上狀態：${text(status)}</span></div>
-  <table aria-label="請假內容"><tbody>
-  <tr><th>申請人姓名</th><td>${text(l.name)}</td><th>職稱</th><td>${text(l.title)}</td></tr>
-  <tr><th>假別</th><td>${text(l.type)}</td><th>職務代理人</th><td>${text(l.proxy)}</td></tr>
-  <tr><th>請假日期起</th><td>${text(l.dateFrom)}</td><th>請假日期迄</th><td>${text(l.dateTo||l.dateFrom)}</td></tr>
-  <tr><th>請假天數／時數</th><td colspan="3">${text(leaveDurationLabel(l))}</td></tr>
-  <tr><th>請假事由</th><td colspan="3"><div class="reason">${text(l.reason)}</div></td></tr>
-  <tr><th>線上審核紀錄</th><td colspan="3">${text(status)}　審核人：${text(l.reviewer)}　審核時間：${text(leavePrintDateTime(l.reviewDate))}${l.rejectReason?'\n不通過原因：'+text(l.rejectReason):''}</td></tr>
-  <tr><td colspan="2" class="sign">申請人簽名：</td><td colspan="2" class="sign">主管簽核：</td></tr>
-  </tbody></table>
-  <footer class="foot">本單依線上請假紀錄產生；列印不代表核准，簽名欄供紙本簽核。<br>
-  列印時間：${text(leavePrintDateTime(printedAt))}（台灣時間）<br><span class="record">紀錄編號：${text(l.id)}</span></footer>
-  </article></body></html>`;
+function leavePrintReasonChunks(value){
+  const chunks=[];let part='',lines=0;
+  for(const char of String(value||'')){
+    part+=char;if(char==='\n')lines++;
+    if(Array.from(part).length>=120||lines>=3){chunks.push(part);part='';lines=0;}
+  }
+  if(part||!chunks.length)chunks.push(part);
+  return chunks;
 }
 
+function buildLeavePrintDocument(input,printedAt=new Date().toISOString()){
+  const records=Array.isArray(input)?input:[input];
+  const text=v=>escapeHtml(String(v??'').trim()||'—');
+  const forms=records.flatMap(l=>{
+    const status=normalizeLeaveStatus(l.status);
+    const chunks=leavePrintReasonChunks((l.reason||'')+(l.rejectReason?'\n不通過原因：'+l.rejectReason:''));
+    return chunks.map((reason,i)=>`<article class="sheet" aria-label="請假單">
+    <h1><small>LEMATEC</small> 請假單${chunks.length>1?` <small>（${i+1}/${chunks.length}，續頁）</small>`:''}</h1>
+    <div class="meta"><span>申請：${text(leavePrintDateTime(l.applyDate))}</span><span>狀態：${text(status)}</span></div>
+    <table aria-label="請假內容"><tbody>
+    <tr><th>申請人</th><td>${text(l.name)}</td><th>職稱</th><td>${text(l.title)}</td></tr>
+    <tr><th>假別</th><td>${text(l.type)}</td><th>代理人</th><td>${text(l.proxy)}</td></tr>
+    <tr><th>日期起</th><td>${text(l.dateFrom)}</td><th>日期迄</th><td>${text(l.dateTo||l.dateFrom)}</td></tr>
+    <tr><th>天數／時數</th><td colspan="3">${text(leaveDurationLabel(l))}</td></tr>
+    <tr><th>請假事由${i?'（續）':''}</th><td colspan="3"><div class="reason">${escapeHtml(reason||'—')}</div></td></tr>
+    <tr><th>線上審核</th><td colspan="3">${text(status)}　審核人：${text(l.reviewer)}<br>審核時間：${text(leavePrintDateTime(l.reviewDate))}</td></tr>
+    </tbody></table>
+    <div class="stamp-row"><span>蓋章處</span><div class="stamp" aria-label="蓋章方框"></div></div>
+    <footer class="foot">列印：${text(leavePrintDateTime(printedAt))}（台灣時間）<br>紀錄：${text(l.id)}</footer>
+    </article>`);
+  });
+  const pages=[];
+  for(let i=0;i<forms.length;i+=2)pages.push(`<section class="print-page" aria-label="第 ${pages.length+1} 張 B5">${forms.slice(i,i+2).join('')}</section>`);
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>LEMATEC 請假單</title>
+  <style>
+  @page{size:182mm 257mm;margin:7mm}
+  *{box-sizing:border-box}body{margin:0;background:white;color:#111;font:9pt/1.25 "Microsoft JhengHei",sans-serif}
+  .print-page{width:168mm;height:242mm;display:grid;grid-template-rows:119mm 119mm;gap:4mm;break-inside:avoid}
+  .print-page + .print-page{break-before:page}
+  .sheet{height:119mm;min-height:0;border:1px solid #222;padding:3mm;display:flex;flex-direction:column}
+  h1{text-align:center;font-size:14pt;letter-spacing:3pt;margin:0 0 1.5mm}h1 small{font-size:9pt;letter-spacing:0}
+  .meta{display:flex;justify-content:space-between;gap:3mm;font-size:8pt;margin-bottom:1.5mm;overflow-wrap:anywhere}
+  table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #333;padding:1.3mm;vertical-align:top;overflow-wrap:anywhere}
+  th{width:18%;font-weight:normal;background:#f3f3f3;text-align:left}td{width:32%;white-space:pre-wrap}
+  .reason{min-height:11mm;white-space:pre-wrap;overflow-wrap:anywhere}
+  .stamp-row{display:flex;justify-content:flex-end;align-items:center;gap:3mm;margin-top:auto;padding-top:2mm;flex-shrink:0}.stamp{width:35mm;height:15mm;border:1px solid #222}
+  .foot{margin-top:2mm;padding-top:1mm;font-size:6.5pt;overflow-wrap:anywhere}
+  @media screen{body{padding:8px;background:#eee}.print-page{background:white;margin-bottom:12px}}
+  @media print{.sheet{break-inside:avoid}tr{break-inside:avoid}}
+  </style></head><body>${pages.join('')}</body></html>`;
+}
+
+let LEAVE_PRINT_SELECTED=new Set();
+function toggleLeavePrintSelection(id,checked){
+  if(checked)LEAVE_PRINT_SELECTED.add(id);else LEAVE_PRINT_SELECTED.delete(id);
+  const b=document.getElementById('leaveBatchPrintButton');if(b)b.textContent=`批量列印（${LEAVE_PRINT_SELECTED.size}）`;
+}
+function selectVisibleLeavePrint(clear=false){
+  if(clear)LEAVE_PRINT_SELECTED.clear();
+  document.querySelectorAll('input[data-leave-print]').forEach(el=>{el.checked=!clear;if(!clear)LEAVE_PRINT_SELECTED.add(el.value);});
+  toggleLeavePrintSelection('',false);
+}
+function openBatchLeavePrint(){
+  if(!LEAVE_PRINT_SELECTED.size){showToast('請先勾選要列印的請假紀錄','warn');return;}
+  const rows=leaves.filter(l=>LEAVE_PRINT_SELECTED.has(l.id));
+  if(rows.length!==LEAVE_PRINT_SELECTED.size){showToast('部分已選紀錄不在目前資料中，請清除選取後重新勾選','warn');return;}
+  openLeavePrintPreview(rows);
+}
 function openLeavePrint(id){
-  if(!ROLES[ROLE]?.tabs.includes('leave')){showToast('目前角色無法檢視請假','warn');return;}
   const l=leaves.find(x=>x.id===id);
   if(!l){showToast('找不到請假紀錄，請重新整理後再列印','warn');return;}
+  openLeavePrintPreview([l]);
+}
+function openLeavePrintPreview(rows){
+  if(!ROLES[ROLE]?.tabs.includes('leave')){showToast('目前角色無法檢視請假','warn');return;}
   document.getElementById('modalInner').innerHTML=`<h3>列印請假單</h3>
-    <p style="color:var(--text2);font-size:12px">固定半張 A4 格式，印在 A4 上半張。列印請選 A4、直向、縮放 100%，關閉頁首與頁尾；也可另存 PDF。過長內容會延伸，完整保留。</p>
+    <p style="color:var(--text2);font-size:12px">已選 ${rows.length} 筆，每張 B5 上下排兩份；奇數筆最後留白。請選 B5（JIS，182 × 257 mm）、直向、100%，關閉頁首與頁尾。長事由會拆為標示續頁的單據。</p>
     <p style="color:var(--text3);font-size:12px">內容依目前已載入紀錄；如剛在 Notion 修改，請先重新整理請假清單。</p>
-    <iframe id="leavePrintFrame" title="請假單列印預覽" sandbox="allow-same-origin allow-modals" onload="this.dataset.ready='true';document.getElementById('leavePrintButton').disabled=false" style="width:100%;height:52vh;border:1px solid var(--border);background:white;border-radius:6px"></iframe>
+    <p id="leavePrintLayoutMessage" role="status" style="font-size:12px;color:var(--yellow)"></p>
+    <iframe id="leavePrintFrame" title="請假單列印預覽" sandbox="allow-same-origin allow-modals" onload="prepareLeavePrint()" style="width:100%;height:52vh;border:1px solid var(--border);background:white;border-radius:6px"></iframe>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button id="leavePrintButton" class="btn btn-blue" disabled onclick="printLeaveDocument()">列印／另存 PDF</button></div>`;
-  document.getElementById('leavePrintFrame').srcdoc=buildLeavePrintDocument(l);
+  document.getElementById('leavePrintFrame').srcdoc=buildLeavePrintDocument(rows);
   openSharedModal();
+}
+
+async function prepareLeavePrint(){
+  const frame=document.getElementById('leavePrintFrame');if(!frame)return false;
+  if(frame.contentDocument?.fonts)await frame.contentDocument.fonts.ready;
+  if(document.getElementById('leavePrintFrame')!==frame)return false;
+  const sheets=Array.from(frame.contentDocument?.querySelectorAll('.sheet')||[]);
+  const overflow=sheets.some(el=>el.scrollHeight>el.clientHeight+2||el.scrollWidth>el.clientWidth+2);
+  const ready=sheets.length>0&&!overflow;
+  frame.dataset.ready=String(ready);
+  document.getElementById('leavePrintButton').disabled=!ready;
+  document.getElementById('leavePrintLayoutMessage').textContent=overflow?'內容超出半張 B5，已暫停列印以避免漏印；請確認過長的姓名、職稱或事由。':ready?`共 ${sheets.length} 份單據，使用 ${Math.ceil(sheets.length/2)} 張 B5。`:'';
+  return ready;
 }
 
 async function printLeaveDocument(){
   const frame=document.getElementById('leavePrintFrame');
   if(!frame||frame.dataset.ready!=='true'){showToast('預覽尚未載入完成，請稍後再試','warn');return;}
   try{
-    if(frame.contentDocument?.fonts) await frame.contentDocument.fonts.ready;
+    if(!await prepareLeavePrint())return;
     frame.contentWindow.focus();
     frame.contentWindow.print();
   }catch(e){showToast('無法開啟列印視窗，請使用電腦版瀏覽器重試','warn');}
@@ -19216,6 +19268,11 @@ function renderLeave(){
       ${dateOpts.map(([v,l])=>{const a=LDATE===v;return`<button onclick="window._LEAVE_DATE='${v}';renderTab('leave')"
         class="filter-chip${a?' active':''}">${l}</button>`;}).join('')}
       ${canManageLeave?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openModal('newLeave')">＋ 申請請假</button>`:''}
+    </div><div class="filter-bar" aria-label="請假單批量列印">
+      <button class="btn btn-ghost btn-sm" onclick="selectVisibleLeavePrint()">選取目前顯示</button>
+      <button class="btn btn-ghost btn-sm" onclick="selectVisibleLeavePrint(true)">清除選取</button>
+      <button class="btn btn-blue btn-sm" id="leaveBatchPrintButton" onclick="openBatchLeavePrint()">批量列印（${LEAVE_PRINT_SELECTED.size}）</button>
+      <span style="font-size:11px;color:var(--text3)">已選項目會跨時間篩選保留；B5 每張兩份。</span>
     </div>`;
 
     // 待審核卡片
@@ -19227,6 +19284,7 @@ function renderLeave(){
       </div>
       ${pending.map(l=>`
       <div style="background:var(--bg2);border:1px solid rgba(245,185,66,.3);border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <input type="checkbox" data-leave-print value="${escapeHtml(l.id)}" aria-label="選取 ${escapeHtml(l.name)} ${escapeHtml(l.dateFrom||'')} 請假單" ${LEAVE_PRINT_SELECTED.has(l.id)?'checked':''} onchange="toggleLeavePrintSelection(this.value,this.checked)">
         <div style="width:36px;height:36px;border-radius:50%;background:rgba(245,185,66,.1);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">👤</div>
         <div style="flex:1;min-width:120px">
           <div style="font-weight:700;font-size:14px;color:var(--text)">${l.name}</div>
@@ -19264,8 +19322,9 @@ function renderLeave(){
       </div>
       ${!history.length ? '<div style="padding:28px;text-align:center;color:var(--text3)">目前沒有請假紀錄</div>' :
       `<div class="table-wrap"><table>
-        <tr><th>申請人</th><th>假別</th><th>起始日</th><th>天/時</th><th>申請時間</th><th>審核時間</th><th>審核人</th><th>代理人</th><th>狀態</th><th>操作</th></tr>
+        <tr><th>選取</th><th>申請人</th><th>假別</th><th>起始日</th><th>天/時</th><th>申請時間</th><th>審核時間</th><th>審核人</th><th>代理人</th><th>狀態</th><th>操作</th></tr>
         ${history.map(l=>`<tr>
+          <td><input type="checkbox" data-leave-print value="${escapeHtml(l.id)}" aria-label="選取 ${escapeHtml(l.name)} ${escapeHtml(l.dateFrom||'')} 請假單" ${LEAVE_PRINT_SELECTED.has(l.id)?'checked':''} onchange="toggleLeavePrintSelection(this.value,this.checked)"></td>
           <td>
             <div style="font-weight:600;font-size:13px">${l.name}</div>
             <div style="font-size:10px;color:var(--text3)">${l.title||''}</div>
