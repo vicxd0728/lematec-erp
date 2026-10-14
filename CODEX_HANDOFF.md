@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Order / picking UI hierarchy 2026-10-14
+
+- Applied Enterprise UI knowledge to the existing order list and picking modal. Pending order rows show a read-only expandable work summary from the existing resolver: shortage quantities, unknown data, or stale snapshot. Other active statuses show their next task. This is loaded-snapshot guidance, never a reservation or permission to execute; no loader, mutation, role or deduction path changed.
+- Order identity/quantity/date/status remain accessible in 640px-and-under stacked cards, with a dedicated sort selector preserving all existing sortable columns/directions. Desktop keeps the table. Frequent picking/transfer/shipment/status actions remain visible under original guards; editing/deletion are in a labeled keyboard-accessible disclosure. Removed duplicate large KPI cards while retaining counts and moved original source links into a named disclosure. Existing search input/composition and filter behavior remain unchanged.
+- Picking keeps the blocking banner and all missing-SKU/quantity detail visible; passing rows and technical rules can be expanded. All-ready stock impacts remain visible before confirmation; the original disabled-on-errors confirmation and transaction handlers are untouched. Other preflight users keep their default expanded rendering.
+- Tests: 346 Node and 14 deployment Python checks, offline static validation. Synthetic desktop / 390px rendering inspected without whole-page horizontal overflow. Deployment and authenticated UI proof recorded separately in `output/ui-first-wave-20261014/`. No real stock transactions were used. Full side-panel conversion and new assembly/inbound functions are outside this first release.
+
 ## Shopee / C-end workbook data refresh 2026-10-14
 
 - Source `(2).xlsx` workbooks, sheet `蝦皮用`; data-only update, no frontend/Worker release. User confirmed `LEI-18-01` is existing `LEI-18-1`, including its single S- counterpart. Preserve sales combo SKU `S-LEI-18-01+2` as named in the workbook, with direct children `S-LEI-18-1` x1 and `S-LEI-18-02` x1. Created that combo at stock zero and added the `S-LEI-18-02` self-consumption sales recipe. Two changed parents / three relations accepted by Supabase and verified in Notion. All 216 supplied sales parents / 361 relations match primary readback; no observed existing stock changes.

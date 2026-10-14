@@ -1046,6 +1046,28 @@ td{font-size:16px;padding:16px 17px;}
 .qc-tab small{display:block;margin-top:3px;font-size:11px;font-weight:750;color:var(--text3);line-height:1.2;}
 .qc-tab.active small{color:#a7f3d0;}
 .order-workbench{display:flex;flex-direction:column;gap:14px;}
+.order-work-hint{margin-top:8px;max-width:260px;white-space:normal;font-size:.76rem;line-height:1.5;overflow-wrap:anywhere}
+.order-work-hint summary,.order-secondary-actions summary,.pick-disclosure summary{cursor:pointer;padding:8px 0;min-height:36px;color:var(--text2);font-weight:650}
+.order-work-hint.is-blocked summary{color:var(--red2)}
+.order-work-hint .work-caption{color:var(--text3);font-size:.7rem;margin-top:4px}
+.order-work-hint .work-item{border-top:1px solid var(--border);padding:8px 0;font-variant-numeric:tabular-nums}
+.order-secondary-actions{min-width:110px}.order-secondary-actions>div{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
+.order-row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;min-width:160px}
+.order-mobile-sort{display:none}
+.pick-disclosure{margin-top:12px;border-top:1px solid var(--border);padding-top:4px}
+.order-work-hint summary:focus-visible,.order-secondary-actions summary:focus-visible,.pick-disclosure summary:focus-visible{outline:2px solid var(--cyan2);outline-offset:3px;border-radius:4px}
+@media(max-width:640px){.order-work-hint{max-width:190px;min-width:140px}.order-row-actions{min-width:140px}.order-secondary-actions summary{min-height:44px}.preflight-row code{white-space:normal;overflow-wrap:anywhere}}
+@media(max-width:640px){
+  .order-mobile-sort{display:flex;gap:8px;align-items:center;padding:12px;flex-wrap:wrap}
+  .order-list-table .m-only{display:block!important}
+  .order-list-table,.order-list-table tbody{display:block;width:100%;min-width:0!important}
+  .order-list-table tr{display:grid;grid-template-columns:1fr;gap:8px;padding:16px;border-bottom:1px solid var(--border)}
+  .order-list-table tr:first-child{display:none}
+  .order-list-table td{display:block;padding:0!important;white-space:normal!important;min-width:0;overflow-wrap:anywhere;border:0!important}
+  .order-list-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
+  .order-list-table .order-work-hint{max-width:100%;min-width:0}
+  .order-list-table .order-row-actions{min-width:0}
+}
 .order-action-panel{overflow:hidden;border-radius:18px;border:1px solid rgba(103,232,249,.18);background:linear-gradient(180deg,rgba(10,19,28,.84),rgba(7,13,18,.9));}
 .order-action-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 17px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(30,41,59,.5),rgba(15,23,42,.18));}
 .order-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto auto;gap:9px;padding:14px 16px;align-items:center;}
@@ -5989,7 +6011,7 @@ function renderPreflightCenter(report={}){
   const sections=Array.isArray(report.sections)?report.sections:[];
   const kpis=Array.isArray(report.kpis)?report.kpis:[];
   const actions=Array.isArray(report.actions)?report.actions:[];
-  const rowHtml=rows.length?rows.map(row=>{
+  const renderRows=list=>list.map(row=>{
     const rowLevel=row.error?'is-error':row.warn?'is-warn':'';
     const impact=Number(row.impact||0);
     return `<div class="preflight-row ${rowLevel}">
@@ -6000,7 +6022,12 @@ function renderPreflightCenter(report={}){
       </div>
       ${Number.isFinite(impact)&&impact!==0?`<span class="preflight-impact ${impact<0?'minus':'plus'}">${impact>0?'+':''}${impact}</span>`:preflightBadge(row.error?'error':row.warn?'warn':'ok',row.error?'阻擋':row.warn?'提醒':'通過')}
     </div>`;
-  }).join(''):'<div style="font-size:.76rem;color:var(--text3)">沒有列級資料。</div>';
+  }).join('');
+  const blockedRows=rows.filter(row=>row.error);
+  const readyRows=rows.filter(row=>!row.error);
+  const rowHtml=report.groupReadyRows&&blockedRows.length
+    ?`${report.blockedSummaryShown?'':`<h4>需處理的料件（${blockedRows.length} 項）</h4>${renderRows(blockedRows)}`}${readyRows.length?`<details class="pick-disclosure"><summary>其他料件與庫存影響（${readyRows.length} 項，展開核對）</summary>${renderRows(readyRows)}</details>`:'<div>需處理的料件已列於上方，請先補足或確認資料。</div>'}`
+    :rows.length?renderRows(rows):'<div style="font-size:.76rem;color:var(--text3)">沒有列級資料。</div>';
   const sectionHtml=sections.map(sec=>`<div class="preflight-section">
     <h4>${escapeHtml(sec.title||'檢查')}</h4>
     <div style="font-size:.76rem;color:var(--text2);line-height:1.55">${Array.isArray(sec.lines)?sec.lines.map(escapeHtml).join('<br>'):escapeHtml(sec.body||'')}</div>
@@ -6011,8 +6038,9 @@ function renderPreflightCenter(report={}){
       <div><div class="preflight-title">${escapeHtml(report.title||'執行前檢查')}</div><div class="preflight-sub">${escapeHtml(report.subtitle||'寫入前檢查即將影響的資料')}</div></div>
       ${preflightBadge(level,level==='error'?'需修正':level==='warn'?'需確認':'可執行')}
     </div>
+    ${report.collapseChecks?`<details class="pick-disclosure"><summary>扣庫模式、資料來源與檢查規則</summary>`:''}
     <div class="preflight-grid">${kpis.map(k=>`<div class="preflight-kpi"><b>${escapeHtml(k.value)}</b><span>${escapeHtml(k.label)}</span></div>`).join('')}</div>
-    ${sectionHtml}
+    ${sectionHtml}${report.collapseChecks?'</details>':''}
     <div class="preflight-section"><h4>列級影響</h4><div class="preflight-list">${rowHtml}</div></div>
     ${actionHtml}
   </div>`;
@@ -16964,6 +16992,34 @@ function shortageSourceOrderLink(note){
 // ══════════════════════════════════════
 // 原有訂單列表
 // ══════════════════════════════════════
+function orderWorkDecision(o){
+  if(o.status!=='待排程')return {label:({'生產中':'追蹤作業進度','待檢驗':'等待品管確認','品檢異常':'處理品檢異常','待出貨':'確認出貨安排'})[o.status]||'',items:[]};
+  if(!isFresh('core'))return {label:'庫存快照待更新',detail:'目前不判定缺料；請同步後再檢查。',items:[]};
+  try{
+    const plan=resolveOrderPickPlan(o);
+    const items=plan.items.map(item=>{
+      const known=item.stock!==null&&item.stock!==undefined&&String(item.stock).trim()!==''&&Number.isFinite(Number(item.stock));
+      const valid=Number.isFinite(Number(item.needed))&&Number(item.needed)>0;
+      return {code:item.code||item.name||'未編號',needed:valid?Number(item.needed):null,stock:known?Number(item.stock):null,missing:known&&valid?Math.max(0,Number(item.needed)-Number(item.stock)):null};
+    });
+    const unknown=items.some(item=>item.missing===null);
+    const shortages=items.filter(item=>item.missing>0);
+    return {label:unknown?'庫存或需求待確認':shortages.length?`缺料 ${shortages.length} 項`:'目前快照未見缺料',blocked:unknown||shortages.length>0,items,
+      detail:plan.transfer?'下一步：核對來源後轉入蝦皮庫存。':plan.production?'下一步：核對組立單的直接子件。':'下一步：核對訂購料號後領料。'};
+  }catch(e){return {label:'領料資料待確認',blocked:true,detail:e.message||'請同步後重新檢查。',items:[]};}
+}
+function renderOrderWorkHint(o){
+  const hint=orderWorkDecision(o);
+  if(!hint.label)return '';
+  const details=hint.items.length?hint.items.map(item=>`<div class="work-item"><b>${escapeHtml(item.code)}</b><br>需求 ${item.needed??'待確認'} · 現有 ${item.stock??'待確認'} · 缺少 ${item.missing??'待確認'}</div>`).join(''):'';
+  return `<details class="order-work-hint${hint.blocked?' is-blocked':''}" aria-label="${escapeHtml(o.no||'訂單')} 作業摘要"><summary>${escapeHtml(hint.label)}</summary>
+    ${hint.detail?`<div>${escapeHtml(hint.detail)}</div>`:''}${details}<div class="work-caption">依目前已載入資料；未預留庫存，實際領料仍需重新檢查。</div></details>`;
+}
+function setOrderMobileSort(value){
+  const [col,dir]=String(value).split(':');
+  if(!['created','no','customer','product','deadline','status'].includes(col)||!['asc','desc'].includes(dir))return;
+  SORT.orders={col,dir,type:'str'};renderTab('orders');
+}
 function _renderOrdersList(tabs, soonOrders=[]){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
   const canAdd=dashboardCanCreateOrder();
@@ -17011,7 +17067,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
   <div class="module-brief">
     <div>
       <h2>訂單</h2>
-      <p>維持原本訂單流程與分頁位置；這裡先看交期、狀態與篩選結果，細節直接在下方表格處理。</p>
+      <p>先看交期與狀態；展開作業摘要核對缺料或下一步，再使用該筆訂單的操作。</p>
     </div>
     <div class="module-brief-actions">
       <span class="module-pill">全部 <b>${orders.length}</b></span>
@@ -17020,18 +17076,13 @@ function _renderOrdersList(tabs, soonOrders=[]){
       <span class="module-pill">待檢驗 <b>${orderQcCount}</b></span>
     </div>
   </div>
-  <div class="focus-stat-grid">
-    <div class="focus-stat" data-icon="📋"><span>目前篩選</span><b>${data.length}</b></div>
-    <div class="focus-stat" data-icon="⏰"><span>交期提醒</span><b>${soonOrders.length}</b></div>
-    <div class="focus-stat" data-icon="🗂"><span>進行中</span><b>${orderActiveCount}</b></div>
-    <div class="focus-stat" data-icon="🚚"><span>待出貨</span><b>${orderShipCount}</b></div>
-  </div>
+  <div class="source-strip"><span>目前篩選 <b>${data.length}</b> 筆</span><span>交期提醒 <b>${soonOrders.length}</b> 筆</span></div>
   <div class="source-strip">
     <span><b>${filters.deadline==='overdue'?'分析帶入':'資料路徑'}</b>：${filters.deadline==='overdue'?'目前顯示所有類型逾期且未完成的正式訂單。':'訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。'}</span>
     ${filters.deadline==='overdue'?`<button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button>`:`<button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>`}
   </div>`;
 
-  return `<div class="order-workbench">${orderBrief}${_notionBar}${tabs}<div class="order-action-panel">
+  return `<div class="order-workbench">${orderBrief}${tabs}<details class="pick-disclosure"><summary>資料來源與原始記錄</summary>${_notionBar}</details><div class="order-action-panel">
     <div class="order-action-head">
       <div>
         <div class="panel-title">訂單作業</div>
@@ -17072,21 +17123,23 @@ function _renderOrdersList(tabs, soonOrders=[]){
     <div class="order-status-chips">${statusChips}</div>
     <div class="order-action-note">資料來源仍是 Notion 訂單；領料扣庫與庫存交易維持既有 Supabase 正式流程。</div>
   </div>
-  <div class="panel"><div class="panel-hdr"><span class="panel-title">訂單列表 <span class="badge">${data.length}/${orders.length}</span></span></div><div class="table-wrap">
-  <table><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
+  <div class="panel"><div class="panel-hdr"><span class="panel-title">訂單列表 <span class="badge">${data.length}/${orders.length}</span></span></div>
+  <div class="order-mobile-sort"><label for="orderMobileSort">排序</label><select class="inp" id="orderMobileSort" onchange="setOrderMobileSort(this.value)">${[['created','建立日'],['no','訂單號'],['customer','客戶'],['product','品項'],['deadline','交期'],['status','狀態']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${(SORT.orders?.col||'created')===key&&(SORT.orders?.dir||'desc')===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap">
+  <table class="order-list-table"><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
-    <td style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
-    <td style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
-    <td style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
-    <td style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?p.name+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+p.code+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
+    <td data-label="建立日" style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
+    <td data-label="訂單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
+    <td data-label="客戶" style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
+    <td data-label="品項" style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?escapeHtml(p.name)+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+escapeHtml(p.code)+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
     <td class="hide-m" style="font-family:monospace">${formatOptionalMoney(o.unitPrice)}</td>
-    <td style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
+    <td data-label="交期" style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
     <td class="hide-m" style="font-family:monospace;font-size:0.6875rem;color:${o.shipDate?'var(--green2)':'var(--text3)'}">${o.shipDate||'—'}</td>
-    <td>${pill(o.status)}</td>
-    ${canOperate?`<td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${o.status==='待排程'&&(isShopeeProductionOrder(o)?canTransferShopeeStockRole():(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole()))?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">${isShopeeProductionOrder(o)?'轉入蝦皮庫存':'🗂 領料'}</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" onclick="openStatusModal('${o.id}','${o.status}')">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}<button class="btn btn-yellow btn-sm" onclick="openEditOrder('${o.id}')" title="編輯">✏</button><button class="btn btn-red btn-sm" onclick="deleteOrder('${o.id}','${o.no}')" title="刪除">🗑</button>
-    </td>`:''}
+    <td data-label="狀態與作業摘要">${pill(o.status)}${renderOrderWorkHint(o)}</td>
+    ${canOperate?`<td data-label="操作"><div class="order-row-actions">
+      ${o.status==='待排程'&&(isShopeeProductionOrder(o)?canTransferShopeeStockRole():(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole()))?`<button class="btn btn-green btn-sm" onclick="openPickPreview('${o.id}')">${isShopeeProductionOrder(o)?'轉入蝦皮庫存':'🗂 領料'}</button>`:''}${o.status==='待出貨'&&canCompleteShipmentRole()?`<button class="btn btn-green btn-sm" onclick="openShipOrderModal('${o.id}')">🚚 出貨</button>`:''}<button class="btn btn-ghost btn-sm" data-status="${escapeHtml(o.status||'')}" onclick="openStatusModal('${o.id}',this.dataset.status)">狀態</button>${isShopeeProductionOrder(o)&&o.status==='生產中'&&canCompleteShopeeProductionRole()?`<button class="btn btn-green btn-sm" onclick="completeShopeeOrder('${o.id}','${o.no}','${o.matCode||o.product||''}',${o.qty||1})" title="完成並入庫">✅ 完成</button>`:''}
+      <details class="order-secondary-actions"><summary>編輯／刪除</summary><div><button class="btn btn-ghost btn-sm" onclick="openEditOrder('${o.id}')">編輯訂單</button><button class="btn btn-red btn-sm" data-order-no="${escapeHtml(o.no||'')}" onclick="deleteOrder('${o.id}',this.dataset.orderNo)">刪除訂單</button></div></details>
+    </div></td>`:''}
   </tr>`;}).join('')}
   </table></div></div></div>`;
 }
@@ -22761,12 +22814,15 @@ function openPickModal(orderId){
       <div style="color:var(--text2);font-size:.76rem;margin-top:4px">共 ${errors} 項阻擋；系統已停止扣庫，庫存沒有因這次預覽而變動。</div>
       <ul style="margin:8px 0 6px 18px;padding:0;font-size:.8rem">${blocked.map(row=>`<li><b>${escapeHtml(row.lineLabel)}</b>：${escapeHtml(row.detail)}</li>`).join('')}</ul>
       <div style="color:var(--text2);font-size:.76rem">${plan.transfer?'請確認一般倉庫來源料號與庫存，補足後重新整理資料，再檢查轉庫。':'請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。'}</div>
-    </div>`:''}
+    </div>`:`<div class="info-box info-tip" role="status"><b>目前資料檢查未見缺料</b><br>請核對下方料號與數量，按確認後才會執行；執行時仍會重新檢查。</div>`}
     ${!plan.transfer&&items.some(item=>item.id&&!item.missing&&(Number(item.stock)||0)<Number(item.needed||0))?'<div id="pickShortageFollowups" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;font-size:.8rem">正在查詢缺料後續紀錄…</div>':''}
     ${renderPreflightCenter({
       title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',
       subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
       errors,
+      groupReadyRows:true,
+      blockedSummaryShown:true,
+      collapseChecks:true,
       warnings:0,
       kpis:[
         {label:'扣庫項目',value:items.length},
