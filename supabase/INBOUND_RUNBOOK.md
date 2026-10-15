@@ -4,6 +4,8 @@ Updated: 2026-07-29
 
 ## Cancel unstocked receipt (2026-10-15)
 
+The inbound list also supports multi-select, current-page selection and cross-page selection. Batch cancellation freezes the reviewed IDs, requires a common reason and submits each receipt through the same atomic cancellation RPC. It shows per-receipt outcomes; only unresolved rows remain selected for retry. Mirror failures do not turn an accepted cancellation into a failure. Empty reasons, stale/fallback reads and simultaneous clicks are blocked. Never use batch cancellation to reverse accepted inventory transactions.
+
 Warehouse, purchase, manager and Vic can cancel an unstocked pending/rejected/returned receipt from 入料 → 取消入料, with a mandatory reason. This keeps the receipt/items and an immutable `erp_inbound_cancellations` audit (server time, operator role, original reason), changes both statuses to 已取消 and removes it from pending QC and shortage incoming-supply hints. It never changes inventory. Already accepted quantities or any formal inbound approval transaction prevent cancellation, including transactions not linked back to an item. The RPC locks the receipt; triggers prevent a concurrent approval from committing inventory after cancellation. Retries return the original audit. A Notion mirror update is queued in the same database commit when a page link exists. Supabase is authoritative; mirror retry never repeats a stock transaction. No real receipt is cancelled during release verification.
 
 ## Ownership
