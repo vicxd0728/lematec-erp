@@ -9388,6 +9388,7 @@ function dismissActionReceipt(id){
 }
 function switchTab(tab){
   const previousTab=CURRENT_TAB;
+  if(tab==='inventory')window._inventorySub='stock';
   if(previousTab!==tab)window._pendingTabRefresh='';
   CURRENT_TAB=tab;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>{

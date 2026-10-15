@@ -7,6 +7,7 @@
 - Native transaction categories separate receipt/production/returns/issue/shopee_transfer/adjustment/other. Before/after continuity and decimal arithmetic are checked; broken chains have null opening/closing, not fabricated zero. Account balances are transaction-derived, not physical counts or a locked month-close.
 - Search and pagination apply only to screen. XLSX full-period summary/detail and A4-landscape print all summary rows with repeating headers. All periods/times/source/unknown balances are retained; no totals mixing different units.
 - 415 Node / 14 Python / static passed. Worker CI adds production read-only report/auth acceptance. Live UI evidence goes in output/inventory-period-20261015.
+- Initial CI report verification used urllib's default User-Agent and received403. Same local request reproduced403; adding the project's explicit acceptance User-Agent succeeded for warehouse/ai (52 groups/78 transactions) with anonymous401 and qc403. Keep authentication/role checks unchanged. Explicit switchTab inventory navigation resets to stock subtab so existing SKU links cannot land on the report.
 
 ## Order calendar workbench 2026-10-15
 
