@@ -6020,6 +6020,7 @@ function openSharedModal(){
 function closeModal(){
   document.getElementById('modalBg')?.classList.remove('open');
   document.body.classList.remove('modal-open');
+  scheduleDeferredTabRefresh();
 }
 
 function preflightBadge(level,label){
@@ -7696,6 +7697,37 @@ function isEditingNow(){
 function shouldDelayAutoSync(){
   return isModalOpen()||isEditingNow()||document.body?.dataset?.busy==='1';
 }
+// A completed read must eventually reach the screen without replacing an active draft.
+function renderLoadedTab(tab){
+  if(CURRENT_TAB!==tab)return false;
+  const input=document.activeElement;
+  if(isModalOpen()||document.body?.dataset?.busy==='1'){
+    window._pendingTabRefresh=tab;return false;
+  }
+  if(isEditingNow()){
+    window._pendingTabRefresh=tab;
+    if(input?._composing||input?.dataset?.composing==='1')return false;
+    const regions=tab==='picking'&&input?.id==='pickingSearch'
+      ?[['pickingReadNotice','pickingCreateAction','pickingOverview','pickingStatusFilters','pickingResults'],renderPicking]
+      :tab==='inbound'&&input?.id==='inboundSearch'
+        ?[['inboundReadNotice','inboundCreateAction','inboundStatusCounts','inboundResults'],renderInbound]:null;
+    if(!regions||!refreshOperationalListRegions(...regions))return false;
+  }else renderTab(tab);
+  window._pendingTabRefresh='';
+  return true;
+}
+function scheduleDeferredTabRefresh(){
+  if(window._deferredTabRefreshTimer)clearTimeout(window._deferredTabRefreshTimer);
+  window._deferredTabRefreshTimer=setTimeout(()=>{
+    window._deferredTabRefreshTimer=null;
+    const tab=window._pendingTabRefresh;
+    if(!tab)return;
+    if(CURRENT_TAB!==tab){window._pendingTabRefresh='';return;}
+    renderLoadedTab(tab);
+  },0);
+}
+document.addEventListener('focusout',scheduleDeferredTabRefresh);
+document.addEventListener('compositionend',scheduleDeferredTabRefresh);
 function initAutoSync(){
   stopAutoSync();
   const ms=getAutoSyncMs();
@@ -8322,7 +8354,7 @@ async function refreshAffectedData({core=false,tabs=[],background=true,label='�
     if(core)await loadCoreEssentials({force:true});
     await Promise.all(affectedTabs.map(tab=>loadTabData(tab,{force:true})));
     saveAppCache();
-    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    renderLoadedTab(CURRENT_TAB);
     const elapsed=((performance.now()-started)/1000).toFixed(1);
     setSyncState(`${label} · ${elapsed}s`,'ok');
     if(background){
@@ -8352,7 +8384,7 @@ async function queueBackgroundDataRefresh(doneTabs=[]){
       }
       if(generation!==(window._dataRefreshGeneration||0))return;
       saveAppCache();
-      if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+      renderLoadedTab(CURRENT_TAB);
       const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
       setSyncState(`背景已同步 ${now}`,'ok');
     }catch(e){
@@ -8380,12 +8412,12 @@ async function refreshAll(manual=false){
   try{
     await loadCoreEssentials({force:manual});
     saveAppCache();
-    if(!['notes','corders','stocklog','schedule'].includes(CURRENT_TAB)&&!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    if(!['notes','corders','stocklog','schedule'].includes(CURRENT_TAB))renderLoadedTab(CURRENT_TAB);
     setSyncState('核心資料已載入，優先補目前分頁...','syncing',true);
 
     await loadTabData(CURRENT_TAB,{force:manual});
     loadedTabs.push(CURRENT_TAB);
-    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    renderLoadedTab(CURRENT_TAB);
 
     const priorityTabs=rolePriorityTabs().filter(tab=>tab!==CURRENT_TAB).slice(0,4);
     for(const tab of priorityTabs){
@@ -8396,7 +8428,7 @@ async function refreshAll(manual=false){
 
     await loadRoleComplements();
     saveAppCache();
-    if(!isEditingNow()&&!isModalOpen())renderTab(CURRENT_TAB);
+    renderLoadedTab(CURRENT_TAB);
 
     const now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     const elapsed=((performance.now()-refreshStarted)/1000).toFixed(1);
@@ -9239,6 +9271,7 @@ function dismissActionReceipt(id){
 }
 function switchTab(tab){
   const previousTab=CURRENT_TAB;
+  if(previousTab!==tab)window._pendingTabRefresh='';
   CURRENT_TAB=tab;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>{
     const roleTabs=ROLES[ROLE]?.tabs||[];
@@ -9252,11 +9285,11 @@ function switchTab(tab){
   }
   if(!['notes','corders','stocklog','schedule','analytics'].includes(tab)){
     loadTabData(tab).then(()=>{
-      if(CURRENT_TAB===tab&&!isEditingNow()&&!isModalOpen())renderTab(tab);
+      renderLoadedTab(tab);
     }).catch(e=>console.warn('tab data load failed:',tab,e));
   }
   if(tab==='ops'){
-    loadNotes().then(()=>{if(CURRENT_TAB==='ops'&&!isEditingNow()&&!isModalOpen())renderTab('ops');}).catch(e=>console.warn('ops notes refresh failed:',e));
+    loadNotes().then(()=>renderLoadedTab('ops')).catch(e=>console.warn('ops notes refresh failed:',e));
   }
   if(tab==='inventory'){
     window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};
@@ -12765,6 +12798,7 @@ const SUPPLY_WORK_TYPES=['電鍍','噴砂','攻牙','清洗','塑膠射出','金
 let progressCenterView='orders';
 let progressCenterFilter='all';
 let progressCenterSearch='';
+let progressCenterSearchDraft='';
 let progressOrderVisibleLimit=40;
 let legacyScheduleLoaded=false;
 const PROGRESS_ORDER_STAGES=['待排程','生產中','待檢驗','品檢異常','待出貨'];
@@ -12803,12 +12837,13 @@ function setProgressCenterFilter(value){
 }
 
 function setProgressCenterSearch(value){
+  progressCenterSearchDraft=String(value||'');
   progressCenterSearch=String(value||'').trim();
   progressOrderVisibleLimit=40;
   if(CURRENT_TAB==='schedule')renderTab('schedule');
 }
 function progressResetFilters(){
-  progressCenterSearch='';progressCenterFilter='all';progressOrderVisibleLimit=40;
+  progressCenterSearch='';progressCenterSearchDraft='';progressCenterFilter='all';progressOrderVisibleLimit=40;
   if(CURRENT_TAB==='schedule')renderTab('schedule');
 }
 function progressShowMoreOrders(){
@@ -12941,7 +12976,7 @@ function renderProgressOrders(){
     return ad.localeCompare(bd)||(b.created||'').localeCompare(a.created||'');
   });
   return `${!isFresh('core')?'<div class="info-warn" role="status" style="margin-bottom:12px">訂單資料可能不是最新；需要即時數字請先使用右上角同步。</div>':''}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">${counts.map(([label,value,color,filter])=>`<button type="button" class="panel" style="padding:14px;text-align:left;cursor:pointer;border-color:${progressCenterFilter===filter?color:'var(--border)'}" aria-pressed="${progressCenterFilter===filter}" onclick="setProgressCenterFilter('${filter}')"><div style="color:var(--text2);font-size:.75rem">${label}</div><strong style="display:block;color:${color};font-size:1.6rem;margin-top:5px">${value}</strong></button>`).join('')}</div>
-    <div class="panel" style="padding:12px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearch)}" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')setProgressCenterSearch(this.value)"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部未結案'],['overdue','已逾交期'],['soon','7 天內交期（含今天）'],['today','今天到期'],['later','8 天後'],['missingDue','未填交期'],['invalidDue','交期異常'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨'],['domestic','國內訂單'],['overseas','國外訂單'],...PROGRESS_ORDER_STAGES.map(stage=>['stage:'+stage,stage]),['stageOther','其他狀態']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="panel" style="padding:12px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><input class="inp" id="progressOrderSearch" aria-label="搜尋訂單號、客戶或料號" placeholder="搜尋訂單號、客戶或料號" value="${escapeHtml(progressCenterSearchDraft)}" style="flex:1;min-width:180px" oninput="progressCenterSearchDraft=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;progressCenterSearchDraft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing&&!this._composing){event.preventDefault();setProgressCenterSearch(this.value)}"><button type="button" class="btn btn-ghost btn-sm" onclick="setProgressCenterSearch(document.getElementById('progressOrderSearch').value)">搜尋</button><select class="inp" aria-label="篩選訂單進度" style="width:auto;min-width:130px" onchange="setProgressCenterFilter(this.value)">${[['all','全部未結案'],['overdue','已逾交期'],['soon','7 天內交期（含今天）'],['today','今天到期'],['later','8 天後'],['missingDue','未填交期'],['invalidDue','交期異常'],['production','待領料／生產'],['inspection','待檢驗（含異常）'],['qcException','品檢異常'],['shipping','待出貨'],['domestic','國內訂單'],['overseas','國外訂單'],...PROGRESS_ORDER_STAGES.map(stage=>['stage:'+stage,stage]),['stageOther','其他狀態']].map(([v,l])=>`<option value="${v}" ${progressCenterFilter===v?'selected':''}>${l}</option>`).join('')}</select><button type="button" class="btn btn-ghost btn-sm" onclick="progressResetFilters()">清除搜尋與篩選</button><span style="width:100%;font-size:.72rem;color:var(--text3)">搜尋按 Enter 或搜尋鍵套用；輸入文字會保留。已套用：${escapeHtml(progressCenterSearch||'全部')} · 符合 ${filtered.length}／${active.length} 筆已載入未結案客戶單；上方圖表依已套用搜尋統計。</span></div>
     ${renderProgressOrderCharts(summary)}
     <div class="panel" style="padding:16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div><strong>國內／國外訂單待辦</strong><div style="font-size:.75rem;color:var(--text3);margin-top:3px">依交期排序；不含組立單、蝦皮補庫單與 C 端訂單。領料、品檢及出貨仍在原功能處理。</div></div>${ROLE==='qc'?'':`<button class="btn btn-ghost btn-sm" onclick="switchTab('orders')">開啟訂單 →</button>`}</div>
@@ -12965,6 +13000,7 @@ let supplyLoading=false;
 let supplyError='';
 let supplyCoverage={activeTruncated:false,archivedTruncated:false};
 let supplySearch='';
+let supplySearchDraft='';
 let supplyFilter='all';
 let supplySort='due';
 let supplyOrderContext='';
@@ -13145,7 +13181,7 @@ function renderSupplyChainFoundation(){
   }),supplySort);
   const coverageNote=supplyCoverage.activeTruncated||supplyCoverage.archivedTruncated?`<div class="info-warn" role="status" style="margin-bottom:12px">供應鏈資料超過單次讀取上限：${supplyCoverage.activeTruncated?'未移除工作至少 '+supplyJobs.filter(row=>!row.archived_at).length+' 筆；':''}${supplyCoverage.archivedTruncated?'已移除工作至少 '+supplyJobs.filter(row=>row.archived_at).length+' 筆；':''}下方統計與搜尋僅涵蓋已載入資料；搜尋不到不代表沒有紀錄，請由管理者查核完整資料。</div>`:'';
   return top+coverageNote+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:12px">${kpis.map(([label,count,color])=>`<div class="panel" style="padding:13px"><div style="color:var(--text3);font-size:.75rem">${label}${supplyCoverage.activeTruncated?'（已載入）':''}</div><strong style="font-size:1.5rem;color:${color}">${supplyCoverage.activeTruncated?'≥':''}${count}</strong></div>`).join('')}</div>${supplyOrderContext?`<div class="info-warn" style="margin-bottom:12px">正在查看訂單 ${escapeHtml(supplyRelatedOrderLabel(supplyOrderContext))} 的關聯外包工作 <button class="btn btn-ghost btn-xs" onclick="supplyClearOrderContext()">清除訂單篩選</button></div>`:''}
-    <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearch)}" style="flex:1;min-width:190px" onkeydown="if(event.key==='Enter')supplySetSearch(this.value)"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料／品檢'],['closed','已結案'],['archived','已移除']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select><select class="inp" aria-label="排序供應鏈工作" style="width:auto;min-width:130px" onchange="supplySetSort(this.value)">${[['due','全程交期優先'],['stage','本關預計優先'],['updated','最近更新優先']].map(([value,label])=>`<option value="${value}" ${supplySort===value?'selected':''}>${label}</option>`).join('')}</select></div><div style="font-size:.72rem;color:var(--text3);margin-bottom:10px">統計為全部已載入工作；下方清單符合目前搜尋／篩選，共 ${rows.length} 筆。</div>
+    <div class="panel" style="padding:15px"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"><input class="inp" id="supplySearch" aria-label="搜尋工作、料號或供應商" placeholder="搜尋工作、料號或供應商" value="${escapeHtml(supplySearchDraft)}" style="flex:1;min-width:190px" oninput="supplySearchDraft=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;supplySearchDraft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing&&!this._composing){event.preventDefault();supplySetSearch(this.value)}"><button class="btn btn-ghost btn-sm" onclick="supplySetSearch(document.getElementById('supplySearch').value)">搜尋</button><select class="inp" aria-label="篩選供應鏈工作" style="width:auto;min-width:135px" onchange="supplySetFilter(this.value)">${[['all','全部狀態'],['active','進行中'],['overdue','已逾期'],['pending','待決定／入料／品檢'],['closed','已結案'],['archived','已移除']].map(([value,label])=>`<option value="${value}" ${supplyFilter===value?'selected':''}>${label}</option>`).join('')}</select><select class="inp" aria-label="排序供應鏈工作" style="width:auto;min-width:130px" onchange="supplySetSort(this.value)">${[['due','全程交期優先'],['stage','本關預計優先'],['updated','最近更新優先']].map(([value,label])=>`<option value="${value}" ${supplySort===value?'selected':''}>${label}</option>`).join('')}</select><button type="button" class="btn btn-ghost btn-sm" onclick="supplyResetFilters()">清除搜尋與狀態篩選</button></div><div style="font-size:.72rem;color:var(--text3);margin-bottom:10px">搜尋按 Enter 或搜尋鍵套用；已套用：${escapeHtml(supplySearch||'全部')}。統計為全部已載入工作；下方清單符合目前搜尋／篩選，共 ${rows.length} 筆。</div>
     ${rows.length?`<div style="display:grid;gap:8px">${rows.slice(0,supplyVisibleLimit).map(row=>{
       const step=row.steps?.[row.current_step]||{};
       const matchedStep=supplyStepSearchMatch(row,q);
@@ -13167,9 +13203,9 @@ function supplyOrderContextEmptyState(){
   }
   return supplyCoverage.activeTruncated||supplyCoverage.archivedTruncated?'已載入資料中未找到這張訂單的關聯外包工作；仍須查核未載入的紀錄。':'此訂單未找到關聯外包工作；這不代表沒有其他未關聯的加工紀錄。';
 }
-function supplyResetContextFilters(viewArchived=false){supplySearch='';supplyFilter=viewArchived?'archived':'all';supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
-function supplyResetFilters(){supplySearch='';supplyFilter='all';supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
-function supplySetSearch(value){supplySearch=String(value||'').trim();supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplyResetContextFilters(viewArchived=false){supplySearch='';supplySearchDraft='';supplyFilter=viewArchived?'archived':'all';supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplyResetFilters(){supplySearch='';supplySearchDraft='';supplyFilter='all';supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
+function supplySetSearch(value){supplySearchDraft=String(value||'');supplySearch=String(value||'').trim();supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplySetFilter(value){supplyFilter=value;supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplySetSort(value){if(!['due','stage','updated'].includes(value))return;supplySort=value;supplyVisibleLimit=100;if(CURRENT_TAB==='schedule')renderTab('schedule');}
 function supplyShowMoreJobs(){supplyVisibleLimit+=100;if(CURRENT_TAB==='schedule'&&progressCenterView==='supply')renderTab('schedule');}
@@ -13307,6 +13343,7 @@ function supplyRelatedOrderLink(reference){
 function progressOpenSupplyForOrder(id){
   if(!orders.some(order=>order.id===id))return;
   supplySearch='';
+  supplySearchDraft='';
   supplyOrderContext=id;
   supplyFilter='all';
   supplyVisibleLimit=100;
@@ -16593,9 +16630,9 @@ function dashboardTodoItems(){
   const specs=[
     {key:'ship',title:'訂單待出貨',source:'core',tab:'orders',route:'order:status:待出貨',roles:['sales','warehouse','purchase',...admin,'viewer'],detail:'確認出貨安排與實際出貨日。'},
     {key:'overdue',title:'逾期未完成訂單',source:'core',tab:'orders',route:'orders:overdue',roles:['sales','purchase',...admin,'viewer'],detail:'先確認目前進度與交期，再更新訂單或聯繫相關人員。',count:()=>orders.filter(o=>o.deadline&&o.deadline<todayStr()&&o.status!=='已完成'&&o.status!=='取消').length},
-    {key:'shopee',title:'蝦皮庫存待轉入',source:'core',tab:'orders',route:'order:shopee-pending',roles:['sales'],detail:'確認來源庫存與 BOM，再執行轉入蝦皮庫存。',count:()=>orders.filter(o=>o.status==='待排程'&&isShopeeProductionOrder(o)).length},
-    {key:'production',title:'待排程（領料／蝦皮轉庫）',source:'core',tab:'picking',route:'order:status:待排程',roles:['warehouse','purchase',...admin,'viewer'],detail:'一般訂單依 BOM 領料；蝦皮訂單依補庫流程轉入。若領料缺料，系統會停止扣料並列出原因。',count:()=>orders.filter(o=>o.status==='待排程').length},
-    {key:'shortage',title:'領料缺料待處理',source:'picks',tab:'picking',route:'pick:shortage',roles:['warehouse','purchase',...admin,'viewer'],detail:'因 BOM 子件庫存不足而停下，尚未完成扣料。開啟領料單查看缺料料號、需求與現有量；補足後重新檢查。',count:()=>picks.filter(p=>pickingVisualStage(p)==='shortage').length},
+    {key:'shopee',title:'蝦皮庫存待轉入',source:'core',tab:'orders',route:'order:shopee-pending',roles:['sales'],detail:'確認對應的倉庫來源料號與數量，再執行一對一轉入蝦皮庫存。',count:()=>orders.filter(o=>o.status==='待排程'&&isShopeeProductionOrder(o)).length},
+    {key:'production',title:'待排程（領料／蝦皮轉庫）',source:'core',tab:'picking',route:'order:status:待排程',roles:['warehouse','purchase',...admin,'viewer'],detail:'國內／國外訂單扣所選料號；組立單扣 BOM 直接子件；蝦皮補庫一對一轉庫。缺料時停止扣料並列出原因。',count:()=>orders.filter(o=>o.status==='待排程').length},
+    {key:'shortage',title:'領料缺料待處理',source:'picks',tab:'picking',route:'pick:shortage',roles:['warehouse','purchase',...admin,'viewer'],detail:'因所需料號或組立子件不足而停下，尚未完成扣料。開啟領料單查看缺料料號、需求與現有量；補足後重新檢查。',count:()=>picks.filter(p=>pickingVisualStage(p)==='shortage').length},
     {key:'return',title:'待確認回料',source:'picks',tab:'picking',route:'pick:return',roles:['warehouse',...admin,'viewer'],detail:'核對實物已回倉後確認；系統才會補回庫存。',count:()=>picks.filter(p=>pickingVisualStage(p)==='return').length},
     {key:'inboundQc',title:'入料待品檢',source:'inbounds',tab:'qc',route:'qc:inbound',roles:['qc',...admin,'viewer'],detail:'檢查入料與檢驗資料；檢驗合格時 ERP 會執行入庫，不合格則依退回流程處理。',count:()=>inbounds.filter(i=>i.qcStatus==='待品檢').length},
     {key:'orderQc',title:'訂單待檢驗',source:'core',tab:'qc',route:'qc:order',roles:['qc',...admin,'viewer'],detail:'檢查已送檢訂單；通過後系統才會推進至待出貨。',count:()=>orders.filter(o=>o.status==='待檢驗'||o.status==='品檢異常').length},
@@ -16749,7 +16786,7 @@ function renderDashboard(){
       <div class="dashboard-todo-card-top"><b>${item.title}</b><span class="dashboard-todo-count">${item.count===null?'…':item.count}</span></div>
       <p>${item.count===null?'資料載入中，完成載入後才會顯示待辦數量。':item.detail}</p>
       <button class="btn ${item.count>0?'btn-yellow':'btn-ghost'} btn-xs" onclick="dashboardOpenTodo('${item.route}')" aria-label="${ROLE==='viewer'?'查看':'前往處理'}${item.title}">${ROLE==='viewer'?'查看明細 →':'前往處理 →'}</button>
-    </article>`).join('')}</div>`:`<div class="dashboard-todo-empty">✓ 目前已載入的資料沒有待處理事項</div>`}
+    </article>`).join('')}</div>`:`<div class="dashboard-todo-empty">${todoItems.length?'✓ 目前已載入的資料沒有待處理事項':'此職務未設定專屬流程待辦；可從上方分頁查看各模組進度。'}</div>`}
   </section>`;
 
   const annSection=dashAnns.length?`
@@ -18926,7 +18963,7 @@ function renderPicking(){
     <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
-  return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + tabs + '<div id="pickingOverview">'+workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `</div><div class="filter-bar">
+  return _notionBar + '<div id="pickingReadNotice">' + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + tabs + '<div id="pickingOverview">'+workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `</div><div class="filter-bar">
     <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶或備註" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updatePickingSearch(this)">
     <button class="btn btn-ghost btn-xs" onclick="resetPickingFilters()">清除篩選</button>
     <span class="filter-label">時間：</span>
@@ -18938,7 +18975,7 @@ function renderPicking(){
     ${pickingStatusChip('reversed','已沖銷',statusFilter,reversedRows.length)}
     ${pickingStatusChip('shortage','缺料待補',statusFilter,shortageRows.length)}
     ${pickingStatusChip('other','其他狀態',statusFilter,otherRows.length)}`:''}</div>
-    ${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}
+    <span id="pickingCreateAction">${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}</span>
   </div>
   <div id="pickingResults">
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="setPickingView('auto','all',true)">顯示全部領料</button></div>`:''}
@@ -19047,14 +19084,14 @@ function renderInbound(){
   const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
   const scoped=filterInboundRows(inbounds,{...filters,status:'all'});
   const quickStatuses=[['all','全部'],['pending','待品檢／入庫'],['stocked','已入庫'],['returned','品檢退回']];
-  return _notionBar + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + '<div id="inboundReadNotice">' + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updateInboundSearch(this)">
       <button class="btn btn-ghost btn-xs" onclick="resetInboundFilters()">清除篩選</button>
       <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option></select>
       <select class="inp" id="inboundDateFilter" aria-label="入料日期" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="inboundListFilters().date=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     </div>
-    ${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}
+    <span id="inboundCreateAction">${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}</span>
   </div>
   <div id="inboundStatusCounts" class="filter-bar" aria-label="入料狀態統計">${quickStatuses.map(([value,label])=>`<button class="filter-chip ${filters.status===value?'active':''}" onclick="setInboundStatus('${value}')">${label} ${value==='all'?scoped.length:filterInboundRows(scoped,{q:'',date:'0',status:value}).length}</button>`).join('')}<span style="font-size:.7rem;color:var(--text3)">依目前搜尋與日期統計；點擊篩選</span></div>
   <div id="inboundResults">

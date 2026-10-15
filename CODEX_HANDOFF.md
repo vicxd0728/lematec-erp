@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Cross-page search / deferred refresh 2026-10-15 wave 6
+
+- V.363 live AI review reproduced lost unsubmitted text after changing order-progress filters and supply sorting. Both now retain separate drafts, block composing Enter, state the applied query/scope, and offer visible resets. Supply reset retains linked-order context and sorting; explicit order navigation clears draft and applied query together.
+- Completed data reads now use renderLoadedTab: active picking/inbound search keeps its input and patches source notices/action availability/counts/results; generic edits, composition, modal and busy operation defer. Blur/compositionend/modal-close retry the pending render; stale-tab completions cannot repaint the current page. No extra data requests or business writes. Source notice/action regions must be included when updating from a changed snapshot, not only result rows.
+- Dashboard guidance now reflects direct-SKU customer picking, direct-child assembly and one-to-one Shopee transfer. A role with no configured todo specifications is labeled rather than shown a green no-work claim. Roles and transaction logic remain unchanged.
+- Evidence/design: ERP_UI_WAVE6_REVIEW_2026-10-15.md. Nine new behavior regressions plus full suite/static/release gates; deployed revision and authenticated read-only UI acceptance belong in output/ui-wave6-20261015/.
+
 ## Picking / inbound search stability 2026-10-15 wave 5
 
 - Browser recovery succeeded after resetting the stale CUA runtime and verifying a fresh AI session. Prior V.361 QC history search was exercised: LE-AN324K returned two records, fail filter zero, clearing retained 30-day scope. Mobile picking baseline showed no product/date or sort control.
