@@ -8,6 +8,7 @@
 - Search and pagination apply only to screen. XLSX full-period summary/detail and A4-landscape print all summary rows with repeating headers. All periods/times/source/unknown balances are retained; no totals mixing different units.
 - 415 Node / 14 Python / static passed. Worker CI adds production read-only report/auth acceptance. Live UI evidence goes in output/inventory-period-20261015.
 - Initial CI report verification used urllib's default User-Agent and received403. Same local request reproduced403; adding the project's explicit acceptance User-Agent succeeded for warehouse/ai (52 groups/78 transactions) with anonymous401 and qc403. Keep authentication/role checks unchanged. Explicit switchTab inventory navigation resets to stock subtab so existing SKU links cannot land on the report.
+- V.372 live desktop/mobile generated105 groups/238 transactions. Filter2 still downloaded105 summary/238 detail rows; openpyxl verified Chinese sheet names and zero formulas. Print includes105 rows; visual follow-up sets explicit white html/body background to prevent dark host showing through transparent tbody. Final post-follow-up UI evidence required.
 
 ## Order calendar workbench 2026-10-15
 

@@ -1867,6 +1867,7 @@ html[data-theme="warm"] #themePanel{
 .inv-report-controls label{display:flex;flex-direction:column;gap:4px;font-size:.8rem}
 .inv-period-table{min-width:1500px}
 .inv-period-table th{white-space:nowrap}
+.inv-period-table td:first-child,.inv-period-table th:first-child{min-width:64px;white-space:nowrap}
 @media(max-width:640px){
  .inv-report-controls label{flex:1;min-width:140px}
  .inv-report-controls input{width:100%;box-sizing:border-box}
@@ -18297,7 +18298,7 @@ async function exportInventoryPeriodReport(){
 }
 function buildInventoryPeriodPrint(d){
   const columns=inventoryReportColumns(),title='LEMATEC 庫存期間進出總表';
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,"Microsoft JhengHei",sans-serif;color:#111;font-size:9px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th,td{border:1px solid #999;padding:4px;overflow-wrap:anywhere}th{background:#eee}tr{break-inside:avoid}h2{margin:4px}p{font-weight:normal;text-align:left}td:nth-child(n+5){text-align:right}</style></head><body><table><thead><tr><th colspan="${columns.length}"><h2>${title}</h2><p>期間：${escapeHtml(d.start)} ～ ${escapeHtml(d.end)}（台灣時間）；產生：${escapeHtml(new Date(d.generated_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}<br>僅列有異動料號；期初／末為交易推算帳面數，非盤點。待核對不是零。本表未鎖定月結。</p></th></tr><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${columns.map(([key])=>`<td>${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${columns.length}">此期間無正式交易。</td></tr>`}</tbody></table></body></html>`;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:A4 landscape;margin:10mm}html,body{background:#fff;color-scheme:light}body{font-family:Arial,"Microsoft JhengHei",sans-serif;color:#111;font-size:9px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th,td{border:1px solid #999;padding:4px;overflow-wrap:anywhere}th{background:#eee}tr{break-inside:avoid}h2{margin:4px}p{font-weight:normal;text-align:left}td:nth-child(n+5){text-align:right}</style></head><body><table><thead><tr><th colspan="${columns.length}"><h2>${title}</h2><p>期間：${escapeHtml(d.start)} ～ ${escapeHtml(d.end)}（台灣時間）；產生：${escapeHtml(new Date(d.generated_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}<br>僅列有異動料號；期初／末為交易推算帳面數，非盤點。待核對不是零。本表未鎖定月結。</p></th></tr><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${columns.map(([key])=>`<td>${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${columns.length}">此期間無正式交易。</td></tr>`}</tbody></table></body></html>`;
 }
 function previewInventoryPeriodPrint(){
   const d=inventoryReportState().data;if(!d)return;
