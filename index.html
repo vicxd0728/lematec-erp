@@ -1822,6 +1822,27 @@ html[data-theme="warm"] #themePanel{
   .btn,.btn-sm,.btn-xs,.filter-chip,.module-tab,.qc-tab{min-height:44px!important}
   input,select,textarea{font-size:16px!important}
 }
+.order-deadline-workbench{max-width:1200px;margin:0 auto}
+.order-deadline-setting,.order-deadline-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.order-deadline-setting{padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px}
+.order-deadline-setting input{width:76px;min-height:44px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;text-align:center}
+.order-deadline-setting span{font-size:.75rem;color:var(--text2)}
+.order-deadline-card{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px;margin:10px 0;background:var(--bg2);border:1px solid var(--border);border-radius:12px}
+.order-deadline-card.overdue{border-left:4px solid var(--red)}
+.order-deadline-info{min-width:0;overflow-wrap:anywhere;font-size:.85rem;line-height:1.7}
+.order-deadline-identity{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.order-deadline-urgency{color:var(--yellow)}
+.overdue .order-deadline-urgency{color:var(--red)}
+.order-deadline-meta{font-size:.78rem;color:var(--text2)}
+.order-deadline-actions{display:flex;gap:8px;flex-shrink:0}
+.order-deadline-workbench button{min-height:44px}
+@media(max-width:640px){
+ .order-deadline-card{align-items:stretch;flex-direction:column;gap:12px;padding:12px}
+ .order-deadline-actions button{flex:1}
+ .order-deadline-toolbar{gap:6px}
+ .order-deadline-toolbar button{flex:1;padding:8px 6px;font-size:.75rem}
+ .order-deadline-setting span{flex-basis:100%}
+}
 </style>
 </head>
 <body>
@@ -16803,7 +16824,7 @@ function renderDashboard(){
   const todayShipOrders=orders.filter(o=>o.shipDate===_todayShip);
   const readyShipOrders=orders.filter(o=>o.status==='待出貨');
   // 交期提醒計算
-  const warnDays = window._deadlineWarn!==undefined ? window._deadlineWarn : parseInt(localStorage.getItem('_deadlineWarn')||'14');
+  const warnDays = orderDeadlineDays(window._deadlineWarn!==undefined ? window._deadlineWarn : localStorage.getItem('_deadlineWarn'));
   const _now = new Date(); _now.setHours(0,0,0,0);
   const deadlineSoon = orders.filter(o=>{
     if(!o.deadline||o.status==='已完成'||o.status==='取消') return false;
@@ -17046,22 +17067,49 @@ function renderDashboard(){
   ${dashboardTabAvailable('inventory')&&stockAttention?`<div class="info-warn" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⚠️ 庫存需處理：低庫存 ${low.length} 項、數量待確認 ${unknownStock.length} 項。請至庫存分頁查明。</div>`:''}`;
 }
 
+function orderDeadlineDays(value){
+  const text=String(value??'').trim();
+  const n=Number(text);
+  return text&&Number.isInteger(n)&&n>=1&&n<=90?n:14;
+}
+function saveOrderDeadlineDays(){
+  const input=document.getElementById('warnDaysInput');
+  const text=String(input?.value??'').trim(),n=Number(text);
+  if(!text||!Number.isInteger(n)||n<1||n>90){
+    showToast('請輸入 1～90 的整數天數','warn');input?.focus();return false;
+  }
+  window._deadlineWarn=n;localStorage.setItem('_deadlineWarn',String(n));
+  renderTab('orders');showToast('已儲存此瀏覽器的交期提醒天數','ok');return true;
+}
+function orderDeadlineQueue(rows,warnDays,today=todayStr()){
+  const day=value=>{
+    const s=String(value||'').slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return null;
+    const n=Date.parse(s+'T00:00:00Z');
+    return Number.isFinite(n)&&new Date(n).toISOString().slice(0,10)===s?n:null;
+  };
+  const now=day(today);if(now===null)return [];
+  return rows.filter(o=>!['已完成','取消'].includes(o.status)).map(order=>{
+    const n=day(order.deadline);return {order,diff:n===null?null:Math.round((n-now)/86400000)};
+  }).filter(x=>x.diff!==null&&x.diff<=orderDeadlineDays(warnDays))
+    .sort((a,b)=>a.diff-b.diff||String(a.order.no||'').localeCompare(String(b.order.no||'')));
+}
+function locateDeadlineOrder(id){
+  const order=orders.find(o=>o.id===id);if(!order)return showToast('訂單尚未載入，請重新整理','warn');
+  const filters=getOrderFilters();
+  Object.assign(filters,{q:order.no||order.matCode||order.product||'',type:'all',status:'all',date:'0',hide:false,deadline:''});
+  setOrderSearchDraft(filters.q);window._ORD_SUB='list';renderTab('orders');
+}
 function renderOrders(){
   if(!window._ORD_SUB) window._ORD_SUB='list';
   const OSUB = window._ORD_SUB;
 
   // ── 交期提醒天數設定（可儲存）──
-  if(window._deadlineWarn===undefined) window._deadlineWarn=parseInt(localStorage.getItem('_deadlineWarn')||'14');
+  window._deadlineWarn=orderDeadlineDays(window._deadlineWarn===undefined?localStorage.getItem('_deadlineWarn'):window._deadlineWarn);
   const warnDays = window._deadlineWarn;
 
   // ── Tab 切換 ──
-  const now = new Date(); now.setHours(0,0,0,0);
-  const soonOrders = orders.filter(o=>{
-    if(!o.deadline) return false;
-    const dl = new Date(o.deadline); dl.setHours(0,0,0,0);
-    const diff = Math.round((dl-now)/86400000);
-    return diff>=0 && diff<=warnDays && o.status!=='已完成' && o.status!=='取消';
-  }).sort((a,b)=>a.deadline.localeCompare(b.deadline));
+  const soonOrders = window._coreLoaded?orderDeadlineQueue(orders,warnDays).map(x=>x.order):[];
 
   const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:14px">
     ${[['list','📋 訂單列表'],['deadline','⏰ 交期提醒'+(soonOrders.length?` (${soonOrders.length})`:'')],['calendar','📅 月曆']].map(([k,l])=>`
@@ -17380,70 +17428,39 @@ async function openOrderTimeline(id){
   }catch(e){if(active()){host.innerHTML='<h3>訂單進度暫時無法載入</h3><p>請稍後重新開啟進度，原有訂單作業不受影響。</p><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';}}
 }
 function _renderDeadlineTab(tabs, soonOrders, warnDays){
-  const _notionBar='';
-
-  // 設定欄：可調整提醒天數
-  const settingBar=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-    padding:10px 14px;background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.15);
-    border-radius:10px;margin-bottom:14px">
-    <span style="font-size:0.75rem;color:var(--text2)">⏰ 提醒設定：距交期</span>
-    <input type="number" id="warnDaysInput" value="${warnDays}" min="1" max="90"
-      style="width:60px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);
-      background:var(--bg3);color:var(--text);font-size:0.75rem;text-align:center">
-    <span style="font-size:0.75rem;color:var(--text2)">天內自動提醒</span>
-    <button class="btn btn-blue btn-sm" onclick="
-      const v=parseInt(document.getElementById('warnDaysInput').value)||14;
-      window._deadlineWarn=v;localStorage.setItem('_deadlineWarn',v);
-      renderTab('orders');showToast('✅ 已儲存：提醒 '+v+' 天內的交期','ok')">💾 儲存</button>
+  const ready=!!window._coreLoaded;
+  const queue=ready?orderDeadlineQueue(orders,warnDays):[];
+  const overdue=queue.filter(x=>x.diff<0).length;
+  const scope=['all','overdue','upcoming'].includes(window._deadlineScope)?window._deadlineScope:'all';
+  const visible=queue.filter(x=>scope==='all'||(scope==='overdue'?x.diff<0:x.diff>=0));
+  const settingBar=`<div class="order-deadline-setting">
+    <label for="warnDaysInput">提醒未來天數</label>
+    <input type="number" id="warnDaysInput" value="${warnDays}" min="1" max="90" step="1" inputmode="numeric" aria-describedby="deadlineSettingHelp">
+    <button class="btn btn-blue btn-sm" onclick="saveOrderDeadlineDays()">儲存設定</button>
+    <span id="deadlineSettingHelp">1～90 天；只儲存在此瀏覽器。逾期未完成訂單持續顯示。</span>
   </div>`;
-
-  if(!soonOrders.length) return tabs + settingBar +
-    `<div class="panel"><div style="padding:32px;text-align:center;color:var(--text3)">
-      ✅ 目前沒有 ${warnDays} 天內到期的訂單
-    </div></div>`;
-
-  const now = new Date(); now.setHours(0,0,0,0);
-  const statusOpts=['可如期出貨','需延期','客戶確認中','已溝通完成'];
-  const statusColor={'可如期出貨':'var(--green)','需延期':'var(--red)','客戶確認中':'var(--yellow)','已溝通完成':'var(--text3)'};
-
-  const cards = soonOrders.map(o=>{
-    const dl = new Date(o.deadline); dl.setHours(0,0,0,0);
-    const diff = Math.round((dl-now)/86400000);
-    const urgColor = diff<=3?'var(--red)':diff<=7?'var(--yellow)':'var(--amber,#f59e0b)';
-    const curStat = window._deadlineStatus?.[o.id]||'';
-    return `<div style="background:var(--bg2);border:1px solid ${diff<=3?'rgba(239,68,68,.3)':'var(--border)'};
-      border-radius:12px;padding:16px 18px;margin-bottom:10px">
-      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:180px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="font-size:0.6875rem;font-weight:700;font-family:monospace;
-              background:${urgColor};color:#000;padding:2px 8px;border-radius:20px">
-              ${diff===0?'今天到期':diff+'天後到期'}</span>
-            <span style="font-size:0.6875rem;color:var(--text3)">${o.no}</span>
-          </div>
-          <div style="font-weight:700;font-size:0.875rem;color:var(--text);margin-bottom:2px">${orderCustomerLabel(o)}</div>
-          <div style="font-size:0.75rem;color:var(--text2)">${o.product||'—'} × ${o.qty}</div>
-          <div style="font-size:0.6875rem;color:var(--text3);margin-top:4px">交期：<span style="font-family:monospace;font-weight:600;color:${urgColor}">${o.deadline}</span></div>
-        </div>
-        <div style="min-width:200px">
-          <div style="font-size:0.625rem;color:var(--text3);margin-bottom:6px">業務狀態更新</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-            ${statusOpts.map(s=>{
-              const a=curStat===s;
-              return `<button onclick="if(!window._deadlineStatus)window._deadlineStatus={};window._deadlineStatus['${o.id}']='${s}';renderTab('orders')"
-                style="padding:4px 10px;border-radius:20px;font-size:0.6875rem;cursor:pointer;font-weight:${a?700:400};
-                border:1px solid ${a?'var(--blue)':'var(--border)'};
-                background:${a?'rgba(77,142,245,.15)':'var(--bg3)'};
-                color:${a?'var(--blue)':'var(--text2)'}">${s}</button>`;
-            }).join('')}
-          </div>
-          ${curStat?`<div style="font-size:0.6875rem;padding:5px 10px;background:var(--bg3);border-radius:6px;color:${statusColor[curStat]||'var(--text2)'}">✓ ${curStat}</div>`:''}
-        </div>
+  const toolbar=`<div class="order-deadline-toolbar" aria-label="交期提醒篩選">
+    ${[['all','全部需注意',queue.length],['overdue','逾期未完成',overdue],['upcoming','即將到期',queue.length-overdue]].map(([key,label,count])=>`<button class="btn ${scope===key?'btn-blue':'btn-ghost'}" aria-pressed="${scope===key}" onclick="window._deadlineScope='${key}';renderTab('orders')">${label} ${ready?count:'—'}</button>`).join('')}
+  </div>`;
+  const notice=!ready?'<div class="info-box info-warn">訂單資料尚未載入，現在無法確認交期；請待同步完成。</div>':!isFresh('core')?'<div class="info-box info-warn">目前顯示已載入的訂單快照；請同步後確認最新交期與狀態。</div>':'';
+  const cards=visible.map(({order:o,diff})=>{
+    const urgency=diff<0?`逾期 ${-diff} 天`:diff===0?'今天到期':`${diff} 天後到期`;
+    return `<article class="order-deadline-card ${diff<0?'overdue':''}">
+      <div class="order-deadline-info">
+        <div class="order-deadline-identity"><strong class="order-deadline-urgency">${urgency}</strong><b>${escapeHtml(o.no||'未編號')}</b></div>
+        <div>${escapeHtml(orderCustomerLabel(o))} · ${escapeHtml(o.product||o.matCode||'未填品項')} × ${escapeHtml(String(o.qty??'—'))}</div>
+        <div class="order-deadline-meta">交期：${escapeHtml(o.deadline||'—')} · 訂單狀態：${escapeHtml(o.status||'未填')}</div>
       </div>
-    </div>`;
+      <div class="order-deadline-actions">
+        <button class="btn btn-blue btn-sm" data-order-id="${escapeHtml(o.id)}" onclick="openOrderTimeline(this.dataset.orderId)">查看進度</button>
+        <button class="btn btn-ghost btn-sm" data-order-id="${escapeHtml(o.id)}" onclick="locateDeadlineOrder(this.dataset.orderId)">定位訂單</button>
+      </div>
+    </article>`;
   }).join('');
-
-  return tabs + settingBar + `<div style="font-size:0.6875rem;color:var(--text3);margin-bottom:10px">共 ${soonOrders.length} 張訂單需注意</div>` + cards;
+  return `<section class="order-deadline-workbench">${tabs}${settingBar}${toolbar}${notice}
+    <div class="source-strip">依已載入的全部類型訂單交期；排除已完成與取消。卡片顯示正式訂單狀態，溝通結果請使用記事記錄。</div>
+    ${ready?(cards||'<div class="panel empty-row">目前此範圍沒有訂單；可切換上方篩選查看其他交期。</div>'):''}
+  </section>`;
 }
 
 // ══════════════════════════════════════

@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Order deadline workbench 2026-10-15
+
+- Includes overdue unfinished orders alongside upcoming deadlines; one validated date queue drives counts, scopes and cards. Actual V.368 baseline: 43 overdue were absent from deadline tab, which showed only 38 upcoming.
+- Replaces session-only window._deadlineStatus pseudo-updates with formal order status and existing timeline/list navigation. Reminder days validate 1–90 integers and explicitly remain browser-local.
+- Responsive 44px actions, wrapping identities, desktop horizontal cards and mobile stacked cards. No business write paths changed.
+- 402 Node and 14 Python checks pass; review ERP_ORDER_OPERATIONS_REVIEW_2026-10-15.md and output/ui-orders-20261015/acceptance.md for final release/live acceptance.
+- Correction to preliminary QC note below: the initially empty view was unloaded, not a verified empty queue; final V.368 acceptance found four pending inbound inspections.
+
 ## Common QC workbench 2026-10-15
 
 - User deprioritized the little-used customer page; its exploratory code was withdrawn and never deployed. This round targets frequent inbound/order QC work. V.366 live initial QC showed green no-pending text before inbound load. Header badges and pending screens now separate unknown from loaded zero; failed/loading snapshots are labeled, and inbound approval controls are unavailable on Notion fallback or incomplete refresh. Server transaction handlers, roles, source models and stock rules remain unchanged.
