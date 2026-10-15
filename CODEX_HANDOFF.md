@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Order calendar workbench 2026-10-15
+
+- V.369 baseline confirmed calendar order labels had pointer cursor but no click handler; only the last six order-number characters were shown, with full identity in hover title.
+- Dates now open a read-only dialog with every active order for that day, full identity/customer/product/quantity/status and existing timeline/locate actions. Calendar previews show first two, disclose more, with actual daily count. Mobile uses counts and the same full detail dialog.
+- One calendar projection validates dates, counts undated active records and excludes cancelled/completed orders. Unknown-load and stale states are explicit; upcoming table documents its ten-date scope.
+- 406 Node / 14 Python / static checks passed. Business writes=0.
+- Browser acceptance BLOCKED: CUA viewport operation then a single recovery getState both timed out after 300s. Do not retry repeatedly or reuse V.369 screenshots as proof. Formal post-deploy desktop/mobile visual acceptance is pending. Temporary viewport override/tab cleanup could not be confirmed.
+
 ## Order deadline workbench 2026-10-15
 
 - Includes overdue unfinished orders alongside upcoming deadlines; one validated date queue drives counts, scopes and cards. Actual V.368 baseline: 43 overdue were absent from deadline tab, which showed only 38 upcoming.
