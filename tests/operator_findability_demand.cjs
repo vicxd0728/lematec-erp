@@ -15,6 +15,7 @@ function context(overrides={}){
  vm.runInContext(section('function analyticsIsCompleted(','function analyticsReturnReasonLabel('),ctx);
  vm.runInContext(section('function analyticsShowMoreDemand(){','function analyticsOrderActionPanel('),ctx);
  vm.runInContext(section('function refreshOperationalListRegions(','function renderPicking(){'),ctx);
+ require('./helpers/operational_read_context.cjs')(ctx,html);
  vm.runInContext(section('function inboundListFilters(){','const _resubmitInboundPending='),ctx);
  return ctx;
 }

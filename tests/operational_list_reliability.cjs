@@ -81,6 +81,7 @@ test('picking date choice persists and long lists keep their total while paging'
     renderPickingStatusVisual:()=>'',pickingStatusChip:()=>'',pickingStatusFilterLabel:()=> '全部',isViewOnly:()=>true,
     completedOrderPickingRows:()=>[],TH:()=>'<th>欄</th>',pill:value=>`<span>${escapeHtml(value)}</span>`,escapeHtml,
   });
+  require('./helpers/operational_read_context.cjs')(ctx,html);
   vm.runInContext(section(html,'function applyDateFilterValue(','function getOrderFilters(')+section(html,'function pickingSearchRows(','function isPickingReturnRequest('),ctx);
   let markup=ctx.renderPicking();
   assert.match(markup,/value="1" selected>近1個月/);

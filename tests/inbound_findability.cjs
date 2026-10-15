@@ -20,6 +20,7 @@ function context(rows) {
     escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
     TH: () => '<th>欄</th>', pill: value => `<span>${value}</span>`,
   });
+  require('./helpers/operational_read_context.cjs')(ctx,html);
   vm.runInContext(html.slice(start, end), ctx);
   return ctx;
 }

@@ -19,7 +19,7 @@ test('switching to another module starts at its top', async () => {
       querySelectorAll: () => [],
       getElementById: id => id === 'mainContent' ? content : null,
     },
-    keepActiveNavTabVisible: () => {}, renderTab: () => {},
+    keepActiveNavTabVisible: () => {}, renderTab: () => {}, renderLoadedTab: () => {},
     loadTabData: async () => {}, isEditingNow: () => false, isModalOpen: () => false,
     console, window: {},
   });

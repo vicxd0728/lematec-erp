@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Dual viewport operational UI 2026-10-15 wave 7
+
+- Picking/inbound now distinguish unknown/loading/failed reads from a known empty snapshot. Shared read tracking deduplicates concurrent reads, preserves existing rows on both-source rejection, clears error on retry, and redraws only relevant current modules. Existing Supabase-first / Notion-readonly fallback and mirror repair paths remain intact. During refresh/failure, the two lists retain rows but hide their mutation controls; server transaction handlers and permissions are unchanged.
+- Picking replaces default expanded workflow cards/chart with a compact scoped summary plus a persistent disclosure. Pending-return count and its direct filter stay visible, while row return actions remain in the original results. Desktop toolbar is sticky within the content scroller; mobile toolbar is not sticky and its controls/status chips plus row buttons have >=44px targets.
+- Actual V.364 desktop baseline had search at y~664/results y~726 (CSS viewport 1707). Local actual-renderer synthetic preview verifies mobile geometry only; formal desktop/mobile screenshots, metrics and exact deployed version belong in output/ui-wave7-20261015/. No business-write acceptance should be inferred from UI checks.
+- Eight new behavior regressions cover loading/empty/error, recovery, concurrent reads, fallback, cross-tab completion, read-only stale snapshots and disclosure/urgent access. Existing renderer fixtures explicitly install real read helpers and declare loaded snapshots. Initial full tests exposed absent helper dependencies and an obsolete create-button assertion; updated fixtures/guard assertion, then rerun full gates. Design contract: ERP_UI_WAVE7_REVIEW_2026-10-15.md.
+
 ## Cross-page search / deferred refresh 2026-10-15 wave 6
 
 - V.363 live AI review reproduced lost unsubmitted text after changing order-progress filters and supply sorting. Both now retain separate drafts, block composing Enter, state the applied query/scope, and offer visible resets. Supply reset retains linked-order context and sorting; explicit order navigation clears draft and applied query together.

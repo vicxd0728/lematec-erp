@@ -12,6 +12,7 @@ function inventory(rows,state={}){
 function inbound(rows,canAdd=false){
  const ctx=vm.createContext({window:{},SORT:{},inbounds:rows,mats:[],escapeHtml,document:{getElementById:()=>null},dashboardCanCreateInbound:()=>canAdd,
  applyDateFilterValue:(_v,x)=>x,applySort:(_k,x)=>x,TH:()=>'<th>欄</th>',pill:x=>escapeHtml(x),shortageSourceOrderLink:()=>'',renderTab:()=>{}});
+ require('./helpers/operational_read_context.cjs')(ctx,html);
  vm.runInContext(section('function inboundListFilters()','function openResubmitInbound('),ctx);return ctx;
 }
 test('inventory missing values remain unknown in rows and counters; zero stays zero',()=>{

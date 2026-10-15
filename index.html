@@ -543,6 +543,22 @@ html[data-theme="board"] td{font-size:18px;padding:19px 20px;}
 .panel-hdr{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:rgba(10,15,30,.5);}
 .panel-title{font-size:0.8125rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:7px;}
 .badge{background:rgba(59,130,246,.15);color:var(--blue2);border-radius:12px;padding:2px 8px;font-size:0.625rem;font-weight:700;border:1px solid rgba(59,130,246,.18);}
+.operational-placeholder{padding:24px;min-height:160px}
+.operational-read-notice{margin-bottom:12px;overflow-wrap:anywhere}
+.picking-summary-strip{display:flex;align-items:center;gap:10px 20px;flex-wrap:wrap;padding:12px 15px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;font-size:.8rem}
+.picking-overview-details{margin-bottom:12px;border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.picking-overview-details>summary{cursor:pointer;color:var(--text2);font-size:.8rem;min-height:28px;display:flex;align-items:center}
+.picking-overview-details>summary::before{content:'▸';margin-right:8px}
+.picking-overview-details[open]>summary::before{content:'▾'}
+.picking-overview-details[open]>summary{margin-bottom:12px}
+@media(min-width:641px){.operational-toolbar{position:sticky;top:0;z-index:8;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:10px}}
+@media(max-width:640px){
+  .operational-toolbar{gap:8px!important;flex-wrap:wrap}
+  .operational-toolbar .inp,.operational-toolbar .btn,.operational-toolbar .filter-chip,.operational-results .btn,.operational-read-notice .btn,.picking-summary-strip .btn{min-height:44px}
+  .operational-toolbar input{max-width:100%}
+  .picking-summary-strip{gap:8px 14px}
+  .picking-overview-details>summary{min-height:44px;line-height:1.5}
+}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--cyan) rgba(255,255,255,.05);padding-bottom:8px;}
 .table-wrap::-webkit-scrollbar{height:10px;}
 .table-wrap::-webkit-scrollbar-track{background:rgba(255,255,255,.05);border-radius:999px;}
@@ -8493,7 +8509,38 @@ function mapSupabasePick(row){
     })),
   };
 }
-async function loadPicks(){
+function operationalReadState(scope,rows){
+  const state=window._operationalReads?.[scope]||{};
+  return {...state,ready:!!window['_'+scope+'Loaded']||rows.length>0};
+}
+function trackOperationalRead(scope,read){
+  window._operationalReads=window._operationalReads||{};
+  const prior=window._operationalReads[scope];
+  if(prior?.promise)return prior.promise;
+  const state=window._operationalReads[scope]={loading:true,error:''};
+  const redraw=()=>{
+    if((scope==='picks'&&CURRENT_TAB==='picking')||(scope==='inbounds'&&['inbound','qc','ops'].includes(CURRENT_TAB)))renderLoadedTab(CURRENT_TAB);
+  };
+  redraw();
+  state.promise=Promise.resolve().then(read).catch(error=>{
+    state.error=error?.message||String(error);throw error;
+  }).finally(()=>{state.loading=false;state.promise=null;redraw();});
+  return state.promise;
+}
+function loadPicks(){return trackOperationalRead('picks',readPicks);}
+function renderOperationalReadNotice(scope,label,state){
+  if(!state.loading&&!state.error)return '';
+  return `<div class="info-warn operational-read-notice" role="${state.error?'alert':'status'}">${state.error?`${label}清單更新失敗：${escapeHtml(state.error)}。${state.ready?'以下保留上次資料，更新成功前暫停此頁寫入操作。':'尚無可用資料，不代表沒有紀錄。'}`:`${label}清單載入中…${state.ready?'以下為上次資料，請等待更新完成。':'完成後才會顯示筆數。'}`}${!state.loading?` <button type="button" class="btn btn-ghost btn-sm" onclick="retryOperationalRead('${scope}')">重新讀取${label}清單</button>`:''}</div>`;
+}
+function renderOperationalReadPlaceholder(scope,label,state){
+  return `<section class="panel operational-placeholder" aria-busy="${!!state.loading}"><h2>${label}</h2>${renderOperationalReadNotice(scope,label,state)||`<p role="status">${label}資料尚未載入，暫不顯示筆數；這不代表沒有紀錄。</p><button type="button" class="btn btn-blue" onclick="retryOperationalRead('${scope}')">讀取${label}清單</button>`}</section>`;
+}
+async function retryOperationalRead(scope){
+  if(!['picks','inbounds'].includes(scope))return false;
+  try{await (scope==='picks'?loadPicks():loadInbounds());return true;}
+  catch(error){showToast('清單仍無法更新，請稍後重試；現有搜尋條件已保留','err');return false;}
+}
+async function readPicks(){
   try{
     const data=await pickingWorkerRequest('/api/picking/list?limit=5000');
     picks=(data.rows||[]).map(mapSupabasePick);
@@ -8691,7 +8738,8 @@ function mapNotionInbound(p){
     fallback:true,
   };
 }
-async function loadInbounds(){
+function loadInbounds(){return trackOperationalRead('inbounds',readInbounds);}
+async function readInbounds(){
   try{
     const data=await pickingWorkerRequest('/api/inbound/list?limit=10000');
     inbounds=(data.rows||[]).map(mapSupabaseInbound);
@@ -18903,6 +18951,8 @@ function pickingSourceOrderLink(p){
   return (typeof ROLES!=='undefined'&&typeof ROLE!=='undefined'&&ROLES[ROLE]?.tabs.includes('orders')?`<div><button class="btn btn-ghost btn-xs" style="margin-top:5px;white-space:normal;text-align:left" data-order-id="${escapeHtml(p.orderId)}" onclick="openPickingSourceOrder(this.dataset.orderId)">${escapeHtml(label)}</button></div>`:`<div style="font-size:.7rem;color:var(--text3)">${escapeHtml(label)}</div>`)+context;
 }
 function renderPicking(){
+  const readState=operationalReadState('picks',picks);
+  if(!readState.ready)return renderOperationalReadPlaceholder('picks','領料',readState);
   if(!window._PICK_SUB) window._PICK_SUB='auto';
   if(!window._PICK_STATUS) window._PICK_STATUS='all';
   const sub=window._PICK_SUB;
@@ -18921,7 +18971,7 @@ function renderPicking(){
   window._PICK_PAGE=Math.min(Math.max(1,Number(window._PICK_PAGE)||1),pageCount);
   const pageRows=data.slice((window._PICK_PAGE-1)*pageSize,window._PICK_PAGE*pageSize);
   const fallback=window._pickingDataSource==='notion-fallback'||picks.some(p=>p.fallback);
-  const canOperate=!isViewOnly()&&!fallback;
+  const canOperate=!isViewOnly()&&!fallback&&!readState.loading&&!readState.error;
   const returnRequests=scopedAutoData.filter(isPickingReturnRequest);
   const pickedRows=scopedAutoData.filter(isPickingPicked);
   const reversedRows=scopedAutoData.filter(isPickingReversed);
@@ -18963,7 +19013,8 @@ function renderPicking(){
     <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
-  return _notionBar + '<div id="pickingReadNotice">' + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + tabs + '<div id="pickingOverview">'+workflowBoard + (sub==='auto'?renderPickingStatusVisual(scopedAutoData):'') + `</div><div class="filter-bar">
+  const overview=sub==='auto'?`<div class="picking-summary-strip" aria-label="目前搜尋範圍領料摘要"><strong>領料作業</strong><span>待回料 ${returnRequests.length}</span><span>缺料待補 ${shortageRows.length}</span><span>已領料 ${pickedRows.length}</span>${returnRequests.length?'<button type="button" class="btn btn-yellow btn-sm" onclick="setPickingView(\'auto\',\'return\',true)">查看待回料確認</button>':''}</div><details class="picking-overview-details" ${window._pickingOverviewOpen?'open':''} ontoggle="window._pickingOverviewOpen=this.open"><summary>回料流程說明與領料狀態圖（展開查閱）</summary>${workflowBoard}${renderPickingStatusVisual(scopedAutoData)}</details>`:'';
+  return _notionBar + '<div id="pickingReadNotice">' + renderOperationalReadNotice('picks','領料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + tabs + '<div id="pickingOverview">'+overview + `</div><div class="filter-bar operational-toolbar">
     <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶或備註" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updatePickingSearch(this)">
     <button class="btn btn-ghost btn-xs" onclick="resetPickingFilters()">清除篩選</button>
     <span class="filter-label">時間：</span>
@@ -18977,7 +19028,7 @@ function renderPicking(){
     ${pickingStatusChip('other','其他狀態',statusFilter,otherRows.length)}`:''}</div>
     <span id="pickingCreateAction">${sub==='manual'&&canOperate?`<button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="openManualPickModal()">＋ 建立臨時領料單</button>`:''}</span>
   </div>
-  <div id="pickingResults">
+  <div id="pickingResults" class="operational-results">
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="setPickingView('auto','all',true)">顯示全部領料</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${picks.length} 筆 · 符合 ${data.length} 筆 · 第 ${window._PICK_PAGE}/${pageCount} 頁；搜尋限已載入資料</span></div>
   ${data.length?`<div class="order-mobile-sort"><label for="pickingMobileSort">排序</label><select class="inp" id="pickingMobileSort" onchange="setPickingMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.picking?'selected':''}>原始順序</option>${[['no','領料單號'],['product',sub==='manual'?'用途／備註':'成品'],['qty','數量'],['date','日期'],['status','狀態']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.picking?.col===key&&SORT.picking?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div>`:''}
@@ -19073,9 +19124,11 @@ function setInboundMobileSort(value){
   renderTab('inbound');
 }
 function renderInbound(){
+  const readState=operationalReadState('inbounds',inbounds);
+  if(!readState.ready)return renderOperationalReadPlaceholder('inbounds','入料',readState);
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/cff100a4ddcd4bdab8d757d44c4b3ce4" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📥 入料單</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const fallback=window._inboundDataSource==='notion-fallback'||inbounds.some(i=>i.fallback);
-  const canAdd=dashboardCanCreateInbound()&&!fallback;
+  const canAdd=dashboardCanCreateInbound()&&!fallback&&!readState.loading&&!readState.error;
   const filters=inboundListFilters();
   const dateVal=filters.date||'6';
   const data=applySort('inbound',filterInboundRows(inbounds,filters));
@@ -19084,7 +19137,7 @@ function renderInbound(){
   const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
   const scoped=filterInboundRows(inbounds,{...filters,status:'all'});
   const quickStatuses=[['all','全部'],['pending','待品檢／入庫'],['stocked','已入庫'],['returned','品檢退回']];
-  return _notionBar + '<div id="inboundReadNotice">' + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+  return _notionBar + '<div id="inboundReadNotice">' + renderOperationalReadNotice('inbounds','入料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + `<div class="operational-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updateInboundSearch(this)">
       <button class="btn btn-ghost btn-xs" onclick="resetInboundFilters()">清除篩選</button>
@@ -19094,7 +19147,7 @@ function renderInbound(){
     <span id="inboundCreateAction">${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}</span>
   </div>
   <div id="inboundStatusCounts" class="filter-bar" aria-label="入料狀態統計">${quickStatuses.map(([value,label])=>`<button class="filter-chip ${filters.status===value?'active':''}" onclick="setInboundStatus('${value}')">${label} ${value==='all'?scoped.length:filterInboundRows(scoped,{q:'',date:'0',status:value}).length}</button>`).join('')}<span style="font-size:.7rem;color:var(--text3)">依目前搜尋與日期統計；點擊篩選</span></div>
-  <div id="inboundResults">
+  <div id="inboundResults" class="operational-results">
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="inbound-mobile-sort"><label for="inboundMobileSort">排序</label><select class="inp" id="inboundMobileSort" onchange="setInboundMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.inbound?'selected':''}>原始順序</option>${[['no','入料單號'],['qty','數量'],['supplier','供應商'],['date','日期'],['qcStatus','品管'],['stStatus','入庫']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.inbound?.col===key&&SORT.inbound?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap"><table class="inbound-list-table">
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>

@@ -12,6 +12,7 @@ function context(overrides={}){
     ORDER_RETURN_REQUEST_STATUS:'待回料確認',TH:()=>'<th>欄</th>',pill:escapeHtml,
     completedOrderPickingRows:()=>[],dashboardCanCreateInbound:()=>true,shortageSourceOrderLink:()=>'',
     ...overrides});
+  require('./helpers/operational_read_context.cjs')(ctx,html);
   vm.runInContext(section('function pickingVisualStage(p){','const _resubmitInboundPending='),ctx);
   vm.runInContext(section('function goToOrderPickingRows(orderId){','function canConfirmOrderReturnRequest(){'),ctx);
   // Chart renderer is outside this module; the tested list behavior does not depend on its HTML.
@@ -47,4 +48,24 @@ test('fallback inbound does not offer resubmission and shows the exact SKU',()=>
 test('primary inbound retains normal authorized resubmission',()=>{
   const ctx=context({window:{_inboundDataSource:'supabase'},inbounds:[{id:'i',no:'IN-1',matCode:'Y-PART',qcStatus:'品檢不合格',stStatus:'退回供應商',supabaseId:'receipt'}]});
   assert.match(ctx.renderInbound(),/onclick="openResubmitInbound\('i'\)/);
+});
+
+test('unknown picking snapshot shows load state and a known empty snapshot shows genuine empty state',()=>{
+  const ctx=context();delete ctx.window._picksLoaded;
+  assert.match(ctx.renderPicking(),/尚未載入/);assert.doesNotMatch(ctx.renderPicking(),/已載入 0|尚無訂單領料記錄/);
+  ctx.window._picksLoaded=true;assert.match(ctx.renderPicking(),/尚無訂單領料記錄/);
+});
+test('failed or refreshing snapshots retain rows but suppress picking and inbound write controls',()=>{
+  const ctx=context({window:{_PICK_SUB:'manual'},picks:[{id:'p',no:'P',status:'待領料',qty:1}],inbounds:[{id:'i',no:'IN-1',qcStatus:'品檢不合格',stStatus:'退回供應商'}]});
+  for(const state of [{loading:true,error:''},{loading:false,error:'network error'}]){
+    ctx.window._operationalReads={picks:state,inbounds:state};
+    const pick=ctx.renderPicking(),inbound=ctx.renderInbound();assert.match(pick,/>P</);assert.match(inbound,/IN-1/);
+    assert.doesNotMatch(pick,/onclick="openManualPickModal|onclick="completeManualPick/);assert.doesNotMatch(inbound,/onclick="openResubmitInbound|onclick="openModal\('newInbound/);
+  }
+  ctx.window._operationalReads={};assert.match(ctx.renderPicking(),/onclick="openManualPickModal/);assert.match(ctx.renderInbound(),/onclick="openResubmitInbound/);
+});
+test('compact overview keeps urgent return access visible and preserves the disclosure choice',()=>{
+  const ctx=context({picks:[{id:'p',no:'P',orderId:'order',status:'待回料確認',qty:1}]});
+  let out=ctx.renderPicking();assert.match(out,/待回料 1/);assert.match(out,/查看待回料確認/);assert.doesNotMatch(out,/<details class="picking-overview-details" open/);
+  ctx.window._pickingOverviewOpen=true;out=ctx.renderPicking();assert.match(out,/<details class="picking-overview-details" open/);assert.match(out,/pickingResults/);
 });
