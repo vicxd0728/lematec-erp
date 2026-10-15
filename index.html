@@ -17157,9 +17157,10 @@ function renderOrders(){
       box-shadow:${OSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
   </div>`;
 
-  if(OSUB==='list') return _renderOrdersList(tabs, soonOrders);
-  if(OSUB==='deadline') return _renderDeadlineTab(tabs, soonOrders, warnDays);
-  return _renderOrderCalendar(tabs);
+  const navigation=tabs+'<div class="order-source-links" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><a class="btn btn-ghost btn-sm" href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" rel="noopener noreferrer" aria-label="開啟 Notion ERP 訂單">📋 ERP 訂單 ↗</a></div>';
+  if(OSUB==='list') return _renderOrdersList(navigation, soonOrders);
+  if(OSUB==='deadline') return _renderDeadlineTab(navigation, soonOrders, warnDays);
+  return _renderOrderCalendar(navigation);
 }
 
 function orderCustomerLabel(o){
@@ -17225,7 +17226,6 @@ function setOrderMobileSort(value){
   SORT.orders={col,dir,type:'str'};renderTab('orders');
 }
 function _renderOrdersList(tabs, soonOrders=[]){
-  const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📋 ERP 客戶訂單</a><a href="https://www.notion.so/276ff6f424bb807cbac2e8c68c788a7e" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🗺️ 115年貿易商</a><a href="https://www.notion.so/19fff6f424bb80feb265c62fa39c814c" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🌍 國外客戶總檔</a></div>';;
   const canAdd=dashboardCanCreateOrder();
   const canOperate=!isViewOnly();
   
@@ -17286,7 +17286,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
     ${filters.deadline==='overdue'?`<button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button>`:`<button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>`}
   </div>`;
 
-  return `<div class="order-workbench">${orderBrief}${tabs}<details class="pick-disclosure"><summary>資料來源與原始記錄</summary>${_notionBar}</details><div class="order-action-panel">
+  return `<div class="order-workbench">${orderBrief}${tabs}<div class="order-action-panel">
     <div class="order-action-head">
       <div>
         <div class="panel-title">訂單作業</div>
