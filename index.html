@@ -1071,6 +1071,17 @@ td{font-size:16px;padding:16px 17px;}
   .order-list-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
   .order-list-table .order-work-hint{max-width:100%;min-width:0}
   .order-list-table .order-row-actions{min-width:0}
+  .picking-list-table,.picking-list-table tbody{display:block;width:100%;min-width:0!important}
+  .picking-list-table tr{display:grid;grid-template-columns:1fr;gap:10px;padding:16px;border-bottom:1px solid var(--border)}
+  .picking-list-table tr:first-child{display:none}
+  .picking-list-table td{display:block;padding:0!important;white-space:normal!important;min-width:0;overflow-wrap:anywhere;border:0!important}
+  .picking-list-table td.hide-m{display:none!important}
+  .picking-list-table .m-only{display:block!important}
+  .picking-list-table td::before{display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
+  .picking-list-table td:nth-child(1)::before{content:'領料單號'}
+  .picking-list-table td:nth-child(3)::before{content:'數量'}
+  .picking-list-table td:nth-child(5)::before{content:'狀態'}
+  .picking-list-table td:nth-child(6)::before{content:'操作'}
   .inbound-mobile-sort{display:flex;gap:8px;align-items:center;padding:12px;flex-wrap:wrap}
   .inbound-list-table,.inbound-list-table tbody{display:block;width:100%;min-width:0!important}
   .inbound-list-table tr{display:grid;grid-template-columns:1fr;gap:8px;padding:16px;border-bottom:1px solid var(--border)}
@@ -18933,7 +18944,7 @@ function renderPicking(){
   ${sub==='auto'&&focusOrder?`<div class="source-strip" style="margin-bottom:12px"><span><b>已自動定位相關領料單</b>：目前只顯示這張訂單的領料紀錄，回料沖銷後即可回訂單修改或刪除。</span><button class="btn btn-ghost btn-xs" onclick="setPickingView('auto','all',true)">顯示全部領料</button></div>`:''}
   <div class="panel"><div class="panel-hdr"><span class="panel-title">${sub==='manual'?'臨時補料單':'訂單領料主單'} <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${picks.length} 筆 · 符合 ${data.length} 筆 · 第 ${window._PICK_PAGE}/${pageCount} 頁；搜尋限已載入資料</span></div>
   ${data.length?`<div class="order-mobile-sort"><label for="pickingMobileSort">排序</label><select class="inp" id="pickingMobileSort" onchange="setPickingMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.picking?'selected':''}>原始順序</option>${[['no','領料單號'],['product',sub==='manual'?'用途／備註':'成品'],['qty','數量'],['date','日期'],['status','狀態']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.picking?.col===key&&SORT.picking?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div>`:''}
-  ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整搜尋、日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetPickingFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table>
+  ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整搜尋、日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetPickingFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table class="picking-list-table">
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
   ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}${pickingSourceOrderLink(p)}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
