@@ -543,6 +543,20 @@ html[data-theme="board"] td{font-size:18px;padding:19px 20px;}
 .panel-hdr{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:rgba(10,15,30,.5);}
 .panel-title{font-size:0.8125rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:7px;}
 .badge{background:rgba(59,130,246,.15);color:var(--blue2);border-radius:12px;padding:2px 8px;font-size:0.625rem;font-weight:700;border:1px solid rgba(59,130,246,.18);}
+.qc-pending-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.qc-pending-toolbar .inp{flex:1;min-width:200px}
+.qc-pending-scope{width:100%;color:var(--text3);font-size:.75rem;line-height:1.6}
+.qc-material-context{color:var(--text3);font-size:.72rem;margin-top:4px}
+.qc-work-table td{overflow-wrap:anywhere}
+@media(max-width:640px){
+  .qc-work-table,.qc-work-table tbody{display:block;width:100%;min-width:0!important}
+  .qc-work-table tr{display:grid;grid-template-columns:1fr;gap:12px;padding:16px;border-bottom:1px solid var(--border)}
+  .qc-work-table tr:first-child{display:none}
+  .qc-work-table td{display:block;padding:0!important;white-space:normal!important;border:0!important;min-width:0}
+  .qc-work-table td::before{content:attr(data-label);display:block;color:var(--text3);font-size:.72rem;margin-bottom:4px}
+  .qc-pending-results .btn,.qc-pending-toolbar .btn,.qc-pending-toolbar .inp{min-height:44px!important}
+  .qc-work-table input[type="checkbox"]{width:28px;height:28px;margin:8px}
+}
 .operational-placeholder{padding:24px;min-height:160px}
 .operational-read-notice{margin-bottom:12px;overflow-wrap:anywhere}
 .picking-summary-strip{display:flex;align-items:center;gap:10px 20px;flex-wrap:wrap;padding:12px 15px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;font-size:.8rem}
@@ -23324,6 +23338,34 @@ function setQCDateRange(days){
   }else if(CURRENT_TAB==='qc')renderTab('qc');
 }
 
+function qcPendingSearchState(kind){
+  const states=window._qcPendingSearch||(window._qcPendingSearch={});
+  return states[kind]||(states[kind]={q:'',draft:''});
+}
+function applyQCPendingSearch(kind,clear=false){
+  if(!['inbound','orders'].includes(kind))return;
+  if(kind==='inbound'&&document.getElementById('qcBatchProgress')?.textContent?.trim()){
+    showToast('批量品檢仍在處理或更新資料，請先等待完成再切換搜尋','warn');return;
+  }
+  const state=qcPendingSearchState(kind),input=document.getElementById('qcPendingSearch-'+kind);
+  state.draft=clear?'':String(input?.value??state.draft);state.q=state.draft.trim();
+  if(CURRENT_TAB==='qc')renderTab('qc');
+}
+function qcPendingRows(kind,rows){
+  const q=qcPendingSearchState(kind).q.toLocaleLowerCase();
+  if(!q)return rows;
+  return rows.filter(row=>{
+    const mat=mats.find(m=>m.id===(row.matId||row.productId))||{};
+    return [row.no,row.matCode,row.matName,mat.code,mat.name,row.supplier,row.cust,row.customer,row.product,kind==='orders'?orderProductName(row):''].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+  });
+}
+function renderQCPendingToolbar(kind,count,total){
+  const state=qcPendingSearchState(kind),label=kind==='inbound'?'單號、料號、名稱或供應商':'訂單號、客戶或品項';
+  return `<div class="operational-toolbar qc-pending-toolbar"><label for="qcPendingSearch-${kind}">搜尋待檢${kind==='inbound'?'入料':'訂單'}</label><input class="inp" id="qcPendingSearch-${kind}" aria-label="搜尋待檢${kind==='inbound'?'入料':'訂單'}" placeholder="${label}" value="${escapeHtml(state.draft)}" oninput="qcPendingSearchState('${kind}').draft=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;qcPendingSearchState('${kind}').draft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing&&!this._composing){event.preventDefault();applyQCPendingSearch('${kind}')}"><button type="button" class="btn btn-blue btn-sm" onclick="applyQCPendingSearch('${kind}')">搜尋</button><button type="button" class="btn btn-ghost btn-sm" onclick="applyQCPendingSearch('${kind}',true)">清除搜尋</button><span class="qc-pending-scope" aria-live="polite">已套用：${escapeHtml(state.q||'全部')} · 符合 ${count}／已載入待檢 ${total} 筆。${kind==='inbound'?'先查詢再勾選；套用搜尋會清除目前勾選。':''}</span></div>`;
+}
+function qcPendingEmpty(kind){
+  return `<div class="loading-row" role="status">目前沒有符合搜尋的待檢${kind==='inbound'?'入料':'訂單'}；不代表沒有其他待辦。<button type="button" class="btn btn-ghost btn-sm" onclick="applyQCPendingSearch('${kind}',true)">清除搜尋並查看全部待檢</button></div>`;
+}
 function qcHistorySearchState(){
   return window._qcHistorySearch=window._qcHistorySearch||{q:'',draft:''};
 }
@@ -23352,11 +23394,18 @@ function renderQCTab(){
   </div>`;
 
   const canQC = !isViewOnly()&&(ROLE==='qc'||isAdminRole());
+  const inboundState=operationalReadState('inbounds',inbounds);
+  const ordersReady=!!window._coreLoaded||orders.length>0;
+  const inboundFallback=window._inboundDataSource==='notion-fallback'||inbounds.some(i=>i.fallback);
+  const canInboundQC=canQC&&inboundState.ready&&!inboundState.loading&&!inboundState.error&&!inboundFallback;
 
   // ── 資料源（清楚分開）──
   const pendingInbound  = inbounds.filter(i=>i.qcStatus==='待品檢');          // 入料待品檢
   const doneInbound     = inbounds.filter(i=>i.qcStatus!=='待品檢');          // 入料已檢測
   const pendingOrders   = getInspectionOrders();                               // 訂單待檢驗（狀態=待檢驗 或 品檢異常）
+  const pendingInboundCount=inboundState.ready?pendingInbound.length:'待載入';
+  const pendingOrderCount=ordersReady?pendingOrders.length:'待載入';
+  const pendingTotalCount=inboundState.ready&&ordersReady?pendingInbound.length+pendingOrders.length:'待載入';
   const allInspections  = window._qcInspections||[];
   const qcRangeLabel=QC_DATE==='0'?'全部紀錄':`近 ${qcInspectionRangeDays()} 天`;
   const qcLoadLabel=qcLoadTimeLabel();
@@ -23367,9 +23416,9 @@ function renderQCTab(){
       <p>先選入料或訂單檢驗處理待辦；查詢已完成檢驗請使用歷史紀錄／報表。</p>
     </div>
     <div class="module-brief-actions">
-      <span class="module-pill">待處理 <b>${pendingInbound.length+pendingOrders.length}</b></span>
-      <span class="module-pill">入料 <b>${pendingInbound.length}</b></span>
-      <span class="module-pill">訂單 <b>${pendingOrders.length}</b></span>
+      <span class="module-pill">待處理 <b>${pendingTotalCount}</b></span>
+      <span class="module-pill">入料 <b>${pendingInboundCount}</b></span>
+      <span class="module-pill">訂單 <b>${pendingOrderCount}</b></span>
       <span class="module-pill">載入 <b>${qcLoadLabel}</b></span>
       <span class="module-pill">歷史範圍 <b>${qcRangeLabel}</b></span>
     </div>
@@ -23385,8 +23434,8 @@ function renderQCTab(){
   // 3. 檢驗單：所有品管記錄（分入料/訂單）
   // 4. 已檢測：入料歷史
   const tabs=`<div class="qc-tabs" style="margin-bottom:12px">
-    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">⚡ 待處理<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span><small>入料</small></button>
-    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span><small>待檢驗</small></button>
+    <button class="qc-tab${QC_SUB==='pending'?' active':''}" onclick="selectQCSub('pending')">⚡ 待處理<span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInboundCount}</span><small>入料</small></button>
+    <button class="qc-tab${QC_SUB==='order_qc'?' active':''}" onclick="selectQCSub('order_qc')">📋 訂單檢驗<span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrderCount}</span><small>待檢驗</small></button>
     <button class="qc-tab${QC_SUB==='inspect'?' active':''}" onclick="selectQCSub('inspect')">📥 入料檢驗<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">${_qcInspectionsLoading?'讀取中':_qcInspectionsError?'讀取失敗':!qcInspectionsReady()?'未載入':allInspections.length}</span><small>含歷史</small></button>
     <button class="qc-tab${QC_SUB==='report'?' active':''}" onclick="selectQCSub('report')">📈 歷史紀錄/報表${_qcInspectionsLoading?'<span class="badge" style="background:rgba(77,142,245,.12);color:var(--blue)">讀取中</span>':''}<small>${qcRangeLabel}</small></button>
   </div>`;
@@ -23395,29 +23444,33 @@ function renderQCTab(){
   // tab 1：入料待品檢（原有功能）
   // ══════════════════════════════
   if(QC_SUB==='pending'){
-    if(!pendingInbound.length) return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有入料待品檢項目</div></div>`;
-    return qcBrief+_notionBar+tabs+`<div class="panel">
+    if(!inboundState.ready)return qcBrief+_notionBar+tabs+renderOperationalReadPlaceholder('inbounds','入料待品檢',inboundState);
+    const notice=renderOperationalReadNotice('inbounds','入料',inboundState)+(inboundFallback?'<div class="info-warn" role="status">目前為 Notion 唯讀備援，通過／退回／批量操作暫停；請先恢復正式入料資料。</div>':'');
+    const rows=qcPendingRows('inbound',applySort('qcp',pendingInbound)),toolbar=renderQCPendingToolbar('inbound',rows.length,pendingInbound.length);
+    if(!pendingInbound.length) return qcBrief+_notionBar+tabs+notice+toolbar+`<div class="panel operational-results qc-pending-results"><div style="padding:28px;text-align:center;color:var(--text3)">${inboundState.loading||inboundState.error||inboundFallback?'目前快照沒有待檢項目，最新正式狀態仍須確認。':'✅ 目前已載入資料沒有入料待品檢項目'}</div></div>`;
+    if(!rows.length)return qcBrief+_notionBar+tabs+notice+toolbar+qcPendingEmpty('inbound');
+    return qcBrief+_notionBar+tabs+notice+toolbar+`<div class="panel operational-results qc-pending-results">
       <div class="panel-hdr" style="gap:10px;flex-wrap:wrap">
         <span class="panel-title">📥 入料待品檢</span>
-        <span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${pendingInbound.length}</span>
-        ${canQC?`<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="badge" style="background:rgba(245,185,66,.15);color:var(--yellow)">${rows.length}</span>
+        ${canInboundQC?`<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span id="qcBatchCount" style="font-size:.78rem;color:var(--text2)">尚未選取</span>
           <button class="btn btn-green btn-sm" id="qcBatchPassBtn" onclick="batchApproveInboundQC()" disabled>✓ 批量通過</button>
           <span id="qcBatchProgress" style="font-size:.72rem;color:var(--text3)"></span>
         </div>`:''}
       </div>
-      ${canQC?`<div class="help-box" style="margin:0 12px 10px">大量入料請勾選後使用「批量通過」，系統會逐筆入庫、寫入品管與庫存異動紀錄，避免快速連點造成 Notion 限流。</div>`:''}
-      <div class="table-wrap"><table>
-        <tr>${canQC?`<th style="width:42px"><input type="checkbox" onchange="toggleQCBatchInboundAll(this)"></th>`:''}${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str','hide-m')}<th>操作</th></tr>
-        ${applySort('qcp',pendingInbound).map(i=>{
-          const mat=mats.find(m=>m.id===i.matId);
+      ${canInboundQC?`<div class="help-box" style="margin:0 12px 10px">大量入料請勾選後使用「批量通過」，系統會逐筆入庫、寫入品管與庫存異動紀錄，避免快速連點造成 Notion 限流。</div>`:''}
+      <div class="table-wrap"><table class="qc-work-table">
+        <tr>${canInboundQC?`<th style="width:42px"><input type="checkbox" onchange="toggleQCBatchInboundAll(this)"></th>`:''}${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str')}<th>操作</th></tr>
+        ${rows.map(i=>{
+          const mat=mats.find(m=>m.id===i.matId)||{},code=i.matCode||mat.code||i.matName||mat.name||'—';
           return `<tr>
-            ${canQC?`<td><input type="checkbox" class="qc-inbound-batch" value="${i.id}" onchange="updateQCBatchButton()"></td>`:''}
-            <td style="font-family:monospace;font-size:0.6875rem">${i.no}</td>
-            <td style="font-size:0.6875rem">${mat?.name||'—'}</td>
-            <td style="font-family:monospace">${i.qty}</td>
-            <td class="hide-m" style="font-size:0.6875rem">${i.date||'—'}</td>
-            <td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${canInboundQC?`<td data-label="選取"><input aria-label="選取 ${escapeHtml(i.no||'入料單')}" type="checkbox" class="qc-inbound-batch" value="${i.id}" onchange="updateQCBatchButton()"></td>`:''}
+            <td data-label="入料單號" style="font-family:monospace">${escapeHtml(i.no||'—')}</td>
+            <td data-label="料號／名稱"><strong>${escapeHtml(code)}</strong><div>${escapeHtml(i.matName||mat.name||'')}</div><div class="qc-material-context">供應商：${escapeHtml(i.supplier||'未填')}</div></td>
+            <td data-label="數量">${escapeHtml(i.qty??'—')}</td>
+            <td data-label="日期">${escapeHtml(i.date||'未填')}</td>
+            <td data-label="操作">${canInboundQC?`<div style="display:flex;gap:4px;flex-wrap:wrap">
               <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button>
               <button class="btn btn-red btn-sm" onclick="openInboundRejectModal('${i.id}')">✗ 退回</button>
               <button class="btn btn-cyan btn-sm" onclick="openInboundPhotoQC('${i.id}','${i.matId}',${i.qty})">📷 拍照品檢</button>
@@ -23448,21 +23501,24 @@ function renderQCTab(){
   // tab 2：訂單待檢驗（只有訂單）
   // ══════════════════════════════
   if(QC_SUB==='order_qc'){
-    if(!pendingOrders.length) return qcBrief+_notionBar+tabs+`<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有訂單待檢驗</div></div>`;
-    return qcBrief+_notionBar+tabs+`<div class="panel">
-      <div class="panel-hdr"><span class="panel-title">📋 訂單待檢驗</span><span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${pendingOrders.length}</span></div>
-      <div class="table-wrap"><table>
+    if(!ordersReady)return qcBrief+_notionBar+tabs+'<div class="info-warn" role="status">訂單資料尚未載入，暫不顯示待檢筆數；請等待或使用右上角同步。</div>';
+    const rows=qcPendingRows('orders',pendingOrders),toolbar=renderQCPendingToolbar('orders',rows.length,pendingOrders.length);
+    if(!pendingOrders.length) return qcBrief+_notionBar+tabs+toolbar+`<div class="panel operational-results qc-pending-results"><div style="padding:28px;text-align:center;color:var(--text3)">✅ 目前沒有訂單待檢驗</div></div>`;
+    if(!rows.length)return qcBrief+_notionBar+tabs+toolbar+qcPendingEmpty('orders');
+    return qcBrief+_notionBar+tabs+toolbar+`<div class="panel operational-results qc-pending-results">
+      <div class="panel-hdr"><span class="panel-title">📋 訂單待檢驗</span><span class="badge" style="background:rgba(168,85,247,.12);color:var(--purple,#a855f7)">${rows.length}</span></div>
+      <div class="table-wrap"><table class="qc-work-table">
         <tr><th>訂單號</th><th>客戶</th><th>品項</th><th>數量</th><th>狀態</th><th>操作</th></tr>
-        ${pendingOrders.map(o=>{
+        ${rows.map(o=>{
           const isFail = o.status==='品檢異常';
           return `<tr>
-            <td style="font-family:monospace;font-size:0.6875rem">${o.no}</td>
-            <td style="font-size:0.6875rem">${o.cust||'—'}</td>
-            <td style="font-size:0.6875rem">${orderProductName(o)}</td>
-            <td style="font-family:monospace">${o.qty||'—'}</td>
-            <td><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.12)':'rgba(168,85,247,.12)'};color:${isFail?'#ef4444':'var(--purple,#a855f7)'}">${o.status}</span></td>
-            <td>${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap">
-              <button class="btn btn-purple btn-sm" onclick="openInspectionModal('${o.id}','${o.no}')">📋 開立檢驗單</button>
+            <td data-label="訂單號">${escapeHtml(o.no||'—')}</td>
+            <td data-label="客戶">${escapeHtml(o.customer||o.cust||'—')}</td>
+            <td data-label="品項">${escapeHtml(orderProductName(o))}</td>
+            <td data-label="數量">${escapeHtml(o.qty??'—')}</td>
+            <td data-label="狀態"><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.12)':'rgba(168,85,247,.12)'};color:${isFail?'#ef4444':'var(--purple,#a855f7)'}">${escapeHtml(o.status)}</span></td>
+            <td data-label="操作">${canQC?`<div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-purple btn-sm" data-order-id="${escapeHtml(o.id)}" data-order-no="${escapeHtml(o.no||'')}" onclick="openInspectionModal(this.dataset.orderId,this.dataset.orderNo)">📋 開立檢驗單</button>
               <a href="https://www.notion.so/${o.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">🔗</a>
             </div>`:'—'}</td>
           </tr>`;

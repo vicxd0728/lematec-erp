@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Common QC workbench 2026-10-15
+
+- User deprioritized the little-used customer page; its exploratory code was withdrawn and never deployed. This round targets frequent inbound/order QC work. V.366 live initial QC showed green no-pending text before inbound load. Header badges and pending screens now separate unknown from loaded zero; failed/loading snapshots are labeled, and inbound approval controls are unavailable on Notion fallback or incomplete refresh. Server transaction handlers, roles, source models and stock rules remain unchanged.
+- Inbound and order pending queues gain separate draft/applied searches (Enter/button, composition guards, scoped counts, reset). Inbound matches number/SKU/name/supplier and resolves material IDs; order matches number/customer/product. No keystroke API reads. Applying inbound search while existing batch progress is displayed is blocked; applying a query otherwise clears DOM checkbox selection, disclosed in the toolbar.
+- Desktop keeps tables, exact inbound SKU/name/supplier and sticky query controls. Mobile uses labeled cards retaining quantities/dates/status/actions with 44px controls. Order customer labels prefer customer then legacy cust; text is escaped, and the open-inspection order number is passed through escaped data attributes. The original confirmation and write functions remain the authority.
+- Nine new behavior cases cover unknown/zero/failure, query independence, resolved fields, safe text, role/fallback/update guards, composition and batch-progress preservation. Complete 397 Node / 14 Python plus static checks; synthetic actual-renderer mobile at CSS434 has no internal overflow and all approval/search buttons44px. Actual formal queue is empty; never claim a production approval or populated live card was tested. Evidence/design in ERP_QC_WORKBENCH_REVIEW_2026-10-15.md and output/ui-common-qc-20261015/.
+
 ## Dual viewport operational UI 2026-10-15 wave 7
 
 - Picking/inbound now distinguish unknown/loading/failed reads from a known empty snapshot. Shared read tracking deduplicates concurrent reads, preserves existing rows on both-source rejection, clears error on retry, and redraws only relevant current modules. Existing Supabase-first / Notion-readonly fallback and mirror repair paths remain intact. During refresh/failure, the two lists retain rows but hide their mutation controls; server transaction handlers and permissions are unchanged.

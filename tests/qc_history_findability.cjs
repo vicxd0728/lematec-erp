@@ -6,8 +6,9 @@ const end=source.indexOf('function orderAuditLogText(',start);
 const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function context(inspections=[],inbounds=[],options={}){
  let renders=0;
- const ctx=vm.createContext({window:{_qcInspections:inspections},QC_SUB:'inspect',QC_DATE:'0',QC_KIND:'all',QC_FILTER:'all',ROLE:'ai',inbounds,orders:[],mats:[],isViewOnly:()=>true,isAdminRole:()=>false,getInspectionOrders:()=>[],qcInspectionRangeDays:()=>30,qcLoadTimeLabel:()=> '已載入',qcInspectionsReady:()=>true,_qcInspectionsLoading:false,_qcInspectionsError:'',escapeHtml,applySort:(_k,rows)=>rows,document:{getElementById:()=>null},renderTab:()=>renders++,...options});
- vm.runInContext(source.slice(start,end),ctx);return {ctx,renders:()=>renders};
+ const ctx=vm.createContext({window:{_qcInspections:inspections,_coreLoaded:true},QC_SUB:'inspect',QC_DATE:'0',QC_KIND:'all',QC_FILTER:'all',ROLE:'ai',inbounds,orders:[],mats:[],isViewOnly:()=>true,isAdminRole:()=>false,getInspectionOrders:()=>[],qcInspectionRangeDays:()=>30,qcLoadTimeLabel:()=> '已載入',qcInspectionsReady:()=>true,_qcInspectionsLoading:false,_qcInspectionsError:'',escapeHtml,applySort:(_k,rows)=>rows,document:{getElementById:()=>null},renderTab:()=>renders++,...options});
+ require('./helpers/operational_read_context.cjs')(ctx,source);
+ vm.runInContext(source.slice(source.indexOf('function qcPendingSearchState('),end),ctx);return {ctx,renders:()=>renders};
 }
 test('failure filter excludes passed legacy inbound supplements',()=>{
  const {ctx}=context([],[{no:'IB-PASS',qty:1,qcStatus:'品檢通過'},{no:'IB-FAIL',qty:1,qcStatus:'品檢不合格'}],{QC_FILTER:'fail'});
