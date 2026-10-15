@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Picking / inbound search stability 2026-10-15 wave 5
+
+- Browser recovery succeeded after resetting the stale CUA runtime and verifying a fresh AI session. Prior V.361 QC history search was exercised: LE-AN324K returned two records, fail filter zero, clearing retained 30-day scope. Mobile picking baseline showed no product/date or sort control.
+- Picking and inbound text search now use a shared inert-template region updater: picking overview/status counts/results and inbound status counts/results update, while original input remains mounted. Composition blocks partial text filtering until completion. Region validation is all-or-fallback; no partial patch on missing nodes. Reset/date/subtab/status behavior retains existing full-render paths.
+- Picking mobile rows add escaped purpose/product/date beside identity, and expose an allowlisted sort menu including numeric quantity and original order. Source-order navigation, filters/order focus, paging, fallback and operation guards remain. Loaded/result counts are explicit. No stock or role paths change.
+- Six new regression cases; the prior caret test now explicitly tests missing-region fallback with the real updater loaded. Initial full run exposed the test harness missing that helper; corrected harness then full 371 Node tests passed. Static and release Python gates apply. Live acceptance/production version evidence in `output/ui-wave5-20261015/`; never infer real picking/inbound writes from read-only UI acceptance.
+
 ## QC history filters / mobile stock context 2026-10-14 wave 4
 
 - Confirmed by renderer analysis and regression fixtures: legacy inbound supplements ignored pass/fail filters; the deduplication set used only filtered formal inspections, so a filtered-out formal inspection could reappear as a legacy supplement. Supplements now apply result/date/type/query consistently; all loaded formal inbound references suppress duplicate legacy rows.

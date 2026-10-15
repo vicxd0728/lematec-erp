@@ -20,7 +20,7 @@ jobs:
 
       - name: Verify front-end actions and deploy assets
         run: |
-          node --test tests/action_receipts.cjs tests/progress_center.cjs tests/edit_feedback_resubmit.cjs tests/batch_creation_feedback.cjs tests/analytics_quality.cjs tests/picking_navigation.cjs tests/inbound_findability.cjs tests/operational_list_reliability.cjs tests/erp_visuals.cjs tests/operator_findability_demand.cjs tests/leave_print.cjs tests/shopee_transfer.cjs tests/order_workbench_ui.cjs tests/ui_operator_wave2.cjs tests/inventory_input_stability.cjs tests/qc_history_findability.cjs
+          node --test tests/action_receipts.cjs tests/progress_center.cjs tests/edit_feedback_resubmit.cjs tests/batch_creation_feedback.cjs tests/analytics_quality.cjs tests/picking_navigation.cjs tests/inbound_findability.cjs tests/operational_list_reliability.cjs tests/erp_visuals.cjs tests/operator_findability_demand.cjs tests/leave_print.cjs tests/shopee_transfer.cjs tests/order_workbench_ui.cjs tests/ui_operator_wave2.cjs tests/inventory_input_stability.cjs tests/qc_history_findability.cjs tests/operational_search_stability.cjs
           python -m unittest tests.test_daily_erp_quality tests.test_verify_erp_static tests.test_worker_acceptance
           python scripts/verify_erp_static.py
 

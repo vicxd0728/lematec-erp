@@ -7,14 +7,14 @@ const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<
 function context(overrides={}){
  const ctx=vm.createContext({window:{},mats:[],orders:[],inbounds:[],picks:[],ROLE:'AI',ROLES:{AI:{tabs:['orders','picking','inbound']}},
  canonicalPageId:v=>String(v||'').replaceAll('-',''),escapeHtml,document:{getElementById:()=>null},
- renderTab:()=>{},closeModal:()=>{},switchTab:()=>{},showToast:()=>{},setOrderSearchDraft:()=>{},analyticsNum:v=>String(v),
+ renderTab:()=>{},renderPicking:()=>'',closeModal:()=>{},switchTab:()=>{},showToast:()=>{},setOrderSearchDraft:()=>{},analyticsNum:v=>String(v),
  applyDateFilterValue:(_v,rows)=>rows,applySort:(_key,rows)=>rows,TH:()=>'<th>欄</th>',pill:escapeHtml,
  dashboardCanCreateInbound:()=>false,shortageSourceOrderLink:()=>'',isFresh:()=>true,
  isShopeeProductionOrder:o=>o.orderType==='shopee',isSfgProductionOrder:o=>o.orderType==='sfg',
  ...overrides});
  vm.runInContext(section('function analyticsIsCompleted(','function analyticsReturnReasonLabel('),ctx);
  vm.runInContext(section('function analyticsShowMoreDemand(){','function analyticsOrderActionPanel('),ctx);
- vm.runInContext(section('function pickingSearchRows(','function renderPicking(){'),ctx);
+ vm.runInContext(section('function refreshOperationalListRegions(','function renderPicking(){'),ctx);
  vm.runInContext(section('function inboundListFilters(){','const _resubmitInboundPending='),ctx);
  return ctx;
 }
@@ -25,9 +25,9 @@ test('picking search matches source order, customer, parent SKU and picked child
  assert.equal(ctx.pickingSearchRows(rows,'not-found').length,0);
  assert.equal(ctx.pickingSearchRows(rows,' ').length,2);
 });
-test('picking search resets pagination and preserves caret after rendering',()=>{
+test('picking search fallback resets pagination and restores caret when result regions are missing',()=>{
  const input={value:'PK',selectionStart:1},next={focus(){this.focused=true;},setSelectionRange(a,b){this.range=[a,b];}};
- const ctx=context({window:{_PICK_PAGE:3},document:{getElementById:()=>next}});
+ const ctx=context({window:{_PICK_PAGE:3},document:{getElementById:id=>id==='pickingSearch'?next:null}});
  ctx.updatePickingSearch(input);assert.equal(ctx.window._PICK_Q,'PK');assert.equal(ctx.window._PICK_PAGE,1);assert.equal(next.focused,true);assert.deepEqual(next.range,[1,1]);
 });
 test('picking source order lookup resets conflicting filters without writes',()=>{
