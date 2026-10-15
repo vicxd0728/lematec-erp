@@ -5,7 +5,7 @@ const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
 function section(start,end){const a=html.indexOf(start),b=html.indexOf(end,a+start.length);assert(a>=0&&b>a);return html.slice(a,b);}
 const escapeHtml=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 function context(overrides={}){
-  const ctx=vm.createContext({window:{},picks:[],orders:[],inbounds:[],mats:[],escapeHtml,
+  const ctx=vm.createContext({window:{},ROLE:'warehouse',picks:[],orders:[],inbounds:[],mats:[],escapeHtml,
     canonicalPageId:v=>String(v||'').replaceAll('-',''),closeModal:()=>{},switchTab:()=>{},renderTab:()=>{},
     document:{getElementById:()=>null},applySort:(_n,rows)=>rows,applyDateFilterValue:(_v,rows)=>rows,
     isViewOnly:()=>false,canConfirmOrderReturnRequest:()=>true,buildPickingReversalRows:()=>[],

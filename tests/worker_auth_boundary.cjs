@@ -34,6 +34,12 @@ function request(role, token = 'company-test-token', method = 'POST') {
 
 const env = { NOTION_TOKEN: 'company-test-token' };
 
+test('inbound cancellation is authorized separately from QC approval',async()=>{
+ const {context:c}=harness();
+ for(const role of ['warehouse','purchase','vic','manager'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/inbound/cancel','POST'),null);
+ for(const role of ['sales','qc','viewer','ai'])assert.equal((await c.enforceErpRouteRole(request(role),env,{},'/api/inbound/cancel','POST')).status,403);
+});
+
 test('Shopee transfers allow sales without granting picking execution',async()=>{
  const {context:c}=harness();
  for(const role of ['sales','warehouse','purchase','vic','manager'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/shopee/transfer','POST'),null);

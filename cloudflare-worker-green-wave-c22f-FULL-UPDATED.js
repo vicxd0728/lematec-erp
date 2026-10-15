@@ -79,6 +79,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/inbound/create') {
       return erpInboundCreate(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/inbound/cancel') {
+      return erpInboundCancel(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/inbound/action') {
       return erpInboundAction(request, env, cors);
     }
@@ -3493,6 +3496,7 @@ const ERP_ROUTE_ROLES = {
   '/api/inbound/migrate': ['vic', 'manager'],
   '/api/inbound/create': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/inbound/action': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
+  '/api/inbound/cancel': ['vic', 'manager', 'warehouse', 'purchase'],
   '/api/inbound/link-notion': ['vic', 'manager', 'warehouse', 'purchase', 'qc'],
   '/api/supply/write': ['vic', 'manager', 'purchase', 'warehouse'],
   '/api/stock-log/sync': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc'],
@@ -3750,6 +3754,7 @@ async function erpReliabilitySummary(request, env, cors) {
 
 function normalizeInboundStockStatus(value) {
   const status = cleanText(value || '待入庫');
+  if (status === '已取消') return '已取消';
   if (status === '已入庫') return '已入庫';
   if (status === '退回' || status === '退回倉管' || status === '退回供應商') return '退回';
   if (status === '未入庫') return '未入庫';
@@ -3758,7 +3763,7 @@ function normalizeInboundStockStatus(value) {
 
 function normalizeInboundQcStatus(value) {
   const status = cleanText(value || '待品檢');
-  const allowed = new Set(['待品檢', '品檢通過', '品檢不合格', '退回倉管', '退回供應商']);
+  const allowed = new Set(['待品檢', '品檢通過', '品檢不合格', '退回倉管', '退回供應商', '已取消']);
   return allowed.has(status) ? status : '待品檢';
 }
 
@@ -4306,6 +4311,20 @@ async function erpInboundCreate(request, env, cors) {
   }
 }
 
+async function erpInboundCancel(request,env,cors){
+  try{
+    const body=await request.json(),id=cleanText(body.inbound_id),reason=cleanText(body.reason);
+    if(!id||!reason||reason.length>500)return resp400(cors,'請填寫取消原因（1～500字）');
+    const context=await getSupabaseInventoryContext(env);
+    const data=await supabaseFetch(env,'/rest/v1/rpc/cancel_erp_inbound',{method:'POST',body:JSON.stringify({p_organization_id:context.organization.id,p_inbound_id:id,p_role:cleanText(request.headers.get('X-ERP-Role')).toLowerCase(),p_reason:reason})});
+    const result=Array.isArray(data)?data[0]:data;
+    if(!result?.receipt?.id)throw new Error('取消結果無法確認，請重新載入核對');
+    const items=await supabaseAll(env,'/rest/v1/inbound_items?inbound_receipt_id=eq.'+encodeURIComponent(id)+'&select=*');
+    const materialIds=[...new Set(items.map(i=>i.material_id).filter(Boolean))];
+    const materials=materialIds.length?await supabaseAll(env,'/rest/v1/materials?organization_id=eq.'+encodeURIComponent(context.organization.id)+'&id=in.('+materialIds.join(',')+')&select=id,sku,name,material_type,notion_page_id'):[];
+    return respOK(cors,{ok:true,duplicate:result.duplicate,audit:result.audit,row:normalizeInboundRows([result.receipt],items,materials)[0]});
+  }catch(e){return resp500(cors,e.message);}
+}
 async function erpInboundAction(request, env, cors) {
   try {
     const body = await request.json();
@@ -4324,6 +4343,7 @@ async function erpInboundAction(request, env, cors) {
       env,
       `/rest/v1/inbound_items?inbound_receipt_id=eq.${encodeURIComponent(inboundId)}&select=id,material_id,quantity,accepted_quantity,rejected_quantity,inventory_transaction_id,notion_page_id,notes`
     );
+    if (receipt.qc_status === '已取消' || receipt.stock_status === '已取消') return resp400(cors, '已取消入料單不可品檢、退回或重新提交');
     if (items.length !== 1) throw new Error(`Inbound ${receipt.inbound_number} must have exactly one item`);
     let item = items[0];
 

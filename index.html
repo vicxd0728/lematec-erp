@@ -19261,6 +19261,7 @@ function filterInboundRows(rows,filters=inboundListFilters()){
   return applyDateFilterValue(filters.date||'6',rows,'date').filter(i=>{
     const qc=String(i.qcStatus||''),stock=String(i.stStatus||'');
     if(filters.status==='pending'&&!(/待/.test(qc)||/待/.test(stock)))return false;
+    if(filters.status==='cancelled'&&qc!=='已取消')return false;
     if(filters.status==='stocked'&&stock!=='已入庫')return false;
     if(filters.status==='returned'&&!(/不合格/.test(qc)||/^退回/.test(stock)))return false;
     if(!q)return true;
@@ -19298,6 +19299,32 @@ function setInboundMobileSort(value){
   inboundListFilters().page=1;
   renderTab('inbound');
 }
+function canCancelInbound(ib){
+  return ['vic','manager','warehouse','purchase'].includes(ROLE)&&!ib.fallback&&ib.supabaseId&&!ib.inventoryTransactionId&&['待入庫','未入庫','退回','退回倉管','退回供應商'].includes(ib.stStatus)&&['待品檢','品檢不合格','退回倉管','退回供應商'].includes(ib.qcStatus);
+}
+function openCancelInbound(id){
+  const ib=inbounds.find(i=>i.id===id);if(!ib||!canCancelInbound(ib))return showToast('此入料單不可取消，請重新整理核對','warn');
+  document.getElementById('modalInner').innerHTML=`<h3>取消入料單</h3><div class="info-box info-warn">取消後保留單據與原因，移出待品檢；不增加或扣除庫存。已入庫單據不能使用此功能。</div><p>${escapeHtml(ib.no)} · ${escapeHtml(ib.matCode||ib.matName)} × ${ib.qty}</p><label for="inboundCancelReason">取消原因（必填）</label><textarea class="inp" id="inboundCancelReason" maxlength="500" placeholder="例如：重複建立，保留另一張正確入料單"></textarea><div id="inboundCancelMessage" role="status"></div><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">返回</button><button class="btn btn-red" id="inboundCancelButton" data-id="${escapeHtml(id)}" onclick="submitCancelInbound(this.dataset.id)">確認取消入料</button></div>`;openSharedModal();
+}
+async function submitCancelInbound(id){
+  const ib=inbounds.find(i=>i.id===id),button=document.getElementById('inboundCancelButton'),message=document.getElementById('inboundCancelMessage'),reason=(document.getElementById('inboundCancelReason')?.value||'').trim();
+  if(!ib||!canCancelInbound(ib)||button?.disabled)return;
+  if(!reason){message.textContent='請填寫取消原因';return;}
+  button.disabled=true;message.textContent='正在確認是否尚未入庫…';let accepted=false;
+  try{
+    const result=await pickingWorkerRequest('/api/inbound/cancel',{method:'POST',body:{inbound_id:ib.supabaseId,reason}});
+    if(!result?.row?.id||result.row.qc_status!=='已取消')throw new Error('未能確認取消結果，請重新載入核對');
+    accepted=true;const saved=mapSupabaseInbound(result.row);
+    inbounds=inbounds.map(i=>i.id===id?saved:i);
+    const mirror=await updateInboundNotionMirror(saved);
+    if(!mirror.pending&&saved.notionId)await completeReliableMirrorJob('workflow_notion',{page_id:saved.notionId});
+    closeModal();if(CURRENT_TAB==='inbound')renderTab('inbound');
+    showToast(mirror.pending?'已取消，紀錄保留；Notion 鏡像待補同步':'已取消入料，紀錄已保留','ok');
+  }catch(e){
+    if(accepted){closeModal();if(CURRENT_TAB==='inbound')renderTab('inbound');showToast('入料已取消，後續同步未完成；請重新整理核對','warn');}
+    else{message.textContent='取消未確認：'+(e.message||'服務暫時無法連線')+'。請重新整理核對；重試不會重複取消。';button.disabled=false;}
+  }
+}
 function renderInbound(){
   const readState=operationalReadState('inbounds',inbounds);
   if(!readState.ready)return renderOperationalReadPlaceholder('inbounds','入料',readState);
@@ -19311,12 +19338,12 @@ function renderInbound(){
   filters.page=Math.min(Math.max(1,Number(filters.page)||1),pageCount);
   const pageRows=data.slice((filters.page-1)*pageSize,filters.page*pageSize);
   const scoped=filterInboundRows(inbounds,{...filters,status:'all'});
-  const quickStatuses=[['all','全部'],['pending','待品檢／入庫'],['stocked','已入庫'],['returned','品檢退回']];
+  const quickStatuses=[['all','全部'],['pending','待品檢／入庫'],['stocked','已入庫'],['returned','品檢退回'],['cancelled','已取消']];
   return _notionBar + '<div id="inboundReadNotice">' + renderOperationalReadNotice('inbounds','入料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + `<div class="operational-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updateInboundSearch(this)">
       <button class="btn btn-ghost btn-xs" onclick="resetInboundFilters()">清除篩選</button>
-      <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option></select>
+      <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option><option value="cancelled" ${filters.status==='cancelled'?'selected':''}>已取消</option></select>
       <select class="inp" id="inboundDateFilter" aria-label="入料日期" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="inboundListFilters().date=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
     </div>
     <span id="inboundCreateAction">${canAdd?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 新增入料單</button>`:''}</span>
@@ -19326,7 +19353,7 @@ function renderInbound(){
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="inbound-mobile-sort"><label for="inboundMobileSort">排序</label><select class="inp" id="inboundMobileSort" onchange="setInboundMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.inbound?'selected':''}>原始順序</option>${[['no','入料單號'],['qty','數量'],['supplier','供應商'],['date','日期'],['qcStatus','品管'],['stStatus','入庫']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.inbound?.col===key&&SORT.inbound?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap"><table class="inbound-list-table">
   <tr>${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td data-label="入料單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td data-label="料件" style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${renderInboundNote(i.note)}${shortageSourceOrderLink(i.note)}</td><td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td><td data-label="供應商" class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td data-label="日期" class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td data-label="品管">${pill(i.qcStatus)}</td><td data-label="入庫" class="hide-m">${pill(i.stStatus)}</td><td data-label="操作">${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'—'}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr><td data-label="入料單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td data-label="料件" style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${renderInboundNote(i.note)}${shortageSourceOrderLink(i.note)}</td><td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td><td data-label="供應商" class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td data-label="日期" class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td data-label="品管">${pill(i.qcStatus)}</td><td data-label="入庫" class="hide-m">${pill(i.stStatus)}</td><td data-label="操作">${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'' }${canAdd&&canCancelInbound(i)?`<button class="btn btn-red btn-sm" data-id="${escapeHtml(i.id)}" onclick="openCancelInbound(this.dataset.id)">取消入料</button>`:'' }${!canResubmit&&!(canAdd&&canCancelInbound(i))?'—':''}</td></tr>`;}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div></div>`;
@@ -23028,7 +23055,7 @@ function pickShortageMaterialMatch(item,candidateId,candidateCode){
 }
 function pickShortageActiveInbound(item){
   return inbounds.filter(ib=>pickShortageMaterialMatch(item,ib.matId,ib.matCode)
-    && ib.stStatus!=='已入庫'&&!/^退回/.test(ib.stStatus||'')
+    && !['已入庫','已取消'].includes(ib.stStatus)&&ib.qcStatus!=='已取消'&&!/^退回/.test(ib.stStatus||'')
     && !/不合格/.test(ib.qcStatus||''));
 }
 function pickShortageActiveAssemblies(item,currentOrderId){
@@ -23562,7 +23589,7 @@ function renderQCTab(){
 
   // ── 資料源（清楚分開）──
   const pendingInbound  = inbounds.filter(i=>i.qcStatus==='待品檢');          // 入料待品檢
-  const doneInbound     = inbounds.filter(i=>i.qcStatus!=='待品檢');          // 入料已檢測
+  const doneInbound     = inbounds.filter(i=>i.qcStatus!=='待品檢'&&i.qcStatus!=='已取消'); // 取消不列為已檢測
   const pendingOrders   = getInspectionOrders();                               // 訂單待檢驗（狀態=待檢驗 或 品檢異常）
   const pendingInboundCount=inboundState.ready?pendingInbound.length:'待載入';
   const pendingOrderCount=ordersReady?pendingOrders.length:'待載入';

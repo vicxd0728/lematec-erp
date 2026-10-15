@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify authorization behavior offline
-        run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs
+        run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs tests/inbound_cancel.cjs
 
       - name: Verify assembly completion and stock safety
         run: node --test tests/assembly_complete.cjs
@@ -63,6 +63,7 @@ jobs:
           python tests/run_shopee_transfer_postgres.py
           python tests/run_shopee_handoff_postgres.py
           python tests/test_supply_chain_migration.py
+          python tests/run_inbound_cancel_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
@@ -83,6 +84,11 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python scripts/apply_supply_chain_v1.py
+
+      - name: Install inbound cancellation audit and concurrency guards
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/apply_inbound_cancel.py
 
       - name: Deploy green-wave-c22f Worker
         shell: bash
