@@ -2,6 +2,8 @@
 
 ## Current Effective Summary 2026-09-07
 
+Inventory period report addendum (2026-10-15): Inventory report reads organization-scoped formal inventory_transactions through authenticated GET /api/inventory/period-report. It groups only period-active warehouse/material pairs, uses inclusive Taiwan dates and a creation-time cutoff, and never writes balances or mirrors. Opening/closing are transaction-derived account values with continuity checks, not physical counts or a locked close. Historical chains that cannot reconcile show unknown opening/closing. XLSX and print retain the generated period and source.
+
 Shopee sand-media source addendum (2026-10-14, explicitly confirmed): Existing `S-LEI-16`, `S-LEI-17`, `S-LEI-17-1`, `S-LEI-17-2` transfer one-to-one from warehouse `LEI-16(碳化矽#100)`, `LEI-17(棕剛玉#60)`, `LEI-17-1(棕剛玉#120)`, `LEI-17-2(棕剛玉#220)` respectively. This narrow mapping overrides prefix stripping for only these four targets. Never infer further aliases or fall back to the bare warehouse codes. Existing S- IDs, balances, C-end direct recipes and atomic transfer/idempotency rules remain intact.
 
 Domestic order addendum (2026-10-07): New domestic and overseas customer orders write only to the formal Notion `ERP 客戶訂單` database (`DB.orders`). The former additional domestic-order write to `115年貿易商` has stopped. That legacy database remains a read source for existing domestic customer choices; stopping the order mirror does not delete historical rows or remove that customer lookup.

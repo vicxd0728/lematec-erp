@@ -1862,6 +1862,21 @@ html[data-theme="warm"] #themePanel{
  .order-calendar-count{font-size:.7rem}
  .order-calendar-detail .order-deadline-card{flex-direction:column;align-items:stretch}
 }
+.inv-report-tabs,.inv-report-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.inv-report-tabs button,.inv-report-controls button{min-height:44px}
+.inv-report-controls label{display:flex;flex-direction:column;gap:4px;font-size:.8rem}
+.inv-period-table{min-width:1500px}
+.inv-period-table th{white-space:nowrap}
+@media(max-width:640px){
+ .inv-report-controls label{flex:1;min-width:140px}
+ .inv-report-controls input{width:100%;box-sizing:border-box}
+ .inv-report-controls>button{flex:1}
+ .inv-period-table{min-width:0!important;width:100%!important}
+ .inv-period-table thead{display:none}
+ .inv-period-table tr{display:block;margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:8px}
+ .inv-period-table td{display:flex!important;justify-content:space-between;gap:10px;width:100%!important;max-width:none!important;box-sizing:border-box;overflow-wrap:anywhere}
+ .inv-period-table td:before{content:attr(data-label);color:var(--text3);flex-shrink:0}
+}
 </style>
 </head>
 <body>
@@ -18200,7 +18215,100 @@ function renderInventoryStockVisual(rows,sourceLabel){
   ];
   return `<section class="erp-visual-panel" aria-label="庫存狀態分布"><div class="erp-visual-head"><div><h3>庫存狀態分布</h3><p>全部 ${rows.length} 筆料號；依同一份快照統計，點項目篩選下方明細。安全庫存未設定會單獨列出。</p></div><span class="module-pill">來源 <b>${escapeHtml(sourceLabel)}</b></span></div>${rows.length?renderErpVisualRows(statusRows):'<div class="empty">目前沒有可統計的料號</div>'}</section>`;
 }
+function inventoryReportState(){
+  const t=todayStr();return window._inventoryReport||(window._inventoryReport={start:t.slice(0,7)+'-01',end:t,busy:false,data:null,error:'',q:'',draft:'',page:1});
+}
+function inventoryReportTabs(active){
+  return `<div class="inv-report-tabs"><button class="btn ${active==='stock'?'btn-blue':'btn-ghost'}" onclick="window._inventorySub='stock';renderTab('inventory')">庫存主檔</button><button class="btn ${active==='report'?'btn-blue':'btn-ghost'}" onclick="window._inventorySub='report';renderTab('inventory')">期間進出總表</button></div>`;
+}
+function inventoryReportPreset(previous=false){
+  const d=new Date(todayStr()+'T00:00:00Z'),y=d.getUTCFullYear(),m=d.getUTCMonth()-(previous?1:0);
+  const date=x=>x.toISOString().slice(0,10),s=inventoryReportState();
+  s.start=date(new Date(Date.UTC(y,m,1)));s.end=previous?date(new Date(Date.UTC(y,m+1,0))):todayStr();
+  renderTab('inventory');
+}
+async function loadInventoryPeriodReport(){
+  const s=inventoryReportState();if(s.busy)return;
+  if(!s.start||!s.end||s.end<s.start){showToast('請確認起訖日期，結束日期不可早於開始日期','warn');return;}
+  const start=s.start,end=s.end;s.busy=true;s.error='';s.data=null;renderTab('inventory');
+  try{
+    const res=await fetch(PROXY+'/api/inventory/period-report?'+new URLSearchParams({start,end}),{headers:erpWorkerHeaders(),cache:'no-store'});
+    const d=await res.json();
+    if(!res.ok||d.ok!==true||d.complete!==true||!Array.isArray(d.rows)||!Array.isArray(d.transactions))throw new Error(d.error||'資料未完整讀取，未產生部分總表');
+    s.data=d;s.page=1;s.q='';s.draft='';
+  }catch(e){s.error=e.message||'讀取失敗，請重試';}
+  finally{s.busy=false;if(CURRENT_TAB==='inventory')renderTab('inventory');}
+}
+function inventoryReportColumns(){
+  return [['warehouse','倉庫'],['sku','料號'],['name','名稱'],['unit','單位'],['opening','期初帳面'],['inbound','入料入庫'],['production','組立入庫'],['return_in','取消回料'],['outbound','領料／出貨'],['transfer_in','轉入'],['transfer_out','轉出'],['adjustment','調整增減'],['other_in','其他增加'],['other_out','其他減少'],['closing','期末帳面'],['count','交易筆數']];
+}
+function inventoryReportValue(row,key){
+  return row[key]===null?'待核對':String(row[key]??'');
+}
+function inventoryReportTable(rows,actions=true){
+  const columns=inventoryReportColumns();
+  return `<div class="table-wrap"><table class="inv-period-table"><thead><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}${actions?'<th>明細</th>':''}</tr></thead><tbody>${rows.map(r=>`<tr>${columns.map(([key,label])=>`<td data-label="${label}">${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}${actions?`<td data-label="明細"><button class="btn btn-ghost btn-sm" data-key="${escapeHtml(r.key)}" onclick="openInventoryPeriodDetails(this.dataset.key)">查看 ${r.count} 筆</button></td>`:''}</tr>`).join('')}</tbody></table></div>`;
+}
+function renderInventoryPeriodReport(){
+  const s=inventoryReportState(),d=s.data;
+  const filtered=d?d.rows.filter(r=>[r.sku,r.name,r.warehouse].some(v=>String(v||'').toLowerCase().includes(s.q.toLowerCase()))):[];
+  const pages=Math.max(1,Math.ceil(filtered.length/50));s.page=Math.min(s.page,pages);
+  return `${inventoryReportTabs('report')}<section class="inv-period-report">
+    <div class="module-brief"><div><h2>期間進出總表</h2><p>供倉管核對進出料；只列期間內有異動的料號，按倉庫分列。這是查詢報表，尚未鎖定月結。</p></div></div>
+    <div class="inv-report-controls"><label>開始日期<input class="inp" type="date" id="invReportStart" value="${escapeHtml(s.start)}" onchange="inventoryReportState().start=this.value;renderTab('inventory')"></label>
+    <label>結束日期<input class="inp" type="date" id="invReportEnd" value="${escapeHtml(s.end)}" onchange="inventoryReportState().end=this.value;renderTab('inventory')"></label>
+    <button class="btn btn-ghost" ${s.busy?'disabled':''} onclick="inventoryReportPreset(false)">本月</button><button class="btn btn-ghost" ${s.busy?'disabled':''} onclick="inventoryReportPreset(true)">上月</button>
+    <button class="btn btn-blue" ${s.busy?'disabled':''} onclick="loadInventoryPeriodReport()">${s.busy?'讀取正式交易中…':'產生總表'}</button></div>
+    <div class="info-box info-tip">依台灣時間，含起訖日整天；每次最多 366 天。來源：Supabase 正式庫存交易，非 Notion 鏡像或近 30 天畫面快取。期初／期末為交易推算帳面數，非實物盤點；交易鏈不一致會標示待核對。</div>
+    ${s.error?`<div class="info-box info-warn" role="alert">${escapeHtml(s.error)}；請重新產生總表。</div>`:''}
+    ${d?`<div class="source-strip"><span>已產生：${escapeHtml(d.start)} ～ ${escapeHtml(d.end)}（台灣時間）</span><span>${d.rows.length} 個倉庫／料號 · ${d.transactions.length} 筆交易 · 待核對 ${d.rows.filter(r=>!r.checked).length} 項</span><span>產生時間：${escapeHtml(new Date(d.generated_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}</span></div>
+    ${s.start!==d.start||s.end!==d.end?'<div class="info-box info-warn">日期已修改，請按「產生總表」更新；以下與匯出仍是上次已產生的期間。</div>':''}
+    <div class="inv-report-controls"><input class="inp" placeholder="搜尋料號、名稱或倉庫" value="${escapeHtml(s.draft)}" oninput="inventoryReportState().draft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing){inventoryReportState().q=this.value;inventoryReportState().page=1;renderTab('inventory')}">
+    <button class="btn btn-ghost" onclick="inventoryReportState().q=inventoryReportState().draft;inventoryReportState().page=1;renderTab('inventory')">搜尋</button>
+    <button class="btn btn-ghost" onclick="inventoryReportState().q='';inventoryReportState().draft='';inventoryReportState().page=1;renderTab('inventory')">清除搜尋</button>
+    <button class="btn btn-blue" onclick="exportInventoryPeriodReport()">匯出 Excel（完整期間）</button><button class="btn btn-ghost" onclick="previewInventoryPeriodPrint()">列印／另存 PDF（完整期間）</button></div>
+    <div class="source-strip">符合 ${filtered.length}／全部 ${d.rows.length} 項；第 ${s.page}／${pages} 頁，每頁 50 項。匯出與列印包含完整期間，不受搜尋或分頁限制；不同單位不混加總量。</div>
+    ${filtered.length?inventoryReportTable(filtered.slice((s.page-1)*50,s.page*50)):'<div class="empty-row">此期間沒有交易或搜尋無結果；可清除搜尋或調整日期重新產生。</div>'}
+    <div class="inv-report-controls"><button class="btn btn-ghost" ${s.page<=1?'disabled':''} onclick="inventoryReportState().page--;renderTab('inventory')">上一頁</button><button class="btn btn-ghost" ${s.page>=pages?'disabled':''} onclick="inventoryReportState().page++;renderTab('inventory')">下一頁</button></div>`:'<div class="empty-row">選擇日期後按「產生總表」，未查詢前不顯示為零。</div>'}
+  </section>`;
+}
+function inventoryReportTransactions(key){
+  return (inventoryReportState().data?.transactions||[]).filter(t=>t.warehouse_id+':'+t.material_id===key);
+}
+function openInventoryPeriodDetails(key,page=1){
+  const d=inventoryReportState().data;if(!d)return;
+  const row=d.rows.find(r=>r.key===key);if(!row)return;
+  const list=inventoryReportTransactions(key),pages=Math.max(1,Math.ceil(list.length/100));page=Math.min(pages,Math.max(1,page));
+  document.getElementById('modalInner').innerHTML=`<h3>${escapeHtml(row.sku)} · ${escapeHtml(row.warehouse)}</h3><p>${escapeHtml(d.start)} ～ ${escapeHtml(d.end)} · ${list.length} 筆正式交易；第 ${page}／${pages} 頁。完整明細可匯出 Excel。</p><div class="table-wrap"><table><tr><th>台灣時間</th><th>類型</th><th>增減</th><th>前 → 後</th><th>來源單號／原因</th></tr>${list.slice((page-1)*100,page*100).map(t=>`<tr><td>${escapeHtml(new Date(t.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}</td><td>${escapeHtml(t.source_type==='shopee_transfer'?'蝦皮轉庫':t.transaction_type)}</td><td>${escapeHtml(String(t.quantity_delta))}</td><td>${escapeHtml(String(t.quantity_before))} → ${escapeHtml(String(t.quantity_after))}</td><td>${escapeHtml(t.source_number||'—')}<br>${escapeHtml(t.reason||'')}</td></tr>`).join('')}</table></div><div class="inv-report-controls"><button class="btn btn-ghost" data-key="${escapeHtml(key)}" ${page<=1?'disabled':''} onclick="openInventoryPeriodDetails(this.dataset.key,${page-1})">上一頁</button><button class="btn btn-ghost" data-key="${escapeHtml(key)}" ${page>=pages?'disabled':''} onclick="openInventoryPeriodDetails(this.dataset.key,${page+1})">下一頁</button><button class="btn btn-ghost" onclick="closeModal()">關閉</button></div>`;openSharedModal();
+}
+function inventoryReportSafeText(value){
+  const text=String(value??'');return /^[\s]*[=+\-@]/.test(text)?"'"+text:text;
+}
+function inventoryReportWorkbookData(d){
+  const cols=inventoryReportColumns(),safe=inventoryReportSafeText;
+  const meta=[['LEMATEC 期間進出總表'],['期間',d.start,d.end,'Asia/Taipei'],['產生時間',d.generated_at],['說明','僅含期間有異動料號；帳面為交易推算，非盤點；待核對不是零；本表未鎖定月結']];
+  return {summary:[...meta,cols.map(x=>x[1]).concat('核對狀態'),...d.rows.map(r=>cols.map(([key])=>typeof r[key]==='number'?r[key]:safe(inventoryReportValue(r,key))).concat(r.checked?'交易鏈核對通過（非盤點）':'待核對'))],
+    details:[...meta,['交易識別','台灣時間','倉庫','料號','名稱','單位','類型','來源類型','增減','異動前','異動後','來源單號','原因'],...d.transactions.map(t=>[t.id,new Date(t.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}),t.warehouses?.name||t.warehouses?.code||t.warehouse_id,t.materials?.sku||t.material_id,t.materials?.name||'',t.materials?.unit||'',t.transaction_type,t.source_type,...[t.quantity_delta,t.quantity_before,t.quantity_after].map(v=>v===null||v===undefined||!Number.isFinite(Number(v))?'待核對':Number(v)),t.source_number,t.reason].map(v=>typeof v==='number'?v:safe(v)))]};
+}
+async function exportInventoryPeriodReport(){
+  const d=inventoryReportState().data;if(!d)return;
+  try{await ensureXlsxLoaded();const data=inventoryReportWorkbookData(d),book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(data.summary),'料號彙總');XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(data.details),'逐筆明細');XLSX.writeFile(book,'庫存進出_'+d.start+'_'+d.end+'.xlsx');}catch(e){showToast('Excel 匯出失敗，請重試','warn');}
+}
+function buildInventoryPeriodPrint(d){
+  const columns=inventoryReportColumns(),title='LEMATEC 庫存期間進出總表';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>${title}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,"Microsoft JhengHei",sans-serif;color:#111;font-size:9px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th,td{border:1px solid #999;padding:4px;overflow-wrap:anywhere}th{background:#eee}tr{break-inside:avoid}h2{margin:4px}p{font-weight:normal;text-align:left}td:nth-child(n+5){text-align:right}</style></head><body><table><thead><tr><th colspan="${columns.length}"><h2>${title}</h2><p>期間：${escapeHtml(d.start)} ～ ${escapeHtml(d.end)}（台灣時間）；產生：${escapeHtml(new Date(d.generated_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}<br>僅列有異動料號；期初／末為交易推算帳面數，非盤點。待核對不是零。本表未鎖定月結。</p></th></tr><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${d.rows.map(r=>`<tr>${columns.map(([key])=>`<td>${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${columns.length}">此期間無正式交易。</td></tr>`}</tbody></table></body></html>`;
+}
+function previewInventoryPeriodPrint(){
+  const d=inventoryReportState().data;if(!d)return;
+  document.getElementById('modalInner').innerHTML='<h3>期間總表列印預覽</h3><p>A4 橫式、自動分頁、重複表頭。建議關閉瀏覽器頁首頁尾；可列印或另存 PDF。包含完整期間所有料號。</p><iframe id="invPeriodPrint" title="期間總表列印預覽" sandbox="allow-same-origin allow-modals" style="width:100%;height:55vh;border:1px solid var(--border)" onload="document.getElementById(\'invPeriodPrintButton\').disabled=false"></iframe><div class="inv-report-controls"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button id="invPeriodPrintButton" class="btn btn-blue" disabled onclick="printInventoryPeriodReport()">列印／另存 PDF</button></div>';
+  document.getElementById('invPeriodPrint').srcdoc=buildInventoryPeriodPrint(d);openSharedModal();
+}
+function printInventoryPeriodReport(){
+  const frame=document.getElementById('invPeriodPrint');
+  try{frame.contentWindow.focus();frame.contentWindow.print();}catch(e){showToast('列印無法開啟，請使用電腦版瀏覽器重試','warn');}
+}
 function renderInventory(){
+  if(window._inventorySub==='report')return renderInventoryPeriodReport();
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a><a href="https://www.notion.so/808d789ee9d34e6d88d2d58daa9aba4f" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📝 修改記錄</a><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 異動記錄</a></div>';
   const readSet=getInventoryReadSet();
   const invMats=readSet.rows||[];
@@ -18271,7 +18379,7 @@ function renderInventory(){
     return `<button class="filter-chip${active?' active':''}" onclick="_invQuick('${value}')">${label} <b>${count}</b></button>`;
   }
 
-  let html = `
+  let html = `${inventoryReportTabs('stock')}
   <div class="module-brief">
     <div>
       <h2>庫存</h2>

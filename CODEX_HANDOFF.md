@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Inventory period report 2026-10-15
+
+- Inventory now has stock/report subtabs. Report dates use inclusive Asia/Taipei days, max366 days, only groups with period activity, grouped by warehouse/material.
+- Authenticated GET /api/inventory/period-report reads organization-scoped inventory_transactions with a creation-time cutoff, stable paging500, cap50000 fails closed. No inventory writes. Read roles match inventory tab (qc excluded).
+- Native transaction categories separate receipt/production/returns/issue/shopee_transfer/adjustment/other. Before/after continuity and decimal arithmetic are checked; broken chains have null opening/closing, not fabricated zero. Account balances are transaction-derived, not physical counts or a locked month-close.
+- Search and pagination apply only to screen. XLSX full-period summary/detail and A4-landscape print all summary rows with repeating headers. All periods/times/source/unknown balances are retained; no totals mixing different units.
+- 415 Node / 14 Python / static passed. Worker CI adds production read-only report/auth acceptance. Live UI evidence goes in output/inventory-period-20261015.
+
 ## Order calendar workbench 2026-10-15
 
 - V.369 baseline confirmed calendar order labels had pointer cursor but no click handler; only the last six order-number characters were shown, with full identity in hover title.

@@ -19,6 +19,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/inventory/versions') {
       return cachedInventoryVersions(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/inventory/period-report') {
+      return erpInventoryPeriodReport(request, env, cors);
+    }
     if (request.method === 'GET' && url.pathname === '/api/inventory/list') {
       return versionedInventoryResponse(request, cors, () => erpInventoryList(request, env, cors));
     }
@@ -1400,6 +1403,77 @@ async function erpInventoryBomUpsert(request, env, cors) {
   }
 }
 
+function inventoryPeriodRange(start,end){
+  const parse=s=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(s||''))throw new Error('請填寫有效起訖日期');
+    const n=Date.parse(s+'T00:00:00Z');
+    if(!Number.isFinite(n)||new Date(n).toISOString().slice(0,10)!==s)throw new Error('日期格式無效');
+    return n;
+  };
+  const a=parse(start),b=parse(end);
+  if(b<a||b-a>365*86400000)throw new Error('結束日期須不早於開始日期，每次最多查詢 366 天');
+  return {start,end,from:new Date(a-8*3600000).toISOString(),until:new Date(b+16*3600000).toISOString()};
+}
+function inventoryPeriodCategory(tx){
+  const d=Number(tx.quantity_delta),type=tx.transaction_type;
+  if(tx.source_type==='shopee_transfer')return d>0?'transfer_in':'transfer_out';
+  if(['盤點調整','手動調整','合併料號'].includes(type))return 'adjustment';
+  if(d>0&&type==='入料入庫')return 'inbound';
+  if(d>0&&type==='生產完成')return 'production';
+  if(d>0&&type==='取消回料')return 'return_in';
+  if(d<0&&['領料扣除','C端出貨'].includes(type))return 'outbound';
+  return d>0?'other_in':'other_out';
+}
+function inventoryPeriodAggregate(transactions){
+  const groups=new Map(),seen=new Set(),units=10000;
+  const scaled=v=>{
+    if(v===null||v===undefined||String(v).trim()===''||!Number.isFinite(Number(v)))return null;
+    const n=Math.round(Number(v)*units);return Number.isSafeInteger(n)?n:null;
+  };
+  for(const tx of transactions){
+    if(!tx.id||seen.has(tx.id))throw new Error('交易識別重複或缺失，無法產生完整報表');
+    seen.add(tx.id);
+    const key=tx.warehouse_id+':'+tx.material_id;
+    let row=groups.get(key);
+    if(!row){
+      row={key,warehouse:tx.warehouses?.name||tx.warehouses?.code||tx.warehouse_id,sku:tx.materials?.sku||tx.material_id,name:tx.materials?.name||'主檔待核對',unit:tx.materials?.unit||'',opening:scaled(tx.quantity_before),closing:null,inbound:0,production:0,return_in:0,outbound:0,transfer_in:0,transfer_out:0,adjustment:0,other_in:0,other_out:0,net:0,count:0,checked:true};
+      groups.set(key,row);
+    }
+    const before=scaled(tx.quantity_before),after=scaled(tx.quantity_after),delta=scaled(tx.quantity_delta);
+    if(delta===null||delta===0)throw new Error('交易數量無效，未產生部分總表');
+    if(before===null||after===null||before+delta!==after||(row.count&&row.closing!==before))row.checked=false;
+    const cat=inventoryPeriodCategory(tx);
+    row[cat]+=cat==='adjustment'?delta:Math.abs(delta);
+    row.net+=delta;row.closing=after;row.count++;
+    if(!Number.isSafeInteger(row.net)||!Number.isSafeInteger(row[cat]))throw new Error('數量超出安全計算範圍，請縮短期間');
+  }
+  return Array.from(groups.values()).map(row=>{
+    if(row.opening===null||row.closing===null||row.opening+row.net!==row.closing)row.checked=false;
+    for(const key of ['opening','closing','inbound','production','return_in','outbound','transfer_in','transfer_out','adjustment','other_in','other_out','net'])row[key]=row[key]===null?null:row[key]/units;
+    if(!row.checked){row.opening=null;row.closing=null;}
+    return row;
+  }).sort((a,b)=>a.warehouse.localeCompare(b.warehouse)||a.sku.localeCompare(b.sku));
+}
+async function erpInventoryPeriodReport(request,env,cors){
+  if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+  const role=cleanText(request.headers.get('X-ERP-Role')).toLowerCase();
+  if(!['vic','manager','warehouse','purchase','sales','viewer','ai'].includes(role))return new Response(JSON.stringify({error:'目前角色沒有庫存報表檢視權限'}),{status:403,headers:jh(cors)});
+  let range;
+  try{const url=new URL(request.url);range=inventoryPeriodRange(url.searchParams.get('start'),url.searchParams.get('end'));}catch(e){return resp400(cors,e.message);}
+  try{
+    const context=await getSupabaseInventoryContext(env),generatedAt=new Date().toISOString(),rows=[];
+    const fields='id,warehouse_id,material_id,transaction_type,quantity_delta,quantity_before,quantity_after,source_type,source_number,reason,occurred_at,created_at,materials(sku,name,unit),warehouses(code,name)';
+    const path='/rest/v1/inventory_transactions?organization_id=eq.'+encodeURIComponent(context.organization.id)+'&occurred_at=gte.'+encodeURIComponent(range.from)+'&occurred_at=lt.'+encodeURIComponent(range.until)+'&created_at=lte.'+encodeURIComponent(generatedAt)+'&select='+fields+'&order=occurred_at.asc,created_at.asc,id.asc';
+    for(let offset=0;;offset+=500){
+      const batch=await supabaseFetch(env,path+'&limit=500&offset='+offset);
+      if(!Array.isArray(batch))throw new Error('正式交易回傳格式異常');
+      rows.push(...batch);
+      if(rows.length>50000)throw new Error('交易超過 50,000 筆，請縮短查詢期間；未輸出部分資料');
+      if(batch.length<500)break;
+    }
+    return new Response(JSON.stringify({ok:true,complete:true,source:'inventory_transactions',timezone:'Asia/Taipei',...range,generated_at:generatedAt,rows:inventoryPeriodAggregate(rows),transactions:rows}),{headers:{...jh(cors),'Cache-Control':'no-store'}});
+  }catch(e){return resp500(cors,e.message||'期間總表讀取失敗');}
+}
 async function erpInventoryList(request, env, cors) {
   try {
     const url = new URL(request.url);
