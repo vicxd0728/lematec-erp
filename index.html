@@ -566,6 +566,13 @@ html[data-theme="board"] td{font-size:18px;padding:19px 20px;}
 .picking-overview-details>summary::before{content:'▸';margin-right:8px}
 .picking-overview-details[open]>summary::before{content:'▾'}
 .picking-overview-details[open]>summary{margin-bottom:12px}
+.picking-record-summary{display:flex;gap:8px;flex-wrap:wrap;color:var(--text2);font-size:.8rem;margin:10px 0;overflow-wrap:anywhere}
+.picking-record-items{display:grid;gap:10px;margin:12px 0}
+.picking-record-item{border:1px solid var(--border);border-radius:9px;padding:12px;white-space:normal;overflow-wrap:anywhere;font-size:.83rem}
+.picking-record-item.is-shortage{border-color:var(--amber)}
+.picking-record-item h4{margin:0 0 7px;font-size:.9rem}
+.picking-record-quantities{display:flex;gap:8px 20px;flex-wrap:wrap;margin-top:8px}
+.picking-record-close{min-height:44px}
 @media(min-width:641px){.operational-toolbar{position:sticky;top:0;z-index:8;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:10px}}
 @media(max-width:640px){
   .operational-toolbar{gap:8px!important;flex-wrap:wrap}
@@ -19120,6 +19127,28 @@ function openPickingSourceOrder(orderId){
   setOrderSearchDraft(filters.q);window._ORD_SUB='list';
   closeModal();switchTab('orders');
 }
+function pickingRecordDetails(p){
+  const items=Array.isArray(p.items)?p.items:[];
+  const shortage=item=>/缺料/.test(String(item.status||''));
+  const amount=value=>value===null||value===undefined||String(value).trim()===''||!Number.isFinite(Number(value))?'未記錄':String(Number(value));
+  const notice='<div class="info-box info-warn">以下是原領料單的需求與實領記錄，不是目前庫存，也不代表現在仍缺料。重新領料請回來源訂單執行檢查；此視窗僅供查閱。</div>';
+  if(!items.length)return notice+'<div class="empty">未載入可查閱的子件明細，無法判斷實際領料內容；請同步正式主資料或核對原始領料單。</div>';
+  return notice+`<div class="picking-record-summary"><b>明細 ${items.length} 項</b><span>原單標記缺料 ${items.filter(shortage).length} 項</span><span>缺料標記優先顯示</span></div><div class="picking-record-items">`+
+    [...items].sort((a,b)=>Number(shortage(b))-Number(shortage(a))).map(item=>{
+      const mat=mats.find(m=>m.id===item.matId)||{};
+      const code=item.code||item.matCode||mat.code||item.name||'料號未記錄';
+      const name=item.name||item.matName||mat.name||'';
+      return `<article class="picking-record-item${shortage(item)?' is-shortage':''}"><h4>${escapeHtml(code)}</h4>${name&&name!==code?`<div>${escapeHtml(name)}</div>`:''}<div>原單狀態：${escapeHtml(item.status||'未記錄')}</div><div class="picking-record-quantities"><span>需求記錄：${escapeHtml(amount(item.qty))}</span><span>實領記錄：${escapeHtml(amount(item.pickedQty))}</span></div>${item.note?`<div class="inbound-note-content">備註：${escapeHtml(item.note)}</div>`:''}</article>`;
+    }).join('')+'</div>';
+}
+function openPickingRecordDetails(id){
+  const p=picks.find(row=>row.id===id);
+  if(!p)return showToast('這張領料單已不在已載入清單，請同步後重新選取','warn');
+  const state=window._operationalReads?.picks||{};
+  const source=p.fallback||window._pickingDataSource==='notion-fallback'?'Notion 唯讀備援':p.supabaseId?'Supabase 領料記錄':'已載入領料記錄';
+  document.getElementById('modalInner').innerHTML=`<h3>領料明細 · ${escapeHtml(p.no||'未編號')}</h3><div class="picking-record-summary"><span>${escapeHtml(p.product||p.note||'用途未記錄')}</span><span>數量：${escapeHtml(p.qty??'未記錄')}</span><span>日期：${escapeHtml(p.date||p.created||'未記錄')}</span><span>狀態：${escapeHtml(p.status||'未記錄')}</span></div><p style="font-size:.78rem;color:var(--text3)">來源：${source}${state.loading?' · 更新中，以下為上次載入紀錄':state.error?' · 更新失敗，以下為上次載入紀錄':''}</p>${pickingRecordDetails(p)}<div class="form-actions"><button class="btn btn-ghost picking-record-close" onclick="closeModal()">關閉明細</button></div>`;
+  openSharedModal();
+}
 function pickingSourceOrderLink(p){
   const context=`<div class="m-only picking-mobile-context" style="margin-top:6px;font-size:.72rem;color:var(--text3);white-space:normal;overflow-wrap:anywhere">${p.orderId?'成品':'用途／備註'}：${escapeHtml(p.product||p.note||'—')}<br>日期：${escapeHtml(p.date||p.created||'—')}</div>`;
   if(!p.orderId)return context;
@@ -19212,7 +19241,7 @@ function renderPicking(){
   ${data.length?`<div class="order-mobile-sort"><label for="pickingMobileSort">排序</label><select class="inp" id="pickingMobileSort" onchange="setPickingMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.picking?'selected':''}>原始順序</option>${[['no','領料單號'],['product',sub==='manual'?'用途／備註':'成品'],['qty','數量'],['date','日期'],['status','狀態']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.picking?.col===key&&SORT.picking?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div>`:''}
   ${!data.length?`<div class="loading-row">${picks.length||focusOrder?'目前篩選條件沒有領料紀錄；請調整搜尋、日期或狀態，無須重新建立訂單。':sub==='manual'?'尚無臨時補料紀錄':'尚無訂單領料記錄，請從訂單頁面產出'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetPickingFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="table-wrap"><table class="picking-list-table">
   <tr>${TH('picking','no','領料單號')}${TH('picking','product',sub==='manual'?'用途/備註':'成品','str','hide-m')}${TH('picking','qty','數量','num')}${TH('picking','date','日期','str','hide-m')}${TH('picking','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
-  ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}${pickingSourceOrderLink(p)}</td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
+  ${pageRows.map(p=>{const isFocus=focusOrder&&canonicalPageId(p.orderId)===focusOrder;const isReturnRequest=String(p.status||'')===ORDER_RETURN_REQUEST_STATUS;const canReverse=sub==='auto'&&completedOrderPickingRows([p]).length&&p.supabaseId;const orderNo=(orders.find(o=>canonicalPageId(o.id)===canonicalPageId(p.orderId))||{}).no||p.no||'';let action='—';if(sub==='manual'&&p.status!=='已領料'&&p.status!=='已確認扣料'){action=`<button class="btn btn-green btn-sm" onclick="completeManualPick('${p.id}')">✓ 已領料扣庫存</button>`;}else if(canReverse&&isReturnRequest&&canConfirmOrderReturnRequest()){action=`<button class="btn btn-green btn-sm" onclick='confirmOrderReturnRequestAndContinue(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify(orderReturnRequestActionFromPick(p)||'修改或刪除訂單')})'>確認已回料</button>`;}else if(canReverse&&isReturnRequest){action='<span style="color:var(--text3);font-size:.75rem">等待倉管確認</span>';}else if(canReverse){action=`<button class="btn btn-blue btn-sm" onclick='openOrderPickingReversalAssist(${JSON.stringify(String(p.orderId||''))},${JSON.stringify(orderNo)},${JSON.stringify('修改或刪除訂單')})'>送出回料申請</button>`;}return`<tr class="${isFocus?'picking-focus-row':''}"><td style="font-family:monospace;color:var(--text);font-size:0.8125rem">${escapeHtml(p.no||'—')}${pickingSourceOrderLink(p)}<div><button class="btn btn-ghost btn-sm" style="margin-top:6px" data-pick-id="${escapeHtml(p.id)}" onclick="openPickingRecordDetails(this.dataset.pickId)">查看領料明細</button></div></td><td class="hide-m" style="font-size:0.8125rem">${escapeHtml(p.product||p.note||'—')}</td><td style="font-family:monospace">${Number(p.qty)||0}</td><td class="hide-m" style="font-family:monospace;font-size:0.8125rem">${escapeHtml(p.date||p.created||'—')}</td><td>${pill(p.status)}</td>${canOperate?`<td>${action}</td>`:''}</tr>`}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===1?'disabled':''} onclick="changePickingPage(-1)">上一頁</button><span style="font-size:.75rem">${window._PICK_PAGE} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${window._PICK_PAGE===pageCount?'disabled':''} onclick="changePickingPage(1)">下一頁</button></div>`:''}
   </div></div>`;
@@ -19261,14 +19290,16 @@ function setInboundStatus(status){
 }
 function filterInboundRows(rows,filters=inboundListFilters()){
   const q=String(filters.q||'').trim().toLocaleLowerCase();
+  const byMaterial=new Map(mats.map(m=>[m.id,m]));
   return applyDateFilterValue(filters.date||'6',rows,'date').filter(i=>{
     const qc=String(i.qcStatus||''),stock=String(i.stStatus||'');
-    if(filters.status==='pending'&&!(/待/.test(qc)||/待/.test(stock)))return false;
+    if(filters.status==='pending'&&([qc,stock].includes('已取消')||!(/待/.test(qc)||/待/.test(stock))))return false;
     if(filters.status==='cancelled'&&qc!=='已取消')return false;
     if(filters.status==='stocked'&&stock!=='已入庫')return false;
     if(filters.status==='returned'&&!(/不合格/.test(qc)||/^退回/.test(stock)))return false;
     if(!q)return true;
-    return [i.no,i.matCode,i.matName,i.supplier,i.note].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+    const mat=byMaterial.get(i.matId)||{};
+    return [i.no,i.matCode,i.matName,mat.code,mat.name,i.supplier,i.note].some(v=>String(v||'').toLocaleLowerCase().includes(q));
   });
 }
 function updateInboundSearch(input){

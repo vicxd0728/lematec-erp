@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Picking record visibility and inbound findability 2026-10-18
+
+- Scope: one common warehouse journey using ERP quality loop/UI evolution/workbench + LOOP/GRILL. Baseline V.379 authenticated AI desktop1280x900 and mobile390x844: nine shortage records had no child-detail entry, including one with an unloaded source order. No inventory or role rule changes.
+- Every picking record now has a read-only detail entry, including manual, readonly roles and Notion fallback. Detail shows stored requirements, recorded picked quantities, item status/notes; stored shortage flags first. It never recomputes historical deductions from current BOM/stock or labels required-minus-picked as today's shortage. Missing detail, refresh failure and fallback are explicit.
+- Inbound search now includes material-master SKU/name used by the row renderer. Pending filter excludes cancelled records even if another legacy status still says pending. Regression fixtures cover these cases; no production data was repaired or cancelled.
+- Tests:434 Node /14 Python /static checks passed. New tests/picking_record_details.cjs included in Pages CI; SW v61. Final release SHA, authenticated desktop/mobile/role acceptance and screenshots belong in output/picking-detail-20261018/acceptance.md; do not infer live completion from these local results.
+- Previous C-end loop closed at V.379 /6f951949bcf74e0a9155f4443c81527af5f29a44: final mobile footer and real Excel50-row readback passed. See output/corder-workbench-20261018/acceptance.md, which supersedes the preliminary V.378 limitation below.
+
 ## C-end selection and pagination quality loop
 
 - Scope: one UI/function batch using ERP UI evolution + workbench quality + ERP quality loop, with loop-engineering and AI workflow GRILL. Preserve separate tabs, login/roles, C-end stock/return rules. No business mutations during acceptance.

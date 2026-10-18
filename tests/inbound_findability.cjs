@@ -51,3 +51,15 @@ test('inbound table paginates and escapes staff-entered text', () => {
   assert.match(markup, /IN-99/);
   assert.doesNotMatch(markup, /IN-100</);
 });
+
+test('inbound search finds the same master SKU and name that the row displays',()=>{
+  const rows=[{no:'IN-LEGACY',matId:'mat',date:'2026-09-25'}];
+  const ctx=context(rows);ctx.mats=[{id:'mat',code:'Y-GAH-08',name:'接頭主檔'}];
+  assert.match(ctx.renderInbound(),/Y-GAH-08/);
+  for(const q of ['y-gah-08','接頭主檔'])assert.equal(ctx.filterInboundRows(rows,{q,date:'0',status:'all'}).length,1);
+});
+
+test('cancelled inbound never appears in pending even with a residual pending status',()=>{
+  const rows=[{qcStatus:'已取消',stStatus:'待入庫'},{qcStatus:'待品檢',stStatus:'已取消'},{qcStatus:'待品檢',stStatus:'待入庫'}];
+  const ctx=context(rows);assert.equal(ctx.filterInboundRows(rows,{q:'',date:'0',status:'pending'}).length,1);
+});
