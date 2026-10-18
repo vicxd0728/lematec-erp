@@ -29,6 +29,6 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
  vm.runInContext(html.slice(html.indexOf('function renderCorders(){'),html.indexOf('function pickShortageMaterialMatch(')),c);
  c.window.innerWidth=1400;c.window.corders=Array.from({length:121},(_,i)=>({id:String(i),no:'ORDER-'+i,matCode:'S-X',qty:1,matId:'m',status:'已完成'}));
  let out=c.renderCorders();assert.equal((out.match(/<tr>/g)||[]).length,51);assert.match(out,/changeCorderPage\(1\)/);assert.match(out,/toggleCorderSelection/);assert.doesNotMatch(out,/premium-page-dots/);
- c.window.innerWidth=390;out=c.renderCorders();assert.equal((out.match(/class="corder-row-mobile"/g)||[]).length,50);assert.equal((out.match(/勾選此筆/g)||[]).length,50);
+ c.window.innerWidth=390;out=c.renderCorders();assert.equal((out.match(/class="corder-row-mobile"/g)||[]).length,50);assert.equal((out.match(/勾選此筆/g)||[]).length,50);assert.match(out,/C端訂單每頁筆數/);assert.match(out,/changeCorderPage\(1\)/);assert.match(out,/第 1 \/ 3 頁/);
  c.window._cordersLoaded=false;out=c.renderCorders();assert.match(out,/尚未成功載入/);assert.doesNotMatch(out,/已選|尚無/);
 });

@@ -23165,8 +23165,8 @@ function renderCorders(){
         ${canOperate?`<td>${manage}</td>`:''}
       </tr>`;
     }).join('');
-    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選本頁 C端訂單" ${view.rows.every(o=>selected.has(o.id))?'checked':''} onchange="selectCorderVisible(this.checked)"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>
-    <div class="premium-corder-footer">
+    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選本頁 C端訂單" ${view.rows.every(o=>selected.has(o.id))?'checked':''} onchange="selectCorderVisible(this.checked)"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>`;
+    html+=`<div class="premium-corder-footer">
       <div>顯示 <b>${view.start}</b> - <b>${view.end}</b> 筆 / 符合篩選 <b>${filtered.length}</b> 筆 / 已載入 <b>${data.length}</b> 筆</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label>每頁 <select class="inp" style="width:auto;display:inline-block" aria-label="C端訂單每頁筆數" onchange="setCorderPageSize(this.value)">${[20,50,100].map(n=>`<option value="${n}" ${view.size===n?'selected':''}>${n} 筆</option>`).join('')}</select></label><button class="btn btn-ghost btn-sm" ${view.page===1?'disabled':''} onclick="changeCorderPage(-1)">上一頁</button><span>第 ${view.page} / ${view.pages} 頁</span><button class="btn btn-ghost btn-sm" ${view.page===view.pages?'disabled':''} onclick="changeCorderPage(1)">下一頁</button></div>
     </div>`;

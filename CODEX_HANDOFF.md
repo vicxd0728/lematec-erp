@@ -7,6 +7,7 @@
 - Selection supports current page / all filtered loaded rows, clear, and Excel export. Export snapshots selected rows before async library loading, blocks missing/unloaded data and reports source scope in a second sheet. Selection/pagination redraw only local data; they do not trigger inbound/order status refresh or inventory writes.
 - Empty filtered results have filter reset. Unloaded/failed C-end data is not presented as known empty. Existing recent-vs-full-history hint and history loading are retained. No bulk cancellation/shipping/return added here.
 - Tests: tests/corder_workbench_selection.cjs added to Pages CI. Authenticated desktop/mobile and actual download acceptance must be recorded with the final deployed revision in output/corder-workbench-20261018; local tests alone are not live proof.
+- V.378 live desktop verified158 loaded rows,50/page and100 cross-page selections; filtering down to5 rows still exported100 selected records. Actual downloaded workbook readback:100 detail rows, matching metadata, zero formula cells. Mobile acceptance found footer was still inside desktop-only template; moved footer outside that branch and added failing-then-passing mobile navigation regression. Final follow-up release required before claiming mobile completion.
 
 ## Inventory period report 2026-10-15
 
