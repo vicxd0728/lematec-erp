@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end selection and pagination quality loop
+
+- Scope: one UI/function batch using ERP UI evolution + workbench quality + ERP quality loop, with loop-engineering and AI workflow GRILL. Preserve separate tabs, login/roles, C-end stock/return rules. No business mutations during acceptance.
+- Confirmed from source: C-end checkboxes had no handlers, footer page numbers were static, mobile had no selection. New page projection supports20/50/100, resets page on filter/sort changes, retains selection by actual page ID across pages/filters. Shared order numbers never merge rows.
+- Selection supports current page / all filtered loaded rows, clear, and Excel export. Export snapshots selected rows before async library loading, blocks missing/unloaded data and reports source scope in a second sheet. Selection/pagination redraw only local data; they do not trigger inbound/order status refresh or inventory writes.
+- Empty filtered results have filter reset. Unloaded/failed C-end data is not presented as known empty. Existing recent-vs-full-history hint and history loading are retained. No bulk cancellation/shipping/return added here.
+- Tests: tests/corder_workbench_selection.cjs added to Pages CI. Authenticated desktop/mobile and actual download acceptance must be recorded with the final deployed revision in output/corder-workbench-20261018; local tests alone are not live proof.
+
 ## Inventory period report 2026-10-15
 
 - Inventory now has stock/report subtabs. Report dates use inclusive Asia/Taipei days, max366 days, only groups with period activity, grouped by warehouse/material.

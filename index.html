@@ -721,6 +721,8 @@ body.modal-open{overflow:hidden;}
 }
 .corder-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px;background:linear-gradient(180deg,rgba(59,130,246,.06),transparent);border-bottom:1px solid var(--border);}
 .corder-toolbar .inp{font-size:0.9375rem;min-height:42px;}
+.corder-selection-tools .btn,.premium-corder-footer .btn{min-height:44px;}
+.premium-corder-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .corder-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;}
 .corder-stat{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
 .corder-stat strong{display:block;font-size:1.75rem;line-height:1;font-family:var(--f-mono);margin-bottom:4px;}
@@ -22930,7 +22932,61 @@ async function applyCorderShippingNames(){
 function updateCorderSearch(value){
   setCorderSearchDraft(value);
 }
+function corderSelectionIds(){return new Set(window._corderSelected||[]);}
+function redrawCordersLocal(){if(CURRENT_TAB==='corders'){const host=document.getElementById('mainContent');if(host)host.innerHTML=renderCorders();}}
+function revealCorderPage(){if(CURRENT_TAB==='corders')document.querySelector('.corder-selection-tools')?.scrollIntoView({block:'start'});}
+function toggleCorderSelection(id,checked){
+  const selected=corderSelectionIds();
+  if(checked&&(window.corders||[]).some(o=>o.id===id))selected.add(id);else selected.delete(id);
+  window._corderSelected=[...selected];redrawCordersLocal();
+}
+function clearCorderSelection(){window._corderSelected=[];redrawCordersLocal();}
+function corderPageView(filtered){
+  const signature=JSON.stringify([window._CO_Q||'',window._CO_STATUS||'',window._CO_DAYS||'0',window._CO_SHIP||'',window._CO_SORT||'created',window._CO_DIR||-1,window._corderPageSize||50]);
+  if(window._corderViewSignature!==signature){window._corderPage=1;window._corderViewSignature=signature;}
+  const size=[20,50,100].includes(Number(window._corderPageSize))?Number(window._corderPageSize):50;
+  const pages=Math.max(1,Math.ceil(filtered.length/size));
+  const page=Math.min(pages,Math.max(1,Number.isFinite(Number(window._corderPage))?Math.floor(Number(window._corderPage)):1));
+  window._corderPage=page;window._corderPages=pages;
+  const rows=filtered.slice((page-1)*size,page*size);
+  window._corderPageIds=rows.map(o=>o.id);window._corderFilteredIds=filtered.map(o=>o.id);
+  return {rows,page,pages,size,start:filtered.length?(page-1)*size+1:0,end:Math.min(page*size,filtered.length)};
+}
+function changeCorderPage(delta){window._corderPage=Math.min(window._corderPages||1,Math.max(1,(window._corderPage||1)+delta));redrawCordersLocal();revealCorderPage();}
+function setCorderPageSize(value){if(![20,50,100].includes(Number(value)))return;window._corderPageSize=Number(value);window._corderPage=1;redrawCordersLocal();revealCorderPage();}
+function selectCorderVisible(checked){
+  const selected=corderSelectionIds();
+  for(const id of window._corderPageIds||[])checked?selected.add(id):selected.delete(id);
+  window._corderSelected=[...selected];redrawCordersLocal();
+}
+function selectCorderFiltered(){window._corderSelected=[...new Set([...corderSelectionIds(),...(window._corderFilteredIds||[])])];redrawCordersLocal();}
+function resetCorderListFilters(){window._CO_Q='';window._CO_Q_DRAFT='';window._CO_STATUS='';window._CO_SHIP='';window._CO_DAYS='0';window._corderPage=1;redrawCordersLocal();}
+function corderReadScope(){
+  return DATA_LOAD_MODE.corders==='all'?'全部已載入歷史':`近${DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS}天新單及未結案；不包含未載入的舊單`;
+}
+function corderExportData(rows){
+  return [['訂單號碼','蝦皮訂單號碼','收件人','買家帳號','料號','品名','數量','狀態','物流','寄件編號','出貨日期','建立日期'],
+    ...rows.map(o=>[o.no||'',o.shopeeNo||'',o.customerName||'',o.buyer||'',o.matCode||'',o.matName||'',Number.isFinite(o.qty)?o.qty:'',o.status||'',o.shipMethod||'',o.trackingNo||'',o.shipDate||'',o.created||''])];
+}
+async function exportSelectedCorders(){
+  if(window._corderExportBusy)return;
+  if(!window._cordersLoaded)return showToast('訂單資料尚未就緒，請重新讀取後匯出','warn');
+  const ids=corderSelectionIds(),rows=(window.corders||[]).filter(o=>ids.has(o.id)).map(o=>({...o}));
+  if(!ids.size)return showToast('請先勾選要匯出的訂單','warn');
+  if(rows.length!==ids.size)return showToast('部分勾選單據已不在目前資料中，請重新讀取、清除選取後再核對','warn');
+  const scope=corderReadScope(),generated=new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
+  window._corderExportBusy=true;
+  try{
+    await ensureXlsxLoaded();const book=XLSX.utils.book_new();
+    const sheet=XLSX.utils.aoa_to_sheet(corderExportData(rows));sheet['!cols']=[{wch:22},{wch:28},{wch:18},{wch:22},{wch:30},{wch:30},{wch:10},{wch:14},{wch:18},{wch:24},{wch:14},{wch:14}];
+    XLSX.utils.book_append_sheet(book,sheet,'訂單明細');
+    XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['項目','內容'],['匯出時間（台灣）',generated],['資料範圍',scope],['匯出筆數',rows.length],['選取範圍','包含跨頁及目前篩選以外的勾選單據'],['說明','僅匯出資料，不變更訂單狀態或庫存']]),'匯出說明');
+    XLSX.writeFile(book,'C端訂單_勾選_'+taipeiDateKey()+'.xlsx');showToast(`已匯出勾選 ${rows.length} 筆訂單`,'ok');
+  }catch(e){showToast('匯出失敗：'+(e.message||'請重試'),'warn');}
+  finally{window._corderExportBusy=false;}
+}
 function renderCorders(){
+  if(!window._cordersLoaded)return '<div class="info-box info-warn" role="status">C端訂單尚未成功載入，不能以空清單判斷沒有訂單。<button class="btn btn-ghost btn-sm" onclick="loadCorders({strict:true,skipAutoComplete:true}).then(()=>renderTab(\'corders\')).catch(e=>showToast(\'讀取失敗：\'+e.message,\'warn\'))">重新讀取 C端訂單</button></div>';
   const canAdd=!isViewOnly()&&(isAdminRole()||ROLE==='sales');
   const canOperate=!isViewOnly();
   if(!CORDER_SEQUENCE_STATE&&!window._corderSequenceLoading){
@@ -22981,6 +23037,7 @@ function renderCorders(){
     return DIR*(av>bv?1:av<bv?-1:0);
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
+  const view=corderPageView(filtered),selected=corderSelectionIds(),selectedVisible=filtered.filter(o=>selected.has(o.id)).length;
   const statusOpts=['','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
   const countShip=data.filter(o=>o.status==='出貨中').length;
@@ -23057,12 +23114,20 @@ function renderCorders(){
       <div class="corder-sort-group" style="display:flex;gap:6px;flex-wrap:wrap">排序：${sb('created','日期')} ${sb('status','狀態')} ${sb('ship','物流')} ${sb('mat','品項')} ${sb('qty','數量')}</div>
     </div>
     ${limitedDataHint('corders','C端訂單')}
+    <div class="filter-bar corder-selection-tools" aria-label="C端訂單批量選取" style="padding:12px 16px;gap:8px">
+      <span role="status" aria-live="polite">已選 <b>${selected.size}</b> 筆（目前篩選內 ${selectedVisible} 筆，可跨頁）</span>
+      <button class="btn btn-ghost btn-sm" ${view.rows.length?'':'disabled'} onclick="selectCorderVisible(true)">選取本頁 ${view.rows.length} 筆</button>
+      <button class="btn btn-ghost btn-sm" ${filtered.length?'':'disabled'} onclick="selectCorderFiltered()">選取篩選全部 ${filtered.length} 筆</button>
+      <button class="btn btn-ghost btn-sm" ${selected.size?'':'disabled'} onclick="clearCorderSelection()">清除勾選</button>
+      <button class="btn btn-blue btn-sm" ${selected.size?'':'disabled'} onclick="exportSelectedCorders()">匯出勾選 Excel（${selected.size}）</button>
+      <span style="font-size:.72rem;color:var(--text3)">勾選僅供匯出，不變更訂單或庫存。</span>
+    </div>
     <div class="corder-info-strip" style="padding:8px 16px;font-size:0.8125rem;color:var(--text3);border-bottom:1px solid var(--border)">Excel 料號欄位固定讀取：<b style="color:var(--cyan2)">商品選項貨號</b>。套組扣各個 S- 子件；單品扣本身 S- 庫存。取消與退貨依原始扣料清單回補。</div>`;
   if(!filtered.length){
-    html+=`<div class="info-box" style="margin:12px">無符合訂單</div>`;
+    html+=`<div class="info-box" style="margin:12px">${data.length?'目前條件沒有符合訂單':'已載入範圍內沒有訂單'} <button class="btn btn-ghost btn-sm" onclick="resetCorderListFilters()">清除搜尋與篩選</button></div>`;
   }else{
     const isMobile=window.innerWidth<600;
-    const rows=filtered.map(o=>{
+    const rows=view.rows.map(o=>{
       const statusColor=corderReturnStatusColor(o.status);
       const bg=statusColor.bg;
       const fg=statusColor.fg;
@@ -23080,6 +23145,7 @@ function renderCorders(){
       </div>`:'';
       if(isMobile){
         return `<div class="corder-row-mobile">
+          <label style="display:flex;align-items:center;gap:8px;min-height:44px"><input class="corder-row-check" type="checkbox" aria-label="選取 ${escapeHtml(o.no||'未編號')}，料號 ${escapeHtml(o.matCode||o.matName||'未填')}" data-id="${escapeHtml(o.id)}" ${selected.has(o.id)?'checked':''} onchange="toggleCorderSelection(this.dataset.id,this.checked)">勾選此筆</label>
           <div class="corder-no">${o.no||'—'}</div>
           ${o.shopeeNo?`<div class="corder-meta">蝦皮單號 ${o.shopeeNo}${o.trackingNo?' · 寄件 '+o.trackingNo:''}</div>`:''}
           <div class="corder-sku">${o.matCode||o.matName||'—'} <span style="color:var(--text3);font-weight:400">× ${o.qty||0}</span></div>
@@ -23089,7 +23155,7 @@ function renderCorders(){
         </div>`;
       }
       return `<tr>
-        <td><input class="corder-row-check" type="checkbox" aria-label="選取 ${o.no||''}"></td>
+        <td><label style="display:inline-flex;align-items:center;min-height:44px;min-width:32px"><input class="corder-row-check" type="checkbox" aria-label="選取 ${escapeHtml(o.no||'未編號')}，料號 ${escapeHtml(o.matCode||o.matName||'未填')}" data-id="${escapeHtml(o.id)}" ${selected.has(o.id)?'checked':''} onchange="toggleCorderSelection(this.dataset.id,this.checked)"></label></td>
         <td><div style="font-family:var(--f-mono);font-weight:700;color:var(--cyan2)">${o.no||'—'}</div><div class="corder-sku-sub">${o.shopeeNo?`蝦皮 ${o.shopeeNo}`:o.created||'—'}${o.trackingNo?`<br>寄件 ${o.trackingNo}`:''}</div></td>
         <td><div>${o.customerName||'—'}</div><div class="corder-sku-sub">${o.buyer||''}</div></td>
         <td><div class="corder-sku-main">${o.matCode||o.matName||'—'}</div>${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件'}</div>`:''}</td>
@@ -23099,10 +23165,10 @@ function renderCorders(){
         ${canOperate?`<td>${manage}</td>`:''}
       </tr>`;
     }).join('');
-    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>
+    html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選本頁 C端訂單" ${view.rows.every(o=>selected.has(o.id))?'checked':''} onchange="selectCorderVisible(this.checked)"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>
     <div class="premium-corder-footer">
-      <div>顯示 <b>${filtered.length?1:0}</b> - <b>${filtered.length}</b> 筆 / 共 <b>${data.length}</b> 筆</div>
-      <div class="premium-page-dots"><span>‹</span><span class="active">1</span><span>2</span><span>3</span><span>…</span><span>›</span></div>
+      <div>顯示 <b>${view.start}</b> - <b>${view.end}</b> 筆 / 符合篩選 <b>${filtered.length}</b> 筆 / 已載入 <b>${data.length}</b> 筆</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label>每頁 <select class="inp" style="width:auto;display:inline-block" aria-label="C端訂單每頁筆數" onchange="setCorderPageSize(this.value)">${[20,50,100].map(n=>`<option value="${n}" ${view.size===n?'selected':''}>${n} 筆</option>`).join('')}</select></label><button class="btn btn-ghost btn-sm" ${view.page===1?'disabled':''} onclick="changeCorderPage(-1)">上一頁</button><span>第 ${view.page} / ${view.pages} 頁</span><button class="btn btn-ghost btn-sm" ${view.page===view.pages?'disabled':''} onclick="changeCorderPage(1)">下一頁</button></div>
     </div>`;
   }
   return html+'</div></div>';
