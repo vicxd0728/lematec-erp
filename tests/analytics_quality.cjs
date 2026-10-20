@@ -12,7 +12,13 @@ const end = html.indexOf('function renderStockLog()', start);
 assert(dateStart >= 0 && dateEnd > dateStart && start >= 0 && end > start, 'date and analytics modules exist');
 
 function makeContext(overrides = {}) {
+  // Historical fixtures must not expire when CI crosses a date/time-zone boundary.
+  class FixtureDate extends Date {
+    constructor(...args) { super(...(args.length ? args : ['2026-09-26T04:00:00Z'])); }
+    static now() { return Date.parse('2026-09-26T04:00:00Z'); }
+  }
   const ctx = vm.createContext({
+    Date: FixtureDate,
     window: { corders: [], _ANALYTICS_RANGE: '30', _cordersLoaded: true, _coreLoaded: true },
     document: { getElementById: () => null }, CURRENT_TAB: 'dashboard',
     orders: [], mats: [], boms: [], stockLogs: [],
