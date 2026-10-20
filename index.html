@@ -23069,13 +23069,13 @@ function renderCorders(){
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
   const view=corderPageView(filtered),selected=corderSelectionIds(),selectedVisible=filtered.filter(o=>selected.has(o.id)).length;
-  const statusOpts=['','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
+  const statusOpts=['','需確認','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
   const countShip=data.filter(o=>o.status==='出貨中').length;
   const countDone=data.filter(o=>o.status==='已完成').length;
   const countCancel=data.filter(o=>o.status==='已取消').length;
   const countReturn=data.filter(o=>o.status==='部分退貨'||o.status==='已退貨').length;
-  const countWarn=data.filter(o=>!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
+  const countWarn=data.filter(o=>o.status==='需確認'||!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
   const nextNo=nextCorderInternalNo();
   const sequenceReady=corderSequenceReady();
   const sequenceBlocked=canOperate&&!sequenceReady;
@@ -23169,10 +23169,11 @@ function renderCorders(){
       </div>`:'';
       const returnAction=canOperate&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
+        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" onclick="resumeCorder(this.dataset.id)">核對並續接</button><span style="font-size:.75rem;white-space:normal">請先核對原交易，勿刪除重建</span>`:''}
         ${actions}
         ${returnAction}
-        <button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
-        <button class="btn btn-red btn-sm" onclick="deleteCorder('${o.id}','${o.matId||''}',${o.qty||0},'${o.status||''}')">刪除</button>
+        ${o.status!=='需確認'?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
+        <button class="btn btn-red btn-sm" onclick="deleteCorder('${o.id}','${o.matId||''}',${o.qty||0},'${o.status||''}')">刪除</button>`:''}
       </div>`:'';
       if(isMobile){
         return `<div class="corder-row-mobile">
@@ -26909,6 +26910,7 @@ async function submitCorder(){
 }
 
 function buildCorderImportPreflight(incoming){
+  const pendingKeys=new Set((window.corders||[]).filter(c=>c.status==='需確認').map(c=>[corderSameOrderKey(c.shopeeNo,c.buyer)||String(c.no||''),normalizeSku(c.matCode||c.matName||'')].join('|')));
   const existingKeys=new Set((window.corders||[]).map(c=>[
     corderSameOrderKey(c.shopeeNo,c.buyer)||String(c.no||''),
     normalizeSku(c.matCode||c.matName||'')
@@ -26942,7 +26944,7 @@ function buildCorderImportPreflight(incoming){
     else if(!item.buyer) error='買家帳號空白，無法判斷是否沿用同一內部單號';
     else if(!Number.isSafeInteger(qty)||qty<=0) error='數量需為正整數';
     else if(!mat) error='庫存主檔找不到料號';
-    if(!error&&existingKeys.has(pairKey)) warn='ERP 已有相同蝦皮訂單/買家/料號，確認時會略過';
+    if(!error&&existingKeys.has(pairKey)) warn=pendingKeys.has(pairKey)?'原單需確認：將核對原扣庫憑證並續接，不另建單':'ERP 已有相同蝦皮訂單/買家/料號，確認時會略過';
     if(!error&&!warn){
       try{
         shipPlan=resolveCorderShipPlan(mat,qty);
@@ -26973,7 +26975,8 @@ function buildCorderImportPreflight(incoming){
   const errors=rows.filter(r=>r.error).length;
   const warnings=rows.filter(r=>r.warn).length;
   const existingRows=rows.filter(r=>r.existingNo).length;
-  const skippedRows=rows.filter(r=>!r.error&&existingKeys.has(r.pairKey)).length;
+  const skippedRows=rows.filter(r=>!r.error&&existingKeys.has(r.pairKey)&&!pendingKeys.has(r.pairKey)).length;
+  const resumableRows=rows.filter(r=>!r.error&&pendingKeys.has(r.pairKey)).length;
   const sequenceRange=newOrderKeys.length&&start
     ? `${formatCorderNo(start)} - ${formatCorderNo(start+newOrderKeys.length-1)}`
     : newOrderKeys.length?'待取得共享序列':'不需新序號';
@@ -26995,7 +26998,7 @@ function buildCorderImportPreflight(incoming){
   return {
     title:'執行前檢查 - C端訂單匯入',
     subtitle:'匯入前預覽、重複判斷、序號區間、庫存影響、錯誤行定位。確認前不會保留 SHPTW 序號。',
-    incoming,rows,newOrderKeys,sequenceRange,duplicateDetails,stockImpact,errors,warnings,existingRows,skippedRows,readyRows,firstErrorRow,
+    incoming,rows,newOrderKeys,sequenceRange,duplicateDetails,stockImpact,errors,warnings,existingRows,skippedRows,resumableRows,readyRows,firstErrorRow,
   };
 }
 function openCorderImportPreflightModal(report){
@@ -27015,6 +27018,7 @@ function openCorderImportPreflightModal(report){
         {label:'新內部單號',value:report.newOrderKeys.length},
         {label:'序號區間',value:report.sequenceRange},
         {label:'可匯入 / 會略過',value:`${report.readyRows}/${report.skippedRows}`},
+        {label:'待核對續接',value:report.resumableRows||0},
         {label:'阻擋/提醒',value:`${report.errors}/${report.warnings}`},
       ],
       sections:[
@@ -27022,14 +27026,15 @@ function openCorderImportPreflightModal(report){
           `同檔重複群組 ${(report.duplicateDetails||[]).length} 組`,
           `已存在訂單列 ${report.existingRows||0} 列；相同蝦皮單號與買家會沿用原內部單號。`,
           `既有同品項 ${report.skippedRows||0} 列確認時會略過，不會重複扣庫。`,
+          `需確認原單 ${report.resumableRows||0} 列會核對原憑證續接；舊格式或憑證不符仍會阻擋。`,
           ...duplicateLines.slice(0,8)
         ]},
         {title:'庫存影響',lines:stockLines.length?stockLines.slice(0,16):['沒有可扣庫存品項']},
       ],
       actions:[
         {title:'確認前',detail:'只做預覽，不保留 SHPTW 序號、不寫 Notion、不扣庫存。'},
-        {title:'確認後',detail:'先保留新內部單號，再逐列建立 C-order 並扣 S- 成品庫存。'},
-        {title:'重複資料',detail:'既有同品項會略過；相同蝦皮單號與買家沿用原內部單號。'},
+        {title:'確認後',detail:'先保留新內部單號，再逐列建立原單與 S- 扣料作業；失敗保留原單供續接，已保留號碼不回退。'},
+        {title:'重複資料',detail:'正常既有品項會略過；需確認品項核對原憑證續接，不另建單。相同蝦皮單號與買家沿用原內部單號。'},
       ],
       rows:rows.map(row=>({
         lineLabel:`第 ${row.sourceRow} 行`,
@@ -27061,7 +27066,33 @@ function openCorderImportPreflightModal(report){
     </div>`;
   openSharedModal();
 }
+async function requestCorderResume(pageId){
+  const res=await fetch(`${PROXY}/api/corder/resume`,{method:'POST',headers:erpWorkerHeaders({'Content-Type':'application/json'}),body:JSON.stringify({page_id:pageId})});
+  const result=await res.json();
+  if(!res.ok||!result?.ok||result.status!=='出貨中')throw Error(result.error||'交易或訂單狀態未確認，保留原單供續接');
+  return result;
+}
+async function resumeCorder(id){
+  if(isViewOnly())return;
+  window._corderResuming=window._corderResuming||new Set();
+  if(window._corderResuming.has(id))return;
+  window._corderResuming.add(id);
+  try{
+    showToast('正在核對原交易並續接，請勿另建訂單…','warn',10000);
+    const result=await requestCorderResume(id);
+    const row=(window.corders||[]).find(o=>o.id===id);if(row)row.status='出貨中';
+    showToast(result.duplicate?'已查回原扣庫憑證，訂單已續接；未重複扣料':'原單已完成扣料與續接','ok',8000);
+    try{await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單已核對'});}catch(e){showToast('訂單已續接，清單更新失敗，請同步核對；勿重建','warn');}
+    renderTab('corders');
+  }catch(e){showToast('續接未確認：'+e.message+'；請保留原單，勿刪除重建','err',12000);}
+  finally{window._corderResuming.delete(id);}
+}
 async function applyCorderImportPreflight(){
+  if(window._corderImportBusy)return;
+  window._corderImportBusy=true;
+  try{return await applyCorderImportPreflightOnce();}finally{window._corderImportBusy=false;}
+}
+async function applyCorderImportPreflightOnce(){
   const report=window._corderImportPreflight;
   if(!report?.incoming?.length){showToast('沒有可匯入的 C-order 預覽資料','warn');return;}
   if(report.errors){showToast('仍有錯誤列，請先修正 Excel 後重新匯入','err');return;}
@@ -27070,11 +27101,12 @@ async function applyCorderImportPreflight(){
   if(freshReport.errors||JSON.stringify(freshReport.stockImpact)!==JSON.stringify(report.stockImpact)){
     openCorderImportPreflightModal(freshReport);showToast('庫存或 BOM 已更新，請確認新的扣料預覽','warn');return;
   }
+  try{await loadCorders({mode:'all',strict:true,skipAutoComplete:true});}catch(e){showToast('原訂單查核失敗，已停止匯入；未保留新號碼','err');return;}
   const incoming=report.incoming;
   let ok=0, skip=0, warn=0, failed=0;
   const warnList=[];
   const assignedNos=new Map();
-  const newOrderKeys=report.newOrderKeys||[];
+  const newOrderKeys=buildCorderImportPreflight(incoming).newOrderKeys||[];
   try{
     if(newOrderKeys.length) await ensureCorderSequenceReady();
     const reservedRange=newOrderKeys.length?await reserveCorderNumbers(newOrderKeys.length):null;
@@ -27109,10 +27141,16 @@ async function applyCorderImportPreflight(){
   for(const item of incoming){
     item.no=assignInternalNo(item);
     const dup=(window.corders||[]).find(c=>
-      ((item.shopeeNo&&c.shopeeNo===item.shopeeNo)||c.no===item.no) &&
-      (c.matCode===item.sku||c.matName===item.sku)
+      corderSameOrderKey(c.shopeeNo,c.buyer)===corderSameOrderKey(item.shopeeNo,item.buyer) &&
+      c.no===item.no&&normalizeSku(c.matCode||c.matName)===normalizeSku(item.sku)
     );
-    if(dup){skip++;continue;}
+    if(dup){
+      if(dup.status==='需確認'){
+        try{await requestCorderResume(dup.id);ok++;dup.status='出貨中';}
+        catch(e){failed++;warnList.push(`${item.shopeeNo||item.no} / ${item.sku}：原單續接未確認：${e.message}；未另建單，勿刪除重建`);}
+      }else skip++;
+      continue;
+    }
 
     let mat=null, stockRef='', note='', stockDeduct=null, stagedOrder=null, committed=false, stockAttempted=false;
     if(!item.sku){
@@ -27141,7 +27179,7 @@ async function applyCorderImportPreflight(){
       '狀態':{select:{name:'需確認'}},
       '來源':{select:{name:'蝦皮'}},
       '料件ID':{rich_text:[]},
-      '備註':{rich_text:[{text:{content:'庫存交易處理中'}}]},
+      '備註':{rich_text:[{text:{content:'[ERP_CORDER_V2] 庫存交易待確認，可由原單安全續接'}}]},
     };
     if(item.shipDate&&item.shipDate.length===10) cProps['出日']={date:{start:item.shipDate}};
     if(item.payDate&&item.payDate.length===10) cProps['付款時間']={date:{start:item.payDate}};
@@ -27153,33 +27191,17 @@ async function applyCorderImportPreflight(){
       if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
       await assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer);
 
-      const operationKey=`excel:${item.no}:${item.shopeeNo||'-'}:row-${item.sourceRow}:${mat.id}`;
       stockAttempted=true;
-      stockDeduct=await deductCorderStockByBom(mat,item.qty,item.no,ROLE,operationKey,shipPlan);
+      await requestCorderResume(stagedOrder.id);
       committed=true;
-      stockRef=corderStockRefs(stockDeduct.refs);
-      const statusSync=await updateWorkflowPageAfterInventory(
-        stagedOrder.id,
-        {
-          '狀態':{select:{name:'出貨中'}},
-          '料件ID':{rich_text:[{text:{content:stockRef}}]},
-          '備註':{rich_text:note?[{text:{content:note}}]:[]}
-        },
-        `C端 Excel 訂單 ${item.no} 第 ${item.sourceRow} 列出貨狀態與庫存關聯`
-      );
       ok++;
-      if(statusSync.pending){
-        warn++;
-        warnList.push((item.shopeeNo||item.no)+'：已扣庫，訂單狀態待自動補同步');
-      }
     }catch(eCreate){
       if(!committed&&!stockAttempted){
         failed++;
-        await archiveNotionPageQuietly(stagedOrder?.id);
-        warnList.push((item.shopeeNo||item.no)+'：未扣庫，訂單暫存已取消 '+eCreate.message);
+        warnList.push((item.shopeeNo||item.no)+(stagedOrder?.id?'：原單已保留，請核對並續接；':'：建檔結果未確認，重匯會先查原訂單；')+eCreate.message);
       }else if(!committed){
         failed++;
-        warnList.push((item.shopeeNo||item.no)+'：交易結果需確認，已保留訂單與扣料清單，勿重複匯入');
+        warnList.push((item.shopeeNo||item.no)+'：原單待續接；請按「核對並續接」或重新匯入原檔。系統先核對同一筆憑證，不重複扣料。原因：'+eCreate.message);
       }else{
         warn++;
         warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');
@@ -27191,7 +27213,7 @@ async function applyCorderImportPreflight(){
   window._corderImportPreflight=null;
   await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'});
   renderTab(CURRENT_TAB);
-  showToast('✅ 匯入完成：新增 '+ok+' 筆'+(skip?' / 跳過 '+skip+' 筆':'')+(warn?' / '+warn+' 筆需確認':'')+(failed?' / 失敗 '+failed+' 筆':''), warn||failed?'warn':'ok');
+  showToast(`${warn||failed?'⚠':'✅'} 匯入結果：完成／續接 ${ok} 筆${skip?' / 已存在略過 '+skip+' 筆':''}${warn?' / '+warn+' 筆需確認':''}${failed?' / 待處理 '+failed+' 筆；請查看原單續接':''}；已保留號碼不回退`,warn||failed?'warn':'ok',10000);
   if(warnList.length){
     alert('以下品項需確認：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
   }

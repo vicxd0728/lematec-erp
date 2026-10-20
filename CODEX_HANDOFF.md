@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end import recovery 2026-10-20
+
+- SHPTW16633/S-LEI-08-6 formal transaction afb71685-36d6-49e3-93b5-d121f7b99e29 already deducted1,12→11; original Notion order remained需確認 and human log missing. Bounded repair restored出貨中, added stock log9678 and Notion log mirror. Before/after balance11, same single formal transaction; inventory mutation requests0. Evidence output/corder-import-review-20261020/repair-result.json. Do not rerun a deduction or attach V2 marker to this legacy order.
+- New Excel imports create durable pending pages with [ERP_CORDER_V2] and saved料件ID snapshot, then POST /api/corder/resume. Worker loads authoritative page, validates organization/S-only snapshot and uses existing atomic apply_inventory_batch with fixed erp-corder-page:<pageUUID> key. Retrying the same original page reads original receipts before stock checks; changed snapshots/missing or malformed receipt/legacy pages block rather than guess. Recheck page identity before status promotion. Receipt replay does not use current BOM or Excel row position.
+- Recovery writes human logs by unique inventory-tx:<transactionUUID>, queues current-balance Notion mirror work, then patches and reads back order status. Later failure leaves original page recoverable. Pending rows have核對並續接; UI no edit/delete until resolved. Sales/admin retain write access; AI/viewer/warehouse/purchase/qc cannot call new recovery route.
+- Reimport loads full existing C-end pages without auto-completion, resumes pending matches rather than skipping/creating new pages, and reserves numbers only for new order identities. Sequence reservations are not rolled back; failure messages disclose original-page recovery and reserved numbers. Single-browser import double submit blocked. This does not claim deduplication of two unrelated simultaneous new imports from separate devices; same-page retries are serialized by the existing DB batch RPC.
+- Tests:445 Node/14 Python/static. CI adds recovery failure tests and actual same-page concurrent negative-batch replay in disposable PostgreSQL. One old date-filter fixture now pins its test clock; production date rules unchanged. SW v62. Final SHA/release/UI evidence belongs in output/corder-import-review-20261020/acceptance.md.
+
 ## Picking record visibility and inbound findability 2026-10-18
 
 - Scope: one common warehouse journey using ERP quality loop/UI evolution/workbench + LOOP/GRILL. Baseline V.379 authenticated AI desktop1280x900 and mobile390x844: nine shortage records had no child-detail entry, including one with an unloaded source order. No inventory or role rule changes.

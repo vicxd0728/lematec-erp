@@ -166,6 +166,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/corder/number-reserve') {
       return erpCorderNumberReserve(request, env, cors);
     }
+    if (request.method === 'POST' && url.pathname === '/api/corder/resume') {
+      return erpCorderResume(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/corder/number-set') {
       return erpCorderNumberSet(request, env, cors);
     }
@@ -3513,6 +3516,7 @@ const ERP_ROUTE_ROLES = {
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
   '/api/corder/number-reserve': ['vic', 'manager', 'sales'],
   '/api/corder/number-set': ['vic', 'manager', 'sales'],
+  '/api/corder/resume': ['vic', 'manager', 'sales'],
 };
 
 function erpBearerToken(request) {
@@ -4784,6 +4788,77 @@ async function supabaseSingle(env, path, allowMissing = false) {
   return row || null;
 }
 
+function corderRecoverySnapshot(page) {
+  const text=name=>(page.properties?.[name]?.rich_text||page.properties?.[name]?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('');
+  if(page.archived||canonicalNotionId(page.parent?.database_id)!==canonicalNotionId(BOARD_DB.corders))throw Error('不是有效的 C端訂單');
+  const no=text('訂單號碼'),sku=text('品名'),note=text('備註'),qty=page.properties?.['數量']?.number;
+  if(!/^SHPTW\d+$/.test(no)||!sku.startsWith('S-')||!Number.isSafeInteger(qty)||qty<=0)throw Error('訂單識別或數量不完整');
+  if(!note.includes('[ERP_CORDER_V2]'))throw Error('舊格式單據需人工核對原交易；系統未重新扣料');
+  const refs=text('料件ID').split(';').filter(Boolean).map(entry=>{
+    const [id,n,...extra]=entry.split(':');const quantity=Number(n);
+    if(extra.length||!isUuid(id)||!Number.isSafeInteger(quantity)||quantity<=0)throw Error('原始扣料快照不完整');
+    return {id,qty:quantity};
+  });
+  if(!refs.length||refs.length>100||new Set(refs.map(r=>canonicalNotionId(r.id))).size!==refs.length)throw Error('原始扣料快照無效');
+  return {no,sku,qty,refs,status:page.properties?.['狀態']?.select?.name||'',signature:JSON.stringify([no,sku,qty,text('料件ID'),text('蝦皮訂單號碼'),text('買家帳號')])};
+}
+function assertCorderRecoveryReceipt(items,receipt) {
+  const rows=receipt?.items;
+  if(!Array.isArray(rows)||rows.length!==items.length||new Set(rows.map(r=>r.material_id)).size!==items.length)throw Error('扣庫憑證不完整，已停止續接');
+  for(const item of items){
+    const row=rows.find(r=>r.material_id===item.material_id);
+    if(!row||Number(row.delta)!==item.delta||!isUuid(row.transaction_id)||!Number.isFinite(Number(row.before_stock))||!Number.isFinite(Number(row.after_stock)))throw Error('原扣庫憑證與訂單快照不符，已停止續接');
+  }
+  return rows;
+}
+async function corderRecoveryNotion(token,id,properties) {
+  const res=await fetch(`https://api.notion.com/v1/pages/${id}`,{method:properties?'PATCH':'GET',headers:{Authorization:`Bearer ${token}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'},...(properties?{body:JSON.stringify({properties})}:{})});
+  const page=await res.json();if(!res.ok||!page?.id)throw Error(page?.message||'訂單讀寫未確認');return page;
+}
+async function erpCorderResume(request,env,cors) {
+  let committed=false;
+  try{
+    if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+    const {page_id}=await request.json();if(!isUuid(page_id))return resp400(cors,'缺少訂單頁識別');
+    const token=erpBearerToken(request),page=await corderRecoveryNotion(token,page_id),snap=corderRecoverySnapshot(page);
+    if(!['需確認','出貨中'].includes(snap.status))throw Error('此狀態不能續接扣庫');
+    const {organization,warehouse}=await getSupabaseInventoryContext(env),items=[],materials=[];
+    for(const ref of snap.refs){
+      const mat=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${encodeURIComponent(organization.id)}&notion_page_id=eq.${encodeURIComponent(ref.id)}&archived_at=is.null&select=id,sku,name,notion_page_id&limit=1`,true);
+      if(!mat?.id||!mat.sku.startsWith('S-'))throw Error('原扣料快照包含不存在或非 S- 料號');
+      items.push({material_id:mat.id,delta:-ref.qty});materials.push(mat);
+    }
+    // A fixed page identity, independent of Excel row position/current BOM, is never recycled.
+    const key=`erp-corder-page:${canonicalNotionId(page_id)}`;
+    const prior=await supabaseFetch(env,`/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organization.id)}&idempotency_key=like.${encodeURIComponent(key+':*')}&select=id,material_id,quantity_delta,quantity_before,quantity_after`);
+    if(snap.status==='出貨中'&&!prior.length)throw Error('訂單已出貨但找不到此作業憑證，需人工核對');
+    let receipt;
+    if(prior.length){receipt={duplicate:true,items:prior.map(t=>({material_id:t.material_id,delta:t.quantity_delta,before_stock:t.quantity_before,after_stock:t.quantity_after,transaction_id:t.id}))};}
+    else receipt=await supabaseFetch(env,'/rest/v1/rpc/apply_inventory_batch',{method:'POST',body:JSON.stringify({p_organization_id:organization.id,p_warehouse_id:warehouse.id,p_items:items,p_transaction_type:'C端出貨',p_reason:'C端匯入出貨（可安全續接）',p_idempotency_key:key,p_source_type:'corder_ship_recoverable',p_source_id:page_id,p_source_number:snap.no})});
+    receipt=Array.isArray(receipt)?receipt[0]:receipt;
+    const rows=assertCorderRecoveryReceipt(items,receipt);committed=true;
+    for(const row of rows){
+      const mat=materials.find(m=>m.id===row.material_id),trace=`inventory-tx:${row.transaction_id}`;
+      const existing=await supabaseFetch(env,`/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=id&limit=1`);
+      if(!existing.length){
+        const tx=await supabaseSingle(env,`/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organization.id)}&id=eq.${row.transaction_id}&select=occurred_at&limit=1`);
+        const day=taipeiDateFromTimestamp(tx.occurred_at);
+        try{await supabaseFetch(env,'/rest/v1/erp_stock_logs',{method:'POST',body:JSON.stringify({client_trace_id:trace,item_title:`${day} C端出貨 ${mat.sku}`,material_id:mat.notion_page_id,material_name:mat.name||mat.sku,material_code:mat.sku,change_type:'C端出貨',original_action:'C端出貨',quantity:Math.abs(Number(row.delta)),before_stock:Number(row.before_stock),after_stock:Number(row.after_stock),change_date:day,ref_no:snap.no,operator_role:cleanText(request.headers.get('X-ERP-Role')),source:'inventory_reconcile',note:`正式交易 ${row.transaction_id}`})});}catch(e){if(!/duplicate|unique/i.test(e.message))throw e;}
+      }
+      // Existing queue consumers reread current balances before updating a Notion mirror.
+      const now=new Date().toISOString();
+      await supabaseFetch(env,'/rest/v1/erp_mirror_jobs?on_conflict=organization_id,dedupe_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({organization_id:organization.id,dedupe_key:`inventory_notion:${mat.notion_page_id}`,module:'inventory_notion',action:'retry',entity_id:mat.notion_page_id,payload:{page_id:mat.notion_page_id,stock:Number(row.after_stock),sku:mat.sku},status:'pending',attempt_count:0,next_retry_at:now,updated_at:now,completed_at:null})});
+    }
+    const current=await corderRecoveryNotion(token,page_id),nowSnap=corderRecoverySnapshot(current);
+    if(nowSnap.signature!==snap.signature||!['需確認','出貨中'].includes(nowSnap.status))throw Error('訂單已變更；扣庫憑證保留，需重新核對');
+    if(nowSnap.status==='需確認'){
+      await corderRecoveryNotion(token,page_id,{'狀態':{select:{name:'出貨中'}},'備註':{rich_text:[{text:{content:'[ERP_CORDER_V2] 已核對正式扣庫憑證；重試不重複扣料'}}]}});
+      const saved=corderRecoverySnapshot(await corderRecoveryNotion(token,page_id));
+      if(saved.status!=='出貨中'||saved.signature!==snap.signature)throw Error('訂單狀態回讀未確認');
+    }
+    return respOK(cors,{ok:true,inventory_committed:true,duplicate:receipt.duplicate===true,page_id,status:'出貨中',transaction_ids:rows.map(r=>r.transaction_id),mirror_pending:true});
+  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,inventory_committed:committed?true:null,recoverable:true}),{status:409,headers:jh(cors)});}
+}
 async function erpCorderNumberState(request, env, cors) {
   try {
     const context = await getSupabaseInventoryContext(env);

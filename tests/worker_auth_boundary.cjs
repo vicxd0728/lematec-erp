@@ -278,3 +278,8 @@ test('public GET role gate remains unchanged', async () => {
   assert.equal(await c.enforceErpRouteRole(request('', '', 'GET'), env, {}, '/api/inventory/list', 'GET'), null);
   assert.equal(calls.length, 0);
 });
+test('C-end recovery retains sales/admin write boundary and blocks read-only roles',async()=>{
+ const {context:c}=harness();
+ for(const role of ['sales','vic','manager'])assert.equal(await c.enforceErpRouteRole(request(role),env,{},'/api/corder/resume','POST'),null);
+ for(const role of ['warehouse','purchase','qc','viewer','ai'])assert.equal((await c.enforceErpRouteRole(request(role),env,{},'/api/corder/resume','POST')).status,403);
+});

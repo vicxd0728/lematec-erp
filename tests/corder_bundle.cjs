@@ -60,3 +60,8 @@ test('frozen preview rejects changed deduction plan',async()=>{
  const t=setup(),p=t.c.resolveCorderShipPlan(t.mats[0],1);t.boms[0].qty=2;
  await assert.rejects(t.c.deductCorderStockByBom(t.mats[0],1,'o','sales','op',p));assert.equal(t.moves.length,0);
 });
+test('pending imported rows are disclosed as recovery rather than successful duplicates or new stock demand',()=>{
+ const t=setup();t.c.window.corders=[{id:'pending',no:'SHPTW18001',shopeeNo:'SHOP',buyer:'BUY',matCode:'S-TUBE',status:'需確認'}];
+ const report=t.c.buildCorderImportPreflight([{sku:'S-TUBE',shopeeNo:'SHOP',buyer:'BUY',qty:1,sourceRow:2}]);
+ assert.equal(report.resumableRows,1);assert.equal(report.skippedRows,0);assert.equal(report.newOrderKeys.length,0);assert.equal(report.stockImpact.length,0);assert.match(report.rows[0].warn,/原單需確認/);
+});

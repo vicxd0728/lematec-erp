@@ -47,6 +47,7 @@ test('stock-log 30 and 90 day filters use days and render only one page',()=>{
   rows.push({date:'2026-07-20',matName:'舊單',ref:'JULY',qty:1,before:2,after:3,type:'領料'});
   const state={date:'30d',type:'all',view:'all',q:'',draft:'',page:1};
   const ctx=vm.createContext({
+    Date:class extends Date{constructor(...args){super(...(args.length?args:['2026-10-15T04:00:00Z']));}static now(){return new Date('2026-10-15T04:00:00Z').getTime();}},
     window:{_STOCKLOG_FILTERS:state},document:{getElementById:()=>null},stockLogs:rows,
     stockLogLoadError:'',stockLogHasMore:false,FIRST_LOAD_DAYS:30,DATA_LOAD_MODE:{stocklog:'all'},DATA_LOAD_DAYS:{stocklog:0},
     pendingStockLogCounts:()=>({total:0,detail:0,notion:0}),getStockLogFilters:()=>state,

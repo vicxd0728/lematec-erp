@@ -30,3 +30,17 @@ with psycopg.connect(dsn) as db:
     assert balances=={src:7,dst:5},balances
     assert db.execute('select count(*) from inventory_transactions where organization_id=%s',(org,)).fetchone()[0]==2
 print('Atomic transfer: same-order concurrent retries move once; insufficient source rolls back both sides: PASS')
+
+# C-end recovery reuses this same RPC even for a single negative line.
+def ship_once():
+    with psycopg.connect(dsn) as db:
+        db.execute("set local request.jwt.claims = '{\"role\":\"service_role\"}'")
+        return db.execute('select public.apply_inventory_batch(%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)',(org,wh,json.dumps([{'material_id':dst,'delta':-1}]),'C端出貨','isolated recovery','erp-corder-page:isolated','corder_ship_recoverable',None,'SHPTW-TEST')).fetchone()[0]
+with ThreadPoolExecutor(max_workers=2) as pool:
+    shipped=list(pool.map(lambda _:ship_once(),range(2)))
+assert sum(row['duplicate'] for row in shipped)==1
+assert ship_once()['duplicate'] is True
+with psycopg.connect(dsn) as db:
+    assert db.execute('select quantity from inventory_balances where material_id=%s',(dst,)).fetchone()[0]==4
+    assert db.execute("select count(*) from inventory_transactions where organization_id=%s and source_type='corder_ship_recoverable'",(org,)).fetchone()[0]==1
+print('C-end recovery: concurrent same-page resumes and later retry deduct exactly once: PASS')

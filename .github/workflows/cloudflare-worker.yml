@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify authorization behavior offline
-        run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs tests/inbound_cancel.cjs
+        run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs tests/inbound_cancel.cjs tests/corder_recovery.cjs
 
       - name: Verify assembly completion and stock safety
         run: node --test tests/assembly_complete.cjs
