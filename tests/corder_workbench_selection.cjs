@@ -39,5 +39,6 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
   if(width===1280)assert.match(out,/<tr class="corder-recovery-feedback-row"><td colspan="8">/);else assert.doesNotMatch(out,/corder-recovery-feedback-row/);
  }
  c.isViewOnly=()=>true;assert.doesNotMatch(c.renderCorders(),/核對並續接/);
+ c.isViewOnly=()=>false;c._corderReversalLocks=new Set();c.window._corderReversalPending={'old-unlinked':{page_id:'old-unlinked'}};c.window._CO_STATUS='回料待續接';out=c.renderCorders();assert.match(out,/續接原回料/);assert.doesNotMatch(out,/openEditCorder|deleteCorder|openReturnCorder|completeCorder/);assert.match(out,/回料待續接 <b>1<\/b>/);
  c.window._cordersLoaded=false;out=c.renderCorders();assert.match(out,/尚未成功載入/);assert.doesNotMatch(out,/已選|尚無/);
 });

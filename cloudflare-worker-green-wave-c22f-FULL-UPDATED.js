@@ -169,6 +169,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/corder/resume') {
       return erpCorderResume(request, env, cors);
     }
+    if (['GET','POST'].includes(request.method) && url.pathname === '/api/corder/reversal') {
+      return erpCorderReversal(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/corder/number-set') {
       return erpCorderNumberSet(request, env, cors);
     }
@@ -1901,6 +1904,7 @@ async function erpInventoryBatchAdjust(request, env, cors) {
   try {
     const body = await request.json();
     const payload = body?.payload || body || {};
+    if(payload.source_type==='corder_return_batch')return resp400(cors,'此為舊版 C端回料方式，已停止；請更新 ERP 後使用原單取消／退貨流程');
     const items = Array.isArray(payload.items) ? payload.items : [];
     const idempotencyKey = cleanText(payload.idempotency_key || '');
     if (!items.length) return resp400(cors, 'Missing inventory batch items');
@@ -3534,6 +3538,7 @@ const ERP_ROUTE_ROLES = {
   '/api/corder/number-reserve': ['vic', 'manager', 'sales'],
   '/api/corder/number-set': ['vic', 'manager', 'sales'],
   '/api/corder/resume': ['vic', 'manager', 'sales'],
+  '/api/corder/reversal': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
 };
 
 function erpBearerToken(request) {
@@ -4875,6 +4880,113 @@ async function erpCorderResume(request,env,cors) {
     }
     return respOK(cors,{ok:true,inventory_committed:true,duplicate:receipt.duplicate===true,page_id,status:'出貨中',transaction_ids:rows.map(r=>r.transaction_id),mirror_pending:true});
   }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,inventory_committed:committed?true:null,recoverable:true}),{status:409,headers:jh(cors)});}
+}
+function corderReversalRichText(text){
+  const chunks=[''];for(const c of text){if(chunks[chunks.length-1].length+c.length>1800)chunks.push('');chunks[chunks.length-1]+=c;}
+  if(chunks.length>100)throw Error('原訂單備註過長，請先整理備註後再回料');
+  return chunks.filter(Boolean).map(content=>({text:{content}}));
+}
+function corderReversalSnapshot(page) {
+  const text=k=>(page.properties?.[k]?.rich_text||page.properties?.[k]?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('');
+  if(canonicalNotionId(page.parent?.database_id)!==canonicalNotionId(BOARD_DB.corders))throw Error('不是 C端原訂單');
+  const snap={no:text('訂單號碼'),sku:text('品名'),qty:page.properties?.['數量']?.number,refs:text('料件ID'),note:text('備註'),status:page.properties?.['狀態']?.select?.name||'',shopee:text('蝦皮訂單號碼'),buyer:text('買家帳號'),archived:!!page.archived};
+  let returned=0;for(const m of snap.note.matchAll(/退貨\s+(\d+)\s*\/\s*(\d+)/g)){if(Number(m[2])!==snap.qty)throw Error('歷史退貨數量不一致，需人工核對');returned+=Number(m[1]);}
+  if(snap.status==='已退貨')returned=snap.qty;
+  if(!snap.no||!snap.sku.startsWith('S-')||!Number.isSafeInteger(snap.qty)||snap.qty<=0||returned<0||returned>snap.qty)throw Error('原訂單識別或退貨數量無效');
+  snap.returned=returned;
+  snap.signature=JSON.stringify([snap.no,snap.sku,snap.qty,snap.refs,snap.status,returned,snap.shopee,snap.buyer,snap.archived]);
+  return snap;
+}
+async function erpCorderReversal(request,env,cors) {
+  let pending=null;
+  try{
+    if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+    if(!['vic','manager','sales','warehouse','purchase'].includes(request.headers.get('X-ERP-Role')))throw Error('此職務不能執行 C端回料');
+    const {organization,warehouse}=await getSupabaseInventoryContext(env),org=encodeURIComponent(organization.id);
+    const ledgerBase=`/rest/v1/erp_corder_reversals?organization_id=eq.${org}`;
+    if(request.method==='GET'){
+      const rows=await supabaseAll(env,`${ledgerBase}&pending=not.is.null&select=page_id,pending`);
+      return respOK(cors,{ok:true,pending:rows.map(r=>({page_id:r.page_id,action:r.pending.action,stock_mode:r.pending.stock_mode,qty:r.pending.qty}))});
+    }
+    const body=await request.json(),pageId=body.page_id;
+    if(!isUuid(pageId)||!isUuid(body.operation_id))throw Error('缺少原單或回料作業識別');
+    const token=erpBearerToken(request),path=`${ledgerBase}&page_id=eq.${encodeURIComponent(pageId)}`;
+    let ledger=(await supabaseFetch(env,`${path}&select=*`))[0];
+    let page=await corderRecoveryNotion(token,pageId),snap=corderReversalSnapshot(page);
+    const already=(ledger?.completed||[]).find(x=>x.id===body.operation_id);
+    if(already)return respOK(cors,{ok:true,duplicate:true,page_id:pageId,status:snap.status,note:snap.note,archived:snap.archived,returned_qty:snap.returned});
+    pending=ledger?.pending||null;
+    if(pending){
+      if(!body.resume&&pending.id!==body.operation_id)throw Error('原單已有未完成回料，請按「續接原回料」；不可變更數量或改選報銷');
+    }else{
+      if(body.resume)throw Error('沒有待續接回料；請重新讀取原訂單確認結果');
+      const identityResponse=await fetch(`https://api.notion.com/v1/databases/${BOARD_DB.corders}/query`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'},body:JSON.stringify({page_size:100,filter:{property:'訂單號碼',title:{equals:snap.no}}})});
+      const identity=await identityResponse.json();
+      if(!identityResponse.ok||!Array.isArray(identity.results)||identity.has_more)throw Error('同單號身分查核不完整，已停止回料');
+      const active=identity.results.filter(p=>!p.archived&&!p.in_trash);
+      if(!active.some(p=>canonicalNotionId(p.id)===canonicalNotionId(pageId))||active.some(p=>{const x=corderReversalSnapshot(p);return x.shopee!==snap.shopee||x.buyer!==snap.buyer;}))throw Error('共用單號對應不同蝦皮單號或買家，需人工核對原單');
+      if(!['cancel','return','delete'].includes(body.action)||!['return','scrap'].includes(body.stock_mode))throw Error('回料處理方式無效');
+      if(snap.archived||!['出貨中','已完成','部分退貨','已退貨','已取消'].includes(snap.status))throw Error('原訂單狀態尚未確認，不能回料');
+      if(body.action==='cancel'&&snap.status!=='出貨中')throw Error('只有出貨中訂單可取消；已完成請走退貨');
+      if(body.action==='return'&&!['已完成','部分退貨'].includes(snap.status))throw Error('只有已完成或部分退貨可退貨');
+      if(body.expected?.qty!==snap.qty||body.expected?.returned!==snap.returned||body.expected?.status!==snap.status||body.expected?.refs!==snap.refs)throw Error('原訂單已變更，請重新讀取後操作；未新增回料');
+      const n=body.action==='return'?Number(body.qty):(['已取消','已退貨'].includes(snap.status)?0:snap.qty-snap.returned);
+      if(!Number.isSafeInteger(n)||n<0||n>snap.qty-snap.returned||(body.action==='return'&&n===0))throw Error('退貨數量超過剩餘可退數量');
+      const reason=cleanText(body.reason||'');if(body.action==='return'&&reason.length<2)throw Error('請填寫退貨原因');
+      const refs=[],ids=new Set();
+      for(const part of snap.refs.split(';').filter(Boolean)){
+        const [id,amount,...extra]=part.split(':'),total=amount===undefined?snap.qty:Number(amount),delta=total*n/snap.qty;
+        if(extra.length||!isUuid(id)||!Number.isSafeInteger(total)||total<=0||!Number.isSafeInteger(delta)||ids.has(canonicalNotionId(id)))throw Error('原扣料清單無法按組數回補，需人工核對');
+        ids.add(canonicalNotionId(id));
+        const mat=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&notion_page_id=eq.${encodeURIComponent(id)}&archived_at=is.null&select=id,sku,name,notion_page_id&limit=1`,true);
+        if(!mat?.sku?.startsWith('S-'))throw Error('原扣料清單包含不存在或非 S- 料號，已停止回料');
+        if(delta>0)refs.push({...mat,delta});
+      }
+      if(n>0&&!refs.length)throw Error('缺少本筆原始扣料清單，不能按共用單號猜測回料');
+      if(!ledger){
+        // Legacy positive transactions cannot safely be attributed to a page by a shared order number.
+        // Block ambiguous old half-finished returns instead of starting a fresh operation.
+        if(refs.length){const old=await supabaseFetch(env,`/rest/v1/inventory_transactions?organization_id=eq.${org}&quantity_delta=gt.0&material_id=in.(${refs.map(x=>x.id).join(',')})&or=(source_number.eq.${encodeURIComponent(snap.no)},source_number.like.${encodeURIComponent(snap.no+'-RET-*')})&select=id&limit=1`);if(old.length)throw Error('查到舊回料交易但尚無原作業憑證，需人工核對；未新增回料');}
+        await supabaseFetch(env,'/rest/v1/erp_corder_reversals?on_conflict=organization_id,page_id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates'},body:JSON.stringify({organization_id:organization.id,page_id:pageId,head_signature:snap.signature})});
+        ledger=(await supabaseFetch(env,`${path}&select=*`))[0];
+      }
+      if(ledger.pending||ledger.head_signature!==snap.signature)throw Error('原單正在另一個作業中或狀態已變更，請重新讀取後續接');
+      const note=[snap.note,body.action==='return'?`退貨 ${n}/${snap.qty}：${reason}${body.stock_mode==='return'?'（回補庫存）':'（不回補庫存）'}`:`${body.action==='cancel'?'取消':'封存'} ${n}/${snap.qty}：${body.stock_mode==='return'?'依原扣料清單回庫':'報銷不回庫'}`].filter(Boolean).join(' / ');
+      corderReversalRichText(note);
+      const status=body.action==='return'?(snap.returned+n===snap.qty?'已退貨':'部分退貨'):body.action==='cancel'?'已取消':snap.status;
+      pending={id:body.operation_id,action:body.action,stock_mode:body.stock_mode,qty:n,before:snap,refs:body.stock_mode==='return'?refs:[],note,status};
+      pending.after_signature=JSON.stringify([snap.no,snap.sku,snap.qty,snap.refs,status,body.action==='return'?snap.returned+n:snap.returned,snap.shopee,snap.buyer,body.action==='delete']);
+      const claimed=await supabaseFetch(env,`${path}&version=eq.${ledger.version}&pending=is.null`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify({pending,version:ledger.version+1,updated_at:new Date().toISOString()})});
+      if(!claimed.length){pending=null;throw Error('其他裝置已先開始回料，請重新讀取並續接原作業');}ledger=claimed[0];
+    }
+    const validBefore=snap.signature===pending.before.signature&&snap.note===pending.before.note;
+    const validAfter=snap.signature===pending.after_signature&&snap.note===pending.note;
+    if(!validBefore&&!validAfter)throw Error('原單資料在回料中途被變更；原憑證保留，需人工核對');
+    if(pending.refs.length){
+      const items=pending.refs.map(x=>({material_id:x.id,delta:x.delta})),key=`corder-reversal:${pending.id}`;
+      const receiptRaw=await supabaseFetch(env,'/rest/v1/rpc/apply_inventory_batch',{method:'POST',body:JSON.stringify({p_organization_id:organization.id,p_warehouse_id:warehouse.id,p_items:items,p_transaction_type:'C端退料',p_reason:'C端取消／退貨依原單回庫',p_idempotency_key:key,p_source_type:'corder_reversal',p_source_id:pageId,p_source_number:pending.before.no})});
+      const receipt=Array.isArray(receiptRaw)?receiptRaw[0]:receiptRaw,rows=assertCorderRecoveryReceipt(items,receipt);
+      for(const row of rows){
+        const mat=pending.refs.find(x=>x.id===row.material_id),trace=`inventory-tx:${row.transaction_id}`;
+        const tx=await supabaseSingle(env,`/rest/v1/inventory_transactions?organization_id=eq.${org}&id=eq.${row.transaction_id}&select=occurred_at&limit=1`);
+        const logDay=taipeiDateFromTimestamp(tx.occurred_at);
+        const exists=await supabaseFetch(env,`/rest/v1/erp_stock_logs?client_trace_id=eq.${trace}&select=id&limit=1`);
+        if(!exists.length){try{await supabaseFetch(env,'/rest/v1/erp_stock_logs',{method:'POST',body:JSON.stringify({client_trace_id:trace,item_title:`C端退料 ${mat.sku}`,material_id:mat.notion_page_id,material_code:mat.sku,material_name:mat.name||mat.sku,change_type:'C端退料',original_action:'C端退料',quantity:row.delta,before_stock:row.before_stock,after_stock:row.after_stock,change_date:logDay,ref_no:pending.before.no,operator_role:request.headers.get('X-ERP-Role'),source:'inventory_reconcile',note:`原作業 ${pending.id}；正式交易 ${row.transaction_id}`})});}catch(e){if(!/duplicate|unique/i.test(e.message))throw e;}}
+        const now=new Date().toISOString();await supabaseFetch(env,'/rest/v1/erp_mirror_jobs?on_conflict=organization_id,dedupe_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({organization_id:organization.id,dedupe_key:`inventory_notion:${mat.notion_page_id}`,module:'inventory_notion',action:'retry',entity_id:mat.notion_page_id,payload:{page_id:mat.notion_page_id,sku:mat.sku},status:'pending',attempt_count:0,next_retry_at:now,updated_at:now,completed_at:null})});
+      }
+    }
+    page=await corderRecoveryNotion(token,pageId);snap=corderReversalSnapshot(page);
+    if(!((snap.signature===pending.before.signature&&snap.note===pending.before.note)||(snap.signature===pending.after_signature&&snap.note===pending.note)))throw Error('原單已變更，回料憑證保留，需人工核對');
+    if(!validAfter){
+      if(pending.action==='delete'){
+        const res=await fetch(`https://api.notion.com/v1/pages/${pageId}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'},body:JSON.stringify({archived:true,properties:{'備註':{rich_text:corderReversalRichText(pending.note)}}})});if(!res.ok)throw Error('回料已處理，原單封存未確認，請續接原回料');
+      }else await corderRecoveryNotion(token,pageId,{'狀態':{select:{name:pending.status}},'備註':{rich_text:corderReversalRichText(pending.note)}});
+    }
+    const saved=corderReversalSnapshot(await corderRecoveryNotion(token,pageId));
+    if(saved.status!==pending.status||saved.note!==pending.note||saved.archived!==(pending.action==='delete'))throw Error('回料後原單狀態回讀未確認，請續接原回料');
+    await supabaseFetch(env,`${path}&version=eq.${ledger.version}&pending->>id=eq.${pending.id}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify({head_signature:saved.signature,pending:null,completed:[...(ledger.completed||[]),{id:pending.id,action:pending.action,qty:pending.qty,stock_mode:pending.stock_mode}],version:ledger.version+1,updated_at:new Date().toISOString()})});
+    return respOK(cors,{ok:true,page_id:pageId,status:saved.status,note:saved.note,archived:saved.archived,returned_qty:saved.returned,stock_mode:pending.stock_mode,qty:pending.qty});
+  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,pending:!!pending,inventory_committed:null}),{status:409,headers:jh(cors)});}
 }
 async function erpCorderNumberState(request, env, cors) {
   try {

@@ -5,6 +5,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "index.html").read_text(encoding="utf-8")
+WORKER = (ROOT / 'cloudflare-worker-green-wave-c22f-FULL-UPDATED.js').read_text(encoding='utf-8')
 
 
 def function_body(name: str) -> str:
@@ -48,19 +49,18 @@ class CorderReturnWorkflowTest(unittest.TestCase):
 
     def test_return_inventory_uses_unique_return_batch_key(self):
         body = function_body("submitReturnCorder")
-        self.assertIn("${id}:return:${returnedQty}:${returnedQty+returnQty}", body)
-        self.assertIn("returnCorderStock(refs,returnRefNo,returnKey)", body)
-        return_body = function_body("returnCorderStock")
-        self.assertIn("sourceId:operationKey||refNo", return_body)
+        self.assertIn("executeCorderReversal(id,{action:'return'", body)
+        self.assertIn('corder-reversal:${pending.id}',WORKER)
+        self.assertIn('pending=is.null',WORKER)
 
     def test_completed_return_does_not_mark_order_cancelled(self):
         body = function_body("submitReturnCorder")
-        self.assertIn("const nextStatus=nextReturnedQty>=orderQty?'已退貨':'部分退貨';", body)
+        self.assertIn("snap.returned+n===snap.qty?'已退貨':'部分退貨'", WORKER)
         self.assertNotIn("'已取消'", body)
 
     def test_return_statuses_are_filterable_but_fully_returned_is_not_active_recent(self):
         body = function_body("renderCorders")
-        self.assertIn("['','出貨中','已完成','部分退貨','已退貨','已取消']", body)
+        self.assertIn("['','需確認','回料待續接','出貨中','已完成','部分退貨','已退貨','已取消']", body)
         self.assertIn('data-icon="↩"', body)
         self.assertIn("退貨</span><strong>${countReturn}</strong>", body)
         recent_body = function_body("corderRecentFilter")
@@ -77,15 +77,15 @@ class CorderReturnWorkflowTest(unittest.TestCase):
         self.assertIn('max="${remainingQty}" value="${remainingQty}"', open_body)
         self.assertIn("const remainingQty=Math.max(orderQty-returnedQty,0);", submit_body)
         self.assertIn("returnQty>remainingQty", submit_body)
-        self.assertIn("const nextReturnedQty=returnedQty+returnQty;", submit_body)
+        self.assertIn('n>snap.qty-snap.returned', WORKER)
 
     def test_return_workflow_uses_lock_and_notion_sync_queue(self):
-        body = function_body("submitReturnCorder")
-        self.assertIn("_corderReturnLocks.has(id)", body)
-        self.assertIn("_corderReturnLocks.add(id)", body)
-        self.assertIn("_corderReturnLocks.delete(id)", body)
-        self.assertIn("updateWorkflowPageAfterInventory(id,{", body)
-        self.assertIn("statusSync.pending", body)
+        body = function_body("executeCorderReversal")
+        self.assertIn("_corderReversalLocks.has(id)", body)
+        self.assertIn("_corderReversalLocks.add(id)", body)
+        self.assertIn("_corderReversalLocks.delete(id)", body)
+        self.assertIn('/api/corder/reversal', body)
+        self.assertIn('localStorage.setItem(storageKey', body)
 
     def test_corder_cancel_delete_uses_stock_audit_modal(self):
         cancel_body = function_body("cancelCorder")
@@ -111,10 +111,10 @@ class CorderReturnWorkflowTest(unittest.TestCase):
 
     def test_corder_delete_decision_uses_corder_return_batch_before_archiving(self):
         body = function_body("processCorderDeleteDecision")
-        self.assertIn("stockMode==='return'&&outstanding.length", body)
-        self.assertIn("returnCorderStock(outstanding.map", body)
-        self.assertIn("await archivePage(id)", body)
-        self.assertIn("刪除C端訂單", body)
+        self.assertIn('executeCorderReversal(id,{action:mode,stock_mode:stockMode})', body)
+        self.assertNotIn('returnCorderStock(', body)
+        self.assertIn("pending.action==='delete'", WORKER)
+        self.assertIn("p_source_type:'corder_reversal'", WORKER)
 
 
 if __name__ == "__main__":

@@ -9725,7 +9725,7 @@ async function hydrateReliableMirrorJobs(){
   const bom=readPendingBomNotionMirrors();
   const noteMirrors=readNotesNotionMirrorQueue();
   for(const job of jobs){
-    const task=job?.payload?.task;
+    const task=job?.payload?.task||(job.module==='inventory_notion'&&job.payload?.page_id?job.payload:null);
     if(!task)continue;
     if(job.module==='inventory_supabase'&&!inventorySupabase.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))inventorySupabase.push(task);
     if(job.module==='inventory_notion'&&!inventoryNotion.some(row=>reliableMirrorKey(job.module,row)===job.dedupe_key))inventoryNotion.push(task);
@@ -21276,6 +21276,7 @@ async function openCorderCancelDeleteFlow(id,mode='delete'){
   if(denyViewOnlyAction()) return;
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
+  if(window._corderReversalPending?.[id]){await executeCorderReversal(id);return;}
   showToast('檢查 C端庫存異動...','warn');
   try{
     await assertCorderStockActionIdentity(o);
@@ -21288,53 +21289,74 @@ async function openCorderCancelDeleteFlow(id,mode='delete'){
     showToast('❌ C端庫存檢查失敗，已停止操作：'+e.message,'err',9000);
   }
 }
-async function processCorderDeleteDecision(id,mode,stockMode){
+async function loadCorderReversalPending(){
+  if(isViewOnly()||!(isAdminRole()||['sales','warehouse','purchase'].includes(ROLE)))return;
+  const r=await fetch(`${PROXY}/api/corder/reversal`,{headers:erpWorkerHeaders()});const data=await r.json();
+  if(!r.ok||!data.ok)throw Error(data.error||'回料作業狀態讀取失敗');
+  window._corderReversalPending=Object.fromEntries((data.pending||[]).map(x=>[x.page_id,x]));
+  if((data.pending||[]).length>100)throw Error('待續接回料過多，請載入完整歷史並聯繫管理員核對');
+  for(const row of data.pending||[]){
+    if((window.corders||[]).some(o=>o.id===row.page_id))continue;
+    const page=await notionAPI('GET',`pages/${row.page_id}`);
+    if(!page?.id||canonicalPageId(page.parent?.database_id)!==canonicalPageId(DB.corders))throw Error('待續接原單讀取未確認，請重新讀取');
+    window.corders.push(mapCorderPage(page));
+  }
+  for(const o of window.corders||[]){if(localStorage.getItem('erp-corder-reversal:'+o.id))window._corderReversalPending[o.id]||={page_id:o.id};}
+}
+const _corderReversalLocks=new Set();
+async function executeCorderReversal(id,intent=null){
+  if(denyViewOnlyAction())return;
+  if(_corderReversalLocks.has(id))return;
+  const o=(window.corders||[]).find(x=>x.id===id);if(!o)return;
+  const storageKey='erp-corder-reversal:'+id;
+  let saved;try{saved=JSON.parse(localStorage.getItem(storageKey)||'null');}catch(e){}
+  const knownPending=window._corderReversalPending?.[id];
+  const body=saved||{page_id:id,operation_id:crypto.randomUUID(),...(knownPending?{resume:true}:intent),expected:{qty:Number(o.qty),returned:getCorderReturnedQty(o),status:o.status,refs:o.matId||''}};
+  if(!saved&&!knownPending&&!intent){showToast('請重新讀取原訂單，確認是否還有待續接回料','warn');return;}
+  try{localStorage.setItem(storageKey,JSON.stringify(body));}catch(e){showToast('無法保存本機回料作業；已停止送出，請檢查瀏覽器儲存空間','err');return;}
+  _corderReversalLocks.add(id);window._corderReversalPending=window._corderReversalPending||{};window._corderReversalPending[id]={page_id:id};
+  window._corderReversalErrors=window._corderReversalErrors||{};delete window._corderReversalErrors[id];
+  const btn=document.getElementById('corder_return_submit');if(btn){btn.disabled=true;btn.textContent='回料核對中…';}
+  const decisionButtons=document.querySelectorAll('[data-corder-reversal-decision]');decisionButtons.forEach(b=>b.disabled=true);
+  let rejectedWithoutPending=false;
+  try{
+    const r=await fetch(`${PROXY}/api/corder/reversal`,{method:'POST',headers:erpWorkerHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});const result=await r.json();
+    if(!r.ok||!result.ok){rejectedWithoutPending=r.status===409&&result.pending===false;throw Error(result.error||'尚未取得回料結果');}
+    localStorage.removeItem(storageKey);delete window._corderReversalPending[id];
+    Object.assign(o,{status:result.status,note:result.note});if(result.archived)window.corders=window.corders.filter(x=>x.id!==id);
+    closeModal();showToast(result.duplicate?'已查回原回料作業；沒有再次回料':'原單回料作業完成；重試會沿用同一筆憑證','ok',9000);
+    try{await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端回料已確認'});}catch(e){showToast('回料已完成，清單更新失敗；請重新讀取，勿另建回料','warn',10000);}
+  }catch(e){
+    if(rejectedWithoutPending){localStorage.removeItem(storageKey);delete window._corderReversalPending[id];}
+    const reason=/failed to fetch|networkerror|load failed/i.test(e.message||'')?'連線中斷，回料結果未確認':e.message;
+    window._corderReversalErrors[id]=`回料未確認：${reason}。${rejectedWithoutPending?'請重新讀取原訂單並核對原因。':'請按「續接原回料」，勿改數量或改選報銷。'}`;
+    showToast(window._corderReversalErrors[id],'err',12000);closeModal();
+  }finally{
+    _corderReversalLocks.delete(id);if(CURRENT_TAB==='corders')renderTab('corders');
+  }
+}
+async function processCorderDeleteDecision(id,mode,stockMode,confirmed=false){
+  if(_corderReversalLocks.has(id))return;
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
   const orderNo=o.no||id;
-  const lockKey=`${mode}:${id}`;
+  const lockKey=id;
   if(_corderDeleteLocks.has(lockKey)){showToast('這筆 C端訂單正在處理，請勿重複點擊','warn');return;}
   const actionText=mode==='cancel'?'取消':'刪除';
-  const really=confirm(`確認要${stockMode==='return'?'回補庫存後':''}${actionText} C端訂單「${orderNo}」？\n\n${stockMode==='scrap'?'庫存不會回補，系統會記錄為報銷/不回庫。':'系統會先回補 S- 成品庫存。'}`);
-  if(!really) return;
-  closeModal();
-  _corderDeleteLocks.add(lockKey);
-  showToast(`${actionText}處理中...`,'warn');
-  try{
-    await assertCorderStockActionIdentity(o);
-    const rows=await fetchCorderStockAuditRows(orderNo);
-    if(!o.matId&&!rows.some(isCorderShipLog)&&['出貨中','已完成','部分退貨'].includes(o.status))
-      throw new Error('找不到可核對的原始扣庫明細，已停止操作；請先核對正式交易');
-    const outstanding=o.matId?corderSavedOutstandingRows(o):buildCorderInventoryOutstandingRows(rows,[]);
-    if(stockMode==='return'&&outstanding.length){
-      await returnCorderStock(outstanding.map(row=>({id:row.pageId,qty:row.qty})),orderNo,`cancel-delete:${id}:return`);
-    }
-    if(mode==='cancel'){
-      await updatePage(id,{'狀態':{select:{name:'已取消'}}});
-      o.status='已取消';
-      logUserAction('取消C端訂單',orderNo,stockMode==='return'?'取消並回庫':'取消報銷不回庫',ROLE);
-      await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端取消與庫存資料已更新'});
-      renderTab('corders');
-      showToast(stockMode==='return'?'✅ 已回庫並取消':'✅ 已取消（報銷不回庫）','ok');
-      return;
-    }
-    await archivePage(id);
-    window.corders=(window.corders||[]).filter(x=>x.id!==id);
-    logUserAction('刪除C端訂單',orderNo,stockMode==='return'?'刪除並回庫':'刪除報銷不回庫',ROLE);
-    await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端刪除與庫存資料已更新'});
-    renderTab('corders');
-    showToast(stockMode==='return'?'✅ 已回庫並刪除':'✅ 已刪除（報銷不回庫）','ok');
-  }catch(e){
-    showToast(`❌ C端${actionText}失敗：`+e.message,'err',9000);
-  }finally{
-    _corderDeleteLocks.delete(lockKey);
+  if(!confirmed){
+    let box=document.getElementById('corderDecisionConfirm');if(!box){box=document.createElement('div');box.id='corderDecisionConfirm';document.getElementById('modalInner').appendChild(box);}
+    box.innerHTML=`<div class="info-box info-warn" role="status">確認${actionText} ${escapeHtml(orderNo)}：${stockMode==='return'?'依上方原扣料清單回補庫存。':'報銷不回庫，庫存不會增加。'}</div><div class="form-actions"><button class="btn btn-ghost" onclick="document.getElementById('corderDecisionConfirm').remove()">返回重選</button><button class="btn btn-red" data-corder-reversal-decision onclick="processCorderDeleteDecision('${id}','${mode}','${stockMode}',true)">確認${stockMode==='return'?'回庫':'不回庫'}並${actionText}</button></div>`;
+    box.scrollIntoView({block:'nearest'});return;
   }
+  try{await assertCorderStockActionIdentity(o);}catch(e){showToast('原訂單核對失敗：'+e.message,'err');return;}
+  await executeCorderReversal(id,{action:mode,stock_mode:stockMode});
 }
 async function cancelCorder(id, matId, qty){
   await openCorderCancelDeleteFlow(id,'cancel');
 }
 
 async function completeCorder(id){
+  if(window._corderReversalPending?.[id]){showToast('原單回料尚未完成，請先續接原回料','warn');return;}
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o) return;
   const today=todayStr();
@@ -21370,10 +21392,10 @@ function getCorderReturnedQty(order){
   return Math.min(Math.max(total,0),Math.max(qty,0));
 }
 
-const _corderReturnLocks=new Set();
 function openReturnCorder(id){
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
+  if(window._corderReversalPending?.[id]){executeCorderReversal(id);return;}
   if(!['已完成','部分退貨'].includes(o.status)){
     showToast('只有已完成或部分退貨的 C端訂單可走退貨流程','warn');
     return;
@@ -21412,10 +21434,9 @@ function openReturnCorder(id){
 }
 
 async function submitReturnCorder(id){
-  const btn=document.getElementById('corder_return_submit');
   const o=(window.corders||[]).find(x=>x.id===id);
   if(!o){showToast('找不到 C端訂單','err');return;}
-  if(_corderReturnLocks.has(id)){showToast('此 C端訂單正在處理退貨，請勿重複點擊','warn');return;}
+  if(_corderReversalLocks.has(id)){showToast('此 C端訂單正在處理退貨，請勿重複點擊','warn');return;}
   const orderQty=Number(o.qty)||0;
   const returnedQty=getCorderReturnedQty(o);
   const remainingQty=Math.max(orderQty-returnedQty,0);
@@ -21431,34 +21452,8 @@ async function submitReturnCorder(id){
   if(reasonType==='其他'&&reasonOther.length<2){showToast('選其他時請填寫原因','warn');return;}
   let refs;
   try{refs=corderReturnRefsForQty(o,returnQty);}catch(e){showToast(e.message,'err');return;}
-  const returnRefNo=`${o.no||id}-RET-${returnedQty}-${returnedQty+returnQty}`;
-  const returnKey=`${id}:return:${returnedQty}:${returnedQty+returnQty}`;
-  const nextReturnedQty=returnedQty+returnQty;
-  const nextStatus=nextReturnedQty>=orderQty?'已退貨':'部分退貨';
-  const noteParts=[o.note||'',`退貨 ${returnQty}/${orderQty}：${reason}${stockMode==='return'?'（回補庫存）':'（不回補庫存）'} ${todayStr()}`].filter(Boolean);
-  btn.disabled=true;
-  btn.textContent='退貨處理中...';
-  _corderReturnLocks.add(id);
-  try{
-    await assertCorderStockActionIdentity(o);
-    if(stockMode==='return') await returnCorderStock(refs,returnRefNo,returnKey);
-    const statusSync=await updateWorkflowPageAfterInventory(id,{
-      '狀態':{select:{name:nextStatus}},
-      '備註':{rich_text:[{text:{content:noteParts.join(' / ')}}]},
-    },`C端退貨狀態 ${o.no||id}`);
-    logUserAction('C端訂單退貨',o.no||id,`${returnQty}/${orderQty} ${stockMode==='return'?'回補庫存':'不回補庫存'} / ${reason}`,ROLE);
-    Object.assign(o,{status:nextStatus,note:noteParts.join(' / ')});
-    closeModal();
-    await refreshAffectedData({core:true,tabs:['corders','inventory','stocklog'],label:'C端退貨與庫存資料已更新'});
-    renderTab('corders');
-    showToast(statusSync.pending?'⚠ 庫存已處理，C端訂單狀態待自動補同步':(stockMode==='return'?`✅ 已退貨並回補庫存 ${returnQty}`:`✅ 已登記退貨，不回補庫存`),statusSync.pending?'warn':'ok',7000);
-  }catch(e){
-    btn.disabled=false;
-    btn.textContent='確認退貨';
-    showToast('❌ C端退貨失敗：'+e.message,'err',9000);
-  }finally{
-    _corderReturnLocks.delete(id);
-  }
+  try{await assertCorderStockActionIdentity(o);}catch(e){showToast('原訂單核對失敗：'+e.message,'err');return;}
+  await executeCorderReversal(id,{action:'return',stock_mode:stockMode,qty:returnQty,reason});
 }
 
 function openEditCorder(id){
@@ -23044,7 +23039,7 @@ function renderCorders(){
   const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
   const normShip=v=>(String(v||'').trim()||'未設定物流');
   const baseFiltered=data.filter(o=>{
-    if(STATUS&&o.status!==STATUS) return false;
+    if(STATUS==='回料待續接'?!window._corderReversalPending?.[o.id]:STATUS&&o.status!==STATUS) return false;
     if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
     if(Q&&!searchIncludesAll([
       o.no,o.shopeeNo,o.buyer,o.customerName,o.matCode,o.matName,
@@ -23069,7 +23064,7 @@ function renderCorders(){
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
   const view=corderPageView(filtered),selected=corderSelectionIds(),selectedVisible=filtered.filter(o=>selected.has(o.id)).length;
-  const statusOpts=['','需確認','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
+  const statusOpts=['','需確認','回料待續接','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
   const countShip=data.filter(o=>o.status==='出貨中').length;
   const countDone=data.filter(o=>o.status==='已完成').length;
@@ -23102,10 +23097,12 @@ function renderCorders(){
       <span class="module-pill">下一號 <b>${nextNo}</b></span>
       <span class="module-pill">出貨中 <b>${countShip}</b></span>
       <span class="module-pill">需確認 <b>${countWarn}</b></span>
+      ${data.some(o=>window._corderReversalPending?.[o.id])?`<span class="module-pill">回料待續接 <b>${data.filter(o=>window._corderReversalPending?.[o.id]).length}</b></span>`:''}
       ${countDataWarn?`<span class="module-pill">資料待補 <b>${countDataWarn}</b></span>`:''}
     </div>
   </div>
   ${notionBar}
+  ${window._corderReversalLoadError?`<div class="info-box info-warn" role="alert">回料作業狀態讀取未完成：${escapeHtml(window._corderReversalLoadError)}。請按「重新讀取」核對待續接原單。</div>`:''}
   <div class="corder-stats">
     <div class="corder-stat is-ship" data-icon="🛒"><span>待出貨</span><strong>${countShip}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
@@ -23165,18 +23162,19 @@ function renderCorders(){
       const bg=statusColor.bg;
       const fg=statusColor.fg;
       const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
-      const resuming=window._corderResuming?.has(o.id),resumeError=window._corderResumeErrors?.[o.id];
-      const recoveryFeedback=canOperate&&o.status==='需確認'&&resumeError?`<div class="info-box info-warn corder-recovery-feedback" role="alert" style="white-space:normal;overflow-wrap:anywhere;margin:8px 0">${escapeHtml(resumeError)}<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。</div>`:'';
-      const actions=canOperate&&o.status==='出貨中'?`<div class="corder-actions">
+      const resuming=window._corderResuming?.has(o.id),resumeError=window._corderReversalErrors?.[o.id]||window._corderResumeErrors?.[o.id],reversalPending=window._corderReversalPending?.[o.id];
+      const recoveryFeedback=canOperate&&resumeError?`<div class="info-box info-warn corder-recovery-feedback" role="alert" style="white-space:normal;overflow-wrap:anywhere;margin:8px 0">${escapeHtml(resumeError)}${o.status==='需確認'?'<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。':''}</div>`:'';
+      const actions=canOperate&&!reversalPending&&o.status==='出貨中'?`<div class="corder-actions">
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
       </div>`:'';
-      const returnAction=canOperate&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
+      const returnAction=canOperate&&!reversalPending&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
+        ${reversalPending?`<button class="btn btn-blue btn-sm" ${_corderReversalLocks.has(o.id)?'disabled aria-busy="true"':''} onclick="executeCorderReversal('${o.id}')">${_corderReversalLocks.has(o.id)?'回料核對中…':'續接原回料'}</button><span style="font-size:.75rem;color:var(--text2);white-space:normal">原回料尚未完成，請勿重建或改選處理方式。</span>`:''}
         ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming?'disabled aria-busy="true"':''} onclick="resumeCorder(this.dataset.id)">${resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal;color:var(--text2)">已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。</span>`:''}
         ${actions}
         ${returnAction}
-        ${o.status!=='需確認'?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
+        ${o.status!=='需確認'&&!reversalPending?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
         <button class="btn btn-red btn-sm" onclick="deleteCorder('${o.id}','${o.matId||''}',${o.qty||0},'${o.status||''}')">刪除</button>`:''}
       </div>`:'';
       if(isMobile){
@@ -27882,13 +27880,7 @@ async function submitSFGOrder(){
   }catch(e){showToast(`⚠ 半成品生產單 ${orderNo} 已建立，但列表更新失敗；請重新整理確認：${e.message}`,'warn',10000);}
 }
 
-async function loadCorders(options={}){
-  try{
-    await ensureXlsxLoaded();
-    const mode=options.mode||DATA_LOAD_MODE.corders||'recent';
-    const days=Number(options.days)||DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS;
-    const r=await dbQueryAll(DB.corders,mode==='all'?{}:{filter:corderRecentFilter(days)});
-    window.corders=r.map(p=>({
+function mapCorderPage(p){return {
       id:p.id,
       no:getTitle(p.properties,'訂單號碼')||getTitle(p.properties,'Name'),
       shopeeNo:getRichText(p.properties,'蝦皮訂單號碼')||getTitle(p.properties,'蝦皮訂單號碼'),
@@ -27903,14 +27895,20 @@ async function loadCorders(options={}){
       shipDate:p.properties?.['出日']?.date?.start||p.properties?.['出貨日期']?.date?.start||'',
       payDate:p.properties?.['付款時間']?.date?.start||'',
       source:p.properties?.['來源']?.select?.name||p.properties?.['來源']?.multi_select?.map(x=>x.name).join('、')||'',
-      matId:getRichText(p.properties,'料件ID'),
-      note:getRichText(p.properties,'備註'),
-      created:p.created_time?.slice(0,10)||'',
-    }));
+      matId:getRichText(p.properties,'料件ID'),note:getRichText(p.properties,'備註'),created:p.created_time?.slice(0,10)||'',
+};}
+async function loadCorders(options={}){
+  try{
+    await ensureXlsxLoaded();
+    const mode=options.mode||DATA_LOAD_MODE.corders||'recent';
+    const days=Number(options.days)||DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS;
+    const r=await dbQueryAll(DB.corders,mode==='all'?{}:{filter:corderRecentFilter(days)});
+    window.corders=r.map(mapCorderPage);
     window._cordersLoaded=true;
     window._cordersLoadedAt=Date.now();
     markDataLoadMode('corders',mode,window.corders.length,days);
-    if(!options.skipAutoComplete&&!isViewOnly())await autoCompleteCordersAfter7Days();
+    try{await loadCorderReversalPending();window._corderReversalLoadError='';}catch(e){window._corderReversalLoadError=e.message;}
+    if(!options.skipAutoComplete&&!isViewOnly()&&!window._corderReversalLoadError)await autoCompleteCordersAfter7Days();
   }catch(e){
     window._cordersLoaded=false;window.corders=[];console.warn('loadCorders 失敗:',e);
     if(options.strict)throw e;
@@ -27925,6 +27923,7 @@ async function autoCompleteCordersAfter7Days(){
   const today=new Date();
   today.setHours(0,0,0,0);
   const targets=(window.corders||[]).filter(o=>{
+    if(window._corderReversalPending?.[o.id])return false;
     if(o.status!=='出貨中') return false;
     const base=o.shipDate||o.created||'';
     if(!base) return false;

@@ -78,7 +78,7 @@ test('historical internal-number collision blocks stock-changing actions', async
   const cancel = html.slice(html.indexOf('async function openCorderCancelDeleteFlow('), html.indexOf('async function cancelCorder('));
   const returns = html.slice(html.indexOf('async function submitReturnCorder('), html.indexOf('function openEditCorder('));
   assert.equal((cancel.match(/await assertCorderStockActionIdentity\(o\)/g)||[]).length, 2);
-  assert(returns.indexOf('await assertCorderStockActionIdentity(o)') < returns.indexOf('await returnCorderStock('));
+  assert(returns.indexOf('await assertCorderStockActionIdentity(o)') < returns.indexOf('await executeCorderReversal('));
 });
 
 test('same Shopee order with several products can return each saved deduction', async () => {

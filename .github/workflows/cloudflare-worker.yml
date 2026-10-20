@@ -45,7 +45,7 @@ jobs:
         run: node --test tests/marketing_schedule.cjs
 
       - name: Verify C-end kit stock and return behavior
-        run: node --test tests/corder_bundle.cjs tests/corder_edit_number.cjs tests/corder_identity_guard.cjs tests/manual_stock_result.cjs tests/stock_log_reference_filter.cjs tests/order_pick_purpose.cjs
+        run: node --test tests/corder_bundle.cjs tests/corder_edit_number.cjs tests/corder_identity_guard.cjs tests/corder_reversal.cjs tests/manual_stock_result.cjs tests/stock_log_reference_filter.cjs tests/order_pick_purpose.cjs
 
       - name: Verify existing login token before deployment
         env:
@@ -64,6 +64,7 @@ jobs:
           python tests/run_shopee_handoff_postgres.py
           python tests/test_supply_chain_migration.py
           python tests/run_inbound_cancel_postgres.py
+          python tests/run_corder_reversal_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
@@ -89,6 +90,11 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python scripts/apply_inbound_cancel.py
+
+      - name: Install durable C-end reversal intents
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/apply_corder_reversal.py
 
       - name: Deploy green-wave-c22f Worker
         shell: bash
