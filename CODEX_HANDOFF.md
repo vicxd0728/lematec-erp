@@ -1,5 +1,10 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end recovery feedback 2026-10-20
+
+- Sales recovery UI now disables the pending row button with aria-busy while checking, preserves a per-row escaped alert after failure, and translates connection errors without claiming inventory was untouched. Retry clears the prior alert; same-page double submission stays blocked. Async completion does not replace another tab's content after navigation.
+- Desktop/mobile renderer checks cover busy and failure states, and the frontend lifecycle test covers double click, lost response, retry and navigation. Live sales login can verify the real list, but no pending production rows exist; do not invent a live failure or click a production recovery just for QA. Local fixture browser opening was denied by browser policy; no workaround attempted. Final live viewport/release evidence is recorded in output/corder-resume-ui-20261020/acceptance.md.
+
 ## C-end import recovery 2026-10-20
 
 - SHPTW16633/S-LEI-08-6 formal transaction afb71685-36d6-49e3-93b5-d121f7b99e29 already deducted1,12→11; original Notion order remained需確認 and human log missing. Bounded repair restored出貨中, added stock log9678 and Notion log mirror. Before/after balance11, same single formal transaction; inventory mutation requests0. Evidence output/corder-import-review-20261020/repair-result.json. Do not rerun a deduction or attach V2 marker to this legacy order.

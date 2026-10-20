@@ -33,6 +33,10 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
  c.window.corders=[{id:'pending',no:'SHPTW1',matCode:'S-X',qty:1,matId:'m',status:'需確認'},{id:'old-unlinked',no:'OLD',status:'已完成'}];c.isViewOnly=()=>false;
  out=c.renderCorders();assert.match(out,/需確認 <b>1<\/b>/);assert.match(out,/資料待補 <b>1<\/b>/);assert.match(out,/核對並續接/);
  const pendingCard=out.slice(out.indexOf('data-id="pending"'),out.indexOf('data-id="old-unlinked"'));assert.match(pendingCard,/resumeCorder/);assert.doesNotMatch(pendingCard,/openEditCorder|deleteCorder/);
+ for(const width of [1280,390]){
+  c.window.innerWidth=width;c.window._corderResuming=new Set(['pending']);out=c.renderCorders();assert.match(out,/disabled aria-busy="true"/);assert.match(out,/核對中，請稍候/);
+  c.window._corderResuming.clear();c.window._corderResumeErrors={pending:'憑證不符 <script>'};out=c.renderCorders();assert.match(out,/role="alert"/);assert.match(out,/憑證不符 &lt;script>/);assert.match(out,/連線恢復或問題排除後/);assert.doesNotMatch(out,/憑證不符 <script>/);
+ }
  c.isViewOnly=()=>true;assert.doesNotMatch(c.renderCorders(),/核對並續接/);
  c.window._cordersLoaded=false;out=c.renderCorders();assert.match(out,/尚未成功載入/);assert.doesNotMatch(out,/已選|尚無/);
 });

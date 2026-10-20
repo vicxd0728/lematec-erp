@@ -23165,13 +23165,14 @@ function renderCorders(){
       const bg=statusColor.bg;
       const fg=statusColor.fg;
       const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
+      const resuming=window._corderResuming?.has(o.id),resumeError=window._corderResumeErrors?.[o.id];
       const actions=canOperate&&o.status==='出貨中'?`<div class="corder-actions">
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
       </div>`:'';
       const returnAction=canOperate&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
-        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" onclick="resumeCorder(this.dataset.id)">核對並續接</button><span style="font-size:.75rem;white-space:normal">請先核對原交易，勿刪除重建</span>`:''}
+        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming?'disabled aria-busy="true"':''} onclick="resumeCorder(this.dataset.id)">${resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal">已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。</span>${resumeError?`<div class="info-box info-warn" role="alert" style="width:100%;white-space:normal;overflow-wrap:anywhere;margin:6px 0">${escapeHtml(resumeError)}<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。</div>`:''}`:''}
         ${actions}
         ${returnAction}
         ${o.status!=='需確認'?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
@@ -27079,15 +27080,22 @@ async function resumeCorder(id){
   window._corderResuming=window._corderResuming||new Set();
   if(window._corderResuming.has(id))return;
   window._corderResuming.add(id);
+  window._corderResumeErrors=window._corderResumeErrors||{};
+  delete window._corderResumeErrors[id];
   try{
+    if(CURRENT_TAB==='corders')renderTab('corders');
     showToast('正在核對原交易並續接，請勿另建訂單…','warn',10000);
     const result=await requestCorderResume(id);
     const row=(window.corders||[]).find(o=>o.id===id);if(row)row.status='出貨中';
     showToast(result.duplicate?'已查回原扣庫憑證，訂單已續接；未重複扣料':'原單已完成扣料與續接','ok',8000);
     try{await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單已核對'});}catch(e){showToast('訂單已續接，清單更新失敗，請同步核對；勿重建','warn');}
-    renderTab('corders');
-  }catch(e){showToast('續接未確認：'+e.message+'；請保留原單，勿刪除重建','err',12000);}
-  finally{window._corderResuming.delete(id);}
+    if(CURRENT_TAB==='corders')renderTab('corders');
+  }catch(e){
+    const reason=/failed to fetch|networkerror|load failed|network request failed/i.test(e.message||'')?'連線中斷，尚未取得續接結果；不能據此判斷是否已扣料':(e.message||'尚未取得續接結果');
+    window._corderResumeErrors[id]='續接未確認：'+reason;
+    showToast(window._corderResumeErrors[id]+'；請保留原單，勿刪除重建','err',12000);
+  }
+  finally{window._corderResuming.delete(id);if(CURRENT_TAB==='corders')renderTab('corders');}
 }
 async function applyCorderImportPreflight(){
   if(window._corderImportBusy)return;

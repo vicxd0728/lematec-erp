@@ -1,6 +1,15 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{test}=require('node:test');
 const worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8'),html=fs.readFileSync('index.html','utf8');
 const pageId='11111111-1111-4111-8111-111111111111',matId='22222222-2222-4222-8222-222222222222',notionMat='33333333-3333-4333-8333-333333333333',txId='44444444-4444-4444-8444-444444444444';
+test('resume UI prevents double submission, retains network failure and clears it on retry without navigating away',async()=>{
+ let reject,resolve,calls=0;const renders=[],messages=[];
+ const c=vm.createContext({window:{corders:[{id:pageId,status:'需確認'}]},CURRENT_TAB:'corders',isViewOnly:()=>false,renderTab:t=>renders.push(t),showToast:m=>messages.push(m),requestCorderResume:()=>{calls++;return new Promise((r,j)=>{resolve=r;reject=j;});},refreshAffectedData:async()=>{}});
+ vm.runInContext(html.slice(html.indexOf('async function resumeCorder('),html.indexOf('async function applyCorderImportPreflight(')),c);
+ const first=c.resumeCorder(pageId);assert(c.window._corderResuming.has(pageId));await c.resumeCorder(pageId);assert.equal(calls,1);
+ reject(Error('Failed to fetch'));await first;assert(!c.window._corderResuming.has(pageId));assert.match(c.window._corderResumeErrors[pageId],/連線中斷.*不能據此判斷是否已扣料/);assert.equal(c.window.corders[0].status,'需確認');
+ const retry=c.resumeCorder(pageId);assert.equal(c.window._corderResumeErrors[pageId],undefined);c.CURRENT_TAB='orders';const before=renders.length;
+ resolve({duplicate:true});await retry;assert.equal(renders.length,before);assert.equal(c.window.corders[0].status,'出貨中');assert.match(messages.at(-1),/未重複扣料/);
+});
 const rich=s=>({rich_text:[{text:{content:s}}]});
 function harness(options={}){
  const page={id:pageId,parent:{database_id:'db'},properties:{訂單號碼:{title:[{text:{content:'SHPTW20000'}}]},品名:rich('S-X'),數量:{number:1},料件ID:rich(notionMat+':1'),備註:rich('[ERP_CORDER_V2] pending'),狀態:{select:{name:'需確認'}}}};
