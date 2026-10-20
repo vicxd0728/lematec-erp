@@ -23075,7 +23075,8 @@ function renderCorders(){
   const countDone=data.filter(o=>o.status==='已完成').length;
   const countCancel=data.filter(o=>o.status==='已取消').length;
   const countReturn=data.filter(o=>o.status==='部分退貨'||o.status==='已退貨').length;
-  const countWarn=data.filter(o=>o.status==='需確認'||!o.matId||/找不到|未扣|無料號/.test(o.note||'')).length;
+  const countWarn=data.filter(o=>o.status==='需確認').length;
+  const countDataWarn=data.filter(o=>o.status!=='需確認'&&(!o.matId||/找不到|未扣|無料號/.test(o.note||''))).length;
   const nextNo=nextCorderInternalNo();
   const sequenceReady=corderSequenceReady();
   const sequenceBlocked=canOperate&&!sequenceReady;
@@ -23101,6 +23102,7 @@ function renderCorders(){
       <span class="module-pill">下一號 <b>${nextNo}</b></span>
       <span class="module-pill">出貨中 <b>${countShip}</b></span>
       <span class="module-pill">需確認 <b>${countWarn}</b></span>
+      ${countDataWarn?`<span class="module-pill">資料待補 <b>${countDataWarn}</b></span>`:''}
     </div>
   </div>
   ${notionBar}
@@ -27125,7 +27127,7 @@ async function applyCorderImportPreflightOnce(){
       await assertCorderInternalNoForIdentity(no,identity.shopeeNo,identity.buyer);
   }catch(e){
     openCorderImportPreflightModal(report);
-    showToast('❌ 匯入前單號查核失敗；未建立訂單或扣庫：'+e.message,'err',10000);
+    showToast('❌ 匯入前單號查核失敗；本次未建單或扣庫，已保留號碼不回退：'+e.message,'err',10000);
     return;
   }
   closeModal();
@@ -27211,8 +27213,8 @@ async function applyCorderImportPreflightOnce(){
   }
 
   window._corderImportPreflight=null;
-  await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'});
-  renderTab(CURRENT_TAB);
+  try{await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'});renderTab(CURRENT_TAB);}
+  catch(e){warn++;warnList.push('已完成的原單與扣庫憑證保留，清單更新失敗；請重新讀取核對，勿重建：'+e.message);}
   showToast(`${warn||failed?'⚠':'✅'} 匯入結果：完成／續接 ${ok} 筆${skip?' / 已存在略過 '+skip+' 筆':''}${warn?' / '+warn+' 筆需確認':''}${failed?' / 待處理 '+failed+' 筆；請查看原單續接':''}；已保留號碼不回退`,warn||failed?'warn':'ok',10000);
   if(warnList.length){
     alert('以下品項需確認：\n\n'+warnList.slice(0,30).join('\n')+(warnList.length>30?'\n...':''));
