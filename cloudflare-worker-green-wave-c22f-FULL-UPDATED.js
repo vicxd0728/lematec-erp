@@ -2715,18 +2715,35 @@ async function erpPickingMigrate(request, env, cors) {
   }
 }
 
+async function verifiedCorderStockLogRepair(env,item) {
+  const trace=cleanText(item.client_trace_id),id=trace.slice('inventory-tx:'.length);
+  if(!trace.startsWith('inventory-tx:')||!isUuid(id))throw Error('修復明細必須提供正式交易識別');
+  const {organization}=await getSupabaseInventoryContext(env);
+  const tx=await supabaseSingle(env,`/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(organization.id)}&id=eq.${id}&select=id,source_number,source_type,quantity_delta,quantity_before,quantity_after,materials(sku,notion_page_id)&limit=1`,true);
+  const mat=tx?.materials;
+  const matches=row=>tx&&mat&&/^SHPTW\d+$/.test(tx.source_number||'')&&String(tx.source_type||'').startsWith('corder_ship')&&Number(tx.quantity_delta)<0
+    &&row.ref_no===tx.source_number&&cleanSku(row.material_code)===mat.sku&&canonicalNotionId(row.material_id)===canonicalNotionId(mat.notion_page_id)
+    &&Number(row.quantity)===Math.abs(Number(tx.quantity_delta))&&Number(row.before_stock)===Number(tx.quantity_before)&&Number(row.after_stock)===Number(tx.quantity_after);
+  if(!matches(item))throw Error('修復明細與正式交易不符');
+  return matches;
+}
 async function erpStockLogSync(request, env, cors) {
   try {
     const body = await request.json();
     const item = body?.item || body || {};
     const trace = cleanText(item.client_trace_id || '');
     const requestedSource = cleanText(item.source || 'erp_frontend') || 'erp_frontend';
-    const source = ['erp_frontend', 'notion_backfill', 'codex_sync'].includes(requestedSource)
+    const repairCheck=requestedSource==='inventory_reconcile'?await verifiedCorderStockLogRepair(env,item):null;
+    const source = ['erp_frontend', 'notion_backfill', 'codex_sync','inventory_reconcile'].includes(requestedSource)
       ? requestedSource
       : 'erp_frontend';
     if (trace) {
-      const existing = await supabaseSingle(env, `/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=id,client_trace_id,notion_page_id,created_at&limit=1`, true);
+      const existing = await supabaseSingle(env, `/rest/v1/erp_stock_logs?client_trace_id=eq.${encodeURIComponent(trace)}&select=*&limit=1`, true);
       if (existing?.id) {
+        if(repairCheck&&existing.source==='codex_sync'){
+          if(!repairCheck(existing))throw Error('既有明細與正式交易不符，未解除隱藏');
+          await supabaseFetch(env,`/rest/v1/erp_stock_logs?id=eq.${existing.id}`,{method:'PATCH',body:JSON.stringify({source:'inventory_reconcile'})});
+        }
         return respOK(cors, {
           ok: true,
           duplicate: true,

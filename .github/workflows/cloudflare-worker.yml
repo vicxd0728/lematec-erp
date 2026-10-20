@@ -33,7 +33,7 @@ jobs:
         run: node --test tests/assembly_complete.cjs
 
       - name: Verify material mirror recovery and stock preservation
-        run: node --test tests/inventory_mirror_recovery.cjs
+        run: node --test tests/inventory_mirror_recovery.cjs tests/stock_log_receipt_repair.cjs
 
       - name: Verify Shopee one-to-one transfer safety
         run: node --test tests/shopee_transfer.cjs

@@ -24,6 +24,7 @@ jobs:
           node --test tests/corder_workbench_selection.cjs
           node --test tests/picking_record_details.cjs
           node --test tests/corder_recovery.cjs
+          node --test tests/stock_log_receipt_repair.cjs
           python -m unittest tests.test_daily_erp_quality tests.test_verify_erp_static tests.test_worker_acceptance
           python scripts/verify_erp_static.py
 
