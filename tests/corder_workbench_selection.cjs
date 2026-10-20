@@ -36,6 +36,7 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
  for(const width of [1280,390]){
   c.window.innerWidth=width;c.window._corderResuming=new Set(['pending']);out=c.renderCorders();assert.match(out,/disabled aria-busy="true"/);assert.match(out,/核對中，請稍候/);
   c.window._corderResuming.clear();c.window._corderResumeErrors={pending:'憑證不符 <script>'};out=c.renderCorders();assert.match(out,/role="alert"/);assert.match(out,/憑證不符 &lt;script>/);assert.match(out,/連線恢復或問題排除後/);assert.doesNotMatch(out,/憑證不符 <script>/);
+  if(width===1280)assert.match(out,/<tr class="corder-recovery-feedback-row"><td colspan="8">/);else assert.doesNotMatch(out,/corder-recovery-feedback-row/);
  }
  c.isViewOnly=()=>true;assert.doesNotMatch(c.renderCorders(),/核對並續接/);
  c.window._cordersLoaded=false;out=c.renderCorders();assert.match(out,/尚未成功載入/);assert.doesNotMatch(out,/已選|尚無/);

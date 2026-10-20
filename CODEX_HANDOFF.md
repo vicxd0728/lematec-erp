@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Isolated browser recovery acceptance 2026-10-20
+
+- Added local-only tests/qa_corder_recovery_server.cjs: binds127.0.0.1:8769, no credentials or external fetch adapters; serves current renderer/request/resume and actual Worker recovery functions against independent in-memory transactions and Notion adapters. CSP connect-src self. Do not deploy this server or treat its synthetic transactions as production writes.
+- Actual Chrome sales-configured desktop1280x900/mobile390x844 each completed lost response after commit, Notion status failure, log failure, same-page retry. Six cases all preserve one negative transaction12→11, one final human log, same page, final出貨中. Busy button disabled, double-click cases one API submission; mobile button44px. Evidence output/corder-resume-browser-20261020/browser-evidence.json. This closes the previous browser-fixture limitation through a supported local HTTP development environment, not file URL access.
+- Actual default-theme desktop error text was compressed into108px action column. Moved failure alert to full-width row directly below original order (about1127px in1280px test); mobile retains alert within same card. Instructions use text2 color. Final screenshots desktop-error-visible.png/mobile-error-visible.png visually inspected; earlier End-key screenshots were out of view and are not final proof. Static styles retain original media attributes in the harness.
+- Only UI feedback layout and cache changed; same recovery API/idempotency/roles. Production release/readback belongs in output/corder-resume-browser-20261020/acceptance.md.
+
 ## C-end recovery feedback 2026-10-20
 
 - Sales recovery UI now disables the pending row button with aria-busy while checking, preserves a per-row escaped alert after failure, and translates connection errors without claiming inventory was untouched. Retry clears the prior alert; same-page double submission stays blocked. Async completion does not replace another tab's content after navigation.

@@ -23166,13 +23166,14 @@ function renderCorders(){
       const fg=statusColor.fg;
       const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
       const resuming=window._corderResuming?.has(o.id),resumeError=window._corderResumeErrors?.[o.id];
+      const recoveryFeedback=canOperate&&o.status==='需確認'&&resumeError?`<div class="info-box info-warn corder-recovery-feedback" role="alert" style="white-space:normal;overflow-wrap:anywhere;margin:8px 0">${escapeHtml(resumeError)}<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。</div>`:'';
       const actions=canOperate&&o.status==='出貨中'?`<div class="corder-actions">
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
       </div>`:'';
       const returnAction=canOperate&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
-        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming?'disabled aria-busy="true"':''} onclick="resumeCorder(this.dataset.id)">${resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal">已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。</span>${resumeError?`<div class="info-box info-warn" role="alert" style="width:100%;white-space:normal;overflow-wrap:anywhere;margin:6px 0">${escapeHtml(resumeError)}<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。</div>`:''}`:''}
+        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming?'disabled aria-busy="true"':''} onclick="resumeCorder(this.dataset.id)">${resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal;color:var(--text2)">已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。</span>`:''}
         ${actions}
         ${returnAction}
         ${o.status!=='需確認'?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
@@ -23186,6 +23187,7 @@ function renderCorders(){
           <div class="corder-sku">${o.matCode||o.matName||'—'} <span style="color:var(--text3);font-weight:400">× ${o.qty||0}</span></div>
           <div class="corder-meta">${o.customerName?`收件人 ${o.customerName} · `:''}${o.buyer||'—'}${o.shipMethod?' · '+o.shipMethod:''}${o.shipDate?' · 出日 '+o.shipDate:''}</div>
           <div class="corder-actions" style="margin-top:10px"><span class="corder-status" style="background:${bg};color:${fg}">${o.status||'—'}</span>${manage}</div>
+          ${recoveryFeedback}
           ${warn?`<div class="corder-warn">⚠ ${o.note||'未關聯料件，庫存可能未扣除'}</div>`:''}
         </div>`;
       }
@@ -23198,7 +23200,7 @@ function renderCorders(){
         <td><span class="pill" style="background:${bg};color:${fg}">${o.status||'—'}</span></td>
         <td><div>${o.shipMethod||'—'}</div><div class="corder-sku-sub">${o.shipDate||''}</div></td>
         ${canOperate?`<td>${manage}</td>`:''}
-      </tr>`;
+      </tr>${recoveryFeedback?`<tr class="corder-recovery-feedback-row"><td colspan="8">${recoveryFeedback}</td></tr>`:''}`;
     }).join('');
     html+=isMobile?`<div style="padding:12px">${rows}</div>`:`<div class="table-wrap"><table class="corder-table"><tr><th><input class="corder-row-check" type="checkbox" aria-label="全選本頁 C端訂單" ${view.rows.every(o=>selected.has(o.id))?'checked':''} onchange="selectCorderVisible(this.checked)"></th><th>訂單號 ↕</th><th>客戶 / 買家</th><th>品項 / 料號</th><th>數量</th><th>狀態</th><th>出貨</th>${canOperate?'<th>操作</th>':''}</tr>${rows}</table></div>`;
     html+=`<div class="premium-corder-footer">
