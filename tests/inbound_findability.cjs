@@ -63,3 +63,8 @@ test('cancelled inbound never appears in pending even with a residual pending st
   const rows=[{qcStatus:'已取消',stStatus:'待入庫'},{qcStatus:'待品檢',stStatus:'已取消'},{qcStatus:'待品檢',stStatus:'待入庫'}];
   const ctx=context(rows);assert.equal(ctx.filterInboundRows(rows,{q:'',date:'0',status:'pending'}).length,1);
 });
+test('inbound multi-term search joins SKU and supplier and normalizes full-width input',()=>{
+ const rows=[{no:'IN-1',matCode:'Y-GAH-08',supplier:'甲廠',date:'2026-09-25'},{no:'IN-2',matCode:'Y-GAH-08',supplier:'乙廠',date:'2026-09-25'}],ctx=context(rows);
+ assert.equal(ctx.filterInboundRows(rows,{q:'Ｙ－ＧＡＨ－０８ 甲廠',date:'0',status:'all'})[0].no,'IN-1');
+ assert.equal(ctx.filterInboundRows(rows,{q:'Y-GAH-08 未知廠',date:'0',status:'all'}).length,0);
+});

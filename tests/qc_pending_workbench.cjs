@@ -33,6 +33,10 @@ test('searches remain separate and clearing inbound retains the order query',()=
  assert.match(ctx.renderQCTab(),/不代表沒有其他待辦/);assert.doesNotMatch(ctx.renderQCTab(),/✅ 目前.*沒有/);ctx.applyQCPendingSearch('inbound',true);
  assert.equal(ctx.qcPendingSearchState('inbound').q,'');assert.equal(ctx.qcPendingSearchState('orders').q,'ORD');
 });
+test('pending QC multi-term search combines source SKU and supplier, including full-width keyboard text',()=>{
+ const {ctx}=setup();ctx.qcPendingSearchState('inbound').q='Ｙ－ＤＥＭＯ 示範廠';assert.equal(ctx.qcPendingRows('inbound',ctx.inbounds).length,1);
+ ctx.qcPendingSearchState('inbound').q='Y-DEMO 不存在';assert.equal(ctx.qcPendingRows('inbound',ctx.inbounds).length,0);
+});
 test('fallback or updating inbound offers no approval controls but keeps pending rows visible',()=>{
  for(const state of ['fallback','loading','error']){
   const {ctx}=setup();if(state==='fallback')ctx.window._inboundDataSource='notion-fallback';else ctx.window._operationalReads={inbounds:state==='loading'?{loading:true}:{error:'offline'}};

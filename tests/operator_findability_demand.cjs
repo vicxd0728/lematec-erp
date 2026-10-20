@@ -31,6 +31,10 @@ test('picking search fallback resets pagination and restores caret when result r
  const ctx=context({window:{_PICK_PAGE:3},document:{getElementById:id=>id==='pickingSearch'?next:null}});
  ctx.updatePickingSearch(input);assert.equal(ctx.window._PICK_Q,'PK');assert.equal(ctx.window._PICK_PAGE,1);assert.equal(next.focused,true);assert.deepEqual(next.range,[1,1]);
 });
+test('picking multi-term search matches child SKU and source customer without treating one matching term as enough',()=>{
+ const ctx=context({orders:[{id:'order1',customer:'客戶甲'}]}),rows=[{id:'p1',orderId:'order1',items:[{code:'Y-CHILD'}]},{id:'p2',items:[{code:'Y-CHILD'}]}];
+ assert.equal(ctx.pickingSearchRows(rows,'Ｙ－ＣＨＩＬＤ 客戶甲')[0].id,'p1');assert.equal(ctx.pickingSearchRows(rows,'Y-CHILD 不存在').length,0);
+});
 test('picking source order lookup resets conflicting filters without writes',()=>{
  const filters={q:'old',type:'sfg',status:'已完成',date:'7d',hide:true,deadline:'overdue'};let tab;
  const ctx=context({orders:[{id:'o-1',no:'ORD-ONE'}],getOrderFilters:()=>filters,switchTab:v=>tab=v});

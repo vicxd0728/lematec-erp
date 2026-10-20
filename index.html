@@ -19139,7 +19139,7 @@ function refreshOperationalListRegions(ids,render){
   return true;
 }
 function pickingSearchRows(rows,query){
-  const q=String(query||'').trim().toLocaleLowerCase();
+  const q=String(query||'').normalize('NFKC').trim().toLocaleLowerCase();
   if(!q)return rows;
   const byOrder=new Map(orders.map(o=>[canonicalPageId(o.id),o]));
   const byMaterial=new Map(mats.map(m=>[m.id,m]));
@@ -19147,7 +19147,8 @@ function pickingSearchRows(rows,query){
     const order=byOrder.get(canonicalPageId(p.orderId))||{},material=byMaterial.get(order.productId)||{};
     const values=[p.no,p.product,p.note,p.person,order.no,order.customer,order.cust,order.product,order.matCode,material.code,material.name];
     for(const item of p.items||[]){const mat=byMaterial.get(item.matId)||{};values.push(item.code,item.name,item.matCode,item.matName,mat.code,mat.name);}
-    return values.some(value=>String(value||'').toLocaleLowerCase().includes(q));
+    const blob=values.map(value=>String(value||'')).join(' ').normalize('NFKC').toLocaleLowerCase();
+    return q.split(/\s+/).every(term=>blob.includes(term));
   });
 }
 function updatePickingSearch(input){
@@ -19276,7 +19277,7 @@ function renderPicking(){
   </div>`:'';
   const overview=sub==='auto'?`<div class="picking-summary-strip" aria-label="目前搜尋範圍領料摘要"><strong>領料作業</strong><span>待回料 ${returnRequests.length}</span><span>缺料待補 ${shortageRows.length}</span><span>已領料 ${pickedRows.length}</span>${returnRequests.length?'<button type="button" class="btn btn-yellow btn-sm" onclick="setPickingView(\'auto\',\'return\',true)">查看待回料確認</button>':''}</div><details class="picking-overview-details" ${window._pickingOverviewOpen?'open':''} ontoggle="window._pickingOverviewOpen=this.open"><summary>回料流程說明與領料狀態圖（展開查閱）</summary>${workflowBoard}${renderPickingStatusVisual(scopedAutoData)}</details>`:'';
   return _notionBar + '<div id="pickingReadNotice">' + renderOperationalReadNotice('picks','領料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + tabs + '<div id="pickingOverview">'+overview + `</div><div class="filter-bar operational-toolbar">
-    <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶或備註" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updatePickingSearch(this)">
+    <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶；空白分隔多條件" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updatePickingSearch(this)">
     <button class="btn btn-ghost btn-xs" onclick="resetPickingFilters()">清除篩選</button>
     <span class="filter-label">時間：</span>
     <select class="inp" id="pickDateFilter" style="width:130px" onchange="updatePickingDate(this.value)"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
@@ -19343,7 +19344,7 @@ function setInboundStatus(status){
   renderTab('inbound');
 }
 function filterInboundRows(rows,filters=inboundListFilters()){
-  const q=String(filters.q||'').trim().toLocaleLowerCase();
+  const q=String(filters.q||'').normalize('NFKC').trim().toLocaleLowerCase();
   const byMaterial=new Map(mats.map(m=>[m.id,m]));
   return applyDateFilterValue(filters.date||'6',rows,'date').filter(i=>{
     const qc=String(i.qcStatus||''),stock=String(i.stStatus||'');
@@ -19353,7 +19354,8 @@ function filterInboundRows(rows,filters=inboundListFilters()){
     if(filters.status==='returned'&&!(/不合格/.test(qc)||/^退回/.test(stock)))return false;
     if(!q)return true;
     const mat=byMaterial.get(i.matId)||{};
-    return [i.no,i.matCode,i.matName,mat.code,mat.name,i.supplier,i.note].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+    const blob=[i.no,i.matCode,i.matName,mat.code,mat.name,i.supplier,i.note].map(v=>String(v||'')).join(' ').normalize('NFKC').toLocaleLowerCase();
+    return q.split(/\s+/).every(term=>blob.includes(term));
   });
 }
 function updateInboundSearch(input){
@@ -19489,7 +19491,7 @@ function renderInbound(){
   const cancelPage=canAdd?pageRows.filter(canCancelInbound):[];
   return _notionBar + '<div id="inboundReadNotice">' + renderOperationalReadNotice('inbounds','入料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；新增及重新提交入料暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + `<div class="operational-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(260px,70vw);padding:6px 9px;font-size:.75rem" placeholder="搜尋單號、料號、供應商" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updateInboundSearch(this)">
+      <input class="inp" id="inboundSearch" aria-label="搜尋入料單" style="width:min(320px,85vw);padding:6px 9px;font-size:.75rem" placeholder="單號、料號、供應商；空白分隔多條件" value="${escapeHtml(filters.q||'')}" oninput="updateInboundSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updateInboundSearch(this)">
       <button class="btn btn-ghost btn-xs" onclick="resetInboundFilters()">清除篩選</button>
       <select class="inp" id="inboundStatusFilter" aria-label="入料狀態" style="width:120px;padding:5px 8px;font-size:.6875rem" onchange="inboundListFilters().status=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="all" ${filters.status==='all'?'selected':''}>全部狀態</option><option value="pending" ${filters.status==='pending'?'selected':''}>待品檢／入庫</option><option value="stocked" ${filters.status==='stocked'?'selected':''}>已入庫</option><option value="returned" ${filters.status==='returned'?'selected':''}>品檢退回</option><option value="cancelled" ${filters.status==='cancelled'?'selected':''}>已取消</option></select>
       <select class="inp" id="inboundDateFilter" aria-label="入料日期" style="width:110px;padding:5px 8px;font-size:0.6875rem" onchange="inboundListFilters().date=this.value;inboundListFilters().page=1;renderTab('inbound')"><option value="7d" ${dateVal==='7d'?'selected':''}>近7天</option><option value="month" ${dateVal==='month'?'selected':''}>當月</option><option value="1" ${dateVal==='1'?'selected':''}>近1個月</option><option value="3" ${dateVal==='3'?'selected':''}>近3個月</option><option value="6" ${dateVal==='6'?'selected':''}>近半年</option><option value="0" ${dateVal==='0'?'selected':''}>全部</option></select>
@@ -23749,7 +23751,7 @@ function qcPendingSearchState(kind){
 }
 function applyQCPendingSearch(kind,clear=false){
   if(!['inbound','orders'].includes(kind))return;
-  if(kind==='inbound'&&document.getElementById('qcBatchProgress')?.textContent?.trim()){
+  if(kind==='inbound'&&(window._qcBatchRun?.running||document.getElementById('qcBatchProgress')?.textContent?.trim())){
     showToast('批量品檢仍在處理或更新資料，請先等待完成再切換搜尋','warn');return;
   }
   const state=qcPendingSearchState(kind),input=document.getElementById('qcPendingSearch-'+kind);
@@ -23757,19 +23759,31 @@ function applyQCPendingSearch(kind,clear=false){
   if(CURRENT_TAB==='qc')renderTab('qc');
 }
 function qcPendingRows(kind,rows){
-  const q=qcPendingSearchState(kind).q.toLocaleLowerCase();
+  const q=qcPendingSearchState(kind).q.normalize('NFKC').trim().toLocaleLowerCase();
   if(!q)return rows;
   return rows.filter(row=>{
     const mat=mats.find(m=>m.id===(row.matId||row.productId))||{};
-    return [row.no,row.matCode,row.matName,mat.code,mat.name,row.supplier,row.cust,row.customer,row.product,kind==='orders'?orderProductName(row):''].some(v=>String(v||'').toLocaleLowerCase().includes(q));
+    const blob=[row.no,row.matCode,row.matName,mat.code,mat.name,row.supplier,row.cust,row.customer,row.product,kind==='orders'?orderProductName(row):''].map(v=>String(v||'')).join(' ').normalize('NFKC').toLocaleLowerCase();
+    return q.split(/\s+/).every(term=>blob.includes(term));
   });
 }
 function renderQCPendingToolbar(kind,count,total){
-  const state=qcPendingSearchState(kind),label=kind==='inbound'?'單號、料號、名稱或供應商':'訂單號、客戶或品項';
+  const state=qcPendingSearchState(kind),label=kind==='inbound'?'料號＋供應商等，以空白分隔':'訂單號＋客戶等，以空白分隔';
   return `<div class="operational-toolbar qc-pending-toolbar"><label for="qcPendingSearch-${kind}">搜尋待檢${kind==='inbound'?'入料':'訂單'}</label><input class="inp" id="qcPendingSearch-${kind}" aria-label="搜尋待檢${kind==='inbound'?'入料':'訂單'}" placeholder="${label}" value="${escapeHtml(state.draft)}" oninput="qcPendingSearchState('${kind}').draft=this.value" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;qcPendingSearchState('${kind}').draft=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing&&!this._composing){event.preventDefault();applyQCPendingSearch('${kind}')}"><button type="button" class="btn btn-blue btn-sm" onclick="applyQCPendingSearch('${kind}')">搜尋</button><button type="button" class="btn btn-ghost btn-sm" onclick="applyQCPendingSearch('${kind}',true)">清除搜尋</button><span class="qc-pending-scope" aria-live="polite">已套用：${escapeHtml(state.q||'全部')} · 符合 ${count}／已載入待檢 ${total} 筆。${kind==='inbound'?'先查詢再勾選；套用搜尋會清除目前勾選。':''}</span></div>`;
 }
 function qcPendingEmpty(kind){
   return `<div class="loading-row" role="status">目前沒有符合搜尋的待檢${kind==='inbound'?'入料':'訂單'}；不代表沒有其他待辦。<button type="button" class="btn btn-ghost btn-sm" onclick="applyQCPendingSearch('${kind}',true)">清除搜尋並查看全部待檢</button></div>`;
+}
+function renderQCBatchResult(){
+  const run=window._qcBatchRun;if(!run)return '';
+  const results=run.results||[],ok=results.filter(r=>r.ok).length,unknown=results.filter(r=>!r.ok).length;
+  return `<section class="info-box ${run.refreshError||unknown?'info-warn':''}" id="qcBatchResult" role="status" aria-live="polite" style="margin-bottom:12px;overflow-wrap:anywhere">
+    <strong>${run.running?'批量品檢處理中':'上次批量品檢結果'}</strong><div>已確認處理 ${ok} 筆 · 未確認 ${unknown} 筆 · 已處理 ${results.length}／${run.total} 筆</div>
+    ${run.running?'<div id="qcBatchProgress">'+escapeHtml(run.progress||'準備處理，請勿重複送出')+'</div>':''}
+    ${run.refreshError?`<div role="alert">列表更新失敗：${escapeHtml(run.refreshError)}。上方處理結果已保留，請只重新讀取，不要重建入料單。</div><button class="btn btn-blue btn-sm" onclick="refreshQCBatchResults()" ${run.running?'disabled':''}>僅重新讀取結果，不重送入庫</button>`:''}
+    ${results.length?`<details ${unknown?'open':''}><summary>逐筆處理結果</summary>${results.map(r=>`<div style="padding:8px 0;border-top:1px solid var(--border)"><b>${escapeHtml(r.no||r.id)}</b>：${r.ok?(r.duplicate?'先前已入庫，本次未增加庫存':r.warning?'入庫已確認，後續資料待核對':'入庫已確認'):'結果未確認，請按原單核對後再試'}${r.error||r.warning?`<div>${escapeHtml(r.error||r.warning)}</div>`:''}</div>`).join('')}</details>`:''}
+    ${unknown?'<div>未確認不代表未入庫；請核對原單，重試仍走同一張入料單的後端防重複機制。</div>':''}
+  </section>`;
 }
 function qcHistorySearchState(){
   return window._qcHistorySearch=window._qcHistorySearch||{q:'',draft:''};
@@ -23802,7 +23816,7 @@ function renderQCTab(){
   const inboundState=operationalReadState('inbounds',inbounds);
   const ordersReady=!!window._coreLoaded||orders.length>0;
   const inboundFallback=window._inboundDataSource==='notion-fallback'||inbounds.some(i=>i.fallback);
-  const canInboundQC=canQC&&inboundState.ready&&!inboundState.loading&&!inboundState.error&&!inboundFallback;
+  const canInboundQC=canQC&&inboundState.ready&&!inboundState.loading&&!inboundState.error&&!inboundFallback&&!window._qcBatchRun?.running&&!window._qcBatchRun?.refreshError;
 
   // ── 資料源（清楚分開）──
   const pendingInbound  = inbounds.filter(i=>i.qcStatus==='待品檢');          // 入料待品檢
@@ -23849,8 +23863,8 @@ function renderQCTab(){
   // tab 1：入料待品檢（原有功能）
   // ══════════════════════════════
   if(QC_SUB==='pending'){
-    if(!inboundState.ready)return qcBrief+_notionBar+tabs+renderOperationalReadPlaceholder('inbounds','入料待品檢',inboundState);
-    const notice=renderOperationalReadNotice('inbounds','入料',inboundState)+(inboundFallback?'<div class="info-warn" role="status">目前為 Notion 唯讀備援，通過／退回／批量操作暫停；請先恢復正式入料資料。</div>':'');
+    if(!inboundState.ready)return qcBrief+_notionBar+tabs+renderQCBatchResult()+renderOperationalReadPlaceholder('inbounds','入料待品檢',inboundState);
+    const notice=renderQCBatchResult()+renderOperationalReadNotice('inbounds','入料',inboundState)+(inboundFallback?'<div class="info-warn" role="status">目前為 Notion 唯讀備援，通過／退回／批量操作暫停；請先恢復正式入料資料。</div>':'');
     const rows=qcPendingRows('inbound',applySort('qcp',pendingInbound)),toolbar=renderQCPendingToolbar('inbound',rows.length,pendingInbound.length);
     if(!pendingInbound.length) return qcBrief+_notionBar+tabs+notice+toolbar+`<div class="panel operational-results qc-pending-results"><div style="padding:28px;text-align:center;color:var(--text3)">${inboundState.loading||inboundState.error||inboundFallback?'目前快照沒有待檢項目，最新正式狀態仍須確認。':'✅ 目前已載入資料沒有入料待品檢項目'}</div></div>`;
     if(!rows.length)return qcBrief+_notionBar+tabs+notice+toolbar+qcPendingEmpty('inbound');
@@ -23861,16 +23875,18 @@ function renderQCTab(){
         ${canInboundQC?`<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span id="qcBatchCount" style="font-size:.78rem;color:var(--text2)">尚未選取</span>
           <button class="btn btn-green btn-sm" id="qcBatchPassBtn" onclick="batchApproveInboundQC()" disabled>✓ 批量通過</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleQCBatchInboundAll({checked:true})">選取目前搜尋 ${rows.length} 筆</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleQCBatchInboundAll({checked:false})">清除勾選</button>
           <span id="qcBatchProgress" style="font-size:.72rem;color:var(--text3)"></span>
         </div>`:''}
       </div>
       ${canInboundQC?`<div class="help-box" style="margin:0 12px 10px">大量入料請勾選後使用「批量通過」，系統會逐筆入庫、寫入品管與庫存異動紀錄，避免快速連點造成 Notion 限流。</div>`:''}
       <div class="table-wrap"><table class="qc-work-table">
-        <tr>${canInboundQC?`<th style="width:42px"><input type="checkbox" onchange="toggleQCBatchInboundAll(this)"></th>`:''}${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str')}<th>操作</th></tr>
+        <tr>${canInboundQC?`<th style="width:42px"><label style="display:inline-flex;align-items:center;min-height:44px;min-width:32px"><input aria-label="選取目前搜尋全部待檢入料" type="checkbox" onchange="toggleQCBatchInboundAll(this)"></label></th>`:''}${TH('qcp','no','入料單號')}<th>料件</th>${TH('qcp','qty','數量','num')}${TH('qcp','date','日期','str')}<th>操作</th></tr>
         ${rows.map(i=>{
           const mat=mats.find(m=>m.id===i.matId)||{},code=i.matCode||mat.code||i.matName||mat.name||'—';
           return `<tr>
-            ${canInboundQC?`<td data-label="選取"><input aria-label="選取 ${escapeHtml(i.no||'入料單')}" type="checkbox" class="qc-inbound-batch" value="${i.id}" onchange="updateQCBatchButton()"></td>`:''}
+            ${canInboundQC?`<td data-label="選取"><label style="display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:32px"><input aria-label="選取 ${escapeHtml(i.no||'入料單')}" type="checkbox" class="qc-inbound-batch" value="${i.id}" onchange="updateQCBatchButton()"><span class="m-only">勾選此筆</span></label></td>`:''}
             <td data-label="入料單號" style="font-family:monospace">${escapeHtml(i.no||'—')}</td>
             <td data-label="料號／名稱"><strong>${escapeHtml(code)}</strong><div>${escapeHtml(i.matName||mat.name||'')}</div><div class="qc-material-context">供應商：${escapeHtml(i.supplier||'未填')}</div></td>
             <td data-label="數量">${escapeHtml(i.qty??'—')}</td>
@@ -25824,6 +25840,7 @@ function selectedQCBatchInboundIds(){
 }
 
 function toggleQCBatchInboundAll(chk){
+  if(window._qcBatchRun?.running)return;
   document.querySelectorAll('.qc-inbound-batch').forEach(x=>{x.checked=!!chk.checked;});
   updateQCBatchButton();
 }
@@ -25832,47 +25849,64 @@ function updateQCBatchButton(){
   const ids=selectedQCBatchInboundIds();
   const btn=document.getElementById('qcBatchPassBtn');
   const count=document.getElementById('qcBatchCount');
-  if(btn) btn.disabled=!ids.length;
+  if(btn) btn.disabled=!ids.length||!!window._qcBatchRun?.running||!!window._qcBatchRun?.refreshError;
   if(count) count.textContent=ids.length?`已選 ${ids.length} 筆`:'尚未選取';
 }
 
-async function batchApproveInboundQC(){
-  const ids=selectedQCBatchInboundIds();
-  if(!ids.length){showToast('請先勾選要通過的入料單','warn');return;}
-  if(!confirm(`確認批量通過 ${ids.length} 筆入料品檢？系統會逐筆入庫並記錄庫存異動。`))return;
-
-  const btn=document.getElementById('qcBatchPassBtn');
-  const progress=document.getElementById('qcBatchProgress');
-  if(btn) btn.disabled=true;
-
-  let ok=0, fail=0;
-  const failed=[];
-  showToast(`⏳ 批量通過開始：共 ${ids.length} 筆，請勿重複點擊`, 'ok', 5000);
-
-  for(let idx=0;idx<ids.length;idx++){
-    const id=ids[idx];
-    const ib=inbounds.find(x=>x.id===id);
-    if(progress) progress.textContent=`處理 ${idx+1}/${ids.length}：${ib?.no||id}`;
-    try{
-      await approveQC(id,ib?.matId,ib?.qty,{skipConfirm:true,silent:true,skipRefresh:true,batch:true,note:'批量品管通過 自動入庫'});
-      ok++;
-    }catch(e){
-      fail++;
-      failed.push(`${ib?.no||id}：${e.message||e}`);
-      console.error('batchApproveInboundQC item failed:',id,e);
-    }
-    if(idx<ids.length-1) await sleep(350);
+function qcBatchCanStart(){
+  const read=operationalReadState('inbounds',inbounds);
+  return !isViewOnly()&&(ROLE==='qc'||isAdminRole())&&read.ready&&!read.loading&&!read.error&&window._inboundDataSource!=='notion-fallback'&&!inbounds.some(i=>i.fallback);
+}
+function qcBatchSnapshot(row){return {id:row.id,no:row.no,matId:row.matId,qty:row.qty,supabaseId:row.supabaseId};}
+function qcBatchValidRow(row){return row&&row.qcStatus==='待品檢'&&row.stStatus!=='已入庫'&&!row.inventoryTransactionId&&row.supabaseId&&row.matId&&Number.isFinite(Number(row.qty))&&Number(row.qty)>0;}
+function renderQCBatchProgress(){
+  if(CURRENT_TAB!=='qc')return;
+  const region=document.getElementById('qcBatchResult');
+  if(region&&window._qcBatchRun?.running)region.outerHTML=renderQCBatchResult();
+  else renderTab('qc');
+}
+async function refreshQCBatchResults(){
+  const run=window._qcBatchRun;if(!run||run.running)return;
+  run.running=true;run.progress='僅重新讀取結果，沒有重送入庫';renderQCBatchProgress();
+  try{await refreshAffectedData({core:true,tabs:['inbound'],background:false,label:'批量品檢結果已更新'});run.refreshError='';}
+  catch(e){run.refreshError=e.message||String(e);}
+  finally{run.running=false;renderQCBatchProgress();}
+}
+async function batchApproveInboundQC(opts={}){
+  if(window._qcBatchRun?.running)return showToast('批量品檢仍在執行，請等待結果','warn');
+  if(window._qcBatchRun?.refreshError)return showToast('請先僅重新讀取結果，核對原單後再操作','warn');
+  if(!qcBatchCanStart())return showToast('需由品管／主管使用最新正式入料資料執行，請先同步確認','warn');
+  if(!opts.confirmed){
+    const ids=[...new Set(selectedQCBatchInboundIds())],rows=ids.map(id=>inbounds.find(i=>i.id===id));
+    if(!ids.length)return showToast('請先勾選要通過的入料單','warn');
+    if(rows.some(r=>!qcBatchValidRow(r)))return showToast('勾選資料已變動或不完整，請同步後重新核對','warn');
+    window._qcBatchPreview=rows.map(qcBatchSnapshot);
+    document.getElementById('modalInner').innerHTML=`<h3>確認批量品檢通過 ${rows.length} 筆</h3><p>以下每張原入料單會逐筆入庫。請核對料號、數量及供應商；同張入料單重試由後端防止重複入庫。</p><div class="table-wrap"><table class="qc-work-table"><tr><th>入料單</th><th>料號</th><th>數量</th><th>供應商</th></tr>${rows.map(r=>`<tr><td data-label="入料單">${escapeHtml(r.no||r.id)}</td><td data-label="料號">${escapeHtml(r.matCode||r.matName||mats.find(m=>m.id===r.matId)?.code||r.matId)}</td><td data-label="數量">${escapeHtml(r.qty)}</td><td data-label="供應商">${escapeHtml(r.supplier||'未填')}</td></tr>`).join('')}</table></div><div class="form-actions"><button class="btn btn-ghost" onclick="window._qcBatchPreview=null;closeModal()">返回核對</button><button class="btn btn-green" onclick="batchApproveInboundQC({confirmed:true})">確認逐筆通過並入庫</button></div>`;
+    openSharedModal();return;
   }
-
-  if(progress) progress.textContent='重新讀取資料中...';
-  await refreshAffectedData({core:true,tabs:['inbound'],label:'批次品檢與庫存已更新'});
-  renderTab('qc');
-
-  if(fail){
-    showToast(`⚠ 批量完成：成功 ${ok} 筆 / 失敗 ${fail} 筆`, 'warn', 7000);
-    alert('以下入料品檢通過失敗，請稍後重試或單筆處理：\n\n'+failed.slice(0,30).join('\n')+(failed.length>30?`\n...另 ${failed.length-30} 筆`:'')); 
-  }else{
-    showToast(`✅ 批量通過完成：${ok} 筆已入庫`, 'ok', 6000);
+  const snapshots=window._qcBatchPreview;
+  if(!snapshots?.length)return showToast('請重新勾選並檢查批量預覽','warn');
+  if(snapshots.some(s=>{const r=inbounds.find(i=>i.id===s.id);return !qcBatchValidRow(r)||JSON.stringify(qcBatchSnapshot(r))!==JSON.stringify(s);}))return showToast('預覽後資料已變更，請返回重新核對，不會送出入庫','warn');
+  const run=window._qcBatchRun={running:true,total:snapshots.length,results:[],progress:'準備處理',refreshError:''};
+  window._qcBatchPreview=null;closeModal();renderQCBatchProgress();
+  try{
+    for(const [idx,row] of snapshots.entries()){
+      run.progress=`處理 ${idx+1}/${run.total}：${row.no||row.id}`;renderQCBatchProgress();
+      try{
+        const result=await approveQC(row.id,row.matId,row.qty,{skipConfirm:true,silent:true,skipRefresh:true,batch:true,note:'批量品管通過 自動入庫'});
+        if(!result?.ok)throw new Error('未收到可確認的處理結果');
+        run.results.push({id:row.id,no:row.no,ok:true,duplicate:result.duplicate===true,warning:result.warning||(result.statusPending?'Notion 鏡像待補同步':'')});
+      }catch(e){run.results.push({id:row.id,no:row.no,ok:false,error:e.message||String(e)});}
+      renderQCBatchProgress();
+      if(idx<snapshots.length-1)await sleep(350);
+    }
+    run.progress='重新讀取結果中；不重送入庫';renderQCBatchProgress();
+    try{await refreshAffectedData({core:true,tabs:['inbound'],background:false,label:'批量品檢結果已更新'});}
+    catch(e){run.refreshError=e.message||String(e);}
+  }finally{
+    run.running=false;renderQCBatchProgress();
+    const ok=run.results.filter(r=>r.ok).length,unknown=run.results.length-ok;
+    showToast(`批量結果：已確認 ${ok} 筆／未確認 ${unknown} 筆${run.refreshError?'；列表讀取失敗，請僅重新讀取':''}`,unknown||run.refreshError?'warn':'ok',8000);
   }
 }
 

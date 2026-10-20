@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Picking/inbound/QC LOOP/GRILL 2026-10-21
+
+- Scope: multi-term/full-width-normalized search over existing loaded fields in picking, inbound and pending QC; existing data windows, tab boundaries and roles unchanged. Search still retains focused nodes/IME behavior.
+- QC batch now previews exact selected receipt/SKU/quantity/supplier before explicit confirmation, freezes row IDs/qty/material/Supabase identity, revalidates before sending, and holds a global in-browser batch lock. Backend approval still uses existing per-receipt atomic idempotent RPC. No new inventory write route or permission.
+- Results distinguish accepted, duplicate, post-commit warning and unconfirmed outcome. A final refresh failure retains per-receipt results, disables further approval until a read-only results refresh succeeds, and offers "僅重新讀取結果，不重送入庫". That action never calls approveQC. Batch progress survives tab redraw; background refresh is disabled for this finishing read. In-browser result panel is not durable after full page reload; formal receipt/transaction remains authoritative.
+- Mobile pending QC has select-current-search and clear controls outside the hidden table header,44px label targets. Preview lists receipt/SKU/qty/supplier as responsive cards. No production stock tests: loopback-only125 receipt/picking fixtures and memory approval adapter. Tests/qc_batch_recovery.cjs covers concurrency, stale preview, unknown outcome, read-only refresh, warning and access guards.397 Node checks pass.
+- User requested same acceptance/deploy version: output/operations-ui-20261021/verify_release.py compares released UI sections and head CSS, saves exact published-index.html bytes/hash; rerun the fixture using ERP_QA_SOURCE pointed to that published file, then record published-* browser stages on both viewports. Release report must distinguish the exact published frontend acceptance from mocked approval adapter and production GET-only proof. Final evidence/report lives in output/operations-ui-20261021.
+
 ## Lookup workbench LOOP/GRILL 2026-10-21
 
 - UI-only batch: inventory lookup/range/mobile selection and domestic/overseas order lookup. No Worker, role, stock, order-write or BOM rules changed. Preserve unrelated dirty regulator/data-audit work.
