@@ -25860,7 +25860,7 @@ function qcBatchCanStart(){
 function qcBatchSnapshot(row){return {id:row.id,no:row.no,matId:row.matId,qty:row.qty,supabaseId:row.supabaseId};}
 function qcBatchValidRow(row){return row&&row.qcStatus==='待品檢'&&row.stStatus!=='已入庫'&&!row.inventoryTransactionId&&row.supabaseId&&row.matId&&Number.isFinite(Number(row.qty))&&Number(row.qty)>0;}
 function renderQCBatchProgress(){
-  if(CURRENT_TAB!=='qc')return;
+  if(CURRENT_TAB!=='qc'||QC_SUB!=='pending')return;
   const region=document.getElementById('qcBatchResult');
   if(region&&window._qcBatchRun?.running)region.outerHTML=renderQCBatchResult();
   else renderTab('qc');

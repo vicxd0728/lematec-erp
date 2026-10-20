@@ -4,7 +4,7 @@ const cut=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 function setup(extra={}){
  const buttons={qcBatchPassBtn:{disabled:false},qcBatchCount:{textContent:''},modalInner:{innerHTML:''}};
  let calls=0,refresh=0;const rows=['a','b'].map(id=>({id,no:'IB-'+id,matId:'m',matCode:'Y-M',supplier:'廠商',qty:2,supabaseId:id,qcStatus:'待品檢',stStatus:'待入庫'}));
- const c=vm.createContext({window:{_inboundsLoaded:true},inbounds:rows,mats:[],ROLE:'qc',CURRENT_TAB:'qc',isViewOnly:()=>false,isAdminRole:()=>false,
+ const c=vm.createContext({window:{_inboundsLoaded:true},inbounds:rows,mats:[],ROLE:'qc',CURRENT_TAB:'qc',QC_SUB:'pending',isViewOnly:()=>false,isAdminRole:()=>false,
  document:{getElementById:id=>buttons[id]||null,querySelectorAll:()=>rows.map(r=>({value:r.id,checked:true}))},escapeHtml:s=>String(s).replaceAll('<','&lt;'),
  showToast:()=>{},openSharedModal:()=>{},closeModal:()=>{},renderTab:()=>{},sleep:async()=>{},approveQC:async()=>{calls++;return {ok:true}},refreshAffectedData:async()=>{refresh++},...extra});
  require('./helpers/operational_read_context.cjs')(c,html);
@@ -35,4 +35,8 @@ test('read-only role, fallback data and loading cannot open a write preview',asy
  for(const extra of [{isViewOnly:()=>true},{ROLE:'sales'},{window:{_inboundsLoaded:true,_inboundDataSource:'notion-fallback'}},{window:{_inboundsLoaded:true,_operationalReads:{inbounds:{loading:true}}}}]){
   const f=setup(extra);await f.c.batchApproveInboundQC();assert.equal(f.calls(),0);assert.equal(f.c.window._qcBatchPreview,undefined);
  }
+});
+test('batch progress never redraws a different QC subpage while the operator is reading or editing there',()=>{
+ let renders=0;const f=setup({QC_SUB:'inspect',renderTab:()=>renders++});f.c.window._qcBatchRun={running:true,total:2,results:[]};
+ f.c.renderQCBatchProgress();assert.equal(renders,0);f.c.QC_SUB='pending';f.c.renderQCBatchProgress();assert.equal(renders,1);
 });
