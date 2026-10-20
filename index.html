@@ -1876,6 +1876,22 @@ html[data-theme="warm"] #themePanel{
 .inv-report-tabs button,.inv-report-controls button{min-height:44px}
 .inv-report-controls label{display:flex;flex-direction:column;gap:4px;font-size:.8rem}
 .inv-period-table{min-width:1500px}
+.inventory-row-select{text-align:center}
+@media(max-width:640px){
+ .inventory-stock-table,.inventory-stock-table tbody{display:block;width:100%;min-width:0!important}
+ .inventory-stock-table tr{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:16px;border-bottom:1px solid var(--border)}
+ .inventory-stock-table tr:first-child{display:none}
+ .inventory-stock-table td{display:block;padding:0!important;min-width:0;border:0!important;white-space:normal!important;overflow-wrap:anywhere}
+ .inventory-stock-table td.hide-m{display:none!important}
+ .inventory-stock-table .m-only{display:block!important}
+ .inventory-stock-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
+ .inventory-stock-table .inventory-row-select{text-align:left}
+ .inventory-stock-table .inventory-row-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+ .inventory-stock-table .inventory-row-actions::before{flex-basis:100%}
+ .inventory-stock-table .btn{min-height:44px}
+ .inventory-page-select{display:inline-flex!important;align-items:center;gap:8px;min-height:44px;flex-shrink:0}
+ #invResultSummary .btn{min-height:44px}
+}
 .inv-period-table th{white-space:nowrap}
 .inv-period-table td:first-child,.inv-period-table th:first-child{min-width:64px;white-space:nowrap}
 @media(max-width:640px){
@@ -9207,6 +9223,12 @@ function clearOrderSearch(){
   setOrderSearchDraft('');
   updateOrderFilter('q','','ordSearchQ');
 }
+function resetOrderListFilters(){
+  Object.assign(getOrderFilters(),{q:'',type:'all',status:'all',date:'0',hide:false,deadline:''});
+  setOrderSearchDraft('');
+  clearTimeout(window._orderFilterTimer);
+  renderTab('orders');
+}
 function getCorderSearchDraft(){
   if(window._CO_Q_DRAFT===undefined)window._CO_Q_DRAFT=window._CO_Q||'';
   return window._CO_Q_DRAFT;
@@ -9301,9 +9323,11 @@ function updateOrderFilter(key,value,focusId=''){
   const f=getOrderFilters();
   f[key]=value;
   const render=()=>{
+    if(CURRENT_TAB!=='orders')return;
     renderTab('orders');
     if(focusId){
       setTimeout(()=>{
+        if(CURRENT_TAB!=='orders')return;
         const el=document.getElementById(focusId);
         if(!el) return;
         el.focus();
@@ -11207,14 +11231,32 @@ function setInventoryReadSource(source){
     renderTab('inventory');
   }
 }
+function getInventoryFilterState(){
+  const defaults={q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',quick:'all',selectedId:'',page:1,pageSize:100};
+  const state=window._invState||(window._invState={});
+  for(const [key,value] of Object.entries(defaults))if(state[key]===undefined||state[key]===null)state[key]=value;
+  if(![50,100,200,500].includes(Number(state.pageSize)))state.pageSize=100;
+  state.pageSize=Number(state.pageSize);
+  if(!Number.isInteger(Number(state.page))||Number(state.page)<1)state.page=1;
+  state.page=Number(state.page);
+  return state;
+}
+function inventoryRangeError(state){
+  const hasMin=String(state.stockMin??'').trim()!=='',hasMax=String(state.stockMax??'').trim()!=='';
+  if((hasMin&&!Number.isFinite(Number(state.stockMin)))||(hasMax&&!Number.isFinite(Number(state.stockMax))))return '庫存範圍需填有效數字。';
+  return hasMin&&hasMax&&Number(state.stockMin)>Number(state.stockMax)?'庫存下限大於上限，請調整範圍；這不代表沒有料件。':'';
+}
+function clearInventoryRange(){
+  const state=getInventoryFilterState();state.stockMin='';state.stockMax='';state.page=1;_invRender();
+}
 function _invQuick(value){
-  const INV=window._invState=window._invState||{};
+  const INV=getInventoryFilterState();
   INV.quick=value||'all';
   INV.page=1;
   if(CURRENT_TAB==='inventory')renderTab('inventory');
 }
 function _invSelect(id){
-  const INV=window._invState=window._invState||{};
+  const INV=getInventoryFilterState();
   INV.selectedId=id||'';
   if(CURRENT_TAB==='inventory')renderTab('inventory');
 }
@@ -17235,6 +17277,13 @@ function setOrderMobileSort(value){
   if(!['created','no','customer','product','deadline','status'].includes(col)||!['asc','desc'].includes(dir))return;
   SORT.orders={col,dir,type:'str'};renderTab('orders');
 }
+function renderOrderProduct(o){
+  const material=mats.find(m=>m.id===o.productId);
+  const name=material?.name||o.product||o.matCode||'品項未填';
+  const code=material?.code||o.matCode||'';
+  return escapeHtml(name)+(code&&code!==name?`<div style="font-size:.7rem;color:var(--text3);font-family:monospace">${escapeHtml(code)}</div>`:'')+
+    (!material?'<div class="work-caption">主檔關聯待核對；依原單資料顯示</div>':'');
+}
 function _renderOrdersList(tabs, soonOrders=[]){
   const canAdd=dashboardCanCreateOrder();
   const canOperate=!isViewOnly();
@@ -17335,16 +17384,18 @@ function _renderOrdersList(tabs, soonOrders=[]){
       </label>
     </div>
     <div class="order-status-chips">${statusChips}</div>
+    ${_ordQ||_ordType!=='all'||_ordStatus!=='all'||dateVal!=='0'||hideComp||filters.deadline?`<div class="source-strip"><span>已套用：${escapeHtml([_ordQ?'搜尋「'+_ordQ+'」':'',_ordType!=='all'?'類型 '+({overseas:'國外',domestic:'國內',sfg:'半成品',shopee:'蝦皮'}[_ordType]||_ordType):'',_ordStatus!=='all'?'狀態 '+(_ordStatus==='production-active'?'待排程／生產中':_ordStatus):'',dateVal!=='0'?'日期限制':'',hideComp?'隱藏完成／取消':'',filters.deadline?'逾期未完成':''].filter(Boolean).join(' · '))}</span><button class="btn btn-ghost btn-sm" onclick="resetOrderListFilters()">重設全部篩選</button></div>`:''}
     <div class="order-action-note">資料來源仍是 Notion 訂單；領料扣庫與庫存交易維持既有 Supabase 正式流程。</div>
   </div>
   <div class="panel"><div class="panel-hdr"><span class="panel-title">訂單列表 <span class="badge">${data.length}/${orders.length}</span></span></div>
   <div class="order-mobile-sort"><label for="orderMobileSort">排序</label><select class="inp" id="orderMobileSort" onchange="setOrderMobileSort(this.value)">${[['created','建立日'],['no','訂單號'],['customer','客戶'],['product','品項'],['deadline','交期'],['status','狀態']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${(SORT.orders?.col||'created')===key&&(SORT.orders?.dir||'desc')===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap">
   <table class="order-list-table"><tr>${TH('orders','created','建立日','str')}${TH('orders','no','訂單號')}${TH('orders','customer','客戶','str')}${TH('orders','product','品項')}<th class="hide-m">數量</th><th class="hide-m">單價</th>${TH('orders','deadline','交期','str')}<th class="hide-m">實際出貨</th>${TH('orders','status','狀態')}${canOperate?'<th>操作</th>':''}</tr>
+  ${!data.length?`<tr class="order-empty-row"><td colspan="${canOperate?10:9}" role="status" style="padding:24px;white-space:normal">${!window._coreLoaded?'訂單尚未成功載入，請使用上方同步後再查詢。':orders.length?'目前條件沒有符合訂單；可重設搜尋、狀態與日期條件。':'已載入的訂單清單目前沒有資料。'}${orders.length?'<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="resetOrderListFilters()">清除全部條件並顯示訂單</button></div>':''}</td></tr>`:''}
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td data-label="建立日" style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
     <td data-label="訂單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
     <td data-label="客戶" style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
-    <td data-label="品項" style="font-size:0.75rem;font-weight:600">${(()=>{const p=mats.find(m=>m.id===o.productId);return p?escapeHtml(p.name)+(p.code?'<div style="font-size:0.625rem;color:var(--text3);font-family:monospace">'+escapeHtml(p.code)+'</div>':''):'—';})()}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
+    <td data-label="品項" style="font-size:0.75rem;font-weight:600">${renderOrderProduct(o)}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
     <td class="hide-m" style="font-family:monospace">${formatOptionalMoney(o.unitPrice)}</td>
     <td data-label="交期" style="font-family:monospace;font-size:0.6875rem">${o.deadline||'—'}</td>
@@ -18339,14 +18390,13 @@ function renderInventory(){
   const canEditMat=!isViewOnly()&&(ROLE==='warehouse'||ROLE==='purchase'||isAdminRole());
 
   // ── 讀取篩選狀態（用物件保存，不依賴 DOM）
-  const INV = window._invState = window._invState||{
-    q:'', type:'all', stockMin:'', stockMax:'', stockStatus:'all', quick:'all', selectedId:'', page:1, pageSize:100
-  };
+  const INV = getInventoryFilterState();
+  const rangeError=inventoryRangeError(INV);
 
   // ── 套用篩選
   let data = applySort('inventory', invMats);
-  if(INV.q){
-    const q=INV.q.toLowerCase();
+  if(String(INV.q).trim()){
+    const q=String(INV.q).trim().toLowerCase();
     data=data.filter(m=>(m.name||'').toLowerCase().includes(q)||(m.code||'').toLowerCase().includes(q));
   }
   if(INV.type!=='all') data=data.filter(m=>m.type===INV.type);
@@ -18358,6 +18408,7 @@ function renderInventory(){
   if(INV.quick==='mirror') data=data.filter(m=>!m.notionId);
   if(INV.quick==='bomParent') data=data.filter(m=>bomParentIds.has(m.id));
   if(INV.quick==='bomChild') data=data.filter(m=>bomChildIds.has(m.id));
+  if(rangeError)data=[];
 
   const total=data.length;
   const ps=INV.pageSize;
@@ -18370,6 +18421,7 @@ function renderInventory(){
   const allPageSelected=selectablePageData.length>0&&selectablePageData.every(m=>selectedIds.has(String(m.id)));
   const selectedRows=invSelectedMaterials();
   const selectedCount=selectedRows.length;
+  const selectedFilteredCount=data.filter(m=>selectedIds.has(String(m.id))&&m.notionId).length;
 
   // ── 分頁按鈕
   function pageBtns(){
@@ -18441,14 +18493,14 @@ function renderInventory(){
       <!-- 庫存下限 -->
       <div style="min-width:90px">
         <div style="font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存 ≥</div>
-        <input class="inp" id="inv_min" type="number" value="${INV.stockMin}"
+        <input class="inp" id="inv_min" type="number" step="any" aria-label="庫存下限" value="${escapeHtml(INV.stockMin)}"
           placeholder="最小" style="padding:7px 10px;font-size:0.8125rem"
           oninput="_invFilter('stockMin',this.value)">
       </div>
       <!-- 庫存上限 -->
       <div style="min-width:90px">
         <div style="font-size:0.625rem;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">庫存 ≤</div>
-        <input class="inp" id="inv_max" type="number" value="${INV.stockMax}"
+        <input class="inp" id="inv_max" type="number" step="any" aria-label="庫存上限" value="${escapeHtml(INV.stockMax)}"
           placeholder="最大" style="padding:7px 10px;font-size:0.8125rem"
           oninput="_invFilter('stockMax',this.value)">
       </div>
@@ -18460,7 +18512,7 @@ function renderInventory(){
         </select>
       </div>
       <!-- 清除篩選 -->
-      <div style="display:flex;align-items:flex-end;gap:6px">
+      <div class="inventory-filter-actions" style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:6px;min-width:0">
         <button class="btn btn-ghost btn-sm" onclick="_invReset()">✕ 清除</button>
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${canAuditBomRole()?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory()">🔍 全料號 BOM 查驗</button>`:''}
@@ -18473,12 +18525,14 @@ function renderInventory(){
     </div>
     <!-- 結果摘要 + 每頁筆數 -->
     <div id="invResultSummary" style="padding:6px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border)" aria-live="polite">
+      ${rangeError?`<div class="info-box info-warn" role="alert" style="flex-basis:100%;margin:4px 0">${escapeHtml(rangeError)} <button class="btn btn-ghost btn-sm" onclick="clearInventoryRange()">清除數量範圍</button></div>`:''}
       <span style="font-size:0.75rem;color:var(--text3)">
         共 <b style="color:var(--text)">${total}</b> 筆 / 全部 ${invMats.length} 筆
         ${total&&(INV.page>1||total<invMats.length)?`（第 ${INV.page} 頁，顯示 ${(INV.page-1)*ps+1}–${Math.min(INV.page*ps,total)}）`:''}
-        ${usingSupabase&&canEditStock&&selectedCount?`　已勾選 <b style="color:var(--green2)">${selectedCount}</b> 筆可設定安全庫存`:''}
+        ${usingSupabase&&canEditStock&&selectedCount?`　已勾選 <b style="color:var(--green2)">${selectedCount}</b> 筆（目前篩選 ${selectedFilteredCount} 筆，其他篩選 ${selectedCount-selectedFilteredCount} 筆）`:''}
       </span>
-      <div style="display:flex;align-items:center;gap:6px">
+      <div class="inventory-selection-controls" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        ${usingSupabase&&canEditStock?`<label class="m-only inventory-page-select"><input type="checkbox" aria-label="勾選本頁全部料件" ${allPageSelected?'checked':''} ${selectablePageData.length?'':'disabled'} onchange="toggleInvVisibleSelection(this.checked)">勾選本頁</label>`:''}
         ${usingSupabase&&canEditStock&&selectedCount?`<button class="btn btn-ghost btn-xs" onclick="clearInvSelection()">清除勾選</button>`:''}
         <span style="font-size:0.6875rem;color:var(--text3)">每頁</span>
         <select class="inp" style="width:70px;padding:4px 8px;font-size:0.75rem" onchange="_invFilter('pageSize',parseInt(this.value))">
@@ -18499,9 +18553,9 @@ function renderInventory(){
       <div style="display:flex;gap:4px">${pageBtns()}</div>
     </div>
     <div class="table-wrap">
-    <table>
+    <table class="inventory-stock-table">
       <tr>
-        ${usingSupabase&&canEditStock?`<th style="width:42px;text-align:center"><input type="checkbox" aria-label="勾選本頁料件" ${allPageSelected?'checked':''} ${selectablePageData.length?'':'disabled'} onchange="toggleInvVisibleSelection(this.checked)" style="width:16px;height:16px;accent-color:var(--green)"></th>`:''}
+        ${usingSupabase&&canEditStock?`<th style="width:42px;text-align:center"><label style="display:inline-flex;align-items:center;min-height:44px;min-width:32px"><input type="checkbox" aria-label="勾選本頁料件" ${allPageSelected?'checked':''} ${selectablePageData.length?'':'disabled'} onchange="toggleInvVisibleSelection(this.checked)" style="width:16px;height:16px;accent-color:var(--green)"></label></th>`:''}
         ${TH('inventory','name','料件名稱')}
         ${TH('inventory','code','料件編號','str','hide-m')}
         ${TH('inventory','type','類型','str','hide-m')}
@@ -18518,11 +18572,11 @@ function renderInventory(){
         const fill=unknownStock?'var(--text3)':stock<=0?'var(--red)':safe>0&&stock<=safe?'var(--yellow)':'var(--green)';
         const sc=fill;
         return`<tr>
-        ${usingSupabase&&canEditStock?`<td style="text-align:center"><input type="checkbox" aria-label="勾選 ${escapeHtml(m.code||m.name||'料件')}" ${m.notionId?'':'disabled'} ${selectedIds.has(String(m.id))?'checked':''} onclick="event.stopPropagation()" onchange='toggleInvSelect(${JSON.stringify(String(m.id))},this.checked)' style="width:16px;height:16px;accent-color:var(--green)"></td>`:''}
+        ${usingSupabase&&canEditStock?`<td class="inventory-row-select"><label style="display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:32px"><input type="checkbox" aria-label="勾選 ${escapeHtml(m.code||m.name||'料件')}" ${m.notionId?'':'disabled'} ${selectedIds.has(String(m.id))?'checked':''} onclick="event.stopPropagation()" onchange='toggleInvSelect(${JSON.stringify(String(m.id))},this.checked)' style="width:16px;height:16px;accent-color:var(--green)"><span class="m-only">勾選此料件</span></label></td>`:''}
         <td style="font-weight:600">${escapeHtml(m.name||'—')}${m.code&&m.code!==m.name?`<div style="font-size:0.625rem;color:var(--text3);font-family:monospace;margin-top:2px">${escapeHtml(m.code)}</div>`:''}<div class="m-only" style="font-size:.7rem;color:var(--text3);margin-top:5px">${escapeHtml(m.type||'類型未填')} · 安全庫存：${Number.isFinite(Number(m.safe))&&Number(m.safe)>0?Number(m.safe):'未設定'}<br>${({unknown:'庫存數值不明，待確認',out:'缺貨／零庫存',low:'低於或等於安全庫存',ok:'高於安全庫存',unset:'未設定安全庫存'})[inventoryVisualStatus(m)]}</div></td>
         <td class="hide-m" style="font-family:monospace;font-size:0.75rem;color:var(--text2)">${escapeHtml(m.code||'—')}</td>
         <td class="hide-m">${pill(m.type)}</td>
-        <td>
+        <td data-label="目前庫存">
           <div style="display:flex;align-items:center;gap:6px">
             ${unknownStock?'':`<div class="bar"><div class="bar-fill" style="width:${pct}%;background:${fill}"></div></div>`}
             <span style="font-family:monospace;font-size:0.8125rem;font-weight:600;color:${sc}">${unknownStock?'待確認':stock}</span>
@@ -18530,7 +18584,7 @@ function renderInventory(){
         </td>
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${unknownStock?'數值不明':stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
-        <td style="white-space:nowrap">
+        <td data-label="操作" class="inventory-row-actions" style="white-space:nowrap">
           ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}

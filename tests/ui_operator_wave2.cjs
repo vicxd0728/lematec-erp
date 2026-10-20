@@ -7,6 +7,7 @@ function inventory(rows,state={}){
  const ctx=vm.createContext({window:{_invState:{q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',quick:'all',page:1,pageSize:100,...state}},boms:[],ROLE:'ai',escapeHtml,
  getInventoryReadSet:()=>({rows,label:'Supabase'}),getInventoryReadSource:()=> 'supabase',_supabaseInventoryState:{loaded:true},isViewOnly:()=>true,isAdminRole:()=>false,
  applySort:(_k,x)=>x,normalizeSku:x=>String(x),invSelectionSet:()=>new Set(),invSelectedMaterials:()=>[],renderInventorySourceSwitch:()=>'',canAuditBomRole:()=>false,canImportBomRole:()=>false,TH:()=>'<th>欄</th>',pill:x=>escapeHtml(x)});
+ vm.runInContext(section('function getInventoryFilterState(','function _invQuick('),ctx);
  vm.runInContext(section('function renderErpVisualRows(rows){','function renderInventoryInsightPanel('),ctx);return ctx;
 }
 function inbound(rows,canAdd=false){
@@ -34,6 +35,22 @@ test('inventory empty results never display inverted page ranges and offer reset
 test('inventory names and SKU input remain escaped',()=>{
  const out=inventory([{id:'a',name:'<img src=x>',code:'<b>SKU</b>',stock:1}],{q:'<'}).renderInventory();
  assert.match(out,/&lt;img src=x&gt;/);assert.doesNotMatch(out,/<img src=x>/);assert.match(out,/value="&lt;"/);
+});
+test('old navigation state missing status and quick defaults does not hide every inventory row',()=>{
+ const c=inventory([{id:'a',code:'Y-A',name:'known',stock:3}]);
+ c.window._invState={q:'',type:'all',stockMin:'',stockMax:'',page:1,pageSize:100};
+ assert.match(c.renderInventory(),/共 <b[^>]*>1<\/b> 筆/);
+ assert.equal(c.window._invState.stockStatus,'all');assert.equal(c.window._invState.quick,'all');
+});
+test('partial inventory entry preserves query but fills missing pagination and filter defaults',()=>{
+ const c=inventory([{id:'a',name:'known',stock:3}]);c.window._invState={q:' known '};
+ assert.match(c.renderInventory(),/共 <b[^>]*>1<\/b> 筆/);assert.equal(c.window._invState.pageSize,100);
+});
+test('inverted quantity range explains the filter error instead of implying inventory is missing',()=>{
+ const c=inventory([{id:'a',name:'known',stock:3}],{stockMin:'10',stockMax:'2'});
+ assert.match(c.renderInventory(),/role="alert"[^>]*>庫存下限大於上限/);
+ c.window._invState.stockMin='0.03';c.window._invState.stockMax='3';
+ assert.match(c.renderInventory(),/共 <b[^>]*>1<\/b> 筆/);
 });
 test('long inbound notes retain their beginning and end inside escaped disclosure',()=>{
  const ctx=inbound([]);const note='<img>START'+ '長'.repeat(100)+'END';const out=ctx.renderInboundNote(note);

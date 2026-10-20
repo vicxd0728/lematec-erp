@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Lookup workbench LOOP/GRILL 2026-10-21
+
+- UI-only batch: inventory lookup/range/mobile selection and domestic/overseas order lookup. No Worker, role, stock, order-write or BOM rules changed. Preserve unrelated dirty regulator/data-audit work.
+- Fixed partial `_invState` created by old entry points: renderer now fills missing defaults instead of filtering all rows by undefined status. Range inversion/nonfinite values get explicit inline error and range-only reset. Query trim does not replace the focused input. Selection summary distinguishes current-filter and other-filter selected rows; operations still use the existing selected IDs and confirmation.
+- Inventory mobile table becomes cards preserving SKU/name/stock/unknown/safety/type/actions. Mobile has an explicit select-page control because table header is hidden; labels/actions are at least44px. Tool buttons wrap instead of clipping. Desktop retains table and sorting.
+- Orders retain original product/code if master relation is unresolved and label it pending verification. Empty filtered/loaded-empty/not-loaded states differ; applied conditions and full reset are visible. Delayed order filter callbacks/focus cannot replace another tab after navigation.
+-389 Node CI checks plus static checks passed. Actual read-only fixture browser acceptance uses125 materials/two orders with no credentials, external adapters or business writes,1280x900 and390x844. Final fixture only copies head styles, excluding print-document template styles. Chrome disconnected after workstation crash; remaining desktop/mobile acceptance completed in IAB. Final evidence/report:output/lookup-ui-20261021 (mobile-inventory-final.png,desktop-orders-empty-final.png,browser-evidence.json,acceptance.md,release.json). Earlier preliminary screenshots are not final evidence. Production proof is asset/API GET readback; do not claim authenticated production business-write acceptance.
+
 ## C-end cancel/return recovery 2026-10-21
 
 - Scope: sales-configured isolated desktop/mobile cancel, partial/full return and scrap; no production order/stock writes. Found quantity-dependent retry keys and switch-to-scrap after an unknown result could diverge. New GET/POST /api/corder/reversal retains existing inventory-adjust operational roles (sales/Vic/manager/warehouse/purchase), without changing tab navigation; validates authoritative page, shared-number identity, saved S-only components, remaining quantity and expected prior state.
