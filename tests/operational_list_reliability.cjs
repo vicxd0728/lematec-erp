@@ -72,6 +72,7 @@ test('picking date choice persists and long lists keep their total while paging'
   const rows=Array.from({length:150},(_,i)=>({id:`p-${i}`,no:`P-${i}`,product:i===0?'<img src=x>':'半成品',date:'2026-09-20',qty:1,orderId:'order',status:'待領料'}));
   rows.push({id:'old',no:'P-OLD',product:'舊單',date:'2026-07-20',qty:1,orderId:'order',status:'待領料'});
   const ctx=vm.createContext({
+    Date:class extends Date{constructor(...args){super(...(args.length?args:['2026-10-15T04:00:00Z']));}static now(){return new Date('2026-10-15T04:00:00Z').getTime();}},
     window:{_PICK_DATE:'1',_PICK_SUB:'auto',_PICK_STATUS:'all'},document:{getElementById:()=>null},
     picks:rows,orders:[],ORDER_RETURN_REQUEST_STATUS:'待回料確認',
     applyDateFilterValue:null,taipeiDateKey:value=>new Date(value).toISOString().slice(0,10),

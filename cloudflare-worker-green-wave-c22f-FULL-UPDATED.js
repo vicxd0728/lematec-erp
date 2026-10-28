@@ -1723,7 +1723,7 @@ async function erpShopeeTransfer(request, env, cors) {
     const target=await supabaseSingle(env,`/rest/v1/materials?organization_id=eq.${org}&notion_page_id=eq.${refs[0].id}&archived_at=is.null&select=id,sku,notion_page_id&limit=1`);
     if(!target.sku.startsWith('S-')||target.sku.startsWith('S-S-'))throw new Error('蝦皮補庫目標須為單一 S- 前綴料號');
     // Explicit user-approved sources; resolve from the server-read target, never the caller.
-    const confirmedSources={"S-LEI-16":"LEI-16(碳化矽#100)","S-LEI-17":"LEI-17(棕剛玉#60)","S-LEI-17-1":"LEI-17-1(棕剛玉#120)","S-LEI-17-2":"LEI-17-2(棕剛玉#220)"};
+    const confirmedSources={"S-LEI-16":"LEI-16(碳化矽#100)","S-LEI-17":"LEI-17(棕剛玉#60)","S-LEI-17-1":"LEI-17-1(棕剛玉#120)","S-LEI-17-2":"LEI-17-2(棕剛玉#220)","S-Y-IS502-1":"Y-IS502-01","S-Y-IS502-2":"Y-IS502-02","S-Y-IS502-2A":"Y-IS502-02A"};
     const sourceSku=confirmedSources[cleanSku(target.sku)]||target.sku.slice(2);
     const candidates=await supabaseFetch(env,`/rest/v1/materials?organization_id=eq.${org}&sku=ilike.${encodeURIComponent(sourceSku)}&archived_at=is.null&select=id,sku,notion_page_id&limit=50`);
     const matches=(Array.isArray(candidates)?candidates:[]).filter(row=>cleanSku(row.sku)===cleanSku(sourceSku));

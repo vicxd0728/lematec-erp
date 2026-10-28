@@ -9140,8 +9140,8 @@ function getShopeeBomRows(mat){
 function getShopeeBomItems(mat,qty){
   const code=String(mat?.code||mat?.name||'').trim(),need=Number(qty);
   if(!code.startsWith('S-')||code.startsWith('S-S-')||!Number.isSafeInteger(need)||need<=0)throw new Error('蝦皮轉庫料號或數量無效');
-  // Explicitly confirmed 2026-10-14; never infer aliases by removing descriptions.
-  const confirmedSources={"S-LEI-16":"LEI-16(碳化矽#100)","S-LEI-17":"LEI-17(棕剛玉#60)","S-LEI-17-1":"LEI-17-1(棕剛玉#120)","S-LEI-17-2":"LEI-17-2(棕剛玉#220)"};
+  // Explicitly confirmed sand media (2026-10-14) and IS502 (2026-10-28); never infer aliases.
+  const confirmedSources={"S-LEI-16":"LEI-16(碳化矽#100)","S-LEI-17":"LEI-17(棕剛玉#60)","S-LEI-17-1":"LEI-17-1(棕剛玉#120)","S-LEI-17-2":"LEI-17-2(棕剛玉#220)","S-Y-IS502-1":"Y-IS502-01","S-Y-IS502-2":"Y-IS502-02","S-Y-IS502-2A":"Y-IS502-02A"};
   const sourceCode=confirmedSources[code.toUpperCase()]||code.slice(2),matches=mats.filter(m=>String(m.code||m.name||'').trim().toUpperCase()===sourceCode.toUpperCase());
   if(matches.length>1)throw new Error('一般倉庫來源料號重複：'+sourceCode);
   return [{...(matches[0]||{id:'',code:sourceCode,name:sourceCode,stock:0,missing:true}),needed:need,source:'transfer'}];

@@ -341,3 +341,5 @@ Customer orders deduct the ordered SKU itself, including semi-finished goods and
 # C-end sales kit update 2026-09-21
 
 C-end S- stock is allocated inventory. Replenishment moves stock from non-S to S; C-end kit sales deduct their component S stocks. Standalone S goods stop at the S layer even when a non-S replenishment BOM exists. All-S kit relations may expand recursively; mixed warehouse/S relations require explicit mapping and block shipping until resolved. Refunds return the original saved deduction lines, not today's BOM. No historic stock migration is included.
+
+Shopee BOM/source update (2026-10-28): User confirmed S-Y-IS502-1 <- Y-IS502-01, S-Y-IS502-2 <- Y-IS502-02, S-Y-IS502-2A <- Y-IS502-02A. Browser and Worker both enforce these exact one-to-one sources, with no fallback to bare nonzero-less warehouse codes. Preserve S material IDs and balances. Latest (3) workbooks reconcile to 180 transfer targets and unchanged 216 C-end parents / 361 direct relations; Supabase and Notion readback matched. No business data or inventory transaction was written for this update.

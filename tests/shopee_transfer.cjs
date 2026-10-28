@@ -77,8 +77,8 @@ test('replenishment ignores BOM while requiring an exact single S counterpart',(
  assert.equal(c.getShopeeBomItems({code:'S-F-DTC-16-43CM'},3)[0].id,'mixed');
 });
 
-test('confirmed sand media sources match in browser and server without merging S inventory',async()=>{
- const expected={'S-LEI-16':'LEI-16(碳化矽#100)','S-LEI-17':'LEI-17(棕剛玉#60)','S-LEI-17-1':'LEI-17-1(棕剛玉#120)','S-LEI-17-2':'LEI-17-2(棕剛玉#220)'};
+test('confirmed sand media and IS502 sources match in browser and server without merging S inventory',async()=>{
+ const expected={'S-LEI-16':'LEI-16(碳化矽#100)','S-LEI-17':'LEI-17(棕剛玉#60)','S-LEI-17-1':'LEI-17-1(棕剛玉#120)','S-LEI-17-2':'LEI-17-2(棕剛玉#220)','S-Y-IS502-1':'Y-IS502-01','S-Y-IS502-2':'Y-IS502-02','S-Y-IS502-2A':'Y-IS502-02A'};
  for(const code of [html,worker])assert.deepEqual(JSON.parse(code.match(/const confirmedSources=(\{[^;]+\});/)[1]),expected);
  for(const [targetSku,sourceSku] of Object.entries(expected)){
   const c=vm.createContext({mats:[{id:'approved',code:sourceSku,stock:10},{id:'bare',code:targetSku.slice(2),stock:500}]});

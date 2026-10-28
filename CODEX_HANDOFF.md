@@ -879,3 +879,5 @@ GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.d
 - 階段圖明列未知狀態；交期分桶互斥，分別為逾期、今天、未來 7 天、8 天後、未填與格式異常。圖表可點選篩選清單，不修改訂單或庫存。
 - 搜尋及篩選放在圖表之前，方便手機使用；唯讀角色的供應鏈工作按鈕只顯示查看詳情。
 - 驗收入口：`node --test tests/progress_center.cjs tests/supply_chain_v1.cjs`、`node scripts/render_progress_center_preview.cjs`、`node scripts/capture_progress_center_preview.cjs`。預覽為合成資料，不可當作正式訂單數據。
+
+Shopee BOM/source update (2026-10-28): User confirmed S-Y-IS502-1 <- Y-IS502-01, S-Y-IS502-2 <- Y-IS502-02, S-Y-IS502-2A <- Y-IS502-02A. Browser and Worker both enforce these exact one-to-one sources, with no fallback to bare nonzero-less warehouse codes. Preserve S material IDs and balances. Latest (3) workbooks reconcile to 180 transfer targets and unchanged 216 C-end parents / 361 direct relations; Supabase and Notion readback matched. No business data or inventory transaction was written for this update.
