@@ -65,6 +65,7 @@ jobs:
           python tests/test_supply_chain_migration.py
           python tests/run_inbound_cancel_postgres.py
           python tests/run_corder_reversal_postgres.py
+          python tests/run_corder_ship_identity_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
@@ -95,6 +96,11 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python scripts/apply_corder_reversal.py
+
+      - name: Install atomic C-end shipment identity guard
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/apply_corder_ship_identity.py
 
       - name: Deploy green-wave-c22f Worker
         shell: bash

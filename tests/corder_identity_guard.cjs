@@ -94,7 +94,7 @@ test('actual manual submit with blank platform creates and deducts once; retry s
       if(method==='GET')return pages.find(p=>p.id===endpoint.slice(6));
       assert.equal(endpoint,'pages');const p={id:'new-page',parent:{database_id:'corders-db'},properties:body.properties};pages.push(p);return p;
     },
-    deductCorderStockByBom:async()=>{deductions++;return {refs:[{id:'mat-1',qty:5}]};},
+    requestCorderResume:async()=>{deductions++;return {duplicate:false};},
     updateWorkflowPageAfterInventory:async()=>({pending:false}),archiveNotionPageQuietly:async id=>{if(id)archives++;},
     setCorderNextSerial:async()=>{},corderSerial:()=>0,refreshAffectedData:async()=>{},renderTab:()=>{},
     closeModal:()=>{},showToast:message=>messages.push(message),console,
@@ -124,7 +124,7 @@ test('different Shopee identity or incomplete query blocks before stock deductio
   }
   const submit = html.slice(html.indexOf('async function submitCorder('), html.indexOf('function buildCorderImportPreflight('));
   assert(submit.indexOf('await assertCorderInternalNoForIdentity(') < submit.indexOf("notionAPI('POST','pages'"));
-  assert(submit.indexOf('await assertCorderInternalNoForIdentity(') < submit.indexOf('deductCorderStockByBom('));
+  assert(submit.indexOf('await assertCorderInternalNoForIdentity(') < submit.indexOf('await requestCorderResume('));
 });
 
 const stockGuard = html.slice(html.indexOf('function normalizeNotionIdForCompare('),

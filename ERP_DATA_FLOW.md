@@ -1,5 +1,7 @@
 # LEMATEC ERP Data Flow
 
+C-end shipment identity addendum (2026-10-29): Supabase erp_corder_ship_identities is a durable deduplication index, not a new order authority. Organization + original platform order + parent SKU identifies one shipment line, independently of mutable internal number/page/Excel row. Server-read Notion snapshots reach an atomic claim + existing inventory batch RPC; retries reuse the original page receipt. Generic legacy C-end shipment writes are disabled. Empty-table/function installation does not mutate orders, transactions or inventory. Historical unresolved ledger evidence remains for manual review.
+
 C-end retry-audit addendum (2026-10-29): Quantity audit uses formal transaction source IDs/keys plus original saved component snapshots and return credits, not current BOM or repeated visible reference numbers alone. Manual creation blocks another line of the same SKU under the checked internal number; sharing the number remains valid for distinct products with the existing platform/buyer identity. No quantity-repair action is part of a read-only audit.
 
 C-end create identity addendum (2026-10-29): Post-create verification directly reads the exact new Notion page ID and checks its parent/title/identity; the duplicate-number query may lag behind page indexing. Optional blank platform/buyer fields cannot prove a shared order, but must not reject that exact newly created page. Other records still require existing full Shopee/buyer identity rules. No stock keys, RPCs or role permissions changed.

@@ -26981,7 +26981,7 @@ async function submitCorder(){
       '狀態':       {select:{name:'需確認'}},
       '來源':       {select:{name:'手動'}},
       '料件ID':     {rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]},
-      '備註':       {rich_text:[{text:{content:[note,'庫存交易處理中'].filter(Boolean).join(' / ')}}]},
+      '備註':       {rich_text:[{text:{content:['[ERP_CORDER_V3] 庫存交易待確認，可由原單安全續接',note].filter(Boolean).join(' / ')}}]},
     };
     if(shipDate) stagedProps['出日']={date:{start:shipDate}};
     if(payDate)  stagedProps['付款時間']={date:{start:payDate}};
@@ -26989,21 +26989,10 @@ async function submitCorder(){
     if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error('C端訂單暫存建檔失敗：'+(stagedOrder?.message||'未回傳訂單'));
     await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,stagedOrder.id,mat.code||mat.name);
 
-    const operationKey=`manual:${orderNo}:${shopeeNo||'-'}:${mat.id}`;
     stockAttempted=true;
-    stockDeduct=await deductCorderStockByBom(mat,qty,orderNo,ROLE,operationKey,shipPlan);
+    await requestCorderResume(stagedOrder.id);
     committed=true;
-    const stockRef=corderStockRefs(stockDeduct.refs);
-    const finalNote=[note].filter(Boolean).join(' / ');
-    const statusSync=await updateWorkflowPageAfterInventory(
-      stagedOrder.id,
-      {
-        '狀態':{select:{name:'出貨中'}},
-        '料件ID':{rich_text:[{text:{content:stockRef}}]},
-        '備註':{rich_text:finalNote?[{text:{content:finalNote}}]:[]}
-      },
-      `C端訂單 ${orderNo} 出貨中狀態與庫存關聯`
-    );
+    const statusSync={pending:false}; // Server readback confirms stock and shipping status together.
     if(manualNo){
       await setCorderNextSerial(corderSerial(orderNo)+1,{notify:false}).catch(()=>{});
     }

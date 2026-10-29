@@ -12,18 +12,23 @@ test('resume UI prevents double submission, retains network failure and clears i
 });
 const rich=s=>({rich_text:[{text:{content:s}}]});
 function harness(options={}){
- const page={id:pageId,parent:{database_id:'db'},properties:{訂單號碼:{title:[{text:{content:'SHPTW20000'}}]},品名:rich('S-X'),數量:{number:1},料件ID:rich(notionMat+':1'),備註:rich('[ERP_CORDER_V2] pending'),狀態:{select:{name:'需確認'}}}};
+ const page={id:pageId,created_time:'2026-10-29T00:00:00Z',parent:{database_id:'db'},properties:{訂單號碼:{title:[{text:{content:'SHPTW20000'}}]},品名:rich('S-X'),數量:{number:1},料件ID:rich(notionMat+':1'),備註:rich('[ERP_CORDER_V2] pending'),狀態:{select:{name:'需確認'}}}};
  const state={page,tx:[],logs:[],moves:0,patches:0,keys:[],calls:[]};
  const c=vm.createContext({Response,Request,console,BOARD_DB:{corders:'db'},canonicalNotionId:s=>String(s||'').replaceAll('-','').toLowerCase(),isUuid:s=>/^[0-9a-f-]{36}$/.test(s||''),cleanText:s=>String(s||''),erpClientAuthorized:async()=>options.auth!==false,unauthorizedErpClient:()=>Response.json({error:'auth'},{status:401}),resp400:(_,error)=>Response.json({error},{status:400}),respOK:(_,data)=>Response.json(data),jh:()=>({'Content-Type':'application/json'}),erpBearerToken:()=> 'test',getSupabaseInventoryContext:async()=>({organization:{id:'org'},warehouse:{id:'wh'}}),taipeiDateFromTimestamp:()=> '2026-10-20',
  fetch:async(url,request)=>{
+   if(url.includes('/databases/'))return Response.json(options.queryFail?{message:'unavailable'}:{results:options.original?[options.original,page]:[page],has_more:!!options.incomplete});
    if(request.method==='PATCH'){state.patches++;if(options.patchFail){options.patchFail=false;return Response.json({message:'patch unavailable'},{status:503});}Object.assign(page.properties,JSON.parse(request.body).properties);}
    return Response.json(page);
- },supabaseSingle:async(_e,path)=>path.includes('/materials?')?{id:matId,sku:options.nonS?'Y-X':'S-X',notion_page_id:notionMat,name:'X'}:{occurred_at:'2026-10-20T12:00:00Z'},
+ },supabaseAll:async()=>options.legacy||[],supabaseSingle:async(_e,path)=>path.includes('/materials?')?{id:matId,sku:options.nonS?'Y-X':'S-X',notion_page_id:notionMat,name:'X'}:{occurred_at:'2026-10-20T12:00:00Z'},
  supabaseFetch:async(_e,path,request={})=>{
    state.calls.push(path);
    if(path.includes('/inventory_transactions?'))return state.tx;
-   if(path.includes('/rpc/apply_inventory_batch')){
-     const body=JSON.parse(request.body);state.keys.push(body.p_idempotency_key);state.moves++;
+   if(path.includes('/rpc/apply_corder_ship_once')){
+     if(options.rpcMissing)throw Error('identity RPC unavailable');
+     if(options.identityConflict)return {identity_conflict:true,original_order_number:'SHPTW16428'};
+     const body=JSON.parse(request.body);state.keys.push('erp-corder-page:'+body.p_page_id.replaceAll('-',''));
+     if(state.tx.length){if(body.p_items[0].delta!==state.tx[0].quantity_delta)throw Error('snapshot changed');return {duplicate:true,items:state.tx.map(t=>({material_id:t.material_id,delta:t.quantity_delta,before_stock:t.quantity_before,after_stock:t.quantity_after,transaction_id:t.id}))};}
+     state.moves++;
      state.tx=[{id:txId,material_id:matId,quantity_delta:-1,quantity_before:12,quantity_after:11}];
      if(options.lostResponse){options.lostResponse=false;throw Error('response lost after commit');}
      return {duplicate:false,items:[{transaction_id:txId,material_id:matId,delta:-1,before_stock:12,after_stock:11}]};
@@ -63,6 +68,34 @@ test('receipt with wrong material, invalid quantity, repeated or missing lines i
 });
 test('unknown response never reports that inventory was definitely untouched',async()=>{
  const h=harness({lostResponse:true});const result=await (await h.run()).json();assert.equal(result.inventory_committed,null);
+});
+
+test('changed internal number and buyer cannot bypass an existing platform/SKU record',async()=>{
+ const original={id:'55555555-5555-4555-8555-555555555555',created_time:'2026-08-25T03:17:00Z',properties:{品名:rich('S-X'),訂單號碼:{title:[{text:{content:'SHPTW16428'}}]}}};
+ const h=harness({original});h.state.page.properties.蝦皮訂單號碼=rich('26082235KY7K7M');h.state.page.properties.買家帳號=rich('changed-buyer');
+ const r=await h.run();assert.equal(r.status,409);assert.match((await r.json()).error,/SHPTW16428/);assert.equal(h.state.moves,0);
+});
+
+test('legacy receipt remains detectable without its old page, and a DB claim protects against query-index lag',async()=>{
+ const old=harness({legacy:[{idempotency_key:`erp:corder_ship:excel:SHPTW16428:SHOP:row-3:${notionMat}:${notionMat}:-1`}]});old.state.page.properties.蝦皮訂單號碼=rich('SHOP');
+ assert.equal((await old.run()).status,409);assert.equal(old.state.moves,0);
+ const concurrent=harness({identityConflict:true});concurrent.state.page.properties.蝦皮訂單號碼=rich('SHOP');
+ const result=await concurrent.run();assert.equal(result.status,409);assert.match((await result.json()).error,/SHPTW16428/);assert.equal(concurrent.state.moves,0);
+});
+
+test('missing claim RPC or incomplete original query fails closed; custom manual numbers use V3 and preserve notes',async()=>{
+ for(const options of [{rpcMissing:true},{queryFail:true},{incomplete:true}]){const h=harness(options);assert.equal((await h.run()).status,409);assert.equal(h.state.moves,0);}
+ const h=harness();h.state.page.properties.訂單號碼.title[0].text.content='BUSTW-NEW';h.state.page.properties.備註=rich('[ERP_CORDER_V3] 客戶備註');
+ assert.equal((await h.run()).status,200);assert.match(h.state.page.properties.備註.rich_text[0].text.content,/客戶備註/);
+});
+
+test('old generic C-end shipment routes are rejected before any material or balance mutation',async()=>{
+ const c=vm.createContext({Response,cleanSku:s=>String(s||''),resp400:(_,error)=>Response.json({error},{status:400}),resp500:(_,error)=>Response.json({error},{status:500})});
+ vm.runInContext(worker.slice(worker.indexOf('async function erpInventoryAdjust('),worker.indexOf('async function erpInventoryBatchAdjust(')),c);
+ vm.runInContext(worker.slice(worker.indexOf('async function erpInventoryBatchAdjust('),worker.indexOf('async function erpPickingSummary(')),c);
+ for(const fn of ['erpInventoryAdjust','erpInventoryBatchAdjust'])for(const source_type of ['corder_ship','corder_ship_bundle','corder_ship_recoverable']){
+   const request={json:async()=>({payload:{source_type}})};assert.equal((await c[fn](request,{},{})).status,400);
+ }
 });
 test('reimport of a pending row resumes instead of skipping, creating a page or reserving a new number',async()=>{
  let resumes=0,creates=0,reserves=0,loads=0;

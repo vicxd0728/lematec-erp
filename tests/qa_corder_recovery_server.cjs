@@ -1,16 +1,18 @@
 // Local-only browser acceptance harness. No credentials, external fetch, or real data.
 const http=require('node:http'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),crypto=require('node:crypto');
-const root=path.resolve(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'cloudflare-worker-green-wave-c22f-FULL-UPDATED.js'),'utf8');
+const root=path.resolve(__dirname,'..'),html=fs.readFileSync(process.env.ERP_QA_SOURCE||path.join(root,'index.html'),'utf8'),worker=fs.readFileSync(path.join(root,'cloudflare-worker-green-wave-c22f-FULL-UPDATED.js'),'utf8');
 const pageId='11111111-1111-4111-8111-111111111111',matId='22222222-2222-4222-8222-222222222222',notionMat='33333333-3333-4333-8333-333333333333',txId='44444444-4444-4444-8444-444444444444';
 const rich=s=>({rich_text:[{text:{content:s}}]});let state,context;
 function reset(mode){
  state={mode,requests:0,moves:0,balance:12,tx:[],logs:[],faultUsed:false,page:{id:pageId,parent:{database_id:'qa-db'},properties:{訂單號碼:{title:[{text:{content:'SHPTW20000'}}]},品名:rich('S-QA-ONLY'),數量:{number:1},料件ID:rich(notionMat+':1'),備註:rich('[ERP_CORDER_V2] QA ONLY'),狀態:{select:{name:'需確認'}}}}};
+ if(mode==='renumber'){state.moves=1;state.balance=11;state.page.properties.蝦皮訂單號碼=rich('QA-SHOP-ORIGINAL');}
  context=vm.createContext({Response,Request,console,BOARD_DB:{corders:'qa-db'},canonicalNotionId:s=>String(s||'').replaceAll('-','').toLowerCase(),isUuid:s=>/^[0-9a-f-]{36}$/.test(s||''),cleanText:s=>String(s||''),erpClientAuthorized:async req=>req.headers.get('X-ERP-Role')==='sales',unauthorizedErpClient:()=>Response.json({error:'test role forbidden'},{status:403}),resp400:(_,error)=>Response.json({error},{status:400}),respOK:(_,data)=>Response.json(data),jh:()=>({'Content-Type':'application/json'}),erpBearerToken:()=> 'not-a-credential',getSupabaseInventoryContext:async()=>({organization:{id:'qa-org'},warehouse:{id:'qa-wh'}}),taipeiDateFromTimestamp:()=> '2026-10-20',
- fetch:async(url,request)=>{if(!url.startsWith('https://api.notion.com/v1/pages/'))throw Error('External destination forbidden');if(request.method==='PATCH'){if(state.mode==='patchFail'&&!state.faultUsed){state.faultUsed=true;return Response.json({message:'測試：訂單狀態儲存暫時失敗，原扣料憑證保留'},{status:503});}Object.assign(state.page.properties,JSON.parse(request.body).properties);}return Response.json(state.page);},
+ fetch:async(url,request)=>{if(url.includes('/databases/'))return Response.json({results:[state.page],has_more:false});if(!url.startsWith('https://api.notion.com/v1/pages/'))throw Error('External destination forbidden');if(request.method==='PATCH'){if(state.mode==='patchFail'&&!state.faultUsed){state.faultUsed=true;return Response.json({message:'測試：訂單狀態儲存暫時失敗，原扣料憑證保留'},{status:503});}Object.assign(state.page.properties,JSON.parse(request.body).properties);}return Response.json(state.page);},
+ supabaseAll:async()=>[],
  supabaseSingle:async(_e,p)=>p.includes('/materials?')?{id:matId,sku:'S-QA-ONLY',notion_page_id:notionMat,name:'隔離測試料件'}:{occurred_at:'2026-10-20T12:00:00Z'},
  supabaseFetch:async(_e,p,request={})=>{
   if(p.includes('/inventory_transactions?'))return state.tx;
-  if(p.includes('/rpc/apply_inventory_batch')){state.moves++;state.balance--;state.tx=[{id:txId,material_id:matId,quantity_delta:-1,quantity_before:12,quantity_after:11}];if(state.mode==='lostResponse'&&!state.faultUsed){state.faultUsed=true;throw Error('QA response lost after commit');}return {duplicate:false,items:[{transaction_id:txId,material_id:matId,delta:-1,before_stock:12,after_stock:11}]};}
+  if(p.includes('/rpc/apply_corder_ship_once')){if(state.mode==='renumber')return {identity_conflict:true,original_order_number:'SHPTW16428'};const duplicate=state.tx.length>0;if(!duplicate){state.moves++;state.balance--;state.tx=[{id:txId,material_id:matId,quantity_delta:-1,quantity_before:12,quantity_after:11}];}if(state.mode==='lostResponse'&&!state.faultUsed){state.faultUsed=true;throw Error('QA response lost after commit');}return {duplicate,items:[{transaction_id:txId,material_id:matId,delta:-1,before_stock:12,after_stock:11}]};}
   if(p.includes('/erp_stock_logs?'))return state.logs;
   if(p==='/rest/v1/erp_stock_logs'){if(state.mode==='logFail'&&!state.faultUsed){state.faultUsed=true;throw Error('測試：操作明細暫時無法儲存，原扣料憑證保留');}state.logs=[{id:1}];return [];}
   if(p.startsWith('/rest/v1/erp_mirror_jobs?'))return [];
@@ -40,8 +42,8 @@ const server=http.createServer(async(req,res)=>{
  res.setHeader('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");res.setHeader('Cache-Control','no-store');
  let body='';for await(const c of req)body+=c;
  try{
-  if(req.url==='/'&&req.method==='GET'){res.setHeader('Content-Type','text/html;charset=utf-8');res.end(testHtml);return;}
-  if(req.url==='/qa/reset'&&req.method==='POST'){const mode=JSON.parse(body).mode;if(!['lostResponse','patchFail','logFail'].includes(mode))throw Error('Invalid case');reset(mode);}
+  if(req.url==='/'&&req.method==='GET'){res.setHeader('Content-Type','text/html;charset=utf-8');res.end(testHtml.replace('ERP V.384 同版程式','ERP 換號防重同版程式').replace('<pre id="qaState"','<button class="btn btn-ghost" onclick="resetCase(\'renumber\')">測試：換號再次匯入</button><pre id="qaState"'));return;}
+  if(req.url==='/qa/reset'&&req.method==='POST'){const mode=JSON.parse(body).mode;if(!['lostResponse','patchFail','logFail','renumber'].includes(mode))throw Error('Invalid case');reset(mode);}
   else if(req.url==='/api/corder/resume'&&req.method==='POST'){
    const request=JSON.parse(body);if(request.page_id!==pageId)throw Error('Only QA page allowed');
    state.requests++;const firstLost=state.mode==='lostResponse'&&!state.faultUsed;
