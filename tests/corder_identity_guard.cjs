@@ -12,7 +12,14 @@ function setup(result) {
   const queries = [];
   const ctx = vm.createContext({
     DB: {corders: 'corders-db'},
-    notionAPI: async (...args) => { queries.push(args); return result; },
+    notionAPI: async (...args) => {
+      queries.push(args);
+      if(args[0]==='GET'){
+        const own=result.createdPage||result.results?.find(p=>p.id===args[1].slice(6));
+        return own?{...own,parent:own.parent||{database_id:'corders-db'},properties:{'訂單號碼':{title:[{plain_text:'BUSTW15-180-1'}]},...own.properties}}:{object:'error'};
+      }
+      return result;
+    },
     getRichText: (props, name) => props[name]?.rich_text?.[0]?.plain_text || '',
   });
   vm.runInContext(guard, ctx);
@@ -35,6 +42,67 @@ test('new internal number passes the live exact-number query', async () => {
 test('multiple products of the same Shopee order may share the internal number', async () => {
   const {ctx} = setup({results: [row('SHOP1', 'BUYER1'), row('SHOP1', 'BUYER1')], has_more: false});
   assert.equal(await ctx.assertCorderInternalNoForIdentity('SHPTW20000', 'SHOP1', 'BUYER1'), 2);
+});
+
+test('a newly staged manual page verifies itself with optional platform or buyer blank', async () => {
+  for(const [shop,buyer] of [['','公司客戶'],['SHOP1',''],['','']]){
+    const page={...row(shop,buyer),id:'new-page'};
+    const {ctx}=setup({results:[page],has_more:false});
+    assert.equal(await ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1',shop,buyer,'new-page'),1);
+    // A fresh submit is not allowed to reuse that page's number just because fields are empty.
+    await assert.rejects(ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1',shop,buyer),/已有訂單紀錄/);
+  }
+});
+
+test('self exemption never skips another page, missing self, changed identity or incomplete read',async()=>{
+  const own={...row('','公司客戶'),id:'new-page'};
+  for(const result of [
+    {results:[own,{...row('','公司客戶'),id:'other-page'}],has_more:false},
+    {results:[],has_more:false},
+    {results:[{...row('SHOP2','公司客戶'),id:'new-page'}],has_more:false},
+    {results:[own],has_more:true},
+  ])await assert.rejects(setup(result).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','公司客戶','new-page'));
+});
+
+test('direct page read verifies the new page even before database query indexes it',async()=>{
+  const p={...row('','公司客戶'),id:'new-page'};
+  assert.equal(await setup({results:[],createdPage:p,has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','公司客戶','new-page'),0);
+  for(const bad of [{...p,archived:true},{...p,id:'wrong'},{...p,parent:{database_id:'wrong-db'}}])
+    await assert.rejects(setup({results:[],createdPage:bad,has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','公司客戶','new-page'));
+});
+
+test('collision describes the original order and both creation paths pass their exact staged ID',async()=>{
+  const p={...row('','摩根精密機械有限公司'),id:'existing'};
+  p.properties['品名']={rich_text:[{plain_text:'S-LEI-17-1'}]};
+  p.properties['數量']={number:5};p.properties['狀態']={select:{name:'已完成'}};
+  await assert.rejects(setup({results:[p],has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','公司客戶'),/S-LEI-17-1 × 5／已完成/);
+  assert(html.includes('assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,stagedOrder.id)'));
+  assert(html.includes('assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer,stagedOrder.id)'));
+});
+
+test('actual manual submit with blank platform creates and deducts once; retry stops before a second page or deduction',async()=>{
+  const pages=[],messages=[];let deductions=0,archives=0;
+  const values={co_no:'BUSTW15-180-1',co_shopee_no:'',co_buyer:'公司客戶',co_mat:'mat-1',co_qty:'5'};
+  const ctx=vm.createContext({
+    DB:{corders:'corders-db'},ROLE:'sales',mats:[{id:'mat-1',code:'S-LEI-17-1'}],
+    document:{getElementById:id=>({value:values[id]||'',style:{}})},
+    corderExistingNoByShopeeAndBuyer:()=>'',loadCoreEssentials:async()=>{},
+    resolveCorderShipPlan:()=>({items:[{stock:100,needed:5}],refs:[{id:'mat-1',qty:5}]}),
+    corderStockRefs:()=> 'mat-1:5',getRichText:(p,k)=>p[k]?.rich_text?.[0]?.text?.content||'',
+    notionAPI:async(method,endpoint,body)=>{
+      if(endpoint.endsWith('/query'))return {results:pages,has_more:false};
+      if(method==='GET')return pages.find(p=>p.id===endpoint.slice(6));
+      assert.equal(endpoint,'pages');const p={id:'new-page',parent:{database_id:'corders-db'},properties:body.properties};pages.push(p);return p;
+    },
+    deductCorderStockByBom:async()=>{deductions++;return {refs:[{id:'mat-1',qty:5}]};},
+    updateWorkflowPageAfterInventory:async()=>({pending:false}),archiveNotionPageQuietly:async id=>{if(id)archives++;},
+    setCorderNextSerial:async()=>{},corderSerial:()=>0,refreshAffectedData:async()=>{},renderTab:()=>{},
+    closeModal:()=>{},showToast:message=>messages.push(message),console,
+  });
+  vm.runInContext('let CORDER_SUBMIT_BUSY=false;'+guard+html.slice(html.indexOf('async function submitCorder('),html.indexOf('function buildCorderImportPreflight(')),ctx);
+  await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
+  await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
+  assert.match(messages.at(-1),/已有訂單紀錄/);
 });
 
 test('different Shopee identity or incomplete query blocks before stock deduction', async () => {

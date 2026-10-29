@@ -6689,9 +6689,10 @@ function openModal(type,data){
       <div><label class="field-label">付款時間</label><input class="inp" type="date" id="co_pay_date" value="${today}"></div>
     </div>
     <div style="margin-bottom:12px"><label class="field-label">備註</label><input class="inp" id="co_note" placeholder="選填"></div>
+    <div id="co_submit_status" role="status" class="help-box" style="display:none;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:12px"></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="submitCorder()">🛒 建立並扣庫存</button>
+      <button class="btn btn-blue" id="co_submit_btn" onclick="submitCorder()">🛒 建立並扣庫存</button>
     </div>`;
     openModal(); return;
   }
@@ -21552,7 +21553,7 @@ function openEditCorder(id){
 function normalizeNotionIdForCompare(id=''){
   return String(id||'').trim().replace(/-/g,'').toLowerCase();
 }
-async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer){
+async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,createdPageId=''){
   const r=await notionAPI('POST',`databases/${DB.corders}/query`,{
     page_size:100,
     filter:{property:'訂單號碼',title:{equals:orderNo}},
@@ -21560,12 +21561,30 @@ async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer){
   if(r?.object==='error'||!Array.isArray(r?.results)||r.has_more)
     throw new Error(`${orderNo} 的既有訂單查核不完整，已停止操作`);
   const matches=r.results.filter(p=>!p.archived&&!p.in_trash);
-  const same=matches.every(p=>
+  // Optional platform/buyer fields cannot establish a shared order. The exact
+  // page just created may, however, verify itself even when those fields are blank.
+  const key=id=>String(id||'').replace(/-/g,'').toLowerCase();
+  // Database query indexing can lag behind page creation. Read the exact page
+  // directly so presence/absence in that query cannot randomly change success.
+  const own=createdPageId?await notionAPI('GET',`pages/${createdPageId}`):null;
+  const ownNo=(own?.properties?.['訂單號碼']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('').trim();
+  if(createdPageId&&(!own||own.object==='error'||own.archived||own.in_trash||key(own.id)!==key(createdPageId)||
+    key(own.parent?.database_id)!==key(DB.corders)||ownNo!==String(orderNo).trim()||
+    getRichText(own.properties||{},'蝦皮訂單號碼').trim()!==String(shopeeNo||'').trim()||
+    getRichText(own.properties||{},'買家帳號').trim()!==String(buyer||'').trim()))
+    throw new Error(`${orderNo} 的新建紀錄尚未核對成功，請先查原單，勿重複建立`);
+  const conflicts=matches.filter(p=>!(createdPageId&&key(p.id)===key(createdPageId))).filter(p=>!(
     !!shopeeNo&&!!buyer&&
     getRichText(p.properties||{},'蝦皮訂單號碼').trim()===String(shopeeNo).trim()&&
     getRichText(p.properties||{},'買家帳號').trim()===String(buyer).trim()
-  );
-  if(!same)throw new Error(`${orderNo} 已用於其他蝦皮訂單或買家，請換單號或核對原單`);
+  ));
+  if(conflicts.length){
+    const details=conflicts.slice(0,3).map(p=>{
+      const props=p.properties||{};
+      return `${getRichText(props,'買家帳號')||'未填買家'}／${getRichText(props,'品名')||'未填品項'} × ${props['數量']?.number??'—'}／${props['狀態']?.select?.name||'狀態未填'}`;
+    }).join('；');
+    throw new Error(`${orderNo} 已有訂單紀錄：${details}。本次未再次扣料；請先查原單，若為另一張獨立訂單請使用不同內部單號。`);
+  }
   return matches.length;
 }
 async function assertCorderStockActionIdentity(order){
@@ -26917,12 +26936,17 @@ async function submitCorder(){
   const mat=mats.find(m=>m.id===matId);
   if(!mat){showToast('找不到料件','err');return;}
   CORDER_SUBMIT_BUSY=true;
+  const submitButton=document.getElementById('co_submit_btn');
+  const submitStatus=document.getElementById('co_submit_status');
+  if(submitButton)submitButton.disabled=true;
+  if(submitStatus){submitStatus.style.display='none';submitStatus.textContent='';}
   const existingOrderNo=corderExistingNoByShopeeAndBuyer(shopeeNo,buyer);
   if(!manualNo&&!existingOrderNo){
     try{
       await ensureCorderSequenceReady();
     }catch(_){
       CORDER_SUBMIT_BUSY=false;
+      if(submitButton)submitButton.disabled=false;
       return;
     }
   }
@@ -26941,7 +26965,6 @@ async function submitCorder(){
       orderNo=formatCorderNo(reserved.start_number);
     }
     await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer);
-    closeModal();
     // 先建立可追蹤的暫存單，再執行 Supabase 扣庫；避免「扣了庫存卻沒有訂單」。
     const stagedProps={
       '訂單號碼':   {title:[{text:{content:orderNo}}]},
@@ -26960,7 +26983,7 @@ async function submitCorder(){
     if(payDate)  stagedProps['付款時間']={date:{start:payDate}};
     stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:stagedProps});
     if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error('C端訂單暫存建檔失敗：'+(stagedOrder?.message||'未回傳訂單'));
-    await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer);
+    await assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,stagedOrder.id);
 
     const operationKey=`manual:${orderNo}:${shopeeNo||'-'}:${mat.id}`;
     stockAttempted=true;
@@ -26980,6 +27003,7 @@ async function submitCorder(){
     if(manualNo){
       await setCorderNextSerial(corderSerial(orderNo)+1,{notify:false}).catch(()=>{});
     }
+    closeModal();
     await refreshAffectedData({core:true,tabs:['corders'],label:'C端訂單與庫存已更新'}); renderTab('corders');
     showToast(
       statusSync.pending
@@ -26988,6 +27012,7 @@ async function submitCorder(){
       statusSync.pending?'warn':'ok'
     );
   }catch(e){
+    if(submitStatus){submitStatus.style.display='block';submitStatus.textContent=stockAttempted?'原單已保留，扣庫結果需核對；請勿重建。原因：'+e.message:'本次未扣料；表單已保留。原因：'+e.message;}
     if(!committed&&!stockAttempted){
       await archiveNotionPageQuietly(stagedOrder?.id);
       showToast('❌ '+e.message,'err');
@@ -26997,7 +27022,7 @@ async function submitCorder(){
       console.error('submitCorder post-commit error:',e);
       showToast(`⚠ C端訂單 ${orderNo} 已扣庫，但後續同步未完成；請按同步鍵確認，勿重複建立`,'warn',9000);
     }
-  }finally{CORDER_SUBMIT_BUSY=false;}
+  }finally{CORDER_SUBMIT_BUSY=false;if(submitButton)submitButton.disabled=false;}
 }
 
 function buildCorderImportPreflight(incoming){
@@ -27287,7 +27312,7 @@ async function applyCorderImportPreflightOnce(){
       cProps['料件ID']={rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]};
       stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
       if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
-      await assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer);
+      await assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer,stagedOrder.id);
 
       stockAttempted=true;
       await requestCorderResume(stagedOrder.id);

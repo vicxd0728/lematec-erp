@@ -1,5 +1,7 @@
 # LEMATEC ERP Data Flow
 
+C-end create identity addendum (2026-10-29): Post-create verification directly reads the exact new Notion page ID and checks its parent/title/identity; the duplicate-number query may lag behind page indexing. Optional blank platform/buyer fields cannot prove a shared order, but must not reject that exact newly created page. Other records still require existing full Shopee/buyer identity rules. No stock keys, RPCs or role permissions changed.
+
 ## Current Effective Summary 2026-09-07
 
 C-end reversal addendum (2026-10-21): C-end order pages remain Notion-primary. Supabase erp_corder_reversals holds durable pending/completed cancellation/return/archive intent per exact original page. Worker-only versioned claim freezes original saved S-component quantities and stock/scrap choice before quantity effects; existing apply_inventory_batch uses one stable operation UUID. Retry reuses that operation, repairs missing human logs, queues current-balance mirror work, and confirms Notion status/note before completing metadata. No client-side quantity replay or stale status-sync task is used to finish these reversals. Old ambiguous positive return evidence without a durable intent blocks for review, and the old generic corder_return_batch entry is disabled. New metadata schema deployment does not modify historical orders or stock.

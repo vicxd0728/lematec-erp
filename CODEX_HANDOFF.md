@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end manual create identity fix 2026-10-29
+
+- Optional blank platform/buyer fields formerly made the post-create duplicate query reject its own new page. Both create paths now pass the exact staged page ID, verify that page by direct GET (including database, title, identity and archive state), and exempt only that page from collision comparison. This also handles query-index lag without treating an unindexed page as failed creation. Other-page collisions and incomplete reads still stop before deduction.
+- Manual form stays open through confirmation; submit button is disabled while busy. Failure keeps entered values and a persistent inline reason. Conflicts list existing buyer/SKU/quantity/status rather than asserting the buyer must differ. Stock transaction keys, Worker roles and existing recovery/reversal rules are unchanged. Isolated sales fixtures cover desktop/mobile creation and retry; no production business writes are used for QA.
+- Incident evidence is private/local under output/corder-identity-20261029. Formal October inventory_transactions and exact Notion page readback are distinct from UI/log evidence; do not infer a past failed request solely from the record later created successfully.
+
 ## Picking/inbound/QC LOOP/GRILL 2026-10-21
 
 - Scope: multi-term/full-width-normalized search over existing loaded fields in picking, inbound and pending QC; existing data windows, tab boundaries and roles unchanged. Search still retains focused nodes/IME behavior.
