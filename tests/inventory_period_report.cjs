@@ -35,7 +35,7 @@ test('report route requires company auth and inventory-viewing role before readi
 test('period reader pages past 500, scopes organization and snapshot time, returns only complete output',async()=>{
  const {ctx,calls}=setup();ctx.supabaseFetch=async(_e,url)=>{calls.push(url);return url.includes('offset=0')?Array.from({length:500},(_,i)=>tx(String(i),1,i)):[tx('last',1,500)];};
  const r=await ctx.erpInventoryPeriodReport(new Request('https://x/api/inventory/period-report?start=2026-10-01&end=2026-10-31',{headers:{'X-ERP-Role':'ai'}}),{},{});
- const d=await r.json();assert.equal(d.complete,true);assert.equal(d.transactions.length,501);assert.equal(d.rows[0].closing,501);assert.equal(calls.length,2);assert.match(calls[0],/organization_id=eq.org/);assert.match(calls[0],/created_at=lte/);assert.equal(r.headers.get('Cache-Control'),'no-store');
+ const d=await r.json();assert.equal(d.complete,true);assert.equal(d.transactions.length,501);assert.equal(d.rows[0].closing,501);assert.equal(calls.length,2);assert.match(calls[0],/organization_id=eq.org/);assert.match(calls[0],/created_at=lte/);assert.match(calls[0],/source_id,source_number,idempotency_key/);assert.equal(r.headers.get('Cache-Control'),'no-store');
 });
 test('upstream pagination error cannot produce an exportable partial report',async()=>{
  const {ctx}=setup();ctx.supabaseFetch=async()=>{throw new Error('offline');};

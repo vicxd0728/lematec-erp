@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end retry audit and line guard 2026-10-29
+
+- Read-only audit paged all 674 active Notion C-end pages and 1,596 formal 2026 transactions. Active repeated platform/buyer/SKU groups and pending-confirmation rows were absent. Repeated material deductions must be compared with every saved direct-component snapshot under the order, cancellation credits, and historical order-number changes; repeated components alone are not duplicate stock. Archived pages and pre-ledger history are separate coverage gaps. Private evidence is local under output/corder-retry-audit-20261029; never commit customer snapshots.
+- Manual pre-create and both post-create checks now include the incoming SKU. A second page of the same SKU under the same internal order is blocked even when the full platform/buyer identity otherwise permits sharing a number; different products still follow existing grouping rules. This is a fresh authoritative read guard, not a cross-device database uniqueness guarantee. Existing inventory keys, atomic RPCs and roles remain unchanged.
+- The authenticated read-only period report now retains source_id and idempotency_key in raw transaction details so audit can follow immutable source evidence after a visible order number changes. Aggregations/print/export and access rights are unchanged. No historical orders, transactions or inventory quantities are mutated by this release.
+
 ## C-end manual create identity fix 2026-10-29
 
 - Optional blank platform/buyer fields formerly made the post-create duplicate query reject its own new page. Both create paths now pass the exact staged page ID, verify that page by direct GET (including database, title, identity and archive state), and exempt only that page from collision comparison. This also handles query-index lag without treating an unindexed page as failed creation. Other-page collisions and incomplete reads still stop before deduction.

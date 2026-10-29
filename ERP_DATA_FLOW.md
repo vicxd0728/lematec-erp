@@ -1,5 +1,7 @@
 # LEMATEC ERP Data Flow
 
+C-end retry-audit addendum (2026-10-29): Quantity audit uses formal transaction source IDs/keys plus original saved component snapshots and return credits, not current BOM or repeated visible reference numbers alone. Manual creation blocks another line of the same SKU under the checked internal number; sharing the number remains valid for distinct products with the existing platform/buyer identity. No quantity-repair action is part of a read-only audit.
+
 C-end create identity addendum (2026-10-29): Post-create verification directly reads the exact new Notion page ID and checks its parent/title/identity; the duplicate-number query may lag behind page indexing. Optional blank platform/buyer fields cannot prove a shared order, but must not reject that exact newly created page. Other records still require existing full Shopee/buyer identity rules. No stock keys, RPCs or role permissions changed.
 
 ## Current Effective Summary 2026-09-07

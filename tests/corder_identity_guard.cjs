@@ -76,8 +76,8 @@ test('collision describes the original order and both creation paths pass their 
   p.properties['品名']={rich_text:[{plain_text:'S-LEI-17-1'}]};
   p.properties['數量']={number:5};p.properties['狀態']={select:{name:'已完成'}};
   await assert.rejects(setup({results:[p],has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','公司客戶'),/S-LEI-17-1 × 5／已完成/);
-  assert(html.includes('assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,stagedOrder.id)'));
-  assert(html.includes('assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer,stagedOrder.id)'));
+  assert(html.includes('assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,stagedOrder.id,mat.code||mat.name)'));
+  assert(html.includes('assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer,stagedOrder.id,item.sku)'));
 });
 
 test('actual manual submit with blank platform creates and deducts once; retry stops before a second page or deduction',async()=>{
@@ -102,7 +102,15 @@ test('actual manual submit with blank platform creates and deducts once; retry s
   vm.runInContext('let CORDER_SUBMIT_BUSY=false;'+guard+html.slice(html.indexOf('async function submitCorder('),html.indexOf('function buildCorderImportPreflight(')),ctx);
   await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
   await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
-  assert.match(messages.at(-1),/已有訂單紀錄/);
+  assert.match(messages.at(-1),/已有原訂單/);
+});
+
+test('same full platform identity cannot recreate the same product, while a different product remains allowed',async()=>{
+  const p={...row('SHOP1','BUYER1'),id:'existing'};
+  p.properties['品名']={rich_text:[{plain_text:'S-LEI-17-1'}]};p.properties['狀態']={select:{name:'已完成'}};
+  const {ctx}=setup({results:[p],has_more:false});
+  await assert.rejects(ctx.assertCorderInternalNoForIdentity('SHPTW20000','SHOP1','BUYER1','','s-lei-17-1'),/已有原訂單/);
+  assert.equal(await ctx.assertCorderInternalNoForIdentity('SHPTW20000','SHOP1','BUYER1','','S-OTHER'),1);
 });
 
 test('different Shopee identity or incomplete query blocks before stock deduction', async () => {

@@ -1471,7 +1471,7 @@ async function erpInventoryPeriodReport(request,env,cors){
   try{const url=new URL(request.url);range=inventoryPeriodRange(url.searchParams.get('start'),url.searchParams.get('end'));}catch(e){return resp400(cors,e.message);}
   try{
     const context=await getSupabaseInventoryContext(env),generatedAt=new Date().toISOString(),rows=[];
-    const fields='id,warehouse_id,material_id,transaction_type,quantity_delta,quantity_before,quantity_after,source_type,source_number,reason,occurred_at,created_at,materials(sku,name,unit),warehouses(code,name)';
+    const fields='id,warehouse_id,material_id,transaction_type,quantity_delta,quantity_before,quantity_after,source_type,source_id,source_number,idempotency_key,reason,occurred_at,created_at,materials(sku,name,unit),warehouses(code,name)';
     const path='/rest/v1/inventory_transactions?organization_id=eq.'+encodeURIComponent(context.organization.id)+'&occurred_at=gte.'+encodeURIComponent(range.from)+'&occurred_at=lt.'+encodeURIComponent(range.until)+'&created_at=lte.'+encodeURIComponent(generatedAt)+'&select='+fields+'&order=occurred_at.asc,created_at.asc,id.asc';
     for(let offset=0;;offset+=500){
       const batch=await supabaseFetch(env,path+'&limit=500&offset='+offset);
