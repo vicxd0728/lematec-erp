@@ -23242,7 +23242,10 @@ function renderCorders(){
       const fg=statusColor.fg;
       const warn=!o.matId||/找不到|未扣|無料號/.test(o.note||'');
       const resuming=window._corderResuming?.has(o.id),resumeError=window._corderReversalErrors?.[o.id]||window._corderResumeErrors?.[o.id],reversalPending=window._corderReversalPending?.[o.id];
-      const recoveryFeedback=canOperate&&resumeError?`<div class="info-box info-warn corder-recovery-feedback" role="alert" style="white-space:normal;overflow-wrap:anywhere;margin:8px 0">${escapeHtml(resumeError)}${o.status==='需確認'?'<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。':''}</div>`:'';
+      const identityConflict=window._corderResumeConflicts?.[o.id];
+      const originalKey=String(identityConflict?.pageId||'').replace(/-/g,'');
+      const conflictHelp=identityConflict?`<br>此列已停止重試，請至原單 ${escapeHtml(identityConflict.no||'')} 核對。${/^[0-9a-f]{32}$/i.test(originalKey)?` <a class="btn btn-ghost btn-sm" href="https://www.notion.so/${originalKey}" target="_blank" rel="noopener noreferrer">查看原單 ↗</a>`:''}`:'';
+      const recoveryFeedback=canOperate&&resumeError?`<div class="info-box info-warn corder-recovery-feedback" role="alert" style="white-space:normal;overflow-wrap:anywhere;margin:8px 0">${escapeHtml(resumeError)}${identityConflict?conflictHelp:o.status==='需確認'?'<br>請保留原單；連線恢復或問題排除後，再按「核對並續接」。':''}</div>`:'';
       const actions=canOperate&&!reversalPending&&o.status==='出貨中'?`<div class="corder-actions">
         <button class="btn btn-green btn-sm" onclick="completeCorder('${o.id}')">✓ 完成</button>
         <button class="btn btn-red btn-sm" onclick="cancelCorder('${o.id}','${o.matId||''}',${o.qty||0})">取消</button>
@@ -23250,7 +23253,7 @@ function renderCorders(){
       const returnAction=canOperate&&!reversalPending&&['已完成','部分退貨'].includes(o.status)?`<button class="btn btn-red btn-sm" onclick="openReturnCorder('${o.id}')">退貨</button>`:'';
       const manage=canOperate?`<div class="corder-actions">
         ${reversalPending?`<button class="btn btn-blue btn-sm" ${_corderReversalLocks.has(o.id)?'disabled aria-busy="true"':''} onclick="executeCorderReversal('${o.id}')">${_corderReversalLocks.has(o.id)?'回料核對中…':'續接原回料'}</button><span style="font-size:.75rem;color:var(--text2);white-space:normal">原回料尚未完成，請勿重建或改選處理方式。</span>`:''}
-        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming?'disabled aria-busy="true"':''} onclick="resumeCorder(this.dataset.id)">${resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal;color:var(--text2)">已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。</span>`:''}
+        ${o.status==='需確認'?`<button class="btn btn-blue btn-sm" data-id="${escapeHtml(o.id)}" ${resuming||identityConflict?'disabled aria-busy="'+!!resuming+'"':''} onclick="resumeCorder(this.dataset.id)">${identityConflict?'請至原單處理':resuming?'核對中，請稍候…':'核對並續接'}</button><span style="font-size:.75rem;white-space:normal;color:var(--text2)">${identityConflict?'相同蝦皮單與品項不得換號重扣。':'已扣料會沿用原憑證；未扣料才執行一次。勿刪除重建。'}</span>`:''}
         ${actions}
         ${returnAction}
         ${o.status!=='需確認'&&!reversalPending?`<button class="btn btn-yellow btn-sm" onclick="openEditCorder('${o.id}')">編輯</button>
@@ -27005,8 +27008,10 @@ async function submitCorder(){
       statusSync.pending?'warn':'ok'
     );
   }catch(e){
-    if(submitStatus){submitStatus.style.display='block';submitStatus.textContent=stockAttempted?'原單已保留，扣庫結果需核對；請勿重建。原因：'+e.message:'本次未扣料；表單已保留。原因：'+e.message;}
-    if(!committed&&!stockAttempted){
+    if(submitStatus){submitStatus.style.display='block';submitStatus.textContent=e.code==='corder_identity_conflict'?'已攔截重複扣料，請至提示的原單核對：'+e.message:stockAttempted?'原單已保留，扣庫結果需核對；請勿重建。原因：'+e.message:'本次未扣料；表單已保留。原因：'+e.message;}
+    if(e.code==='corder_identity_conflict'){
+      showToast('已停止此列扣料：'+e.message,'warn',12000);
+    }else if(!committed&&!stockAttempted){
       await archiveNotionPageQuietly(stagedOrder?.id);
       showToast('❌ '+e.message,'err');
     }else if(!committed){
@@ -27178,11 +27183,12 @@ function openCorderImportPreflightModal(report){
 async function requestCorderResume(pageId){
   const res=await fetch(`${PROXY}/api/corder/resume`,{method:'POST',headers:erpWorkerHeaders({'Content-Type':'application/json'}),body:JSON.stringify({page_id:pageId})});
   const result=await res.json();
-  if(!res.ok||!result?.ok||result.status!=='出貨中')throw Error(result.error||'交易或訂單狀態未確認，保留原單供續接');
+  if(!res.ok||!result?.ok||result.status!=='出貨中')throw Object.assign(Error(result.error||'交易或訂單狀態未確認，保留原單供續接'),{code:result.code,originalPageId:result.original_page_id,originalNo:result.original_order_number});
   return result;
 }
 async function resumeCorder(id){
   if(isViewOnly())return;
+  if(window._corderResumeConflicts?.[id]){showToast('此列已停止重試，請至提示的原單核對','warn');return;}
   window._corderResuming=window._corderResuming||new Set();
   if(window._corderResuming.has(id))return;
   window._corderResuming.add(id);
@@ -27198,7 +27204,11 @@ async function resumeCorder(id){
     if(CURRENT_TAB==='corders')renderTab('corders');
   }catch(e){
     const reason=/failed to fetch|networkerror|load failed|network request failed/i.test(e.message||'')?'連線中斷，尚未取得續接結果；不能據此判斷是否已扣料':(e.message||'尚未取得續接結果');
-    window._corderResumeErrors[id]='續接未確認：'+reason;
+    if(e.code==='corder_identity_conflict'){
+      window._corderResumeConflicts=window._corderResumeConflicts||{};
+      window._corderResumeConflicts[id]={pageId:e.originalPageId,no:e.originalNo};
+    }
+    window._corderResumeErrors[id]=(e.code==='corder_identity_conflict'?'已攔截重複扣料：':'續接未確認：')+reason;
     showToast(window._corderResumeErrors[id]+'；請保留原單，勿刪除重建','err',12000);
   }
   finally{window._corderResuming.delete(id);if(CURRENT_TAB==='corders')renderTab('corders');}
@@ -27312,7 +27322,10 @@ async function applyCorderImportPreflightOnce(){
       committed=true;
       ok++;
     }catch(eCreate){
-      if(!committed&&!stockAttempted){
+      if(eCreate.code==='corder_identity_conflict'){
+        failed++;
+        warnList.push((item.shopeeNo||item.no)+'：已停止重複扣料；'+eCreate.message);
+      }else if(!committed&&!stockAttempted){
         failed++;
         warnList.push((item.shopeeNo||item.no)+(stagedOrder?.id?'：原單已保留，請核對並續接；':'：建檔結果未確認，重匯會先查原訂單；')+eCreate.message);
       }else if(!committed){

@@ -10,6 +10,13 @@ test('resume UI prevents double submission, retains network failure and clears i
  const retry=c.resumeCorder(pageId);assert.equal(c.window._corderResumeErrors[pageId],undefined);c.CURRENT_TAB='orders';const before=renders.length;
  resolve({duplicate:true});await retry;assert.equal(renders.length,before);assert.equal(c.window.corders[0].status,'出貨中');assert.match(messages.at(-1),/未重複扣料/);
 });
+
+test('identity-conflict feedback stops retries of the duplicate page and keeps the original reference',async()=>{
+ let calls=0;const c=vm.createContext({window:{corders:[{id:pageId,status:'需確認'}]},CURRENT_TAB:'corders',isViewOnly:()=>false,renderTab:()=>{},showToast:()=>{},requestCorderResume:async()=>{calls++;throw Object.assign(Error('請回 SHPTW16428'),{code:'corder_identity_conflict',originalNo:'SHPTW16428',originalPageId:'55555555-5555-4555-8555-555555555555'});}});
+ vm.runInContext(html.slice(html.indexOf('async function resumeCorder('),html.indexOf('async function applyCorderImportPreflight(')),c);
+ await c.resumeCorder(pageId);await c.resumeCorder(pageId);
+ assert.equal(calls,1);assert.equal(c.window._corderResumeConflicts[pageId].no,'SHPTW16428');assert.match(c.window._corderResumeErrors[pageId],/已攔截重複扣料/);
+});
 const rich=s=>({rich_text:[{text:{content:s}}]});
 function harness(options={}){
  const page={id:pageId,created_time:'2026-10-29T00:00:00Z',parent:{database_id:'db'},properties:{訂單號碼:{title:[{text:{content:'SHPTW20000'}}]},品名:rich('S-X'),數量:{number:1},料件ID:rich(notionMat+':1'),備註:rich('[ERP_CORDER_V2] pending'),狀態:{select:{name:'需確認'}}}};

@@ -4850,7 +4850,7 @@ async function assertCorderShipOriginal(token,page,snap,env,org){
   const original=matches.sort((a,b)=>String(a.created_time||'').localeCompare(String(b.created_time||''))||a.id.localeCompare(b.id))[0];
   if(original&&canonicalNotionId(original.id)!==canonicalNotionId(page.id)){
     const no=(original.properties?.['訂單號碼']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('');
-    throw Error(`此蝦皮單與品項已有原單 ${no}；請回原單核對續接，換號不會再次扣料`);
+    throw Object.assign(Error(`此蝦皮單與品項已有原單 ${no}；請回原單核對續接，換號不會再次扣料`),{code:'corder_identity_conflict',original_page_id:original.id,original_order_number:no});
   }
   if(snap.platform){
     // Legacy direct Excel receipts retain the platform identity even when the old page was archived.
@@ -4881,7 +4881,7 @@ async function erpCorderResume(request,env,cors) {
     if(snap.status==='出貨中'&&!prior.length)throw Error('訂單已出貨但找不到此作業憑證，需人工核對');
     let receipt=await supabaseFetch(env,'/rest/v1/rpc/apply_corder_ship_once',{method:'POST',body:JSON.stringify({p_organization_id:organization.id,p_warehouse_id:warehouse.id,p_page_id:page_id,p_order_number:snap.no,p_platform_order:snap.platform,p_sku:snap.sku.normalize('NFKC').trim().toUpperCase(),p_buyer:snap.buyer,p_quantity:snap.qty,p_items:items})});
     receipt=Array.isArray(receipt)?receipt[0]:receipt;
-    if(receipt?.identity_conflict)throw Error(`此蝦皮單與品項已由原單 ${receipt.original_order_number} 受理；請回原單續接，未再次扣料`);
+    if(receipt?.identity_conflict)throw Object.assign(Error(`此蝦皮單與品項已由原單 ${receipt.original_order_number} 受理；請回原單續接，未再次扣料`),{code:'corder_identity_conflict',original_page_id:receipt.original_page_id,original_order_number:receipt.original_order_number});
     const rows=assertCorderRecoveryReceipt(items,receipt);committed=true;
     for(const row of rows){
       const mat=materials.find(m=>m.id===row.material_id),trace=`inventory-tx:${row.transaction_id}`;
@@ -4903,7 +4903,7 @@ async function erpCorderResume(request,env,cors) {
       if(saved.status!=='出貨中'||saved.signature!==snap.signature)throw Error('訂單狀態回讀未確認');
     }
     return respOK(cors,{ok:true,inventory_committed:true,duplicate:receipt.duplicate===true,page_id,status:'出貨中',transaction_ids:rows.map(r=>r.transaction_id),mirror_pending:true});
-  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,inventory_committed:committed?true:null,recoverable:true}),{status:409,headers:jh(cors)});}
+  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,code:e.code||'corder_resume_unconfirmed',original_page_id:e.original_page_id||null,original_order_number:e.original_order_number||null,inventory_committed:committed?true:null,recoverable:e.code!=='corder_identity_conflict'}),{status:409,headers:jh(cors)});}
 }
 function corderReversalRichText(text){
   const chunks=[''];for(const c of text){if(chunks[chunks.length-1].length+c.length>1800)chunks.push('');chunks[chunks.length-1]+=c;}
