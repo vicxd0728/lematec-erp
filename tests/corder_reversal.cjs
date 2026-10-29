@@ -1,4 +1,23 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{harness}=require('./helpers/corder_reversal_harness.cjs');
+
+test('all literal Worker quantity transaction types satisfy the deployed schema contract',()=>{
+ const fs=require('node:fs'),schema=fs.readFileSync('supabase/migrations/20260717_001_initial_erp_schema.sql','utf8'),worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
+ const clause=schema.match(/constraint inventory_transaction_type_check check \(transaction_type in \(([^\n]+)\)\)/)[1];
+ const allowed=new Set([...clause.matchAll(/'([^']+)'/g)].map(x=>x[1]));
+ const types=[...worker.matchAll(/p_transaction_type\s*:\s*'([^']+)'/g)].map(x=>x[1]);
+ assert(types.length>=2);for(const type of types)assert(allowed.has(type),'Unsupported inventory RPC type: '+type);
+});
+
+test('schema-rejected pending return resumes its frozen operation exactly once after deployment',async()=>{
+ const h=harness({failure:'typeConstraint'}),body=h.intent();
+ const failed=await (await h.run(body)).json();assert.match(failed.error,/inventory_transaction_type_check/);
+ assert(h.state.ledger.pending);const originalId=h.state.ledger.pending.id;
+ assert.equal(h.state.moves,0);assert.deepEqual(h.state.stocks,{[h.a]:9,[h.b]:8});
+ const retry=await (await h.run({...body,operation_id:require('node:crypto').randomUUID(),qty:2,stock_mode:'scrap',resume:true})).json();
+ assert(retry.ok);assert.equal(h.state.moves,1);assert.equal(h.state.stocks[h.a],10);assert.equal(h.state.stocks[h.b],10);
+ assert(h.state.receipts.has('corder-reversal:'+originalId));assert.equal(h.state.ledger.completed[0].qty,1);
+ assert((await (await h.run(body)).json()).duplicate);assert.equal(h.state.moves,1);
+});
 test('server-created flat inventory mirror tasks hydrate without replaying quantities',async()=>{
  const fs=require('node:fs'),vm=require('node:vm'),html=fs.readFileSync('index.html','utf8'),written={};
  const c=vm.createContext({reliabilityWorker:async()=>({jobs:[{module:'inventory_notion',dedupe_key:'inventory_notion:a',payload:{page_id:'a',sku:'S-A'}},{module:'inventory_notion',dedupe_key:'inventory_notion:b',payload:{task:{page_id:'b',sku:'S-B'}}}]}),reliableMirrorKey:(m,t)=>m+':'+t.page_id});

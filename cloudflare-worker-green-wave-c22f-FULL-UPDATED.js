@@ -4988,7 +4988,8 @@ async function erpCorderReversal(request,env,cors) {
     if(!validBefore&&!validAfter)throw Error('原單資料在回料中途被變更；原憑證保留，需人工核對');
     if(pending.refs.length){
       const items=pending.refs.map(x=>({material_id:x.id,delta:x.delta})),key=`corder-reversal:${pending.id}`;
-      const receiptRaw=await supabaseFetch(env,'/rest/v1/rpc/apply_inventory_batch',{method:'POST',body:JSON.stringify({p_organization_id:organization.id,p_warehouse_id:warehouse.id,p_items:items,p_transaction_type:'C端退料',p_reason:'C端取消／退貨依原單回庫',p_idempotency_key:key,p_source_type:'corder_reversal',p_source_id:pageId,p_source_number:pending.before.no})});
+      // Canonical DB enum; C端退料 is the human-readable log/display label only.
+      const receiptRaw=await supabaseFetch(env,'/rest/v1/rpc/apply_inventory_batch',{method:'POST',body:JSON.stringify({p_organization_id:organization.id,p_warehouse_id:warehouse.id,p_items:items,p_transaction_type:'取消回料',p_reason:'C端取消／退貨依原單回庫',p_idempotency_key:key,p_source_type:'corder_reversal',p_source_id:pageId,p_source_number:pending.before.no})});
       const receipt=Array.isArray(receiptRaw)?receiptRaw[0]:receiptRaw,rows=assertCorderRecoveryReceipt(items,receipt);
       for(const row of rows){
         const mat=pending.refs.find(x=>x.id===row.material_id),trace=`inventory-tx:${row.transaction_id}`;

@@ -1,10 +1,10 @@
 // Isolated browser QA only: actual UI/Worker functions, memory adapters, loopback HTTP.
 const http=require('node:http'),fs=require('node:fs'),{harness}=require('./helpers/corder_reversal_harness.cjs');
-const html=fs.readFileSync('index.html','utf8');let h=harness({status:'出貨中',failure:'patchFail'}),caseName='cancelPatch';
-const cases={cancelPatch:{status:'出貨中',failure:'patchFail'},cancelLost:{status:'出貨中',failure:'lostResponse'},returnLost:{failure:'lostResponse'},returnPatch:{failure:'patchFail'},returnLog:{failure:'logFail'},returnNormal:{},cancelScrap:{status:'出貨中'},returnScrap:{}};
+const html=fs.readFileSync(process.env.ERP_QA_SOURCE||'index.html','utf8');let h=harness({status:'出貨中',failure:'patchFail'}),caseName='cancelPatch';
+const cases={returnConstraint:{failure:'typeConstraint'},cancelPatch:{status:'出貨中',failure:'patchFail'},cancelLost:{status:'出貨中',failure:'lostResponse'},returnLost:{failure:'lostResponse'},returnPatch:{failure:'patchFail'},returnLog:{failure:'logFail'},returnNormal:{},cancelScrap:{status:'出貨中'},returnScrap:{}};
 function clientOrder(){const p=h.state.page.properties,text=k=>(p[k].rich_text||p[k].title).map(x=>x.text.content).join('');return {id:h.pageId,no:text('訂單號碼'),shopeeNo:text('蝦皮訂單號碼'),buyer:text('買家帳號'),matCode:text('品名'),matName:text('品名'),qty:p.數量.number,matId:text('料件ID'),status:p.狀態.select.name,note:text('備註'),created:'2026-10-20'};}
 function page(){
- const styles=[...html.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(x=>x[0]).join('\n');
+ const styles=[...html.split('</head>')[0].matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(x=>x[0]).join('\n');
  const renderer=html.slice(html.indexOf('function corderSelectionIds('),html.indexOf('function pickShortageMaterialMatch('));
  const helpers=html.slice(html.indexOf('function parseCorderStockRefs('),html.indexOf('function filterCorderMatOptions('));
  const actions=html.slice(html.indexOf('async function returnCorderStock('),html.indexOf('function openEditCorder('));

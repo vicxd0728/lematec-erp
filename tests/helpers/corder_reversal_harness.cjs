@@ -1,5 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),{randomUUID}=require('node:crypto');
 const worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
+const transactionCheck=fs.readFileSync('supabase/migrations/20260717_001_initial_erp_schema.sql','utf8').match(/constraint inventory_transaction_type_check check \(transaction_type in \(([^\n]+)\)\)/)[1];
+const allowedTransactionTypes=new Set([...transactionCheck.matchAll(/'([^']+)'/g)].map(x=>x[1]));
 const pageId='11111111-1111-4111-8111-111111111111',a='22222222-2222-4222-8222-222222222222',b='33333333-3333-4333-8333-333333333333';
 const rich=s=>({rich_text:[{text:{content:s}}]});
 function harness(options={}){
@@ -19,6 +21,7 @@ function harness(options={}){
   if(p.startsWith('/rest/v1/inventory_transactions?'))return options.legacy?[{id:'old'}]:[];
   if(p==='/rest/v1/rpc/apply_inventory_batch'){
    const body=JSON.parse(req.body),key=body.p_idempotency_key;
+   if(fail('typeConstraint')||!allowedTransactionTypes.has(body.p_transaction_type)){state.faultUsed=true;throw Error('new row for relation "inventory_transactions" violates check constraint "inventory_transaction_type_check"');}
    if(state.receipts.has(key))return {...copy(state.receipts.get(key)),duplicate:true};
    state.moves++;const items=body.p_items.map(x=>{const before=state.stocks[x.material_id];state.stocks[x.material_id]+=x.delta;return {material_id:x.material_id,delta:x.delta,before_stock:before,after_stock:state.stocks[x.material_id],transaction_id:randomUUID()};});
    const receipt={items,duplicate:false};state.receipts.set(key,copy(receipt));

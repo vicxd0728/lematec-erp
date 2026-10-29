@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## C-end reversal transaction-type contract fix 2026-10-29
+
+- Reversal quantity RPC must use canonical inventory_transactions.transaction_type 取消回料. C端退料 is only the staff-readable log/display label; sending it to the RPC violated inventory_transaction_type_check and left the original intent pending. Never broaden/drop the CHECK to hide this mismatch.
+- Existing pending operations resume with the same corder-reversal:<operation UUID> key, frozen quantity/mode/materials and original receipt. No production order, pending intent or inventory is repaired by deployment. Sales may use 續接原回料 after rollout; warehouse login is not required. Accepted receipts, lost responses and log/status failures retain the same retry path.
+- Regression adapters now enforce the production CHECK, and tests/run_corder_reversal_postgres.py loads that exact CHECK plus the actual inventory RPC in disposable CI PostgreSQL: reject old label with full rollback, retry canonical Worker payload eight times concurrently and prove one stock return. UI fixture adds returnConstraint on desktop/mobile without production credentials. Previous permissive adapters/metadata-only SQL test did not validate the quantity-write contract; those earlier passes were insufficient for real return acceptance.
+
 ## Atomic Shopee shipment identity guard 2026-10-29
 
 - C-end resume now calls service-only apply_corder_ship_once. An empty metadata table has unique organization/business-key and organization/page constraints. The canonical business key is platform order + parent SKU (manual blank-platform fallback: internal number + SKU), excluding quantity, buyer, internal number for platform orders, page ID and Excel row. Advisory locking, claim insertion and the existing atomic inventory RPC execute in one transaction. A different page claiming the same identity returns its original order number without stock; same-page retries retain the existing erp-corder-page receipt key. Quantity/items/buyer identity changes stop; shortage rolls back both claim and stock.
