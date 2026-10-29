@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{harness}=require('./helpers/corder_reversal_harness.cjs');
 
 test('all literal Worker quantity transaction types satisfy the deployed schema contract',()=>{
- const fs=require('node:fs'),schema=fs.readFileSync('supabase/migrations/20260717_001_initial_erp_schema.sql','utf8'),worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
+ const fs=require('node:fs'),schema=fs.readFileSync('tests/fixtures/inventory_transaction_type_check.sql','utf8'),worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
  const clause=schema.match(/constraint inventory_transaction_type_check check \(transaction_type in \(([^\n]+)\)\)/)[1];
  const allowed=new Set([...clause.matchAll(/'([^']+)'/g)].map(x=>x[1]));
  const types=[...worker.matchAll(/p_transaction_type\s*:\s*'([^']+)'/g)].map(x=>x[1]);

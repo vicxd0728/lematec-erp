@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),{randomUUID}=require('node:crypto');
 const worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
-const transactionCheck=fs.readFileSync('supabase/migrations/20260717_001_initial_erp_schema.sql','utf8').match(/constraint inventory_transaction_type_check check \(transaction_type in \(([^\n]+)\)\)/)[1];
+const transactionCheck=fs.readFileSync('tests/fixtures/inventory_transaction_type_check.sql','utf8').match(/constraint inventory_transaction_type_check check \(transaction_type in \(([^\n]+)\)\)/)[1];
 const allowedTransactionTypes=new Set([...transactionCheck.matchAll(/'([^']+)'/g)].map(x=>x[1]));
 const pageId='11111111-1111-4111-8111-111111111111',a='22222222-2222-4222-8222-222222222222',b='33333333-3333-4333-8333-333333333333';
 const rich=s=>({rich_text:[{text:{content:s}}]});

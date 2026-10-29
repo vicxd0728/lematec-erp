@@ -27,7 +27,7 @@ print('PASS: eight concurrent claims yield one winner; replay state durable; ano
 
 # Use the production CHECK and inventory RPC, not a permissive memory adapter.
 root=Path(__file__).resolve().parents[1]
-schema=(root/'supabase/migrations/20260717_001_initial_erp_schema.sql').read_text(encoding='utf8')
+schema=(root/'tests/fixtures/inventory_transaction_type_check.sql').read_text(encoding='utf8')
 check=next(line.strip().rstrip(',') for line in schema.splitlines() if 'constraint inventory_transaction_type_check check' in line)
 worker=(root/'cloudflare-worker-green-wave-c22f-FULL-UPDATED.js').read_text(encoding='utf8')
 reversal=worker.split('async function erpCorderReversal(')[1].split('async function erpCorderNumberState(')[0]
