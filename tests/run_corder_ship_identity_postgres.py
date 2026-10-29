@@ -16,7 +16,7 @@ with psycopg.connect(dsn) as db:
       create function auth.uid() returns uuid language sql as $$select null::uuid$$;
       create function app_private.in_current_organization(uuid) returns boolean language sql as $$select false$$;
       create function app_private.has_any_role(text[]) returns boolean language sql as $$select false$$;
-      create table materials(id uuid primary key,organization_id uuid,archived_at timestamptz);
+      create table materials(id uuid primary key,organization_id uuid,archived_at timestamptz,sku text);
       create table warehouses(id uuid primary key,organization_id uuid,active boolean);
       create table app_users(id uuid,auth_user_id uuid,active boolean);
       create table inventory_balances(id uuid default gen_random_uuid(),organization_id uuid,warehouse_id uuid,material_id uuid,quantity numeric(16,4),updated_at timestamptz default now(),unique(organization_id,warehouse_id,material_id));
@@ -25,7 +25,7 @@ with psycopg.connect(dsn) as db:
     db.execute((ROOT/'supabase/migrations/20260728_005_inventory_rpc_service_role.sql').read_text())
     migration=(ROOT/'supabase/migrations/20261029_026_corder_ship_identity.sql').read_text()
     db.execute(migration);db.execute(migration)
-    db.execute('insert into materials values(%s,%s,null)',(mat,org))
+    db.execute("insert into materials values(%s,%s,null,'S-TEST-COMPONENT')",(mat,org))
     db.execute('insert into warehouses values(%s,%s,true)',(wh,org))
     db.execute('insert into inventory_balances(organization_id,warehouse_id,material_id,quantity) values(%s,%s,%s,100)',(org,wh,mat))
 def call(page,no,shop='SHOP-ORIGINAL',sku='S-KIT',qty=2,delta=-2):
