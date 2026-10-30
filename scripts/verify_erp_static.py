@@ -17,7 +17,7 @@ from pathlib import Path
 REQUIRED_DB_KEYS = {
     "erpPage", "materials", "bom", "orders", "pickMaster", "pickDetail", "inbound", "custMaster"
 }
-REQUIRED_DEPLOY_FILES = ("index.html", "erp-action-receipts.js", "manifest.webmanifest", "sw.js", "_headers", "_redirects")
+REQUIRED_DEPLOY_FILES = ("index.html", "erp-action-receipts.js", "erp-themes.css", "manifest.webmanifest", "sw.js", "_headers", "_redirects")
 INDEX_REPLACEMENT_GUARD = "if(/[\u00a7\ufffd\u25a1\u25a0\u25af]/.test(s)) return true;"
 
 

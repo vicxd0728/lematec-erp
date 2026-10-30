@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Shared palette and static scene refresh 2026-10-31
+
+- All 12 existing theme IDs remain compatible with device preferences. Generated erp-themes.css (scripts/generate_erp_themes.py) unifies opaque form/table/card surfaces, readable secondary text/action labels, and fixed green/red/amber semantics. Edge-weighted inline SVG scenes have no DOM overlay, animation or remote resource; optional erp_scene=off persists per device. Existing business data, permissions and quantity flows are unchanged.
+- Picker has palette swatches, selected-state labels, focus restoration and 44px close/font controls. Outside-click uses the original composed event path so rebuilding choices does not close the panel during selection. Theme validation falls back safely on stale IDs. Pages must copy erp-themes.css; SWv77 caches its exact v=1 URL. Static deploy preflight requires this file, and CI verifies generator reproducibility, SVG safety and color contrast.
+- Browser acceptance is isolated synthetic data using actual shared CSS and picker: 12 themes at 1280x900 and390x844, input/placeholder/actions/table headers/status/secondary text minimum observed5.22:1, no document horizontal overflow. Scene off survives reload. This is component/appearance acceptance, not authenticated production business-write acceptance. Evidence output/themes-20261031. After deployment repeat against exact released HTML/CSS bytes.
+
 ## Manual C-end multi-product order 2026-10-30
 
 - Blank platform number no longer blocks a distinct incoming SKU under the same exact internal number and nonempty exact buyer. Both platform numbers must be blank, existing/incoming product codes must be known and distinct; same-SKU retry, missing buyer/SKU, mixed platform identity, incomplete query and other buyer still stop. Post-create exact-page proof and database per-order/product stock idempotency remain unchanged. No production stock/order repair is executed by deployment. CI includes the actual manual identity guard regression.

@@ -1905,6 +1905,7 @@ html[data-theme="warm"] #themePanel{
  .inv-period-table td:before{content:attr(data-label);color:var(--text3);flex-shrink:0}
 }
 </style>
+<link rel="stylesheet" href="./erp-themes.css?v=1">
 </head>
 <body>
 
@@ -7238,34 +7239,38 @@ function renderLoginAuditPanel(){
 // 主題 & 字體系統（安全版）
 // ══════════════════════════════
 const THEMES={
-  tech:    {name:'經典深色', icon:'🌌', desc:'目前穩定版，熟悉好上手', group:'推薦'},
-  premium: {name:'高級科技', icon:'✦',  desc:'新版質感，適合日常操作', group:'推薦'},
+  tech:    {name:'經典深藍', icon:'🌌', desc:'藍圖格線・清楚的資料層次', group:'推薦'},
+  premium: {name:'科技青黛', icon:'✦',  desc:'軌道構圖・低彩度青藍', group:'推薦'},
   board:   {name:'現場看板', icon:'🖥️', desc:'大字高對比，適合投放螢幕', group:'推薦'},
   light:   {name:'亮色企業', icon:'☀️', desc:'白底清爽，適合辦公室', group:'推薦'},
-  warm:    {name:'暖白辦公', icon:'🌤', desc:'柔和白底，長時間閱讀', group:'推薦'},
-  ocean:   {name:'深海藍',   icon:'🌊', desc:'冷靜資料儀表感', group:'更多'},
-  violet:  {name:'暗夜紫',   icon:'🔮', desc:'深沉優雅，創意工具感', group:'更多'},
-  amber:   {name:'焦糖暖',   icon:'🌅', desc:'溫暖工業感', group:'更多'},
+  warm:    {name:'暖白辦公', icon:'🌤', desc:'米白拱廊・深棕重點色', group:'推薦'},
+  ocean:   {name:'深海藍',   icon:'🌊', desc:'海浪線條・沉穩藍色表面', group:'更多'},
+  violet:  {name:'暮光紫',   icon:'🔮', desc:'星軌構圖・柔和灰紫', group:'更多'},
+  amber:   {name:'琥珀工坊', icon:'🌅', desc:'暖金拱廊・棕灰工業風', group:'更多'},
   titanium:{name:'鈦金灰',   icon:'🩶', desc:'精密低調，高端工業風', group:'更多'},
   rose:    {name:'玫瑰金',   icon:'🌸', desc:'精緻商務，高端優雅感', group:'更多'},
-  nature:  {name:'自然風',   icon:'🌿', desc:'深綠自然，舒緩護眼', group:'更多'},
+  nature:  {name:'山嵐綠',   icon:'🌿', desc:'山稜構圖・低彩度森林綠', group:'更多'},
   minimal: {name:'極簡風',   icon:'⬜', desc:'純粹深灰，零干擾', group:'更多'},
 };
 const ERP_DEFAULT_THEME='premium';
+const ERP_THEME_SWATCHES={tech:['#0d1421','#172236','#98bcff'],premium:['#0b1720','#142630','#82dcd7'],board:['#080e16','#111e2b','#b4d4ff'],light:['#eef3f8','#ffffff','#235bb1'],warm:['#f4f0e8','#fffdf8','#835727'],ocean:['#091a28','#102c3e','#83c9f2'],violet:['#181426','#251f38','#c5b7f1'],amber:['#20180e','#30261a','#e8c393'],titanium:['#13191f','#202932','#adc7df'],rose:['#23191e','#33252d','#e9b9ca'],nature:['#111e19','#1a3027','#acd4bb'],minimal:['#17191d','#24272d','#c2ccdc']};
 // 讀取已儲存的設定並套用（頁面載入時立即執行）
 (function(){
-  const t=localStorage.getItem('erp_theme')||ERP_DEFAULT_THEME;
+  const saved=localStorage.getItem('erp_theme');
+  const t=Object.hasOwn(THEMES,saved)?saved:ERP_DEFAULT_THEME;
   const f=localStorage.getItem('erp_font');
   if(t&&t!=='tech') document.documentElement.setAttribute('data-theme',t);
   if(f) document.documentElement.style.fontSize=f+'px';
+  document.documentElement.setAttribute('data-scene',localStorage.getItem('erp_scene')==='off'?'off':'on');
 })();
 
 function applyTheme(t){
+  if(!Object.hasOwn(THEMES,t))return;
   if(t==='tech') document.documentElement.removeAttribute('data-theme');
   else           document.documentElement.setAttribute('data-theme',t);
   localStorage.setItem('erp_theme',t);
   const panel=document.getElementById('themePanel');
-  if(panel) buildThemePanel(panel);
+  if(panel){buildThemePanel(panel);panel.querySelector('[data-tk="'+t+'"]').focus();}
 }
 
 function toggleThemePanel(){
@@ -7280,7 +7285,7 @@ function toggleThemePanel(){
   buildThemePanel(p);
   document.body.appendChild(p);
   setTimeout(()=>document.addEventListener('click',function h(e){
-    if(!p.contains(e.target)&&e.target.id!=='themeBtn'){
+    if(!e.composedPath().includes(p)&&!e.composedPath().some(el=>el.id==='themeBtn')){
       p.remove();document.removeEventListener('click',h);
     }
   }),100);
@@ -7290,16 +7295,17 @@ function buildThemePanel(p){
   const cur=document.documentElement.getAttribute('data-theme')||'tech';
   const curF=localStorage.getItem('erp_font')||'16';
   const section=function(title,keys){
-    return '<div style="font-size:0.72rem;font-weight:800;color:var(--text3);letter-spacing:.08em;margin:14px 0 8px">'+title+'</div>'+
+    return '<div class="theme-section">'+title+'</div>'+
       '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">'+
       keys.map(function(k){
-        const v=THEMES[k], a=cur===k;
-        return '<button data-tk="'+k+'" class="theme-option" style="min-height:74px;display:flex;gap:10px;align-items:flex-start;text-align:left;padding:12px;border-radius:14px;cursor:pointer;border:1px solid '+(a?'var(--cyan)':'var(--border2)')+';background:'+(a?'linear-gradient(135deg,rgba(34,211,238,.16),rgba(132,204,22,.08))':'var(--bg3)')+';color:var(--text);box-shadow:'+(a?'0 10px 26px rgba(34,211,238,.12)':'none')+'"><span style="font-size:1.25rem;line-height:1">'+v.icon+'</span><span style="min-width:0"><b style="display:block;font-size:.92rem;line-height:1.2;color:var(--text)">'+v.name+'</b><small style="display:block;margin-top:4px;font-size:.74rem;line-height:1.35;color:var(--text3)">'+v.desc+'</small></span></button>';
+        const v=THEMES[k], a=cur===k,s=ERP_THEME_SWATCHES[k];
+        return '<button data-tk="'+k+'" class="theme-option" aria-pressed="'+a+'"><span class="theme-preview" aria-hidden="true" style="background:'+s[0]+'"><i style="background:'+s[1]+';border:1px solid '+s[2]+'"></i><i style="background:'+s[2]+'"></i></span><b>'+v.icon+' '+v.name+(a?' ✓':'')+'</b><small>'+v.desc+'</small></button>';
       }).join('')+'</div>';
   };
-  let html='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px"><div><div style="font-size:1rem;font-weight:850;color:var(--text)">🎨 外觀設定</div><div style="font-size:.76rem;color:var(--text3);margin-top:2px">每台裝置獨立儲存，不影響其他人</div></div><button data-theme-close="1" style="width:32px;height:32px;border-radius:10px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer">×</button></div>';
+  let html='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px"><div><div style="font-size:1rem;font-weight:850;color:var(--text)">🎨 外觀設定</div><div style="font-size:.76rem;color:var(--text2);margin-top:2px">每台裝置獨立儲存，不影響其他人</div></div><button data-theme-close="1" aria-label="關閉外觀設定" style="width:44px;height:44px;border-radius:10px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer">×</button></div>';
   html+=section('推薦設計',['premium','tech','board','light','warm']);
   html+=section('更多風格',['ocean','violet','amber','titanium','rose','nature','minimal']);
+  html+='<label class="theme-scene-toggle"><input type="checkbox" data-theme-scene '+(document.documentElement.getAttribute('data-scene')==='off'?'':'checked')+'>顯示主題背景（靜態，不影響操作）</label>';
   html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:0.72rem;font-weight:800;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">🔤 字體大小</div><div class="font-row" style="display:flex;gap:6px">';
   ['14','15','16','17','18'].forEach(function(s){
     const a=curF===s;
@@ -7312,6 +7318,8 @@ function buildThemePanel(p){
   });
   const closeBtn=p.querySelector('[data-theme-close]');
   if(closeBtn) closeBtn.onclick=function(){p.remove();};
+  const scene=p.querySelector('[data-theme-scene]');
+  if(scene)scene.onchange=function(){const mode=scene.checked?'on':'off';document.documentElement.setAttribute('data-scene',mode);localStorage.setItem('erp_scene',mode);};
   p.querySelectorAll('[data-font-size]').forEach(function(btn){
     btn.onclick=function(){
       const s=btn.getAttribute('data-font-size');

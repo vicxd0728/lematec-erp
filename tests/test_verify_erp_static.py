@@ -24,6 +24,7 @@ class VerifyErpStaticTest(unittest.TestCase):
         )
         (root / "sw.js").write_text("const ASSETS=['./erp-action-receipts.js']; self.addEventListener('fetch', () => {});", encoding="utf-8")
         (root / "erp-action-receipts.js").write_text("window.erpActionReceipts={};", encoding="utf-8")
+        (root / "erp-themes.css").write_text("body{color:inherit}", encoding="utf-8")
         (root / "_headers").write_text("/*\n  X-Test: yes\n", encoding="utf-8")
         (root / "_redirects").write_text("/* /index.html 200\n", encoding="utf-8")
         db = "\n".join(f"  {key}: 'fixture'," for key in sorted(MODULE.REQUIRED_DB_KEYS))
