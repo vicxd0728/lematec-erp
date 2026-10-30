@@ -21562,8 +21562,8 @@ async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,createdP
   if(r?.object==='error'||!Array.isArray(r?.results)||r.has_more)
     throw new Error(`${orderNo} 的既有訂單查核不完整，已停止操作`);
   const matches=r.results.filter(p=>!p.archived&&!p.in_trash);
-  // Optional platform/buyer fields cannot establish a shared order. The exact
-  // page just created may, however, verify itself even when those fields are blank.
+  // A manual order may share its number across distinct products with the same
+  // nonempty buyer and both platform numbers blank. Never infer a buyer or SKU.
   const key=id=>String(id||'').replace(/-/g,'').toLowerCase();
   // Database query indexing can lag behind page creation. Read the exact page
   // directly so presence/absence in that query cannot randomly change success.
@@ -21579,9 +21579,12 @@ async function assertCorderInternalNoForIdentity(orderNo,shopeeNo,buyer,createdP
     skuKey(getRichText(p.properties||{},'品名'))===skuKey(incomingSku));
   if(repeated)throw new Error(`${orderNo} 的 ${incomingSku} 已有原訂單（${repeated.properties?.['狀態']?.select?.name||'狀態待查'}）；本次未再次扣料。請查原單與原交易，勿重建相同品項；其他品項可另行新增。`);
   const conflicts=matches.filter(p=>!(createdPageId&&key(p.id)===key(createdPageId))).filter(p=>!(
-    !!shopeeNo&&!!buyer&&
+    !!String(buyer||'').trim()&&
     getRichText(p.properties||{},'蝦皮訂單號碼').trim()===String(shopeeNo).trim()&&
-    getRichText(p.properties||{},'買家帳號').trim()===String(buyer).trim()
+    getRichText(p.properties||{},'買家帳號').trim()===String(buyer).trim()&&
+    (!!String(shopeeNo||'').trim()||
+      (!!skuKey(incomingSku)&&!!skuKey(getRichText(p.properties||{},'品名'))&&
+        skuKey(getRichText(p.properties||{},'品名'))!==skuKey(incomingSku)))
   ));
   if(conflicts.length){
     const details=conflicts.slice(0,3).map(p=>{

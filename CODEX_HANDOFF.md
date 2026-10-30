@@ -1,5 +1,9 @@
 # LEMATEC ERP Codex Handoff
 
+## Manual C-end multi-product order 2026-10-30
+
+- Blank platform number no longer blocks a distinct incoming SKU under the same exact internal number and nonempty exact buyer. Both platform numbers must be blank, existing/incoming product codes must be known and distinct; same-SKU retry, missing buyer/SKU, mixed platform identity, incomplete query and other buyer still stop. Post-create exact-page proof and database per-order/product stock idempotency remain unchanged. No production stock/order repair is executed by deployment. CI includes the actual manual identity guard regression.
+
 ## Original-order stock identity safety 2026-10-30
 
 - 100501 audit previously matched AU/IT/CN100501 via text includes and offered +8 from unrelated picks. GET /api/orders/stock-audit now reads exact Notion order ID, exact linked Supabase pick IDs, and formal transaction source IDs/unique pick references. No human-readable stock log is a quantity authority. Non-array/incomplete results, duplicate pick references, foreign source IDs and ambiguous legacy reversals stop rather than guess.

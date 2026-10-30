@@ -92,7 +92,7 @@ test('actual manual submit with blank platform creates and deducts once; retry s
     notionAPI:async(method,endpoint,body)=>{
       if(endpoint.endsWith('/query'))return {results:pages,has_more:false};
       if(method==='GET')return pages.find(p=>p.id===endpoint.slice(6));
-      assert.equal(endpoint,'pages');const p={id:'new-page',parent:{database_id:'corders-db'},properties:body.properties};pages.push(p);return p;
+      assert.equal(endpoint,'pages');const p={id:'new-page-'+pages.length,parent:{database_id:'corders-db'},properties:body.properties};pages.push(p);return p;
     },
     requestCorderResume:async()=>{deductions++;return {duplicate:false};},
     updateWorkflowPageAfterInventory:async()=>({pending:false}),archiveNotionPageQuietly:async id=>{if(id)archives++;},
@@ -102,6 +102,10 @@ test('actual manual submit with blank platform creates and deducts once; retry s
   vm.runInContext('let CORDER_SUBMIT_BUSY=false;'+guard+html.slice(html.indexOf('async function submitCorder('),html.indexOf('function buildCorderImportPreflight(')),ctx);
   await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
   await ctx.submitCorder();assert.equal(pages.length,1);assert.equal(deductions,1);assert.equal(archives,0);
+  assert.match(messages.at(-1),/已有原訂單/);
+  ctx.mats.push({id:'mat-2',code:'S-LEI-17'});values.co_mat='mat-2';
+  await ctx.submitCorder();assert.equal(pages.length,2);assert.equal(deductions,2);assert.equal(archives,0);
+  await ctx.submitCorder();assert.equal(pages.length,2);assert.equal(deductions,2);assert.equal(archives,0);
   assert.match(messages.at(-1),/已有原訂單/);
 });
 
@@ -125,6 +129,22 @@ test('different Shopee identity or incomplete query blocks before stock deductio
   const submit = html.slice(html.indexOf('async function submitCorder('), html.indexOf('function buildCorderImportPreflight('));
   assert(submit.indexOf('await assertCorderInternalNoForIdentity(') < submit.indexOf("notionAPI('POST','pages'"));
   assert(submit.indexOf('await assertCorderInternalNoForIdentity(') < submit.indexOf('await requestCorderResume('));
+});
+
+test('manual shared number allows distinct products for the exact same nonempty buyer',async()=>{
+  const p={...row('','崇詳工業股份有限公司-江秉諺'),id:'existing'};
+  p.properties['品名']={rich_text:[{plain_text:'S-Z-SKC-A-11AS-P3'}]};
+  p.properties['狀態']={select:{name:'已完成'}};
+  const {ctx}=setup({results:[p],has_more:false});
+  assert.equal(await ctx.assertCorderInternalNoForIdentity('BUSTW15-182-1','','崇詳工業股份有限公司-江秉諺','','S-LEI-17'),1);
+  await assert.rejects(ctx.assertCorderInternalNoForIdentity('BUSTW15-182-1','','崇詳工業股份有限公司-江秉諺','','s-z-skc-a-11as-p3'),/已有原訂單/);
+  for(const [shop,buyer,sku] of [['','另一家公司','S-LEI-17'],['SHOP1','崇詳工業股份有限公司-江秉諺','S-LEI-17'],['','','S-LEI-17'],['','崇詳工業股份有限公司-江秉諺','']])
+    await assert.rejects(ctx.assertCorderInternalNoForIdentity('BUSTW15-182-1',shop,buyer,'',sku),/已有訂單紀錄/);
+  const own={...row('','崇詳工業股份有限公司-江秉諺'),id:'new-page'};
+  own.properties['品名']={rich_text:[{plain_text:'S-LEI-17'}]};
+  assert.equal(await setup({results:[p,own],has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-180-1','','崇詳工業股份有限公司-江秉諺','new-page','S-LEI-17'),2);
+  const missing={...row('','崇詳工業股份有限公司-江秉諺'),id:'no-sku'};
+  await assert.rejects(setup({results:[missing],has_more:false}).ctx.assertCorderInternalNoForIdentity('BUSTW15-182-1','','崇詳工業股份有限公司-江秉諺','','S-LEI-17'),/已有訂單紀錄/);
 });
 
 const stockGuard = html.slice(html.indexOf('function normalizeNotionIdForCompare('),
