@@ -26,7 +26,7 @@ def test_reversed_picking_no_longer_blocks_order_edit_or_delete():
 
 def test_picking_reversal_uses_supabase_batch_with_idempotency_source():
     assert "applyInventoryBatchAndMirror(" in INDEX
-    assert "sourceType:'order_pick_reversal'" in INDEX
+    assert "performOrderIdentityReversal(oid,no,'reverse_picking'" in INDEX
     assert "領料沖銷" in INDEX
     assert "updateSupabasePickingStatus(pick,'已沖銷'" in INDEX
     assert "skipConfirm:true" in INDEX
@@ -89,7 +89,7 @@ def test_shopee_cancel_allowed_after_picking_reversal():
 def test_reversal_can_repair_stale_picking_status_before_blocking_again():
     assert "repairOrderPickingStatusIfReversed" in INDEX
     assert "await repairOrderPickingStatusIfReversed(id,order.no||id)" in INDEX
-    assert "const repaired=await repairOrderPickingStatusIfReversed(oid,no)" in INDEX
+    assert "const rows=await fetchOrderStockAuditRows(oid)" in INDEX
 
 
 def test_completed_shopee_stock_in_requires_own_reversal_before_delete():
@@ -99,16 +99,16 @@ def test_completed_shopee_stock_in_requires_own_reversal_before_delete():
     assert "入庫沖銷後刪除" in INDEX
     assert "入庫沖銷後取消訂單" in INDEX
     assert "skipStockInAudit" in INDEX
-    assert "sourceType:'order_stockin_reversal'" in INDEX
+    assert "performOrderIdentityReversal(oid,no,'reverse_stockin'" in INDEX
 
 
 def test_delete_audit_includes_related_pick_numbers_and_shortfall_repair():
-    assert "const pickRefs=new Set" in INDEX
-    assert "pickRefs.has(String(row?.ref_no||''))" in INDEX
+    assert "orderIdentityRead(orderId)" in INDEX
+    assert "source_order_notion_page_id=eq.${orderId}" in WORKER
     assert "buildOrderPickingShortfallRows" in INDEX
     assert "補回剩餘領料後刪除訂單" in INDEX
     assert "reverseOrderPickingShortfallAndDelete" in INDEX
-    assert "sourceType:'order_pick_reversal_shortfall'" in INDEX
+    assert "reverse_order_stock_receipt" in WORKER
 
 
 def test_picking_status_constraint_migration_accepts_reversal_states():

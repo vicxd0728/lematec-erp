@@ -27,22 +27,21 @@ def function_body(name: str) -> str:
 class ShopeeOrderDeleteSafetyTests(unittest.TestCase):
     def test_shopee_order_creation_explains_pick_step(self):
         body = function_body("submitShopeeOrdersV2")
-        self.assertIn("扣一般倉庫，同時增加 S- 庫存", body)
+        self.assertIn("後續由倉管／採購確認轉庫", body)
 
     def test_delete_order_audits_stock_logs_before_confirm_and_archive(self):
         body = function_body("deleteOrder")
         self.assertIn("opts={}", INDEX)
-        self.assertLess(body.index("fetchOrderStockAuditRows(no)"), body.index("confirm("))
-        self.assertLess(body.index("fetchOrderStockAuditRows(no)"), body.index("notionAPI('PATCH','pages/'+oid"))
+        self.assertLess(body.index("fetchOrderStockAuditRows(oid)"), body.index("confirm("))
+        self.assertLess(body.index("executeOrderIdentityAction(oid,'archive'"),body.index('orders=orders.filter'))
         self.assertIn("openOrderDeleteBlockedModal(oid,no,rows)", body)
-        self.assertIn("opts.skipAudit", body)
+        self.assertNotIn("opts.skipAudit", body)
 
     def test_order_delete_audit_includes_pick_refs(self):
         body = function_body("fetchOrderStockAuditRows")
-        self.assertIn("/api/stock-log/list?mode=all&limit=995&offset=${offset}", body)
-        self.assertIn("data?.has_more", body)
-        self.assertIn("pickRefs", body)
-        self.assertIn("/^PK-/i.test(ref)", body)
+        self.assertIn("orderIdentityRead(orderId)", body)
+        self.assertNotIn("includes(target)", body)
+        self.assertIn('/api/orders/stock-audit?order_id=', INDEX)
 
     def test_stock_impact_terms_block_direct_delete(self):
         body = function_body("isStockImpactLog")

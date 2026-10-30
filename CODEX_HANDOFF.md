@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Original-order stock identity safety 2026-10-30
+
+- 100501 audit previously matched AU/IT/CN100501 via text includes and offered +8 from unrelated picks. GET /api/orders/stock-audit now reads exact Notion order ID, exact linked Supabase pick IDs, and formal transaction source IDs/unique pick references. No human-readable stock log is a quantity authority. Non-array/incomplete results, duplicate pick references, foreign source IDs and ambiguous legacy reversals stop rather than guess.
+- POST /api/orders/stock-action revalidates reviewed identity; service-only reverse_order_stock_receipt uses original transaction UUID, organization, warehouse, material and opposite delta with order-undo:<original transaction UUID> key. Different/new later receipts cannot re-credit an old receipt. Lost-response/log failures retry the same receipt and repair missing details. Sales request returns; warehouse/purchase/Vic/manager confirm physical returns. C-end role/workflows unchanged.
+- Database close guard serializes closing with future ledger inserts and rejects close with pending picks/unreturned receipts. Protected close happens before exact Notion archive/cancel; unknown Notion outcome leaves the guard closed for original-page retry, never reopens stock automatically. Retain guards on rollback. Reopening cancelled/archived orders is not an automatic quantity path; requires explicit reviewed follow-up.
+- Generic cached-client order reversal sources are rejected, and generic Notion order archive/cancel PATCH goes through the same server guard. Frontend skip flags cannot bypass deletion checks; remove a row only after server archive readback. Original order/pick/receipt data is not repaired by migration or QA. Synthetic desktop/mobile + disposable real PG concurrency tests are separate from GET-only production readback.
+
 ## C-end reversal transaction-type contract fix 2026-10-29
 
 - Reversal quantity RPC must use canonical inventory_transactions.transaction_type 取消回料. C端退料 is only the staff-readable log/display label; sending it to the RPC violated inventory_transaction_type_check and left the original intent pending. Never broaden/drop the CHECK to hide this mismatch.

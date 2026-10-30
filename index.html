@@ -2130,7 +2130,7 @@ async function doUpdateStatus(id, s, opts={}){
   }
   if(!opts.skipStockInAudit&&s==='取消'&&isShopeeProductionOrder(o)&&orderCanCancelAfterPickingReversal(o?.id)){
     try{
-      const rows=await fetchOrderStockAuditRows(o?.no||id);
+      const rows=await fetchOrderStockAuditRows(id);
       if(buildOrderStockInReversalRows(rows).length){
         openOrderDeleteBlockedModal(id,o?.no||id,rows,'cancel');
         return;
@@ -2143,7 +2143,8 @@ async function doUpdateStatus(id, s, opts={}){
   closeModal();
   showToast('更新狀態中...','warn');
   try{
-    await updatePage(id,{'狀態':{select:{name:s}}});
+    if(s==='取消'){const audit=await orderIdentityRead(id);await executeOrderIdentityAction(id,'cancel',audit.signature);}
+    else await updatePage(id,{'狀態':{select:{name:s}}});
     if(o){o.status=s;renderTab(CURRENT_TAB);}
     if(o&&!isSfgProductionOrder(o)&&(s==='待出貨'||s==='已完成')){
       try{
@@ -24143,7 +24144,7 @@ function isOrderShopeeStockInLog(row){
   if(isOrderStockInReversalLog(row)) return false;
   const before=Number(row?.before_stock??row?.before??0);
   const after=Number(row?.after_stock??row?.after??0);
-  return after>before&&/蝦皮完成入庫|蝦皮生產完成入庫/.test(text);
+  return after>before&&/蝦皮完成入庫|蝦皮生產完成入庫|成品入庫/.test(text);
 }
 function orderAuditPickingIsResolvedByReversal(rows){
   const impact=(rows||[]).filter(isStockImpactLog);
@@ -24235,31 +24236,44 @@ function orderDeleteAuditIsResolvedByPickingReversal(rows){
     (orderAuditPickingIsResolvedByReversal(rows)||(!pickingShortfalls.length&&impact.some(isOrderPickingReversalLog)))&&
     buildOrderStockInReversalRows(rows).length===0;
 }
-async function fetchOrderStockAuditRows(orderNo){
-  const target=String(orderNo||'').trim();
-  if(!target) return [];
-  const all=[];
-  let offset=0;
-  for(let guard=0;guard<8;guard++){
-    const res=await fetch(`${PROXY}/api/stock-log/list?mode=all&limit=995&offset=${offset}&order_delete_audit=1`);
-    const data=await res.json().catch(()=>null);
-    if(!res.ok||data?.ok===false||data?.error) throw new Error(data?.error||`異動記錄查詢失敗 HTTP ${res.status}`);
-    const rows=Array.isArray(data?.rows)?data.rows:[];
-    all.push(...rows);
-    if(!data?.has_more) break;
-    offset=Number(data.next_offset)||offset+995;
-  }
-  const related=all.filter(row=>String(row?.ref_no||'')===target||orderAuditLogText(row).includes(target));
-  const pickRefs=new Set(related.map(row=>String(row?.ref_no||'')).filter(ref=>/^PK-/i.test(ref)));
-  const withPick=all.filter(row=>pickRefs.has(String(row?.ref_no||'')));
-  const seen=new Set();
-  return [...related,...withPick].filter(row=>{
-    const key=String(row?.id||row?.client_trace_id||`${row?.created_at}|${row?.ref_no}|${row?.material_name}`);
-    if(seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+const _orderIdentityLocks=new Set();
+async function orderIdentityRead(orderId){
+  const r=await fetch(`${PROXY}/api/orders/stock-audit?order_id=${encodeURIComponent(orderId)}`,{headers:erpWorkerHeaders()});
+  const data=await r.json();
+  if(!r.ok||!data?.ok||!data.complete||canonicalPageId(data.order_id)!==canonicalPageId(orderId)||!Array.isArray(data.rows)||!Array.isArray(data.picks)||!data.signature)throw Error(data?.error||'原訂單 ID 查驗不完整，已停止');
+  return data;
 }
+async function executeOrderIdentityAction(orderId,action,signature){
+  if(!signature)throw Error('缺少原訂單查驗憑證');
+  const r=await fetch(`${PROXY}/api/orders/stock-action`,{method:'POST',headers:erpWorkerHeaders({'Content-Type':'application/json'}),body:JSON.stringify({order_id:orderId,action,expected_signature:signature})});
+  const data=await r.json();if(!r.ok||!data?.ok||canonicalPageId(data.order_id)!==canonicalPageId(orderId))throw Error(data?.error||'原單結果尚未確認，請原單重試');
+  return data;
+}
+function orderIdentityFailure(oid,no,error,action='archive'){
+  const retry=action.startsWith('reverse_')?`performOrderIdentityReversal(${JSON.stringify(oid)},${JSON.stringify(no)},${JSON.stringify(action)},'續接原作業')`:`deleteOrder(${JSON.stringify(oid)},${JSON.stringify(no)})`;
+  document.getElementById('modalInner').innerHTML=`<h3>原單操作未完成</h3><div role="alert" class="info-box info-warn">${escapeHtml(error.message||String(error))}</div><p>訂單：${escapeHtml(no||oid)}。請重新核對原單，勿刪單重建或手動補庫存；重試沿用原交易憑證。</p><div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">關閉</button><button class="btn btn-blue" onclick="${escapeHtml(retry)}">${action.startsWith('reverse_')?'核對並續接原回料':'重新核對原單'}</button></div>`;
+  openModal();
+}
+async function fetchOrderStockAuditRows(orderId){
+  const audit=await orderIdentityRead(orderId);const rows=audit.rows;rows.audit=audit;return rows;
+}
+async function performOrderIdentityReversal(oid,no,action,nextActionText){
+  if(denyViewOnlyAction())return false;
+  if(!canConfirmOrderReturnRequest()){showToast('業務請先送出回料申請，由倉管確認實物回來','warn');return false;}
+  const key=canonicalPageId(oid);
+  if(_orderIdentityLocks.has(key)){showToast('此原單正在核對，請勿重複點擊','warn');return false;}
+  _orderIdentityLocks.add(key);
+  try{
+    const audit=await orderIdentityRead(oid);
+    const rows=action==='reverse_picking'?buildOrderPickingShortfallRows(audit.rows):buildOrderStockInReversalRows(audit.rows);
+    if(!confirm([`確認依原訂單 ID 核對${action==='reverse_picking'?'實物回料':'成品沖銷'}？`,`訂單：${audit.order_number}`,`原單 ID：${oid}`,...rows.map(r=>`${r.code} ${action==='reverse_picking'?'+':'-'}${r.qty}`),'重試會沿用原交易憑證，不重複回料。'].join('\n')))return false;
+    await executeOrderIdentityAction(oid,action,audit.signature);
+    await refreshAffectedData({core:true,tabs:['picking','inventory','stocklog'],label:'原單沖銷已核對'});
+    showToast('原單交易沖銷完成；相同憑證重試不重複回料','ok');return true;
+  }catch(e){orderIdentityFailure(oid,no,e,action);return false;}
+  finally{_orderIdentityLocks.delete(key);}
+}
+
 function openOrderDeleteBlockedModal(oid,no,rows,mode='delete'){
   const impact=rows.filter(isStockImpactLog);
   const stockInRows=buildOrderStockInReversalRows(rows);
@@ -24286,7 +24300,7 @@ function openOrderDeleteBlockedModal(oid,no,rows,mode='delete'){
   document.getElementById('modalInner').innerHTML=`
     <h3>${canReversePicking?'領料尚未回補完成':canReverseStockIn?'成品入庫需要先沖銷':'訂單已有庫存異動，禁止直接刪除'}</h3>
     <div class="info-box info-warn" style="margin-bottom:12px">
-      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。${canReversePicking?`這張單還有領料未回補，${actionText}前需要先補回子件庫存。`:canReverseStockIn?`這張單已完成 S- 成品入庫，${actionText}前需要先把成品庫存扣回。`:'直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。'}
+      訂單 <b>${escapeHtml(no||oid)}</b> 已查到 ${impact.length} 筆可能影響庫存的紀錄。${canReversePicking?`已依原訂單 ID 查到未沖銷交易；${actionText}前需由倉管核對實物回料。`:canReverseStockIn?`這張單已完成 S- 成品入庫，${actionText}前需要先把成品庫存扣回。`:'直接刪除只會移除訂單頁，不會自動回補 BOM 子件或沖銷 S- 成品入庫，因此已阻擋。'}
     </div>
     ${canReversePicking?`<div class="order-reversal-summary">
       <div class="kpi-card kpi-yellow" style="min-height:76px"><div class="kpi-label">尚缺回料</div><div class="kpi-num" style="font-size:1.7rem">${pickingShortfalls.length}</div><div class="kpi-sub">料號</div></div>
@@ -24315,82 +24329,14 @@ function openOrderDeleteBlockedModal(oid,no,rows,mode='delete'){
     </table></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">關閉</button>
-      ${canReversePicking?`<button class="btn btn-red" onclick='${pickingAction}'>${pickingButtonText}</button>`:''}
-      ${canReverseStockIn?`<button class="btn btn-red" onclick='${stockInAction}'>${stockInButtonText}</button>`:''}
+      ${canReversePicking&&canConfirmOrderReturnRequest()?`<button class="btn btn-red" onclick='${pickingAction}'>${pickingButtonText}</button>`:''}
+      ${canReverseStockIn&&canConfirmOrderReturnRequest()?`<button class="btn btn-red" onclick='${stockInAction}'>${stockInButtonText}</button>`:''}
       <button class="btn btn-yellow" onclick="closeModal();openStatusModal('${oid}',(orders.find(o=>o.id==='${oid}')||{}).status||'')">改狀態</button>
     </div>`;
   openModal();
 }
 const _orderStockInReversalLocks=new Set();
-async function reverseOrderStockInForOrder(oid,no,nextActionText){
-  if(denyViewOnlyAction()) return;
-  const lockKey=canonicalPageId(oid)||oid||no;
-  if(_orderStockInReversalLocks.has(lockKey)){
-    showToast('這張訂單正在入庫沖銷，請勿重複點擊','warn');
-    return;
-  }
-  _orderStockInReversalLocks.add(lockKey);
-  closeModal();
-  showToast('檢查成品入庫紀錄...','warn');
-  try{
-    const rows=await fetchOrderStockAuditRows(no);
-    const stockInRows=buildOrderStockInReversalRows(rows);
-    if(!stockInRows.length){
-      showToast('已找不到未沖銷的成品入庫，重新檢查訂單','warn');
-      return true;
-    }
-    const changes=stockInRows.map(row=>{
-      const mat=row.pageId
-        ? mats.find(m=>canonicalPageId(m.id)===canonicalPageId(row.pageId))
-        : mats.find(m=>String(m.code||m.name||'')===String(row.code||row.key));
-      const pageId=row.pageId||mat?.id||'';
-      if(!pageId) throw new Error(`找不到要沖銷的成品料號：${row.code||row.name||row.key}`);
-      return {...row,pageId,mat,delta:-row.qty};
-    });
-    const confirmText=[
-      `確認要沖銷訂單「${no||oid}」的成品入庫？`,
-      '',
-      ...changes.map(row=>`${row.code||row.mat?.code||row.name} -${row.qty}`),
-      '',
-      `完成後會接著${nextActionText}。`
-    ].join('\n');
-    if(!confirm(confirmText)) return;
-    const result=await applyInventoryBatchAndMirror(
-      changes.map(row=>({pageId:row.pageId,delta:row.delta})),
-      {
-        reason:'訂單成品入庫沖銷',
-        refNo:no||oid,
-        sourceType:'order_stockin_reversal',
-        sourceId:oid||no
-      }
-    );
-    if(!result.duplicate){
-      for(const row of changes){
-        const move=result.items.find(item=>item.pageId===row.pageId);
-        await logStockChangeQuietly(
-          row.pageId,
-          row.mat?.name||row.name||'',
-          row.mat?.code||row.code||'',
-          '入庫沖銷',
-          -row.qty,
-          move?.before??0,
-          move?.after??0,
-          no||oid,
-          ROLE
-        );
-      }
-    }
-    await refreshAffectedData({core:true,tabs:['inventory','stocklog'],label:'成品入庫沖銷已更新'});
-    showToast(`✅ 成品入庫已沖銷，接著${nextActionText}`,'ok',5000);
-    return true;
-  }catch(e){
-    showToast('❌ 入庫沖銷失敗：'+e.message,'err',9000);
-    console.error('reverseOrderStockInForOrder error:',e,{oid,no,nextActionText});
-    return false;
-  }finally{
-    _orderStockInReversalLocks.delete(lockKey);
-  }
-}
+async function reverseOrderStockInForOrder(oid,no,nextActionText){return performOrderIdentityReversal(oid,no,'reverse_stockin',nextActionText);}
 async function reverseOrderStockInAndDelete(oid,no){
   if(await reverseOrderStockInForOrder(oid,no,'刪除訂單')){
     await deleteOrder(oid,no);
@@ -24401,85 +24347,7 @@ async function reverseOrderStockInAndCancel(oid,no){
     await doUpdateStatus(oid,'取消',{skipStockInAudit:true});
   }
 }
-async function reverseOrderPickingShortfallForOrder(oid,no,nextActionText){
-  if(denyViewOnlyAction()) return false;
-  const lockKey=`audit-pick:${canonicalPageId(oid)||oid||no}`;
-  if(_orderPickReversalLocks.has(lockKey)){
-    showToast('這張訂單正在補回剩餘領料，請勿重複點擊','warn');
-    return false;
-  }
-  closeModal();
-  showToast('檢查尚缺回料明細...','warn');
-  _orderPickReversalLocks.add(lockKey);
-  try{
-    const rows=await fetchOrderStockAuditRows(no);
-    const shortfalls=buildOrderPickingShortfallRows(rows);
-    if(!shortfalls.length){
-      showToast('已找不到尚缺回料，重新檢查訂單','warn');
-      return true;
-    }
-    const changes=shortfalls.map(row=>{
-      const mat=row.pageId
-        ? mats.find(m=>canonicalPageId(m.id)===canonicalPageId(row.pageId))
-        : mats.find(m=>String(m.code||m.name||'')===String(row.code||row.key));
-      const pageId=row.pageId||mat?.id||'';
-      if(!pageId) throw new Error(`找不到要補回的領料料號：${row.code||row.name||row.key}`);
-      return {...row,pageId,mat,delta:row.qty};
-    });
-    const confirmText=[
-      `確認要補回訂單「${no||oid}」尚缺的領料庫存？`,
-      '',
-      ...changes.map(row=>`${row.code||row.mat?.code||row.name} +${row.qty}`),
-      '',
-      `完成後會接著${nextActionText}。`
-    ].join('\n');
-    if(!confirm(confirmText)) return false;
-    const pickRefs=[...new Set(shortfalls.flatMap(row=>row.refs||[]))].filter(Boolean).sort();
-    const result=await applyInventoryBatchAndMirror(
-      changes.map(row=>({pageId:row.pageId,delta:row.delta})),
-      {
-        reason:'領料沖銷：補回剩餘領料',
-        refNo:no||oid,
-        sourceType:'order_pick_reversal_shortfall',
-        sourceId:`${oid||no}:${pickRefs.join(',')}`
-      }
-    );
-    if(!result.duplicate){
-      for(const row of changes){
-        const move=result.items.find(item=>item.pageId===row.pageId);
-        await logStockChangeQuietly(
-          row.pageId,
-          row.mat?.name||row.name||'',
-          row.mat?.code||row.code||'',
-          '領料沖銷',
-          row.qty,
-          move?.before??0,
-          move?.after??0,
-          no||oid,
-          ROLE
-        );
-      }
-    }
-    if(pickRefs.length){
-      await loadPicks();
-      const targets=(picks||[]).filter(p=>pickRefs.includes(p.no||p.pick_number||'')&&!ORDER_PICKING_INACTIVE_STATUSES.has(String(p.status||'').trim()));
-      for(const pick of targets){
-        for(const item of pick.items||[]) item.status='已沖銷';
-        await updateSupabasePickingStatus(pick,'已沖銷',pick.items||[]);
-        pick.status='已沖銷';
-      }
-    }
-    await refreshAffectedData({core:true,tabs:['picking','inventory','stocklog'],label:'剩餘領料已補回'});
-    showToast(`✅ 剩餘領料已補回，接著${nextActionText}`,'ok',5000);
-    return true;
-  }catch(e){
-    showToast('❌ 補回剩餘領料失敗：'+e.message,'err',9000);
-    console.error('reverseOrderPickingShortfallForOrder error:',e,{oid,no,nextActionText});
-    return false;
-  }finally{
-    _orderPickReversalLocks.delete(lockKey);
-  }
-}
+async function reverseOrderPickingShortfallForOrder(oid,no,nextActionText){return performOrderIdentityReversal(oid,no,'reverse_picking',nextActionText);}
 async function reverseOrderPickingShortfallAndDelete(oid,no){
   if(await reverseOrderPickingShortfallForOrder(oid,no,'刪除訂單')){
     await deleteOrder(oid,no);
@@ -24494,7 +24362,7 @@ async function repairOrderPickingStatusIfReversed(oid,no){
   const active=orderActivePickingRecords(oid);
   const completed=completedOrderPickingRows(active);
   if(!completed.length) return false;
-  const auditRows=await fetchOrderStockAuditRows(no);
+  const auditRows=await fetchOrderStockAuditRows(oid);
   if(!orderAuditPickingIsResolvedByReversal(auditRows)) return false;
   for(const pick of completed){
     for(const item of pick.items||[]) item.status='已沖銷';
@@ -24659,110 +24527,8 @@ function openOrderPickingReversalAssist(oid,no,actionLabel='處理訂單'){
 }
 const _orderPickReversalLocks=new Set();
 async function reverseOrderPickingAndContinue(oid,no,actionLabel='處理訂單',deleteAfter=false,opts={}){
-  if(denyViewOnlyAction()) return;
-  const lockKey=canonicalPageId(oid)||oid;
-  if(_orderPickReversalLocks.has(lockKey)){
-    showToast('這張訂單正在回料沖銷，請勿重複點擊','warn');
-    return;
-  }
-  const rows=completedOrderPickingRows(orderActivePickingRecords(oid));
-  const reversalRows=buildPickingReversalRows(rows);
-  if(!rows.length||!reversalRows.length){
-    showToast('找不到可回料沖銷的已領料明細，請先重新同步領料資料','err',8000);
-    return;
-  }
-  if(rows.some(p=>!p.supabaseId)){
-    showToast('目前領料資料是備援讀取，請先恢復 Supabase 連線後再沖銷','err',8000);
-    return;
-  }
-  const message=[
-    `確認要回料沖銷訂單「${no||oid}」？`,
-    '',
-    ...reversalRows.map(row=>`${row.code||row.name||row.pageId} +${row.qty}`),
-    '',
-    deleteAfter?'完成庫存補回後會接著刪除訂單。':'完成後領料單會標記為已沖銷，之後即可修改或刪除訂單。'
-  ].join('\n');
-  if(!opts.skipConfirm&&!confirm(message)) return;
-  _orderPickReversalLocks.add(lockKey);
-  closeModal();
-  showToast('領料回料沖銷中...','warn');
-  let inventoryCommitted=false;
-  let statusCommitted=false;
-  try{
-    const pickIds=rows.map(p=>p.supabaseId||p.id).sort().join(',');
-    const result=await applyInventoryBatchAndMirror(
-      reversalRows.map(row=>({pageId:row.pageId,delta:row.qty})),
-      {
-        reason:`領料沖銷：${actionLabel}`,
-        refNo:no||oid,
-        sourceType:'order_pick_reversal',
-        sourceId:`${oid}:${pickIds}`
-      }
-    );
-    inventoryCommitted=true;
-    if(!result.duplicate){
-      for(const row of reversalRows){
-        const move=result.items.find(item=>item.pageId===row.pageId);
-        await logStockChangeQuietly(
-          row.pageId,
-          row.name||'',
-          row.code||'',
-          '領料沖銷',
-          row.qty,
-          move?.before??0,
-          move?.after??0,
-          no||oid,
-          ROLE
-        );
-      }
-    }
-    let notionPending=false;
-    for(const pick of rows){
-      for(const item of pick.items||[]){
-        item.status='已沖銷';
-      }
-      await updateSupabasePickingStatus(pick,'已沖銷',pick.items||[]);
-      pick.status='已沖銷';
-      statusCommitted=true;
-      for(const item of pick.items||[]){
-        if(!item.notionId) continue;
-        const detailSync=await updateWorkflowPageAfterInventory(
-          item.notionId,
-          {'狀態':{select:{name:'已沖銷'}}},
-          `領料單 ${pick.no||pick.id} 明細沖銷狀態`
-        );
-        notionPending=notionPending||detailSync.pending;
-      }
-      if(pick.notionId){
-        const masterSync=await updateWorkflowPageAfterInventory(
-          pick.notionId,
-          {'狀態':{select:{name:'已沖銷'}}},
-          `領料單 ${pick.no||pick.id} 沖銷狀態`
-        );
-        notionPending=notionPending||masterSync.pending;
-      }
-    }
-    logUserAction('領料沖銷',no||oid,`${rows.length} 張領料單 / ${reversalRows.length} 項料件`,ROLE);
-    await refreshAffectedData({core:true,tabs:['picking','inventory'],label:'領料沖銷與庫存已更新'});
-    if(deleteAfter){
-      showToast('✅ 已完成回料沖銷，接著刪除訂單','ok',5000);
-      await deleteOrder(oid,no,{skipPickingGuard:true,skipAudit:true});
-      return;
-    }
-    window._PICK_SUB='auto';
-    window._PICK_FOCUS_ORDER=canonicalPageId(oid);
-    renderTab(CURRENT_TAB);
-    showToast(notionPending?'✅ Supabase 已完成回料沖銷；Notion 鏡像待自動補同步':'✅ 已完成回料沖銷，可回訂單修改或刪除',notionPending?'warn':'ok',8000);
-  }catch(e){
-    if(inventoryCommitted&&!statusCommitted){
-      showToast('⚠ 庫存已回料，但領料狀態尚未完成；請重新同步後再按一次，系統不會重複回料','warn',10000);
-    }else{
-      showToast('❌ 回料沖銷失敗：'+e.message,'err',9000);
-    }
-    console.error('reverseOrderPickingAndContinue error:',e,{oid,no,inventoryCommitted,statusCommitted});
-  }finally{
-    _orderPickReversalLocks.delete(lockKey);
-  }
+  const ok=await performOrderIdentityReversal(oid,no,'reverse_picking',actionLabel);
+  if(ok&&deleteAfter)await deleteOrder(oid,no);return ok;
 }
 async function confirmOrderReturnRequestAndContinue(oid,no,actionLabel='處理訂單'){
   if(denyViewOnlyAction()) return;
@@ -24783,7 +24549,8 @@ async function confirmOrderReturnRequestAndContinue(oid,no,actionLabel='處理�
     deleteAfter?'確認後系統會補庫存，並接著刪除訂單。':cancelAfter?'確認後系統會補庫存，並接著取消訂單。':'確認後系統會補庫存，並解除訂單修改限制。'
   ].join('\n');
   if(!confirm(message)) return;
-  await reverseOrderPickingAndContinue(oid,no,requestAction,false,{skipConfirm:true});
+  const completed=await reverseOrderPickingAndContinue(oid,no,requestAction,false,{skipConfirm:true});
+  if(!completed)return;
   if(deleteAfter){
     await deleteOrder(oid,no,{skipPickingGuard:true});
   }else if(cancelAfter){
@@ -24834,79 +24601,24 @@ function openOrderPickingBlockedModal(oid,no,rows,actionLabel='修改訂單'){
     </div>`;
   openModal();
 }
-async function deleteOrder(oid, no, opts={}){
-  if(!opts.skipPickingGuard){
-    showToast('刪除前檢查領料紀錄...','warn');
-    try{
-      const activePicks=await loadOrderPickingGuardRows(oid);
-      if(activePicks.length){
-        const repaired=await repairOrderPickingStatusIfReversed(oid,no);
-        if(repaired){
-          showToast('已確認領料回料完成，重新檢查刪除條件...','warn',5000);
-          return deleteOrder(oid,no,opts);
-        }
-        openOrderPickingBlockedModal(oid,no,activePicks,'刪除訂單');
-        return;
-      }
-    }catch(e){
-      showToast('❌ 刪除前領料檢查失敗，已停止刪除：'+e.message,'err',9000);
-      return;
-    }
-  }
-  if(!opts.skipAudit){
-    showToast('刪除前檢查庫存異動...','warn');
-    try{
-      const rows=await fetchOrderStockAuditRows(no);
-      if(rows.some(isStockImpactLog)&&!orderDeleteAuditIsResolvedByPickingReversal(rows)){
-        openOrderDeleteBlockedModal(oid,no,rows);
-        return;
-      }
-    }catch(e){
-      showToast('❌ 刪除前檢查失敗，已停止刪除：'+e.message,'err',9000);
-      return;
-    }
-  }
-  if(!confirm('⚠️ 確認刪除訂單「'+no+'」？\n\n此操作將從 Notion 永久刪除，無法復原。')) return;
-  showToast('刪除中...','warn');
+async function deleteOrder(oid,no,opts={}){
+  if(denyViewOnlyAction())return;
+  const key=canonicalPageId(oid);
+  if(_orderIdentityLocks.has(key)){showToast('原單處理中，請勿重複點擊','warn');return;}
+  _orderIdentityLocks.add(key);
   try{
-    // ★ 先從本地移除（立即生效，不等 Notion）
-    orders = orders.filter(o=>o.id!==oid);
-    renderTab(CURRENT_TAB);
-
-    // ★ 同步到 Notion：先 archive，確認後不再出現在 query 結果
-    const r = await notionAPI('PATCH','pages/'+oid,{archived:true});
-    if(r.object==='error') throw new Error(r.message);
-    logUserAction('刪除訂單',no||oid,'訂單已刪除',ROLE);
-
-    showToast('✅ 訂單「'+no+'」已刪除','ok');
-
-    // ★ 延遲 2 秒再 refreshAll，讓 Notion 有時間處理
-    // 且 refresh 時跳過已知刪除的 ID，避免 race condition
-    setTimeout(async ()=>{
-      try{
-        const [mR,bR,oR,masterR,annR,leaveR]=await Promise.all([
-          dbQueryAll(DB.materials), dbQueryAll(DB.bom),
-          dbQueryAll(DB.orders), dbQueryAll(DB.custMaster),
-          dbQueryAll(DB.announce), dbQueryAll(DB.leave),
-        ]);
-        // 解析訂單時排除剛刪除的 ID
-        orders=oR.filter(p=>p.id!==oid).map(p=>({
-          id:p.id, no:getTitle(p.properties,'訂單號'),
-          customer:p.properties?.['客戶名稱']?.select?.name||'',
-          productId:p.properties?.['成品']?.relation?.[0]?.id||'',
-          qty:p.properties?.['訂購數量']?.number??0,
-          deadline:p.properties?.['交期']?.date?.start||'',
-          status:p.properties?.['狀態']?.select?.name||'',
-          note:p.properties?.['業務備註']?.rich_text?.[0]?.plain_text||'',
-          created:p.created_time?.slice(0,10)||'',
-        }));
-        renderTab(CURRENT_TAB);
-      }catch(e){ console.warn('bg refresh after delete:',e); }
-    }, 2000);
-
-  }catch(e){ showToast('❌ 刪除失敗：'+e.message,'err'); }
+    const rows=await fetchOrderStockAuditRows(oid);
+    const activePicks=await loadOrderPickingGuardRows(oid);
+    if(activePicks.length){openOrderPickingBlockedModal(oid,no,activePicks,'刪除訂單');return;}
+    if(rows.some(isStockImpactLog)&&!orderDeleteAuditIsResolvedByPickingReversal(rows)){openOrderDeleteBlockedModal(oid,no,rows);return;}
+    if(!confirm(`確認封存訂單「${rows.audit.order_number}」？\n原單 ID：${oid}\n已依原單 ID 核對正式庫存憑證；此步驟不會替其他訂單回料。`))return;
+    await executeOrderIdentityAction(oid,'archive',rows.audit.signature);
+    orders=orders.filter(o=>canonicalPageId(o.id)!==key);closeModal();renderTab(CURRENT_TAB);
+    logUserAction('刪除訂單',no||oid,'原單 ID 核對後封存',ROLE);
+    showToast('原訂單已封存，正式庫存未由刪單動作變更','ok');
+  }catch(e){orderIdentityFailure(oid,no,e);}
+  finally{_orderIdentityLocks.delete(key);}
 }
-
 
 // ── 料件主檔編輯（名稱、類型、安全庫存）
 function openEditMat(mid){

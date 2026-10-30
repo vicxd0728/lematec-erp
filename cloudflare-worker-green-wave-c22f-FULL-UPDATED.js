@@ -10,6 +10,8 @@ export default {
     const url = new URL(request.url);
     const roleDenied = await enforceErpRouteRole(request, env, cors, url.pathname, request.method);
     if (roleDenied) return roleDenied;
+    if(url.pathname==='/api/orders/stock-audit'&&request.method==='GET')return erpOrderStockAction(request,env,cors);
+    if(url.pathname==='/api/orders/stock-action'&&request.method==='POST')return erpOrderStockAction(request,env,cors);
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
       return erpBoardSummary(request, env, cors);
     }
@@ -316,6 +318,13 @@ export default {
         if (cleanText(role).toLowerCase() === 'viewer' ||
             (cleanText(role).toLowerCase() === 'ai' && !(await aiNoteProxyMutationAllowed(normalizedMethod, endpoint, body, scope, token)))) {
           return new Response(JSON.stringify({error: '檢視角色僅供查看，Worker 已阻擋寫入'}), {status: 403, headers: jh(cors)});
+        }
+      }
+      if(normalizedMethod==='PATCH'&&/^pages\/[0-9a-f-]{36}$/i.test(endpoint||'')&&(body?.archived===true||body?.properties?.['狀態']?.select?.name==='取消')){
+        const originalId=endpoint.split('/')[1],originalPage=await corderRecoveryNotion(token,originalId);
+        if(canonicalNotionId(originalPage.parent?.database_id)===canonicalNotionId(BOARD_DB.orders)){
+          const proof=await orderStockScope(env,token,originalId);
+          return erpOrderStockAction(new Request(request.url,{method:'POST',headers:{Authorization:`Bearer ${token}`,'X-ERP-Role':cleanText(role),'Content-Type':'application/json'},body:JSON.stringify({order_id:originalId,action:body?.archived===true?'archive':'cancel',expected_signature:proof.signature})}),env,cors);
         }
       }
       const cacheable = normalizedMethod === 'GET' || (normalizedMethod === 'POST' && /\/query(?:\?|$)/.test(endpoint || ''));
@@ -1810,6 +1819,7 @@ async function erpInventoryAdjust(request, env, cors) {
   try {
     const body = await request.json();
     const payload = body?.payload || body || {};
+    if(['order_pick_reversal','order_pick_reversal_shortfall','order_stockin_reversal','order_identity_reversal'].includes(payload.source_type))return resp400(cors,'舊版回料已停止；請重新整理並依原訂單 ID 核對原交易');
     if (['sfg_qc_pass','sfg_inspection_result_pass','sfg_complete'].includes(payload.source_type)) return resp400(cors, '組立入庫請重新整理並使用品管完成流程');
     const sku = cleanSku(payload.sku || payload.code || payload.name || '');
     if(['corder_ship','corder_ship_bundle','corder_ship_recoverable'].includes(payload.source_type))return resp400(cors,'舊版 C端扣料已停止；請更新 ERP 並從原訂單核對續接，勿換號重建');
@@ -1905,6 +1915,7 @@ async function erpInventoryBatchAdjust(request, env, cors) {
   try {
     const body = await request.json();
     const payload = body?.payload || body || {};
+    if(['order_pick_reversal','order_pick_reversal_shortfall','order_stockin_reversal','order_identity_reversal'].includes(payload.source_type))return resp400(cors,'舊版回料已停止；請重新整理並依原訂單 ID 核對原交易');
     if(payload.source_type==='corder_return_batch')return resp400(cors,'此為舊版 C端回料方式，已停止；請更新 ERP 後使用原單取消／退貨流程');
     if(['corder_ship','corder_ship_bundle','corder_ship_recoverable'].includes(payload.source_type))return resp400(cors,'舊版 C端扣料已停止；請更新 ERP 並從原訂單核對續接，勿換號重建');
     const items = Array.isArray(payload.items) ? payload.items : [];
@@ -3541,6 +3552,7 @@ const ERP_ROUTE_ROLES = {
   '/api/corder/number-set': ['vic', 'manager', 'sales'],
   '/api/corder/resume': ['vic', 'manager', 'sales'],
   '/api/corder/reversal': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
+  '/api/orders/stock-action': ['vic','manager','sales','warehouse','purchase'],
 };
 
 function erpBearerToken(request) {
@@ -4904,6 +4916,105 @@ async function erpCorderResume(request,env,cors) {
     }
     return respOK(cors,{ok:true,inventory_committed:true,duplicate:receipt.duplicate===true,page_id,status:'出貨中',transaction_ids:rows.map(r=>r.transaction_id),mirror_pending:true});
   }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,code:e.code||'corder_resume_unconfirmed',original_page_id:e.original_page_id||null,original_order_number:e.original_order_number||null,inventory_committed:committed?true:null,recoverable:e.code!=='corder_identity_conflict'}),{status:409,headers:jh(cors)});}
+}
+// Authoritative B2B/production order scope. Never associate by visible-number substring.
+async function orderStockAll(env,path){
+  const rows=[];
+  for(let offset=0;offset<100000;offset+=1000){
+    const page=await supabaseFetch(env,path+`&limit=1000&offset=${offset}`);
+    if(!Array.isArray(page))throw Error('正式憑證回應格式不完整，已停止');
+    rows.push(...page);if(page.length<1000)return rows;
+  }
+  throw Error('正式憑證超過完整讀取上限，已停止');
+}
+async function orderStockScope(env,token,orderId){
+  if(!isUuid(orderId))throw Error('缺少有效的原訂單 ID，已停止');
+  const page=await corderRecoveryNotion(token,orderId);
+  if(canonicalNotionId(page.parent?.database_id)!==canonicalNotionId(BOARD_DB.orders))throw Error('不是一般訂單原始頁面');
+  const props=page.properties||{},no=(props['訂單號']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('');
+  const context=await getSupabaseInventoryContext(env),org=context.organization.id;
+  const picks=await orderStockAll(env,`/rest/v1/pick_lists?organization_id=eq.${org}&source_order_notion_page_id=eq.${orderId}&select=id,pick_number,status,source_order_notion_page_id,notion_page_id,archived_at&order=id.asc`);
+  if(picks.some(p=>canonicalNotionId(p.source_order_notion_page_id)!==canonicalNotionId(orderId)))throw Error('領料來源 ID 不一致，已停止');
+  const refs=picks.map(p=>p.pick_number);if(refs.some(r=>!/^PK-[A-Za-z0-9-]+$/.test(r)))throw Error('領料單識別無效');
+  if(refs.length){
+    const allRefs=await orderStockAll(env,`/rest/v1/pick_lists?organization_id=eq.${org}&pick_number=in.(${refs.join(',')})&select=source_order_notion_page_id&order=id.asc`);
+    if(allRefs.some(p=>canonicalNotionId(p.source_order_notion_page_id)!==canonicalNotionId(orderId)))throw Error('領料單號同時關聯其他原訂單，請人工核對');
+  }
+  const ors=[`source_id.eq.${orderId}`,`source_number.eq.${orderId}`,...refs.map(r=>`source_number.eq.${r}`)];
+  const transactions=await orderStockAll(env,`/rest/v1/inventory_transactions?organization_id=eq.${org}&or=(${ors.join(',')})&select=id,material_id,warehouse_id,source_id,source_type,source_number,quantity_delta,quantity_before,quantity_after,idempotency_key,occurred_at,materials(sku,name,notion_page_id)&order=created_at.asc,id.asc`);
+  const legacyTypes=['order_pick_reversal','order_pick_reversal_shortfall','order_stockin_reversal'];
+  // Only a conservative blocker may use an exact old reference; never derive stock from it.
+  const ambiguous=await orderStockAll(env,`/rest/v1/inventory_transactions?organization_id=eq.${org}&source_id=is.null&source_number=eq.${encodeURIComponent(no)}&select=id,source_type&order=id.asc`);
+  if(ambiguous.some(t=>legacyTypes.includes(t.source_type)||['order_pick_batch','order_pick','bom_deduct','shopee_transfer','sfg_complete','shopee_order_complete'].includes(t.source_type)))throw Error('舊交易缺少原單 ID，請人工核對；未推算回料');
+  const original=[],reversed=new Map();
+  for(const tx of transactions){
+    if(tx.source_id&&canonicalNotionId(tx.source_id)!==canonicalNotionId(orderId))throw Error('庫存交易屬於其他訂單 ID，已停止');
+    if(legacyTypes.includes(tx.source_type))throw Error('舊回料憑證需核對，未重複回料');
+    if(tx.source_type==='order_identity_reversal'){reversed.set(tx.idempotency_key,tx);continue;}
+    if(!['order_pick_batch','order_pick','bom_deduct','shopee_transfer','sfg_complete','shopee_order_complete'].includes(tx.source_type))throw Error('庫存交易來源尚未支援安全沖銷，請人工核對');
+    if(!tx.materials?.notion_page_id||!Number.isFinite(Number(tx.quantity_delta))||Number(tx.quantity_delta)===0)throw Error('正式交易明細不完整，未推算回料');
+    original.push(tx);
+  }
+  const outstanding=original.filter(tx=>{
+    const back=reversed.get(`order-undo:${tx.id}:${tx.material_id}`);
+    if(back&&(back.source_id!==orderId||Number(back.quantity_delta)!==-Number(tx.quantity_delta)||back.material_id!==tx.material_id))throw Error('沖銷憑證不一致，請人工核對');
+    return !back;
+  });
+  if(picks.some(p=>/已領料|已確認|待回料確認/.test(p.status))&&!original.length)throw Error('領料顯示已扣料但缺正式憑證，請人工核對');
+  const signature=JSON.stringify([orderId,no,props['訂購數量']?.number,props['成品']?.relation||[],page.archived,props['狀態']?.select?.name,original.map(t=>t.id).sort()]);
+  const rows=original.map(tx=>({id:tx.id,material_id:tx.materials.notion_page_id,material_code:tx.materials.sku,material_name:tx.materials.name,quantity:Math.abs(Number(tx.quantity_delta)),before_stock:Number(tx.quantity_before),after_stock:Number(tx.quantity_after),change_type:Number(tx.quantity_delta)<0?'領料':'成品入庫',original_action:Number(tx.quantity_delta)<0?'訂單領料扣庫':'成品入庫',ref_no:tx.source_number,created_at:tx.occurred_at,order_id:orderId}));
+  for(const tx of original){const back=reversed.get(`order-undo:${tx.id}:${tx.material_id}`);if(back)rows.push({id:back.id,material_id:tx.materials.notion_page_id,material_code:tx.materials.sku,material_name:tx.materials.name,quantity:Math.abs(Number(back.quantity_delta)),before_stock:Number(back.quantity_before),after_stock:Number(back.quantity_after),change_type:Number(tx.quantity_delta)<0?'領料沖銷':'入庫沖銷',ref_no:tx.source_number,order_id:orderId});}
+  return {page,context,order_id:orderId,order_number:no,picks,original,outstanding,signature,rows};
+}
+async function orderStockMirrorReceipt(env,scope,original,receipt,role){
+  const row=assertCorderRecoveryReceipt([{material_id:original.material_id,delta:-Number(original.quantity_delta)}],receipt)[0];
+  const mat=original.materials,trace=`inventory-tx:${row.transaction_id}`;
+  const found=await supabaseFetch(env,`/rest/v1/erp_stock_logs?client_trace_id=eq.${trace}&select=id&limit=1`);
+  if(!found.length)await supabaseFetch(env,'/rest/v1/erp_stock_logs',{method:'POST',body:JSON.stringify({client_trace_id:trace,item_title:`原單沖銷 ${mat.sku}`,material_id:mat.notion_page_id,material_code:mat.sku,material_name:mat.name,change_type:Number(original.quantity_delta)<0?'領料沖銷':'入庫沖銷',original_action:'原訂單交易沖銷',quantity:Math.abs(row.delta),before_stock:row.before_stock,after_stock:row.after_stock,change_date:taipeiDateFromTimestamp(new Date().toISOString()),ref_no:scope.order_number,operator_role:role,source:'inventory_reconcile',note:`原訂單 ID ${scope.order_id}；原交易 ${original.id}；沖銷 ${row.transaction_id}`})});
+  await supabaseFetch(env,'/rest/v1/erp_mirror_jobs?on_conflict=organization_id,dedupe_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({organization_id:scope.context.organization.id,dedupe_key:`inventory_notion:${mat.notion_page_id}`,module:'inventory_notion',action:'retry',entity_id:mat.notion_page_id,payload:{page_id:mat.notion_page_id,sku:mat.sku},status:'pending',attempt_count:0,next_retry_at:new Date().toISOString()})});
+}
+async function erpOrderStockAction(request,env,cors){
+  try{
+    if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+    const body=request.method==='GET'?{order_id:new URL(request.url).searchParams.get('order_id')}:await request.json();
+    const token=erpBearerToken(request),role=cleanText(request.headers.get('X-ERP-Role')),scope=await orderStockScope(env,token,body.order_id);
+    if(request.method==='GET')return respOK(cors,{ok:true,complete:true,order_id:scope.order_id,order_number:scope.order_number,signature:scope.signature,rows:scope.rows,picks:scope.picks});
+    if(!['vic','manager','sales','warehouse','purchase'].includes(role))throw Error('此角色無操作權限');
+    const action=body.action;
+    if(!['reverse_picking','reverse_stockin','archive','cancel'].includes(action))throw Error('未知原單操作');
+    if(body.expected_signature!==scope.signature)throw Error('原訂單或正式憑證已變更，請重新核對');
+    if(action.startsWith('reverse_')){
+      if(!['vic','manager','warehouse','purchase'].includes(role))throw Error('業務請先送出回料申請，由倉管確認實物回來');
+      const selected=scope.original.filter(t=>action==='reverse_picking'?Number(t.quantity_delta)<0:Number(t.quantity_delta)>0);
+      for(const tx of selected){
+        const data=await supabaseFetch(env,'/rest/v1/rpc/reverse_order_stock_receipt',{method:'POST',body:JSON.stringify({p_org:scope.context.organization.id,p_order:scope.order_id,p_transaction:tx.id,p_order_number:scope.order_number})});
+        await orderStockMirrorReceipt(env,scope,tx,Array.isArray(data)?data[0]:data,role);
+      }
+      if(action==='reverse_picking')for(const pick of scope.picks){
+        if(!/已領料|已確認|待回料確認/.test(pick.status))continue;
+        const details=await orderStockAll(env,`/rest/v1/pick_items?organization_id=eq.${scope.context.organization.id}&pick_list_id=eq.${pick.id}&select=id,notion_page_id&order=id.asc`);
+        for(const pageId of [pick.notion_page_id,...details.map(d=>d.notion_page_id)].filter(Boolean)){
+          await supabaseFetch(env,'/rest/v1/erp_mirror_jobs?on_conflict=organization_id,dedupe_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({organization_id:scope.context.organization.id,dedupe_key:`workflow_notion:${pageId}`,module:'workflow_notion',action:'retry',entity_id:pageId,payload:{action:'update',page_id:pageId,properties:{'狀態':{select:{name:'已沖銷'}}},label:'原單領料沖銷'},status:'pending',attempt_count:0,next_retry_at:new Date().toISOString()})});
+        }
+        await supabaseFetch(env,`/rest/v1/pick_items?organization_id=eq.${scope.context.organization.id}&pick_list_id=eq.${pick.id}`,{method:'PATCH',body:JSON.stringify({status:'已沖銷',updated_at:new Date().toISOString()})});
+        await supabaseFetch(env,`/rest/v1/pick_lists?organization_id=eq.${scope.context.organization.id}&id=eq.${pick.id}&source_order_notion_page_id=eq.${scope.order_id}`,{method:'PATCH',body:JSON.stringify({status:'已沖銷',updated_at:new Date().toISOString()})});
+      }
+      const readback=await orderStockScope(env,token,scope.order_id);
+      if(readback.outstanding.some(t=>action==='reverse_picking'?Number(t.quantity_delta)<0:Number(t.quantity_delta)>0))throw Error('回料結果未確認，請從原單重試');
+      return respOK(cors,{ok:true,order_id:scope.order_id,action,mirror_pending:true});
+    }
+    if(scope.outstanding.length)throw Error('原訂單仍有未沖銷交易，已停止刪單／取消');
+    await supabaseFetch(env,'/rest/v1/rpc/close_order_stock_identity',{method:'POST',body:JSON.stringify({p_org:scope.context.organization.id,p_order:scope.order_id,p_order_number:scope.order_number,p_action:action})});
+    if(action==='cancel')await corderRecoveryNotion(token,scope.order_id,{'狀態':{select:{name:'取消'}}});
+    // Archive uses the same exact page; never resolve by display number.
+    if(action==='archive'){
+      const response=await fetch(`https://api.notion.com/v1/pages/${scope.order_id}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'},body:JSON.stringify({archived:true})});
+      if(!response.ok)throw Error('刪單結果未確認，請原單重試');
+    }
+    const saved=await corderRecoveryNotion(token,scope.order_id);
+    if(action==='archive'?!saved.archived:saved.properties?.['狀態']?.select?.name!=='取消')throw Error('原單狀態回讀未確認，請原單重試');
+    return respOK(cors,{ok:true,order_id:scope.order_id,action});
+  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message,recoverable:true}),{status:409,headers:jh(cors)});}
 }
 function corderReversalRichText(text){
   const chunks=[''];for(const c of text){if(chunks[chunks.length-1].length+c.length>1800)chunks.push('');chunks[chunks.length-1]+=c;}

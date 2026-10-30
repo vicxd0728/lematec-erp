@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v74';
+const CACHE_NAME = 'lematec-erp-v75';
 const CORE_ASSETS = [
   './manifest.webmanifest',
   './erp-action-receipts.js',

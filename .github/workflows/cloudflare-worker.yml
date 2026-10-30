@@ -30,7 +30,7 @@ jobs:
         run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs tests/inbound_cancel.cjs tests/corder_recovery.cjs
 
       - name: Verify assembly completion and stock safety
-        run: node --test tests/assembly_complete.cjs
+        run: node --test tests/assembly_complete.cjs tests/order_stock_identity.cjs
 
       - name: Verify material mirror recovery and stock preservation
         run: node --test tests/inventory_mirror_recovery.cjs tests/stock_log_receipt_repair.cjs
@@ -66,6 +66,7 @@ jobs:
           python tests/run_inbound_cancel_postgres.py
           python tests/run_corder_reversal_postgres.py
           python tests/run_corder_ship_identity_postgres.py
+          python tests/run_order_stock_identity_postgres.py
 
       - name: Dry-run and apply additive conflict RPC before Worker deployment
         env:
@@ -101,6 +102,11 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python scripts/apply_corder_ship_identity.py
+
+      - name: Install original-order receipt and close guards
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/apply_order_stock_identity.py
 
       - name: Deploy green-wave-c22f Worker
         shell: bash
