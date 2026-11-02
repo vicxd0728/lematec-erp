@@ -36,7 +36,7 @@ class ThemeSurfaceAuditTest(unittest.TestCase):
         self.assertEqual(prop('.ops-sub','color'),'var(--text3)')
         for key,canvas,surface,inset,accent,action,muted,kind in palette.THEMES:
             with self.subTest(theme=key):
-                primary='#19283b' if key in ['light','warm','ink'] else '#f0f5fa'
+                primary='#252a2d' if key=='industrial' else '#19283b' if key in ['light','warm','ink'] else '#f0f5fa'
                 for fg in [primary,muted,accent]:self.assertGreaterEqual(contrast(fg,surface),4.5)
                 self.assertGreaterEqual(contrast(muted,inset),4.5)
 

@@ -24,7 +24,7 @@ class ThemePaletteTest(unittest.TestCase):
                 self.assertGreaterEqual(contrast('#ffffff',action),4.5)
     def test_scenes_are_valid_static_svg_without_external_content(self):
         for row in theme.THEMES:
-            for image in [theme.scene(row[-1],row[4]),theme.illustration(row[-1],row[4],row[0] in ['ink','light','warm'])]:
+            for image in [theme.scene(row[-1],row[4]),theme.illustration(row[-1],row[4],row[0] in ['ink','light','warm','industrial'])]:
                 svg=unquote(image[len('url("data:image/svg+xml,'):-2])
                 el=ET.fromstring(svg)
                 self.assertTrue(el.tag.endswith('svg'))

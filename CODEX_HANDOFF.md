@@ -1,5 +1,12 @@
 # LEMATEC ERP Codex Handoff
 
+## Palette-only industrial option 2026-11-03
+
+- User rejected the large layout concept as unfamiliar and authorized only palette/theme-picker changes, then deployment. Do not apply the concept's table, header or mobile-card redesign.
+- Add optional `industrial` (14th theme): warm grey/white, charcoal text, restrained industrial orange and static schematic art using the existing scene slots. Keep default premium and all existing saved preferences. No new page, layout CSS, tab/operation rearrangement or business rule changes.
+- Picker adds readable Aa/123 previews and an explicit current-selection/scope hint. Existing device-only preference, scene toggle and font controls remain. CSS URL v4 / SW80.
+- Generator, main-surface audit and static tests pass; Node picker tests exercise all 14 selections, stale IDs, saved preferences, selected states and local-only storage writes. Browser visual acceptance remains separate from these checks; no production inventory/order changes.
+
 ## Theme contrast repair and illustrated ink release 2026-11-03
 
 - User screenshot V.401 exposed module-brief dark gradient + light-theme dark text. Prior synthetic shared-component acceptance omitted actual module briefs; its5.22 contrast result did not cover this real page. Candidate fixes module-brief/module-pill/order-action, dashboard/analytics/picking/note/video surfaces as named paired surfaces. Never infer full-page acceptance from the old fixture.

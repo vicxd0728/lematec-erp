@@ -1903,7 +1903,7 @@ html[data-theme="warm"] #themePanel{
  .inv-period-table td:before{content:attr(data-label);color:var(--text3);flex-shrink:0}
 }
 </style>
-<link rel="stylesheet" href="./erp-themes.css?v=3">
+<link rel="stylesheet" href="./erp-themes.css?v=4">
 </head>
 <body>
 
@@ -7237,6 +7237,7 @@ function renderLoginAuditPanel(){
 // 主題 & 字體系統（安全版）
 // ══════════════════════════════
 const THEMES={
+  industrial:{name:'精密工業',icon:'⚙',desc:'暖灰白底・炭黑文字・工業橘',group:'推薦'},
   tech:    {name:'經典深藍', icon:'🌌', desc:'藍圖格線・清楚的資料層次', group:'推薦'},
   premium: {name:'科技青黛', icon:'✦',  desc:'晶片電路插圖・青藍介面', group:'推薦'},
   board:   {name:'現場看板', icon:'🖥️', desc:'大字高對比，適合投放螢幕', group:'推薦'},
@@ -7252,6 +7253,7 @@ const THEMES={
   minimal: {name:'極簡風',   icon:'⬜', desc:'純粹深灰，零干擾', group:'更多'},
 };
 const ERP_DEFAULT_THEME='premium';
+const ERP_INDUSTRIAL_SWATCH=['#f2f1ec','#ffffff','#a74119'];
 const ERP_THEME_SWATCHES={tech:['#0d1421','#172236','#98bcff'],premium:['#0b1720','#142630','#82dcd7'],board:['#080e16','#111e2b','#b4d4ff'],light:['#eef3f8','#ffffff','#235bb1'],warm:['#f4f0e8','#fffdf8','#835727'],ink:['#eeeadd','#fcfaf2','#345f55'],ocean:['#091a28','#102c3e','#83c9f2'],violet:['#181426','#251f38','#c5b7f1'],amber:['#20180e','#30261a','#e8c393'],titanium:['#13191f','#202932','#adc7df'],rose:['#23191e','#33252d','#e9b9ca'],nature:['#111e19','#1a3027','#acd4bb'],minimal:['#17191d','#24272d','#c2ccdc']};
 // 讀取已儲存的設定並套用（頁面載入時立即執行）
 (function(){
@@ -7297,12 +7299,14 @@ function buildThemePanel(p){
     return '<div class="theme-section">'+title+'</div>'+
       '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">'+
       keys.map(function(k){
-        const v=THEMES[k], a=cur===k,s=ERP_THEME_SWATCHES[k];
-        return '<button data-tk="'+k+'" class="theme-option" aria-pressed="'+a+'"><span class="theme-preview" aria-hidden="true" style="background:'+s[0]+'"><i style="background:'+s[1]+';border:1px solid '+s[2]+'"></i><i style="background:'+s[2]+'"></i></span><b>'+v.icon+' '+v.name+(a?' ✓':'')+'</b><small>'+v.desc+'</small></button>';
+        const v=THEMES[k], a=cur===k,s=k==='industrial'?ERP_INDUSTRIAL_SWATCH:ERP_THEME_SWATCHES[k];
+        const previewText=['industrial','light','warm','ink'].includes(k)?'#252a2d':'#f0f5fa';
+        return '<button data-tk="'+k+'" class="theme-option" aria-pressed="'+a+'"><span class="theme-preview" aria-hidden="true" style="background:'+s[0]+'"><i style="background:'+s[1]+';border:1px solid '+s[2]+'"></i><i style="background:'+s[2]+'"></i><span style="color:'+previewText+'">Aa 123</span></span><b>'+v.icon+' '+v.name+(a?' ✓':'')+'</b><small>'+v.desc+'</small></button>';
       }).join('')+'</div>';
   };
   let html='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px"><div><div style="font-size:1rem;font-weight:850;color:var(--text)">🎨 外觀設定</div><div style="font-size:.76rem;color:var(--text2);margin-top:2px">每台裝置獨立儲存，不影響其他人</div></div><button data-theme-close="1" aria-label="關閉外觀設定" style="width:44px;height:44px;border-radius:10px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer">×</button></div>';
-  html+=section('推薦設計',['premium','ink','tech','board','light','warm']);
+  html+='<div class="theme-current" role="status">目前：'+THEMES[cur].name+' · 點選立即套用<br>只調整配色與主題背景，頁面布局及操作不變</div>';
+  html+=section('推薦設計',['industrial','premium','ink','tech','board','light','warm']);
   html+=section('更多風格',['ocean','violet','amber','titanium','rose','nature','minimal']);
   html+='<label class="theme-scene-toggle"><input type="checkbox" data-theme-scene '+(document.documentElement.getAttribute('data-scene')==='off'?'':'checked')+'>顯示主題背景（靜態，不影響操作）</label>';
   html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:0.72rem;font-weight:800;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">🔤 字體大小</div><div class="font-row" style="display:flex;gap:6px">';
