@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Theme contrast repair and illustrated ink release 2026-11-03
+
+- User screenshot V.401 exposed module-brief dark gradient + light-theme dark text. Prior synthetic shared-component acceptance omitted actual module briefs; its5.22 contrast result did not cover this real page. Candidate fixes module-brief/module-pill/order-action, dashboard/analytics/picking/note/video surfaces as named paired surfaces. Never infer full-page acceptance from the old fixture.
+- Candidate adds ink (13th theme): paper/ink-green/red-seal, layered mountain/waterfall/pine illustration; tech/premium includes chip/circuit illustration. Decorative art occupies a reserved pseudo-element grid cell in module-brief/analytics-hero, not an absolute overlay. Existing erp_scene=off disables art; CSS URLv2, SWv78. No business writes or permissions changed.
+- Static check +6 Python checks +32 Node checks passed. New tests/qa_theme_journeys_server.cjs runs actual order/inventory renderers with synthetic data and a separately labeled cross-module sample audit; output/theme_journeys_vm_check.cjs executes both renderers without a browser. Neither is visual acceptance.
+- Local CUA browser selection returned Local browser use is disabled in Work settings. User explicitly instructed direct deployment despite the pending visual checks. Deploy with static/regression gates and exact asset/version readback; report desktop/mobile visual, contrast, overflow and art-overlap acceptance as NOT_RUN, never reuse V.401 screenshots as proof of this release. Do not bypass the disabled browser. Do not mix in unrelated dirty regulator/data-audit files.
+- QA loopback server8776 initially holds V.401 source/CSS as the baseline; capture warm/390 before restarting against candidate. Then rerun13 themes×orders/inventory×1280/390 +cross-module samples; verify actual errors remain visible, scene-off preserves layout, reload and picker remain correct. After authorized deployment, read back HTML/CSS/Worker SHA and repeat with sealed released assets.
+
 ## Shared palette and static scene refresh 2026-10-31
 
 - All 12 existing theme IDs remain compatible with device preferences. Generated erp-themes.css (scripts/generate_erp_themes.py) unifies opaque form/table/card surfaces, readable secondary text/action labels, and fixed green/red/amber semantics. Edge-weighted inline SVG scenes have no DOM overlay, animation or remote resource; optional erp_scene=off persists per device. Existing business data, permissions and quantity flows are unchanged.

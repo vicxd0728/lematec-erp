@@ -1905,7 +1905,7 @@ html[data-theme="warm"] #themePanel{
  .inv-period-table td:before{content:attr(data-label);color:var(--text3);flex-shrink:0}
 }
 </style>
-<link rel="stylesheet" href="./erp-themes.css?v=1">
+<link rel="stylesheet" href="./erp-themes.css?v=2">
 </head>
 <body>
 
@@ -7240,10 +7240,11 @@ function renderLoginAuditPanel(){
 // ══════════════════════════════
 const THEMES={
   tech:    {name:'經典深藍', icon:'🌌', desc:'藍圖格線・清楚的資料層次', group:'推薦'},
-  premium: {name:'科技青黛', icon:'✦',  desc:'軌道構圖・低彩度青藍', group:'推薦'},
+  premium: {name:'科技青黛', icon:'✦',  desc:'晶片電路插圖・青藍介面', group:'推薦'},
   board:   {name:'現場看板', icon:'🖥️', desc:'大字高對比，適合投放螢幕', group:'推薦'},
   light:   {name:'亮色企業', icon:'☀️', desc:'白底清爽，適合辦公室', group:'推薦'},
   warm:    {name:'暖白辦公', icon:'🌤', desc:'米白拱廊・深棕重點色', group:'推薦'},
+  ink:     {name:'水墨山河', icon:'🏞️', desc:'宣紙墨綠・山巒瀑布・朱印', group:'推薦'},
   ocean:   {name:'深海藍',   icon:'🌊', desc:'海浪線條・沉穩藍色表面', group:'更多'},
   violet:  {name:'暮光紫',   icon:'🔮', desc:'星軌構圖・柔和灰紫', group:'更多'},
   amber:   {name:'琥珀工坊', icon:'🌅', desc:'暖金拱廊・棕灰工業風', group:'更多'},
@@ -7253,7 +7254,7 @@ const THEMES={
   minimal: {name:'極簡風',   icon:'⬜', desc:'純粹深灰，零干擾', group:'更多'},
 };
 const ERP_DEFAULT_THEME='premium';
-const ERP_THEME_SWATCHES={tech:['#0d1421','#172236','#98bcff'],premium:['#0b1720','#142630','#82dcd7'],board:['#080e16','#111e2b','#b4d4ff'],light:['#eef3f8','#ffffff','#235bb1'],warm:['#f4f0e8','#fffdf8','#835727'],ocean:['#091a28','#102c3e','#83c9f2'],violet:['#181426','#251f38','#c5b7f1'],amber:['#20180e','#30261a','#e8c393'],titanium:['#13191f','#202932','#adc7df'],rose:['#23191e','#33252d','#e9b9ca'],nature:['#111e19','#1a3027','#acd4bb'],minimal:['#17191d','#24272d','#c2ccdc']};
+const ERP_THEME_SWATCHES={tech:['#0d1421','#172236','#98bcff'],premium:['#0b1720','#142630','#82dcd7'],board:['#080e16','#111e2b','#b4d4ff'],light:['#eef3f8','#ffffff','#235bb1'],warm:['#f4f0e8','#fffdf8','#835727'],ink:['#eeeadd','#fcfaf2','#345f55'],ocean:['#091a28','#102c3e','#83c9f2'],violet:['#181426','#251f38','#c5b7f1'],amber:['#20180e','#30261a','#e8c393'],titanium:['#13191f','#202932','#adc7df'],rose:['#23191e','#33252d','#e9b9ca'],nature:['#111e19','#1a3027','#acd4bb'],minimal:['#17191d','#24272d','#c2ccdc']};
 // 讀取已儲存的設定並套用（頁面載入時立即執行）
 (function(){
   const saved=localStorage.getItem('erp_theme');
@@ -7303,7 +7304,7 @@ function buildThemePanel(p){
       }).join('')+'</div>';
   };
   let html='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px"><div><div style="font-size:1rem;font-weight:850;color:var(--text)">🎨 外觀設定</div><div style="font-size:.76rem;color:var(--text2);margin-top:2px">每台裝置獨立儲存，不影響其他人</div></div><button data-theme-close="1" aria-label="關閉外觀設定" style="width:44px;height:44px;border-radius:10px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer">×</button></div>';
-  html+=section('推薦設計',['premium','tech','board','light','warm']);
+  html+=section('推薦設計',['premium','ink','tech','board','light','warm']);
   html+=section('更多風格',['ocean','violet','amber','titanium','rose','nature','minimal']);
   html+='<label class="theme-scene-toggle"><input type="checkbox" data-theme-scene '+(document.documentElement.getAttribute('data-scene')==='off'?'':'checked')+'>顯示主題背景（靜態，不影響操作）</label>';
   html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:0.72rem;font-weight:800;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">🔤 字體大小</div><div class="font-row" style="display:flex;gap:6px">';

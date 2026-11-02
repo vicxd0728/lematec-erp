@@ -24,12 +24,12 @@ class ThemePaletteTest(unittest.TestCase):
                 self.assertGreaterEqual(contrast('#ffffff',action),4.5)
     def test_scenes_are_valid_static_svg_without_external_content(self):
         for row in theme.THEMES:
-            image=theme.scene(row[-1],row[4])
-            svg=unquote(image[len('url("data:image/svg+xml,'):-2])
-            el=ET.fromstring(svg)
-            self.assertTrue(el.tag.endswith('svg'))
-            for forbidden in ['<script','<foreignObject','href=','<animate','animation:']:
-                self.assertNotIn(forbidden,svg)
+            for image in [theme.scene(row[-1],row[4]),theme.illustration(row[-1],row[4],row[0] in ['ink','light','warm'])]:
+                svg=unquote(image[len('url("data:image/svg+xml,'):-2])
+                el=ET.fromstring(svg)
+                self.assertTrue(el.tag.endswith('svg'))
+                for forbidden in ['<script','<foreignObject','href=','<animate','animation:']:
+                    self.assertNotIn(forbidden,svg)
     def test_published_stylesheet_matches_generator(self):
         self.assertEqual((ROOT/'erp-themes.css').read_text(encoding='utf8'),theme.build())
 
