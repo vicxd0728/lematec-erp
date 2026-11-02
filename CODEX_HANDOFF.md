@@ -931,3 +931,13 @@ GitHub Actions 成功後 Cloudflare Pages 會更新 `https://lematec-erp.pages.d
 - 驗收入口：`node --test tests/progress_center.cjs tests/supply_chain_v1.cjs`、`node scripts/render_progress_center_preview.cjs`、`node scripts/capture_progress_center_preview.cjs`。預覽為合成資料，不可當作正式訂單數據。
 
 Shopee BOM/source update (2026-10-28): User confirmed S-Y-IS502-1 <- Y-IS502-01, S-Y-IS502-2 <- Y-IS502-02, S-Y-IS502-2A <- Y-IS502-02A. Browser and Worker both enforce these exact one-to-one sources, with no fallback to bare nonzero-less warehouse codes. Preserve S material IDs and balances. Latest (3) workbooks reconcile to 180 transfer targets and unchanged 216 C-end parents / 361 direct relations; Supabase and Notion readback matched. No business data or inventory transaction was written for this update.
+
+
+## 2026-11-03 Theme root-cause repair after V.402
+
+- User screenshot proves prior component-list overrides missed the actual ops board. Root cause: fixed dark neutral surfaces and fixed neutral text remained in application CSS while light themes changed inherited foreground tokens. Generic component samples did not establish whole-page acceptance.
+- Read formal Notion Enterprise UI guidance before repair: Typography/Color/Iconography `3e3ff6f424bb81adb5ddf2130e6fa92a`, Design Tokens `3e3ff6f424bb812e89fde61d9cccf687`, UI QA Contract `3e3ff6f424bb8143b093df9fe532f3bc`.
+- Normalize 77 literal dark reading surfaces (76 CSS, 1 inline modal) and 21 fixed neutral text colors at source to semantic theme tokens; explicit video masks/modal scrims remain inverse. Ops hero/cards/chips have solid matching surfaces; remove active-card glow behind text. Existing 13 themes, static illustrations and background toggle retained.
+- `scripts/audit_theme_surfaces.py` plus `tests/test_theme_surface_audit.py` check main application CSS and inline backgrounds, including unknown future class names, intentional media exceptions, ops source bindings and 13-palette source-token contrast. Added regression to Pages CI. This is source lint, not a full computed-style/accessibility audit.
+- Read-only synthetic fixture now includes actual ops/order/inventory renderers. Node VM executes all three; not browser or responsive visual evidence. No production business writes.
+- Browser unavailable: Work settings returned Local browser use is disabled. Do not bypass this restriction. Desktop/mobile visual acceptance remains NOT_RUN; user explicitly requests direct deployment. CSS URL v3 + SW79 invalidate stale assets; release requires exact published style/theme CSS/JS readback and matching Worker SHA.
