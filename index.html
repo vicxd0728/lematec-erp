@@ -17887,7 +17887,7 @@ function copyVideoLibraryItem(idx,mode){
   const v=(window._videoLibraryLast||[])[idx];
   if(!v) return;
   if(mode==='share'){
-    videoLibraryCopyText(`這支 LEMATEC 影片給您參考：\n${v.title}\n${v.url}\n\n若需要，我可以再協助確認適合的型號、配件與交期。`);
+    videoLibraryCopyText(`Here's a LEMATEC video for your reference:\n${v.title}\n${v.url}\n\nIf helpful, I can also help confirm the right model, accessories, and lead time for your needs.`);
   }else{
     videoLibraryCopyText(v.url);
   }

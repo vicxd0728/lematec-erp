@@ -1,5 +1,9 @@
 # LEMATEC ERP Codex Handoff
 
+## English customer video copy 2026-11-03
+
+- User clarified this is an ERP fix: 影音專區「複製給客戶」 must copy English intro/follow-up rather than Traditional Chinese. Change the shared copyVideoLibraryItem share branch used by both preview and list cards. Keep original video title/URL verbatim, link-only mode unchanged, and internal UI language unchanged. No message is sent to any customer. SW83.
+
 ## Inventory report download and sticky columns 2026-11-03
 
 - User reports downloaded workbook exists but opening does nothing. Two prior Downloads workbooks passed ZIP/XML, read-only openpyxl and native Excel opens. Windows .xlsx association reads Excel.Sheet.12. Do NOT claim a corrupt-file root cause or that the user's double-click symptom is resolved; ask to try Excel File/Open to separate launcher/association from file failure. No Excel security, association or registry settings were changed.
