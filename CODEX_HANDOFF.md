@@ -1,5 +1,13 @@
 # LEMATEC ERP Codex Handoff
 
+## Inventory report download and sticky columns 2026-11-03
+
+- User reports downloaded workbook exists but opening does nothing. Two prior Downloads workbooks passed ZIP/XML, read-only openpyxl and native Excel opens. Windows .xlsx association reads Excel.Sheet.12. Do NOT claim a corrupt-file root cause or that the user's double-click symptom is resolved; ask to try Excel File/Open to separate launcher/association from file failure. No Excel security, association or registry settings were changed.
+- Period export explicitly writes compressed xlsx, keeps all summary/detail records, numeric decimals, safe text, readable column widths and header filters. A local exportBusy gate prevents overlapping downloads, failures release the gate and display the actual error; success wording distinguishes download from opening Excel.
+- Stock master and period report use scoped desktop scroll regions (68vh) with sticky opaque header cells. Mobile keeps existing per-card labels instead of frozen desktop rows. No inventory/query/permission mutations.
+- Chrome browser is now available (old Work-disabled status is historical). Synthetic actual-renderer fixture: warehouse role, 40 stock/report rows, production API blocked. Desktop stock scrolled 780.8px, report 459.2px; header/container tops matched. At 390px, report labels and stock 目前庫存 remain, no horizontal page overflow. Browser download waiter timed out after the download succeeded; checked disk before any retry. Actual browser xlsx opened read-only in native Excel (2 sheets, summary45/detail6 rows, numeric0.03). Screenshot evidence in workspace 營運管理/outputs/inventory-report-qa.
+- Focused Node15/Python7 tests and static syntax checks passed. SW82. Native Excel acceptance applies to the isolated downloaded test file, not every user device or latest unavailable failing file.
+
 ## Canva warm-grey finish 2026-11-03
 
 - User approved direct deployment of the visual theme while retaining UI architecture and operation positions. Rename the existing industrial option to 精密暖灰; preserve its ID and saved preference.

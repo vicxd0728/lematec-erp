@@ -54,3 +54,24 @@ test('failed report read clears the old result and disables stale exports',async
  const ctx=front(),s=ctx.inventoryReportState();s.data={old:true};ctx.fetch=async()=>({ok:false,json:async()=>({error:'offline'})});
  await ctx.loadInventoryPeriodReport();assert.equal(s.data,null);assert.equal(s.busy,false);assert.match(s.error,/offline/);assert.doesNotMatch(ctx.renderInventoryPeriodReport(),/匯出 Excel（完整期間）/);
 });
+
+test('export retains full data, uses genuine xlsx options and prevents overlapping downloads',async()=>{
+ const ctx=front(),state=ctx.inventoryReportState(),downloads=[],messages=[];
+ state.data={start:'2026-10-01',end:'2026-10-31',rows:[{sku:'00123',checked:false,opening:null}],transactions:[tx('id',0.03,1)]};
+ let release;ctx.ensureXlsxLoaded=()=>new Promise(r=>release=r);ctx.showToast=(...args)=>messages.push(args);
+ ctx.XLSX={utils:{book_new:()=>({sheets:[]}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(book,sheet,name)=>book.sheets.push({sheet,name})},writeFile:(book,name,options)=>downloads.push({book,name,options})};
+ const first=ctx.exportInventoryPeriodReport();await ctx.exportInventoryPeriodReport();assert.equal(state.exportBusy,true);release();await first;
+ assert.equal(downloads.length,1);assert.equal(downloads[0].options.bookType,'xlsx');assert.equal(downloads[0].options.compression,true);
+ assert.equal(downloads[0].book.sheets.length,2);assert.equal(downloads[0].book.sheets[0].sheet.rows[5][1],'00123');
+ assert.equal(downloads[0].book.sheets[1].sheet.rows[5][8],0.03);assert.equal(state.exportBusy,false);assert.equal(messages[0][1],'ok');
+ ctx.ensureXlsxLoaded=async()=>{};ctx.XLSX.writeFile=()=>{throw new Error('Download blocked')};await ctx.exportInventoryPeriodReport();
+ assert.equal(state.exportBusy,false);assert.match(messages.at(-1)[0],/Download blocked/);assert.equal(messages.at(-1)[1],'warn');
+});
+
+test('inventory and period tables provide bounded desktop sticky headers without losing mobile labels',()=>{
+ const ctx=front(),report=ctx.inventoryReportTable([{sku:'Y-QA',warehouse:'主倉',key:'w:m',count:1}]);
+ assert.match(report,/class="table-wrap inventory-scroll-table"/);assert.match(report,/tabindex="0"/);assert.match(report,/data-label="料號"/);
+ assert.match(html,/inventory-scroll-table th\{position:sticky;top:0;z-index:3/);
+ assert.match(html,/max-height:68vh;overflow:auto/);assert.match(html,/aria-label="倉庫庫存主檔，可捲動查看完整欄位"/);
+ assert.match(html,/\.inventory-stock-table td\[data-label\]::before/);assert.match(html,/\.inv-period-table td:before/);
+});

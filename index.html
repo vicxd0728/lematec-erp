@@ -1874,6 +1874,13 @@ html[data-theme="warm"] #themePanel{
 .inv-report-tabs button,.inv-report-controls button{min-height:44px}
 .inv-report-controls label{display:flex;flex-direction:column;gap:4px;font-size:.8rem}
 .inv-period-table{min-width:1500px}
+.inventory-table-hint{font-size:.75rem;color:var(--text2);padding:6px 12px}
+@media(min-width:641px){
+ .table-wrap.inventory-scroll-table{max-height:68vh;overflow:auto;isolation:isolate;overscroll-behavior:contain}
+ .inventory-scroll-table th{position:sticky;top:0;z-index:3;background:var(--bg3);box-shadow:0 1px 0 var(--border)}
+ .inventory-scroll-table:focus-visible{outline:2px solid var(--cyan2);outline-offset:2px}
+}
+@media(max-width:640px){.inventory-table-hint{display:none}}
 .inventory-row-select{text-align:center}
 @media(max-width:640px){
  .inventory-stock-table,.inventory-stock-table tbody{display:block;width:100%;min-width:0!important}
@@ -18323,7 +18330,7 @@ function inventoryReportValue(row,key){
 }
 function inventoryReportTable(rows,actions=true){
   const columns=inventoryReportColumns();
-  return `<div class="table-wrap"><table class="inv-period-table"><thead><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}${actions?'<th>明細</th>':''}</tr></thead><tbody>${rows.map(r=>`<tr>${columns.map(([key,label])=>`<td data-label="${label}">${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}${actions?`<td data-label="明細"><button class="btn btn-ghost btn-sm" data-key="${escapeHtml(r.key)}" onclick="openInventoryPeriodDetails(this.dataset.key)">查看 ${r.count} 筆</button></td>`:''}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="inventory-table-hint">表格內可上下／左右捲動，欄位標題會固定顯示。</div><div class="table-wrap inventory-scroll-table" tabindex="0" role="region" aria-label="期間進出總表，可捲動查看完整欄位"><table class="inv-period-table"><thead><tr>${columns.map(([,label])=>`<th>${label}</th>`).join('')}${actions?'<th>明細</th>':''}</tr></thead><tbody>${rows.map(r=>`<tr>${columns.map(([key,label])=>`<td data-label="${label}">${escapeHtml(inventoryReportValue(r,key))}</td>`).join('')}${actions?`<td data-label="明細"><button class="btn btn-ghost btn-sm" data-key="${escapeHtml(r.key)}" onclick="openInventoryPeriodDetails(this.dataset.key)">查看 ${r.count} 筆</button></td>`:''}</tr>`).join('')}</tbody></table></div>`;
 }
 function renderInventoryPeriodReport(){
   const s=inventoryReportState(),d=s.data;
@@ -18367,8 +18374,22 @@ function inventoryReportWorkbookData(d){
     details:[...meta,['交易識別','台灣時間','倉庫','料號','名稱','單位','類型','來源類型','增減','異動前','異動後','來源單號','原因'],...d.transactions.map(t=>[t.id,new Date(t.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}),t.warehouses?.name||t.warehouses?.code||t.warehouse_id,t.materials?.sku||t.material_id,t.materials?.name||'',t.materials?.unit||'',t.transaction_type,t.source_type,...[t.quantity_delta,t.quantity_before,t.quantity_after].map(v=>v===null||v===undefined||!Number.isFinite(Number(v))?'待核對':Number(v)),t.source_number,t.reason].map(v=>typeof v==='number'?v:safe(v)))]};
 }
 async function exportInventoryPeriodReport(){
-  const d=inventoryReportState().data;if(!d)return;
-  try{await ensureXlsxLoaded();const data=inventoryReportWorkbookData(d),book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(data.summary),'料號彙總');XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(data.details),'逐筆明細');XLSX.writeFile(book,'庫存進出_'+d.start+'_'+d.end+'.xlsx');}catch(e){showToast('Excel 匯出失敗，請重試','warn');}
+  const s=inventoryReportState(),d=s.data;if(!d||s.exportBusy)return;
+  s.exportBusy=true;
+  try{
+    await ensureXlsxLoaded();
+    const data=inventoryReportWorkbookData(d),book=XLSX.utils.book_new();
+    const summary=XLSX.utils.aoa_to_sheet(data.summary),details=XLSX.utils.aoa_to_sheet(data.details);
+    summary['!cols']=[{wch:16},{wch:30},{wch:36},{wch:8},...Array.from({length:12},()=>({wch:16})),{wch:32}];
+    details['!cols']=[{wch:38},{wch:24},{wch:16},{wch:30},{wch:36},{wch:8},{wch:18},{wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:44}];
+    summary['!autofilter']={ref:'A5:Q'+data.summary.length};
+    details['!autofilter']={ref:'A5:M'+data.details.length};
+    XLSX.utils.book_append_sheet(book,summary,'料號彙總');
+    XLSX.utils.book_append_sheet(book,details,'逐筆明細');
+    XLSX.writeFile(book,'庫存進出_'+d.start+'_'+d.end+'.xlsx',{bookType:'xlsx',compression:true});
+    showToast('已送出 Excel 下載；若點開無反應，請先開 Excel，再從「檔案 → 開啟」選取下載檔','ok');
+  }catch(e){showToast('Excel 匯出未完成：'+(e.message||'請檢查下載權限後重試'),'warn');}
+  finally{s.exportBusy=false;}
 }
 function buildInventoryPeriodPrint(d){
   const columns=inventoryReportColumns(),title='LEMATEC 庫存期間進出總表';
@@ -18565,7 +18586,8 @@ function renderInventory(){
       <span class="panel-title">料件主檔 <span class="badge">${total}</span></span>
       <div style="display:flex;gap:4px">${pageBtns()}</div>
     </div>
-    <div class="table-wrap">
+    <div class="inventory-table-hint">表格內可上下／左右捲動，欄位標題會固定顯示。</div>
+    <div class="table-wrap inventory-scroll-table" tabindex="0" role="region" aria-label="倉庫庫存主檔，可捲動查看完整欄位">
     <table class="inventory-stock-table">
       <tr>
         ${usingSupabase&&canEditStock?`<th style="width:42px;text-align:center"><label style="display:inline-flex;align-items:center;min-height:44px;min-width:32px"><input type="checkbox" aria-label="勾選本頁料件" ${allPageSelected?'checked':''} ${selectablePageData.length?'':'disabled'} onchange="toggleInvVisibleSelection(this.checked)" style="width:16px;height:16px;accent-color:var(--green)"></label></th>`:''}
