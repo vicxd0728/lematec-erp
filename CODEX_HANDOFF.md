@@ -1,5 +1,11 @@
 # LEMATEC ERP Codex Handoff
 
+## Canva warm-grey finish 2026-11-03
+
+- User approved direct deployment of the visual theme while retaining UI architecture and operation positions. Rename the existing industrial option to 精密暖灰; preserve its ID and saved preference.
+- Reference draft: https://canva.link/z002crwcz5h40se ; detail proposal: https://canva.link/u337b19xfpea7su . This release applies only subtle surface borders/shadows, charcoal selected labels with orange inset underline and keyboard focus in the industrial theme. All new CSS is paint-only, scoped to industrial; no layout or business-flow changes.
+- Customer matching, shortage explanation and safe-retry mockups remain proposals, not new functionality in this release. Existing transaction protections remain untouched. CSS URL v5, SW81; browser visual acceptance remains pending, source tests and production asset readback are separate evidence.
+
 ## Palette-only industrial option 2026-11-03
 
 - User rejected the large layout concept as unfamiliar and authorized only palette/theme-picker changes, then deployment. Do not apply the concept's table, header or mobile-card redesign.
