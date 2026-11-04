@@ -2,7 +2,8 @@
 const fs=require('node:fs'),http=require('node:http'),path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const html=fs.readFileSync(process.env.ERP_QA_SOURCE||path.join(root,'index.html'),'utf8');
-const css=fs.readFileSync(process.env.ERP_QA_CSS||path.join(root,'erp-themes.css'),'utf8');
+// Inline the exact local WebP bytes so the no-API fixture can render deployed material assets.
+const css=fs.readFileSync(process.env.ERP_QA_CSS||path.join(root,'erp-themes.css'),'utf8').replace(/url\("\.\/(icons\/themes\/[a-z-]+-v1\.webp)"\)/g,(_,asset)=>'url("data:image/webp;base64,'+fs.readFileSync(path.join(root,asset)).toString('base64')+'")');
 const cut=(a,b)=>{const start=html.indexOf(a),end=html.indexOf(b,start);if(start<0||end<=start)throw Error('Missing '+a);return html.slice(start,end);};
 const style=html.match(/<style>[\s\S]*?<\/style>/)[0];
 const picker=cut('const THEMES=','const ADMIN_ROLE_PIN_KEY=');

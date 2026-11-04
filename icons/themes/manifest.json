@@ -1,0 +1,338 @@
+[
+  {
+    "theme": "tech",
+    "family": "metal",
+    "kind": "header",
+    "file": "icons/themes/tech-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 2404,
+    "sha256": "0e5f6372b5c7729444c663aff0bd0edeccc5fd975de0997899ae635c7015a742"
+  },
+  {
+    "theme": "tech",
+    "family": "metal",
+    "kind": "detail",
+    "file": "icons/themes/tech-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3520,
+    "sha256": "d8156cff8c16681506c6c7f99f7717caceeb467e731b9f36b72d4d4e63b8d039"
+  },
+  {
+    "theme": "premium",
+    "family": "metal",
+    "kind": "header",
+    "file": "icons/themes/premium-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1546,
+    "sha256": "59ab1b3a60886d1f733155581b6fca81b23e54c17a2127b2d1997891535edc44"
+  },
+  {
+    "theme": "premium",
+    "family": "metal",
+    "kind": "detail",
+    "file": "icons/themes/premium-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3560,
+    "sha256": "0e72c5265f75a6d1b823e109ace4973bdd5655b87b3c4e6b4609a7926b467f7c"
+  },
+  {
+    "theme": "board",
+    "family": "metal",
+    "kind": "header",
+    "file": "icons/themes/board-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 2928,
+    "sha256": "fcea725a66d0b07c515bdafa11b6494f3de6a1a3812d910b1495ab8125b89565"
+  },
+  {
+    "theme": "board",
+    "family": "metal",
+    "kind": "detail",
+    "file": "icons/themes/board-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3966,
+    "sha256": "961a6aa0dcde289df14ab9de5c8527633daebed5a3bddd7aed3a8a23c584ed15"
+  },
+  {
+    "theme": "light",
+    "family": "paper",
+    "kind": "header",
+    "file": "icons/themes/light-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1428,
+    "sha256": "997bf89a928f2160f6bfc5a4c53c77adf9b3cbf5a4da73c89be13a42296ae5bc"
+  },
+  {
+    "theme": "light",
+    "family": "paper",
+    "kind": "detail",
+    "file": "icons/themes/light-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 11722,
+    "sha256": "05123ae445bb42c63d5bbd58250bf46ef8317a6c27176ddfa48d8dfb8a5e7e92"
+  },
+  {
+    "theme": "warm",
+    "family": "arch",
+    "kind": "header",
+    "file": "icons/themes/warm-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 710,
+    "sha256": "78a8b1f095b64a97e613af637dc8adc9e5fc1f2beb2bf7b1e1c87d1891838bc4"
+  },
+  {
+    "theme": "warm",
+    "family": "arch",
+    "kind": "detail",
+    "file": "icons/themes/warm-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3062,
+    "sha256": "255698e047afd90f8d0d07a94f9a95c8b7072167bf8e3347dfb88c4a8e21a533"
+  },
+  {
+    "theme": "ocean",
+    "family": "ocean",
+    "kind": "header",
+    "file": "icons/themes/ocean-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1294,
+    "sha256": "e00c0f2376a39789bee3444f2a74d1b5e775dc579af1a8af94c3f92aba1c442e"
+  },
+  {
+    "theme": "ocean",
+    "family": "ocean",
+    "kind": "detail",
+    "file": "icons/themes/ocean-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 2270,
+    "sha256": "516fbb1feb8252fadccf0bcb0a378fb15fedf432460e8f9637c5a1a075ddfdc3"
+  },
+  {
+    "theme": "violet",
+    "family": "orbit",
+    "kind": "header",
+    "file": "icons/themes/violet-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1550,
+    "sha256": "ac54f15f596c913eea0a5a56cc37f02b2dac2af3f1a04e560470e185df8e1431"
+  },
+  {
+    "theme": "violet",
+    "family": "orbit",
+    "kind": "detail",
+    "file": "icons/themes/violet-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 2180,
+    "sha256": "8ed0673d248c79f66abd59b8d6c1597e750f9a8534b50b714e65713231642658"
+  },
+  {
+    "theme": "amber",
+    "family": "arch",
+    "kind": "header",
+    "file": "icons/themes/amber-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1470,
+    "sha256": "c34a05ddc014ba4a2cf28feda405f636e91ba1082ed3a8abab714673319764b2"
+  },
+  {
+    "theme": "amber",
+    "family": "arch",
+    "kind": "detail",
+    "file": "icons/themes/amber-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3992,
+    "sha256": "aa6cec1a5724719de2ceca86c6b5cdf9cd6a1f5d3c86ca2674764b71eaba4383"
+  },
+  {
+    "theme": "titanium",
+    "family": "metal",
+    "kind": "header",
+    "file": "icons/themes/titanium-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1522,
+    "sha256": "f8c20c8aee65fa982fe7fecdbad1d55a25f790e8ab4189dce9d7d1af624fee95"
+  },
+  {
+    "theme": "titanium",
+    "family": "metal",
+    "kind": "detail",
+    "file": "icons/themes/titanium-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3244,
+    "sha256": "92f6c6f9df12cab844a0149ef61a0c2e6317dd88d0846fcb24e4726755310ba5"
+  },
+  {
+    "theme": "rose",
+    "family": "arch",
+    "kind": "header",
+    "file": "icons/themes/rose-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1526,
+    "sha256": "9cad8738b6e789ea03db90ca29fbc79af1f960344c004baf6eeb89db785b0449"
+  },
+  {
+    "theme": "rose",
+    "family": "arch",
+    "kind": "detail",
+    "file": "icons/themes/rose-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3540,
+    "sha256": "82a4ff1470c39a19a2075824d7c8ba14c8be442308703b0bfbc53ecbc95d4e1c"
+  },
+  {
+    "theme": "nature",
+    "family": "ink",
+    "kind": "header",
+    "file": "icons/themes/nature-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1286,
+    "sha256": "541723281cc4444f54892898fd24569d61f906d9234720acb3629a818f3ba7a2"
+  },
+  {
+    "theme": "nature",
+    "family": "ink",
+    "kind": "detail",
+    "file": "icons/themes/nature-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 8556,
+    "sha256": "84eac16559904ea916d1c8bbcee6b7e0f3a2848820cbb2b8c03fed926f58818c"
+  },
+  {
+    "theme": "minimal",
+    "family": "metal",
+    "kind": "header",
+    "file": "icons/themes/minimal-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 1522,
+    "sha256": "982fdab1ab9f467ba0b91f86ce2b587b1e6d04966ae6704139539d57fad79db9"
+  },
+  {
+    "theme": "minimal",
+    "family": "metal",
+    "kind": "detail",
+    "file": "icons/themes/minimal-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 3464,
+    "sha256": "fbfe148cd00133151f0b899f64a80d784b23cd210ec0d84e5d1256a16602853e"
+  },
+  {
+    "theme": "ink",
+    "family": "ink",
+    "kind": "header",
+    "file": "icons/themes/ink-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 710,
+    "sha256": "907b7cd7d67786d64ca093180a320fc6a2ff20f862fd75a10898def1ade4d519"
+  },
+  {
+    "theme": "ink",
+    "family": "ink",
+    "kind": "detail",
+    "file": "icons/themes/ink-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 7028,
+    "sha256": "1db658aa5f1d264b949ad47766b3db7454c7bbc8d5ec544f311b3f4df764ee96"
+  },
+  {
+    "theme": "industrial",
+    "family": "paper",
+    "kind": "header",
+    "file": "icons/themes/industrial-header-v1.webp",
+    "size": [
+      1024,
+      342
+    ],
+    "bytes": 706,
+    "sha256": "a5fb8a621572db095e129a0d750e8acfde0c5eadf96582194bc9004c7e5daad3"
+  },
+  {
+    "theme": "industrial",
+    "family": "paper",
+    "kind": "detail",
+    "file": "icons/themes/industrial-detail-v1.webp",
+    "size": [
+      320,
+      240
+    ],
+    "bytes": 10812,
+    "sha256": "d613b5c74b6e67f70d412f1eb57260d2810087ba5424ea4b870a66cb4885ba99"
+  }
+]
