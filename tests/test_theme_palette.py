@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 import unittest
 from urllib.parse import unquote
@@ -30,6 +31,19 @@ class ThemePaletteTest(unittest.TestCase):
                 self.assertTrue(el.tag.endswith('svg'))
                 for forbidden in ['<script','<foreignObject','href=','<animate','animation:']:
                     self.assertNotIn(forbidden,svg)
+    def test_selected_rows_keep_primary_secondary_and_stock_status_text_readable(self):
+        # Check the emitted opaque surface, not just its untinted palette inputs.
+        colors=re.findall(r'--selection-bg:rgb\((\d+),(\d+),(\d+)\)',theme.build())
+        self.assertEqual(len(colors),len(theme.THEMES))
+        for row,rgb in zip(theme.THEMES,colors):
+            key,_,surface,inset,accent,_,muted,_=row
+            light=key in ['light','warm','ink','industrial']
+            background='#'+''.join(f'{int(v):02x}' for v in rgb)
+            foregrounds=[('#252a2d' if key=='industrial' else '#19283b') if light else '#f0f5fa',muted,
+                         '#187047' if light else '#9ce0bc','#a82737' if light else '#ffa4ae']
+            for color in foregrounds:
+                with self.subTest(theme=key,foreground=color):
+                    self.assertGreaterEqual(contrast(color,background),4.5)
     def test_published_stylesheet_matches_generator(self):
         self.assertEqual((ROOT/'erp-themes.css').read_text(encoding='utf8'),theme.build())
 

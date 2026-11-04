@@ -86,6 +86,11 @@ def build():
         light=key in ['light','warm','ink','industrial'];text='#252a2d' if key=='industrial' else '#19283b' if light else '#f0f5fa'
         border='#b8bab4' if key=='industrial' else '#a8b6c6' if key=='light' else '#b9aa94' if light else '#526376'
         selector='html:not([data-theme])' if key=='tech' else f'html[data-theme="{key}"]'
+        accent_rgb=tuple(int(accent[i:i+2],16) for i in (1,3,5))
+        surface_rgb=tuple(int(surface[i:i+2],16) for i in (1,3,5))
+        tint=.08 if light else .12
+        selection='rgb('+','.join(str(round(a*tint+s*(1-tint))) for a,s in zip(accent_rgb,surface_rgb))+')'
+        out.append(selector+'{--focus-halo:rgba('+','.join(map(str,accent_rgb))+',.18);--selection-bg:'+selection+';}')
         out.append(selector+'{'+f'color-scheme:{"light" if light else "dark"};--bg:{bg};--bg2:{surface};--bg3:{inset};--bg4:{inset};--bg5:{surface};--border:{border};--border2:{border};--border3:{accent};--text:{text};--text2:{muted};--text3:{muted};--blue:{action};--blue2:{accent};--cyan:{action};--cyan2:{accent};--brand:{action};--brand2:{action};--green:{"#187047" if light else "#79d6ad"};--green2:{"#187047" if light else "#9ce0bc"};--red:{"#a82737" if light else "#ffa4ae"};--red2:{"#a82737" if light else "#ffa4ae"};--yellow:{"#855008" if light else "#f0c77b"};--amber:{"#855008" if light else "#f0c77b"};--purple:{"#6b459f" if light else "#cbb4f3"};--nav-bg:{surface};--surface-glass:{surface};--surface-glass-2:{inset};--line-soft:{border};--theme-scene:{scene(kind,accent)};--theme-illustration:{illustration(kind,accent,light)};--theme-soft:{"rgba(40,75,110,.07)" if light else "rgba(160,190,215,.08)"};--shadow:0 8px 28px '+('rgba(30,45,65,.08)' if light else 'rgba(0,0,0,.2)')+';--radius-card:14px;}')
     out.append('''
 /* Strong bounded selectors override the legacy shared hard-coded dark layer. */
@@ -158,6 +163,11 @@ html #themePanel{background:var(--bg2)!important;box-shadow:var(--shadow)}
 #themePanel [data-theme-close]{min-width:44px}
 #themePanel .theme-scene-toggle{display:flex;align-items:center;gap:10px;min-height:48px;margin-top:14px;color:var(--text2);font-size:.85rem}
 #themePanel input[type="checkbox"]{width:20px;height:20px;accent-color:var(--brand)}
+/* Theme-aware operational states: paint only, no geometry or transaction changes. */
+html .btn:disabled{opacity:1!important;color:var(--text2)!important;background:var(--bg3)!important;border-color:var(--border2)!important;box-shadow:none!important;text-shadow:none;cursor:not-allowed}
+html .inp:focus{border-color:var(--cyan2)!important;box-shadow:0 0 0 3px var(--focus-halo)!important;outline:2px solid var(--cyan2);outline-offset:2px}
+html .inventory-stock-table tr:has(input[type="checkbox"]:checked) td{background:var(--selection-bg)!important}
+html .inventory-stock-table tr:has(input[type="checkbox"]:checked) td:first-child{box-shadow:inset 3px 0 var(--cyan2)}
 /* Canva-reviewed warm industrial finish: paint only; preserve all component geometry. */
 html[data-theme="industrial"]{--border:#c9ccc5;--border2:#858d82;--theme-soft:rgba(167,65,25,.045);--shadow:0 2px 8px rgba(37,42,45,.045),0 12px 28px rgba(37,42,45,.025)}
 html[data-theme="industrial"] :is(.tab-btn.active,.module-tab.active,.qc-tab.active,.filter-chip.active){color:var(--text)!important;background:var(--bg2)!important;box-shadow:inset 0 -3px 0 var(--brand)}
