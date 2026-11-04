@@ -45,6 +45,16 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 - 工作區證據：`營運管理/outputs/all-theme-frames-20261104/{matrix,states}.json`、跨頁視覺 contact sheets；明確 C端最終畫面為 `premium-corder-final-desktop.png`／`premium-corder-final-mobile.png`。合成fixture限制connect-src與form-action為none，正式業務寫入0。其他28張為自動巡檢跨頁視覺快照，不逐一標成C端畫面。
 - CSS query v13、SW cache v91；正式版本／SHA／38個素材讀回以 repo `output/all-theme-frames-20261104/release.json` 為準。
 
+## 科技青黛深化：深空航控（2026-11-04）
+
+- **持續授權**：Vic 明確指示此類主題視覺升級可完成設計、桌機手機驗收後直接部署，先不逐次詢問。適用於不更動架構、功能位置／順序、資料權威、權限與業務流程的造型／素材變更；不擴大正式庫存操作權限。概念稿不再被當成必須另問一次的批准步驟，仍須做實作及發布驗收。
+- 以完整「深空航控」稿深化既有 `premium`／科技青黛，不新增第二個主題。保留14主題無獨立圖格的成果，其他13主題造型不改。
+- 素材與構成：認可稿的無字區裁切為256×64金屬材質（656 bytes），原生128×128固定角區SVG面板、48×48控制框；不是把整張稿當功能頁。雙層嵌入框、階梯邊緣、統計讀數模組、導覽／選取控制、暗色輸入槽形成共同語言。手機框邊縮至16px；真實DOM文字／數字／互動保留。
+- 驗收發現九宮格斜線跨入可伸縮區，已把斜角限制在固定角區。框體pointer-events:none；切角控制以可見內框顯示鍵盤焦點；原生disabled、勾選／取消、選取列與背景關閉維持。
+- 比對方法修正：viewport只作用目前選取分頁，先分別完成舊／新頁尺寸，並在fixture停用進場動畫後比對完成版面，避免把過渡幀或錯尺寸當成產品變動。8組（1280×900／390×844 × C端／訂單／庫存／元件樣本）控制項名稱、順序、x／y、寬高逐項完全相同；無整頁溢出及fixture errors。手機為Chrome viewport；未做實體Safari或正式交易驗收。
+- 證據：工作區 `營運管理/outputs/deep-space-implementation-20261104/{geometry,states}.json`、desktop.png、mobile.png；原稿／brief另在 `deep-space-console-concept-20261104/`。合成fixture CSP connect-src／form-action none，正式庫存／業務寫入0。正式版本／SHA／資產讀回見 repo `output/deep-space-20261104/release.json`。
+- CSS query v14、SW cache v92。資產manifest及生成一致性納入CI；本批仍不是14主題都完成同等深度的整體重製。
+
 ## 後續批次（尚未完成）
 
 1. 精密暖灰其他常用頁面的細節與真實角色唯讀驗收、必要的手機簡化和空／錯誤狀態。

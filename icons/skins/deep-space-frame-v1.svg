@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+<defs><linearGradient id="metal" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse"><stop stop-color="#8ca4a8"/><stop offset=".07" stop-color="#304d58"/><stop offset=".23" stop-color="#192e38"/><stop offset=".85" stop-color="#1b343e"/><stop offset="1" stop-color="#4b6971"/></linearGradient></defs>
+<path d="M19 2H96L104 10H111L126 25V102L102 126H20L2 109V19Z M22 13L12 23V104L24 116H98L116 98V29L107 21H104L96 13Z" fill="url(#metal)" fill-rule="evenodd"/>
+<path d="M19 2H96L104 10H111L126 25V102L102 126H20L2 109V19Z" stroke="#a4bdbe" stroke-opacity=".7"/>
+<path d="M21 7H96L104 15H109L121 27V100L100 121H22L7 106V21Z" stroke="#10242e" stroke-width="2"/>
+<path d="M22 13L12 23V104L24 116H98L116 98V29L107 21H104L96 13Z" stroke="#668b92" stroke-opacity=".65"/>
+<path d="M23 16H96M15 24V103M25 113H97" stroke="#030f17" stroke-width="2"/>
+<path d="M19 2L2 19V28M111 10L126 25V33M126 94V102L102 126H94" stroke="#a6c4c6" stroke-opacity=".75"/>
+<path d="M119 103L103 119" stroke="#5badae" stroke-width="3"/>
+<path d="M106 18l4 4m-8-4 4 4" stroke="#081b24" stroke-width="2"/>
+</svg>

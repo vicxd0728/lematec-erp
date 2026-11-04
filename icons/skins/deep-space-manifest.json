@@ -1,0 +1,20 @@
+{
+  "source": "Approved Deep Space Operations concept; original material crop, native responsive frames; no text baked into runtime images",
+  "assets": [
+    {
+      "file": "icons/skins/deep-space-metal-v1.webp",
+      "bytes": 656,
+      "sha256": "0b25b26482ab25b4cd5c719bd0ba076f4972c9bfcf914ff5e5c0fa5cd7260ac8"
+    },
+    {
+      "file": "icons/skins/deep-space-frame-v1.svg",
+      "bytes": 1187,
+      "sha256": "216d4493ecfe1a99c370c97475b23f44d1adcb1dd19356d65ffe6272d793ab8f"
+    },
+    {
+      "file": "icons/skins/deep-space-control-v1.svg",
+      "bytes": 333,
+      "sha256": "ec97959f9ff9f6bd8c7930bc7fc3a7bbd4199ac5b8b4feb537563441e52eb724"
+    }
+  ]
+}

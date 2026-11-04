@@ -44,6 +44,25 @@ class IntegratedThemeSkinsTest(unittest.TestCase):
                 else:
                     self.assertEqual(ET.fromstring(data).attrib['viewBox'],'0 0 96 96')
 
+    def test_deep_space_pack_is_complete_small_and_safe(self):
+        manifest=json.loads((ROOT/'icons/skins/deep-space-manifest.json').read_text(encoding='utf8'))
+        self.assertEqual(len(manifest['assets']),3)
+        self.assertLess(sum(a['bytes'] for a in manifest['assets']),12_000)
+        css=(ROOT/'erp-themes.css').read_text(encoding='utf8')
+        for item in manifest['assets']:
+            data=(ROOT/item['file']).read_bytes()
+            self.assertEqual(len(data),item['bytes'])
+            self.assertEqual(hashlib.sha256(data).hexdigest(),item['sha256'])
+            self.assertIn('./'+item['file'],css)
+            if item['file'].endswith('.webp'):
+                self.assertEqual(data[:4],b'RIFF')
+                self.assertEqual(data[8:12],b'WEBP')
+            else:
+                el=ET.fromstring(data)
+                self.assertEqual(el.attrib['width'],el.attrib['height'])
+                for forbidden in ['<script','href=','<foreignObject','<animate']:
+                    self.assertNotIn(forbidden,data.decode())
+
     def test_new_svg_assets_are_safe_and_small(self):
         names=['tech-traces','tech-frame','ink-landscape','ink-frame']
         total=0
