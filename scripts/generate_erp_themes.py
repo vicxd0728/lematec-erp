@@ -209,6 +209,23 @@ html[data-theme="industrial"] :is(.module-pill,.order-status-chip){background:li
 html[data-theme="industrial"] .order-status-chip.active{color:var(--brand)!important;border-color:var(--brand)!important;box-shadow:inset 0 -2px 0 var(--brand)}
 html[data-theme="industrial"][data-scene="off"] :is(.module-brief,.analytics-hero){background-image:none!important}
 html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:none!important}
+/* Approved precision-instrument language: proportional corner pieces + integrated linework. */
+html[data-theme="industrial"]{--instrument-frame:url("./icons/skins/industrial-frame-v1.svg");--instrument-control:url("./icons/skins/industrial-control-v1.svg");--instrument-art:url("./icons/skins/industrial-linework-v1.webp")}
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero,.panel,.order-action-panel,.source-strip,.picking-role-note){position:relative;border-radius:0;border-color:transparent!important;background-color:#f7f4ec!important;box-shadow:inset 0 0 0 1px #c4bcad,0 3px 7px rgba(67,56,38,.09)}
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero){background-image:linear-gradient(90deg,#faf8f2 0%,rgba(250,248,242,.98) 36%,rgba(250,248,242,.42) 75%,rgba(250,248,242,.18)),var(--instrument-art),var(--header-art)!important;background-size:100% 100%,auto 310px,cover!important;background-position:center,right bottom,center!important;background-repeat:no-repeat!important}
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero,.panel,.order-action-panel,.source-strip,.picking-role-note)::after{content:"";position:absolute;inset:0;border:14px solid transparent;border-image:var(--instrument-frame) 20 / 14px / 0 stretch;border-radius:0;pointer-events:none;z-index:1}
+html[data-theme="industrial"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:repeating-linear-gradient(90deg,#a79b88 0 1px,transparent 1px 6px),linear-gradient(#f8f5ed,#eee8dc)!important;background-size:42px 6px,100% 100%!important;background-position:right 24px top 10px,center!important;background-repeat:no-repeat!important;box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 #c5bcac}
+html[data-theme="industrial"] :is(.btn,.tab-btn,.module-tab,.qc-tab,.filter-chip,.order-status-chip,.module-pill){border-radius:0;clip-path:polygon(6px 0,calc(100% - 6px) 0,100% 6px,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 6px);box-shadow:inset 0 0 0 1px #b9ad99,inset 0 0 0 3px rgba(255,255,255,.7)}
+html[data-theme="industrial"] :is(.btn-ghost,.tab-btn,.module-tab,.qc-tab,.filter-chip,.order-status-chip,.module-pill){background:linear-gradient(#fffdf8,#ece7db)!important}
+html[data-theme="industrial"] :is(.btn,.tab-btn,.module-tab,.qc-tab,.filter-chip,.order-status-chip,.module-pill){position:relative}
+html[data-theme="industrial"] :is(.btn,.tab-btn,.module-tab,.qc-tab,.filter-chip,.order-status-chip,.module-pill)::after{content:"";position:absolute;inset:0;border:6px solid transparent;border-image:var(--instrument-control) 7 / 6px / 0 stretch;pointer-events:none}
+html[data-theme="industrial"] .order-status-chip.active{background:linear-gradient(#ae491b,#963b17)!important;color:#fff!important;box-shadow:inset 0 0 0 1px #843411,inset 0 0 0 3px rgba(255,255,255,.6)}
+html[data-theme="industrial"] .inp{border-radius:3px;box-shadow:inset 0 1px 3px rgba(81,65,40,.07)}
+html[data-theme="industrial"] :is(.btn,.tab-btn,.module-tab,.qc-tab,.filter-chip,.order-status-chip):focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand),inset 0 0 0 4px #fff}
+html[data-theme="industrial"] :is(.btn-primary,.btn-blue,.order-status-chip.active):focus-visible{box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 4px #733414}
+@media(max-width:640px){html[data-theme="industrial"] :is(.module-brief,.analytics-hero){background-size:100% 100%,auto 220px,cover!important;background-image:linear-gradient(90deg,#faf8f2 0%,rgba(250,248,242,.97) 68%,rgba(250,248,242,.8)),var(--instrument-art),var(--header-art)!important}}
+html[data-theme="industrial"][data-scene="off"] :is(.module-brief,.analytics-hero){background-image:none!important}
+html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:linear-gradient(#f8f5ed,#eee8dc)!important;background-size:100% 100%!important;background-position:center!important}
 @media print{html body{background:#fff!important}}
 ''')
     return '\n'.join(out)

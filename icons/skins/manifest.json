@@ -1,0 +1,17 @@
+[
+  {
+    "file": "icons/skins/industrial-control-v1.svg",
+    "bytes": 229,
+    "sha256": "4fe65920e1e4b9e5d42e43e7de5fb0b9c751dcc435bfa657fa5dc159d832f58e"
+  },
+  {
+    "file": "icons/skins/industrial-frame-v1.svg",
+    "bytes": 437,
+    "sha256": "a675695d674f1d2370238e6ec5c8894868e3cab195a9d5fed1125a6c296f721e"
+  },
+  {
+    "file": "icons/skins/industrial-linework-v1.webp",
+    "bytes": 106924,
+    "sha256": "bbb3429a36aeaa93d33f632c25fde288774bbbacb4d8c6943346caff13bb7b41"
+  }
+]
