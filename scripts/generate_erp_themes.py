@@ -199,6 +199,16 @@ html[data-theme="industrial"] .inventory-stock-table tr:has(input[type="checkbox
  html[data-theme="ink"] body{background-size:440px auto!important;background-position:right 120px!important}
 }
 @media(prefers-reduced-motion:reduce){html body{scroll-behavior:auto}html .kpi-card,html .theme-option{transition:none!important;animation:none!important}}
+/* Industrial integrated skin: shared backplates and inset frames, never a separate art tile. */
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr);border-radius:12px;border-color:#b9beb3!important;background-image:linear-gradient(110deg,rgba(255,255,255,.94),rgba(255,255,255,.86)),var(--detail-art)!important;background-size:100% 100%,cover!important;background-position:center!important;box-shadow:inset 3px 0 0 var(--brand),inset 0 1px 0 #fff,0 3px 12px rgba(37,42,45,.035)}
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero)::before{content:none!important;display:none!important}
+html[data-theme="industrial"] :is(.module-brief,.analytics-hero)::after{content:"";position:absolute;inset:5px;border:1px solid rgba(255,255,255,.8);border-radius:8px;pointer-events:none}
+html[data-theme="industrial"] :is(.panel,.order-action-panel){border-radius:12px;border-color:#b9beb3!important;box-shadow:inset 0 1px 0 #fff,0 3px 12px rgba(37,42,45,.035)}
+html[data-theme="industrial"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:linear-gradient(90deg,rgba(167,65,25,.045),rgba(167,65,25,0) 65%),var(--header-art)!important;background-size:100% 100%,cover!important;box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 #d5d8cf}
+html[data-theme="industrial"] :is(.module-pill,.order-status-chip){background:linear-gradient(#fff,#f2f2ec)!important;border-color:#bfc4b9!important;color:var(--text2)}
+html[data-theme="industrial"] .order-status-chip.active{color:var(--brand)!important;border-color:var(--brand)!important;box-shadow:inset 0 -2px 0 var(--brand)}
+html[data-theme="industrial"][data-scene="off"] :is(.module-brief,.analytics-hero){background-image:none!important}
+html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:none!important}
 @media print{html body{background:#fff!important}}
 ''')
     return '\n'.join(out)
