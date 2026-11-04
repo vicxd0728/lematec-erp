@@ -163,6 +163,12 @@ html[data-theme="industrial"]{--border:#c9ccc5;--border2:#858d82;--theme-soft:rg
 html[data-theme="industrial"] :is(.tab-btn.active,.module-tab.active,.qc-tab.active,.filter-chip.active){color:var(--text)!important;background:var(--bg2)!important;box-shadow:inset 0 -3px 0 var(--brand)}
 html[data-theme="industrial"] :is(.ops-hero,.ops-card,.dash-hero-main,.module-brief,.analytics-hero){box-shadow:var(--shadow)}
 html[data-theme="industrial"] :is(.inp,.btn,.tab-btn,.module-tab,.qc-tab,.filter-chip,.theme-option):focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+/* State finish: readable unavailable actions, one focus hue, and visible batch selection. */
+html[data-theme="industrial"] .btn:disabled{opacity:1!important;color:#666b64!important;background:#e5e7e0!important;border-color:#a5aba1!important;box-shadow:none!important;text-shadow:none;cursor:not-allowed}
+html[data-theme="industrial"] .inp{background:#fff!important}
+html[data-theme="industrial"] .inp:focus{border-color:var(--brand)!important;box-shadow:0 0 0 3px rgba(167,65,25,.14)!important;outline:2px solid var(--brand);outline-offset:2px}
+html[data-theme="industrial"] .inventory-stock-table tr:has(input[type="checkbox"]:checked) td{background:#fbefe7!important}
+html[data-theme="industrial"] .inventory-stock-table tr:has(input[type="checkbox"]:checked) td:first-child{box-shadow:inset 3px 0 var(--brand)}
 @media(max-width:640px){html body{background-size:auto 100vh!important}#themePanel{top:76px!important;max-height:calc(100dvh - 90px)!important}.topbar-brand{letter-spacing:2px!important}html[data-theme="board"] #mainContent{padding:14px}html[data-theme="board"] .kpi-num{font-size:48px}}
 @media(max-width:640px){
  html :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr) 106px;gap:12px;padding:18px 16px}
