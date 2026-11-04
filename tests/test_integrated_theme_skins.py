@@ -81,6 +81,25 @@ class IntegratedThemeSkinsTest(unittest.TestCase):
                         self.assertNotIn('http',value)
         self.assertLess(total,12_000)
 
+    def test_archive_marine_pack_is_complete_small_and_safe(self):
+        manifest=json.loads((ROOT/'icons/skins/archive-marine-manifest.json').read_text(encoding='utf8'))
+        self.assertEqual(len(manifest['assets']),7)
+        self.assertLess(sum(a['bytes'] for a in manifest['assets']),40_000)
+        css=(ROOT/'erp-themes.css').read_text(encoding='utf8')
+        for item in manifest['assets']:
+            data=(ROOT/item['file']).read_bytes()
+            self.assertEqual(len(data),item['bytes'])
+            self.assertEqual(hashlib.sha256(data).hexdigest(),item['sha256'])
+            self.assertIn('./'+item['file'],css)
+            if item['file'].endswith('.webp'):
+                self.assertEqual(data[:4],b'RIFF')
+                self.assertEqual(data[8:12],b'WEBP')
+            else:
+                el=ET.fromstring(data)
+                self.assertIn(el.attrib['viewBox'],['0 0 96 96','0 0 48 48'])
+                for forbidden in ['<script','href=','<foreignObject','<animate']:
+                    self.assertNotIn(forbidden,data.decode())
+
     def test_generated_css_matches_source(self):
         spec=importlib.util.spec_from_file_location('theme_generator',ROOT/'scripts/generate_erp_themes.py')
         generator=importlib.util.module_from_spec(spec)

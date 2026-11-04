@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none">
+<defs><linearGradient id="bezel" x1="0" y1="0" x2="0" y2="96" gradientUnits="userSpaceOnUse"><stop stop-color="#adc9d6"/><stop offset=".09" stop-color="#456e86"/><stop offset=".5" stop-color="#244c66"/><stop offset=".9" stop-color="#2b5269"/><stop offset="1" stop-color="#7da8c0"/></linearGradient></defs>
+<path d="M20 2H76Q94 2 94 20V76Q94 94 76 94H20Q2 94 2 76V20Q2 2 20 2Z M21 10Q10 10 10 21V75Q10 86 21 86H75Q86 86 86 75V21Q86 10 75 10Z" fill="url(#bezel)" fill-rule="evenodd"/>
+<rect x="2" y="2" width="92" height="92" rx="18" stroke="#a9d7e9"/><rect x="6" y="6" width="84" height="84" rx="14" stroke="#071d2e" stroke-width="1.5"/><rect x="10" y="10" width="76" height="76" rx="10" stroke="#688fa5"/><rect x="13" y="13" width="70" height="70" rx="7" stroke="#051a2c"/>
+<path d="M76 9v5m4-4v4m4-2v4M12 79h4m-6-4h5" stroke="#a5d3e3" stroke-opacity=".75"/>
+</svg>

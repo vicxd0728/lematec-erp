@@ -62,3 +62,16 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 3. 其餘既有主題各自提出完整稿，保留各自特色，再逐個實作；不把機械風直接複製到水墨／海洋等主題。
 
 本批發布資產：CSS query v10、SW cache v88。正式成功另以該 commit 的工作流程與正式 HTML/CSS/Worker SHA、28個既有素材和3個新 skin 素材 MIME/hash 讀回確認。
+
+
+## 2026-11-04 — Warm folio / marine instrument implementation
+
+- Scope: deepen existing `warm` and `ocean` preferences; preserve DOM, workflows, permissions and control geometry. No formal inventory or business writes.
+- Warm: Archive Atelier. Ivory paper reading surfaces, restrained linen substrate, native folio frames with corner leaf marks, pressed label controls, brown ink selection. First browser review exposed excessive texture; opacity raised before acceptance.
+- Ocean: Pelagic Navigation. Navy reading glass, silver-blue double bezels, rounded instrument controls, inset input wells, bright selected states. No standalone maps, ships, fake gauges or illustration blocks.
+- References: Pentiment official art direction (https://pentiment.obsidian.net/), Skylight campaign identity (https://www.skylightcollective.com/case-study/xbox-pentiment/; not in-game UI authorship), Raymarine official instrument presentation (https://www.raymarine.com/en-us/about-raymarine/newsroom/raymarine-releases-next-generation-lighthouse-charts). Original generated full-interface concepts informed original raster crops and native stretchable SVG frames; third-party artwork is not shipped.
+- Shared bug found during visual inspection: `.dash-hero-main::after` inherited the old 260px circular decoration size/background. Reset width/height/background at the generator source so existing theme frames cover the whole card. Retested actual screenshot and computed geometry (card 1224px; frame follows its inner width).
+- Browser acceptance: synthetic actual renderers, 1280x900 and 390x844. Two themes x two sizes x four pages (orders, C-end, inventory, component inspection) = 16 before/after comparisons, all visible controls retain identical name/order/document coordinates/size. Final proof: `outputs/folio-marine-20261104/implementation/geometry-final.json` in the operations workspace.
+- Selection enable/disable cycle passed for both themes and sizes. Background-off removes material imagery while preserving frames. Keyboard focus inspected on the confirmation control for both themes. Business mutation controls were not invoked.
+- Local checks: 19 Python checks, 21 Node checks, static UTF-8/inline JS/assets checks pass. New seven-asset pack is hashed and bounded below 40KB.
+- Limits: desktop Chrome and mobile viewport simulation; not a physical Safari/iPhone test. Local screenshots are isolated renderer proof, not authenticated production business acceptance. Release verifier checks production source and asset hashes after CI deployment.

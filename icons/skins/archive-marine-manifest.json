@@ -1,0 +1,44 @@
+{
+  "themes": [
+    "warm",
+    "ocean"
+  ],
+  "provenance": "Original generated concept material crops; original native nine-slice SVG frames. References inform craft and readability, no third-party artwork redistributed.",
+  "assets": [
+    {
+      "file": "icons/skins/archive-paper-v1.webp",
+      "bytes": 1210,
+      "sha256": "b82158be67293102e4c3dcc746bfbb46c6adb34a58695daf7dacb28387ea5c0e"
+    },
+    {
+      "file": "icons/skins/archive-linen-v1.webp",
+      "bytes": 4020,
+      "sha256": "c0df27a895b1712aa7b93f2112c28cb3c2db67d0c45a5e7bc8e058cb9089b673"
+    },
+    {
+      "file": "icons/skins/marine-satin-v1.webp",
+      "bytes": 162,
+      "sha256": "2fde34b1f131f7d97ea13623cba01f4cc44f0e621d6abb219a42fb1b6294802d"
+    },
+    {
+      "file": "icons/skins/archive-frame-v1.svg",
+      "bytes": 753,
+      "sha256": "93a5f4878841149da5f738952661d62c5c28e560f23c453fb5e8f0328f8d245d"
+    },
+    {
+      "file": "icons/skins/archive-control-v1.svg",
+      "bytes": 348,
+      "sha256": "7522801c3296af015dfa8d18e0aeabc46de85c6744291098e9d74e410dcb7c48"
+    },
+    {
+      "file": "icons/skins/marine-frame-v1.svg",
+      "bytes": 962,
+      "sha256": "7ca810b68d2bebc47f2f0539b981cd4d90e5a6bd9431400324c6ad478f5be291"
+    },
+    {
+      "file": "icons/skins/marine-control-v1.svg",
+      "bytes": 354,
+      "sha256": "a014606b648bda3d77fafefc4dc6f98631b7fdc9d3ef5be9eddc75420e3b742d"
+    }
+  ]
+}

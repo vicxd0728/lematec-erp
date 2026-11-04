@@ -138,7 +138,7 @@ html .order-status-chip.active{color:var(--cyan2);border-color:var(--cyan2)!impo
 html :is(.dash-hero-title,.module-brief h2,.analytics-hero h2,.note-hero h2){color:var(--text)}
 html :is(.dash-hero-sub,.dash-status-card span,.module-brief p,.analytics-hero p,.note-hero p){color:var(--text2)}
 html .dash-hero-kicker,html .qc-tab.active small{color:var(--cyan2)}
-html .dash-hero-main::after{content:none}
+html .dash-hero-main::after{content:none;width:auto;height:auto;background:none;transform:none}
 html .source-strip,html .analytics-source-strip,html .picking-role-note{background:var(--bg3);border-color:var(--border)}
 html .order-action-panel .table-wrap,html .premium-corder-panel .table-wrap{background:var(--bg2)!important}
 /* Decoration belongs to the component frame/background, never a reserved picture cell. */
@@ -231,6 +231,7 @@ html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.orde
     import runpy
     out.append(runpy.run_path(str(ROOT/'scripts/theme_frame_families.py'))['build'](THEMES))
     out.append((ROOT/'scripts/theme_deep_space.css').read_text(encoding='utf8'))
+    out.append((ROOT/'scripts/theme_archive_marine.css').read_text(encoding='utf8'))
     return '\n'.join(out)
 
 if __name__=='__main__':(ROOT/'erp-themes.css').write_text(build(),encoding='utf8',newline='\n')
