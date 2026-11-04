@@ -75,3 +75,30 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 - Selection enable/disable cycle passed for both themes and sizes. Background-off removes material imagery while preserving frames. Keyboard focus inspected on the confirmation control for both themes. Business mutation controls were not invoked.
 - Local checks: 19 Python checks, 21 Node checks, static UTF-8/inline JS/assets checks pass. New seven-asset pack is hashed and bounded below 40KB.
 - Limits: desktop Chrome and mobile viewport simulation; not a physical Safari/iPhone test. Local screenshots are isolated renderer proof, not authenticated production business acceptance. Release verifier checks production source and asset hashes after CI deployment.
+
+## 2026-11-05 — Remaining collection completed
+
+Vic requested all remaining existing themes completed and retained direct visual-release authorization. Four accepted themes (industrial, premium, warm, ocean) keep their own implementations. The remaining ten now have original panel frames, matching controls, headers, selection states and material treatment; no new themes or reserved image tiles, no event handler/data/permission changes.
+
+| Existing preference | Direction | Distinct construction |
+| --- | --- | --- |
+| tech | 藍圖中繼 | Routed connector corners, blue relay plates, circuit header marks |
+| board | 訊號機櫃 | Fixed rack rails, small fastener corners, cream-on-charcoal high contrast |
+| light | 瓷白辦公 | Layered porcelain edges, pale blue trim, flush acrylic controls |
+| violet | 軌道觀測台 | Concentric corner arcs, inset capsule controls, violet glass |
+| amber | 黃銅工坊 | Stepped marquetry corners, brass rail, amber enamel controls |
+| titanium | 鈦金工臺 | Machined bevels, brushed header, recessed silver controls |
+| rose | 玫瑰晶鑲 | Faceted rose-gold rim, inset diamond corner details |
+| nature | 綠境溫室 | Engraved leaf/stem corners, restrained textile edge material |
+| minimal | 石墨紙藝 | Graphite registration/fold marks, deliberately plain reading surfaces |
+| ink | 玉璧書閣 | Mortise-style corners, jade controls, existing original landscape faded into edges |
+
+Knowledge preflight re-read the formal architecture and cross-industry UI atlas. Sources consulted: Alicia Feng's first-person Hades II UI inventory case study (https://www.corviday.net/supergiant) for thematic componentization rather than decorative tiles; teenage engineering's official OP-1 field page (https://teenage.engineering/products/op-1) for hardware/display/material coherence; Microsoft Acrylic guidance (https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic) for material hierarchy and avoiding layered noise. The Destiny designer page failed to open and was not used as a verified design source. Three original full-interface concept boards, covering all ten styles, precede native implementation; no third-party images/assets are redistributed.
+
+Visual review caught and fixed: (1) tech is the default and applyTheme removes data-theme, so explicit-only skin selectors did not apply; native default and explicit tech now share scope; (2) ink's dark masthead reduced logo readability; restored paper masthead with jade trim; (3) control SVG intrinsic width is 48px although viewBox is 96, requiring a 12px slice instead of 24 to prevent overlapping arcs. Manifest, unique/native safe SVG, contrast and intrinsic slice-size checks cover the new pack.
+
+Isolated browser proof: 1280x900 / 390x844, ten themes x four pages x two sizes = 80 geometry comparisons; eight further C-end comparisons for the unchanged four themes. All control names/order/document coordinates/sizes match. Twenty selection/clear/focus/overflow/error checks and ten scene-off checks passed. An initial preserved-theme comparison resized without rerendering the C-end renderer, producing stale desktop/mobile row variants; discarded and repeated with explicit render after every resize. No product layout change was inferred from that fixture mistake. The final control-slice change affects decorative pseudo-elements only; final desktop screenshots were refreshed and rounded mobile controls inspected after it.
+
+Evidence in operations workspace: outputs/theme-completion-20261104/{engineering-concepts,crafted-concepts,quiet-concepts}.png and implementation/{geometry,states,preserved-themes}.json, with desktop/mobile screenshots for all ten. Fixture blocks network/forms and business mutation controls were not invoked. Formal inventory/order/customer writes: zero. Physical Safari/iPhone and per-module authenticated production journeys are not claimed.
+
+Local checks: 20 Python theme/static checks and 21 Node picker/order/inventory/selection checks pass. CSS query v16, SW cache v94. New SVG pack has 20 hashed assets under 40KB, reusing prior original material tiles. Production version/SHA/assets readback is recorded separately in output/theme-collection-20261105/release.json after release.

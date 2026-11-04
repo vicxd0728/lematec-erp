@@ -1,0 +1,117 @@
+{
+  "themes": [
+    "tech",
+    "board",
+    "light",
+    "violet",
+    "amber",
+    "titanium",
+    "rose",
+    "nature",
+    "minimal",
+    "ink"
+  ],
+  "provenance": "Original native vectors translating original full-interface concept boards; existing original generated material tiles reused.",
+  "assets": [
+    {
+      "file": "icons/skins/tech-collection-frame-v1.svg",
+      "bytes": 655,
+      "sha256": "10338485086af2d4690732fc694cdff0062f8fc2d78cbc5d5fc099267604fd61"
+    },
+    {
+      "file": "icons/skins/tech-collection-control-v1.svg",
+      "bytes": 437,
+      "sha256": "4ab0ac82922071c83a64dbded1b9364edf199d9df23a51ffcad5f195db3e208c"
+    },
+    {
+      "file": "icons/skins/board-collection-frame-v1.svg",
+      "bytes": 898,
+      "sha256": "86a3220f360865c46e9ab4c2a4db8453275e73a0a2de3537e22189c190747ab3"
+    },
+    {
+      "file": "icons/skins/board-collection-control-v1.svg",
+      "bytes": 445,
+      "sha256": "03bddbd07fc5d2bd26b02e8e5b2fdc75622ce93b7c597054ec0f65a61040443e"
+    },
+    {
+      "file": "icons/skins/light-collection-frame-v1.svg",
+      "bytes": 662,
+      "sha256": "86b7191f8341c1262610d0db5b5df6e62f57b7aa8ecd3a6aaf4ebe4480e84082"
+    },
+    {
+      "file": "icons/skins/light-collection-control-v1.svg",
+      "bytes": 464,
+      "sha256": "588dd272a3d72153167c158a1ce9614b77e8aecf17947c0443e25b8295023c68"
+    },
+    {
+      "file": "icons/skins/violet-collection-frame-v1.svg",
+      "bytes": 749,
+      "sha256": "a1973f6c66547856da47b217e7d0efd786814d73d55b704d923946fad75c2b4f"
+    },
+    {
+      "file": "icons/skins/violet-collection-control-v1.svg",
+      "bytes": 460,
+      "sha256": "13676ba3f72b7f383c623e3c61e177c9f988612029964e4d58552c8714b0e4ce"
+    },
+    {
+      "file": "icons/skins/amber-collection-frame-v1.svg",
+      "bytes": 1209,
+      "sha256": "2215a14742180efc835ced51ddd47658898763bd9acf01096fb694cb9618c9d8"
+    },
+    {
+      "file": "icons/skins/amber-collection-control-v1.svg",
+      "bytes": 477,
+      "sha256": "58d4db337fb32458a406d2a40a7483f27b77190ff16fa4370ce1859daa817bf8"
+    },
+    {
+      "file": "icons/skins/titanium-collection-frame-v1.svg",
+      "bytes": 617,
+      "sha256": "9cbc6baa2b32da142d254172911ca68353dc539eb22e2a48e7afd82a1d831854"
+    },
+    {
+      "file": "icons/skins/titanium-collection-control-v1.svg",
+      "bytes": 439,
+      "sha256": "2f02771d6565b3a6c6790fe3f829fdc268ba2e7efc99ed2210fd516c01f23653"
+    },
+    {
+      "file": "icons/skins/rose-collection-frame-v1.svg",
+      "bytes": 614,
+      "sha256": "9220d62831b594f125393c1c4e82b33279dfda71f5bdfccd20bfc86194c95420"
+    },
+    {
+      "file": "icons/skins/rose-collection-control-v1.svg",
+      "bytes": 460,
+      "sha256": "04dd8c4b0adc29e408c4966f676753d2233166064979bc336d9d72907044bdc4"
+    },
+    {
+      "file": "icons/skins/nature-collection-frame-v1.svg",
+      "bytes": 915,
+      "sha256": "425651e9f91662f1ba07e3dff72416640393e55fd5751ddaaade86f44d9dd34d"
+    },
+    {
+      "file": "icons/skins/nature-collection-control-v1.svg",
+      "bytes": 478,
+      "sha256": "46a63664eea62d0893440f97df3dcba11a5b6ae4f1fae3da263621970c0ba3e1"
+    },
+    {
+      "file": "icons/skins/minimal-collection-frame-v1.svg",
+      "bytes": 574,
+      "sha256": "6ec783fe910999854c87324b5004c91baf04ec4d43f4b38f186d376c427300c6"
+    },
+    {
+      "file": "icons/skins/minimal-collection-control-v1.svg",
+      "bytes": 463,
+      "sha256": "ff99c7abea48c9077d035224cb5525f11bc619318c580c700aeed784fb5dc7d5"
+    },
+    {
+      "file": "icons/skins/ink-collection-frame-v1.svg",
+      "bytes": 1274,
+      "sha256": "8c224d3b91993da41793482b330191efed778a681b477c7ee96157eca11ad4d5"
+    },
+    {
+      "file": "icons/skins/ink-collection-control-v1.svg",
+      "bytes": 459,
+      "sha256": "412beb19566d52303369e9c4c4593bcaaaebb9c6dfa27cc52c79fd80ff34bc87"
+    }
+  ]
+}

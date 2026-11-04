@@ -232,6 +232,7 @@ html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.orde
     out.append(runpy.run_path(str(ROOT/'scripts/theme_frame_families.py'))['build'](THEMES))
     out.append((ROOT/'scripts/theme_deep_space.css').read_text(encoding='utf8'))
     out.append((ROOT/'scripts/theme_archive_marine.css').read_text(encoding='utf8'))
+    out.append(runpy.run_path(str(ROOT/'scripts/theme_collection.py'))['build']())
     return '\n'.join(out)
 
 if __name__=='__main__':(ROOT/'erp-themes.css').write_text(build(),encoding='utf8',newline='\n')

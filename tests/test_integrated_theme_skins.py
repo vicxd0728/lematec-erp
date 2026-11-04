@@ -2,6 +2,7 @@
 import importlib.util
 import hashlib
 import json
+import re
 import runpy
 from urllib.parse import unquote
 from pathlib import Path
@@ -105,5 +106,33 @@ class IntegratedThemeSkinsTest(unittest.TestCase):
         generator=importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)
         self.assertEqual(generator.build(),(ROOT/'erp-themes.css').read_text(encoding='utf8'))
+
+    def test_remaining_collection_has_unique_safe_assets_and_contrast(self):
+        mod=runpy.run_path(str(ROOT/'scripts/theme_collection.py'))
+        manifest=json.loads((ROOT/'icons/skins/collection-manifest.json').read_text(encoding='utf8'))
+        self.assertEqual(set(manifest['themes']),set(mod['PROFILES']))
+        self.assertEqual(len(manifest['assets']),20)
+        self.assertLess(sum(a['bytes'] for a in manifest['assets']),40_000)
+        unique=set()
+        for item in manifest['assets']:
+            data=(ROOT/item['file']).read_bytes()
+            self.assertEqual(len(data),item['bytes'])
+            self.assertEqual(hashlib.sha256(data).hexdigest(),item['sha256'])
+            el=ET.fromstring(data)
+            self.assertEqual(el.attrib['viewBox'],'0 0 96 96')
+            for forbidden in ['<script','href=','<foreignObject','<animate']:
+                self.assertNotIn(forbidden,data.decode())
+            unique.add(data)
+        self.assertEqual(len(unique),20)
+        self.assertIn('html:not([data-theme]):not([data-theme])',mod['scope_for']('tech'))
+        self.assertIn(mod['scope_for']('tech')+'{--collection-frame:',mod['build']())
+        # SVG viewBox units differ from intrinsic image pixels: use one quarter,
+        # not half the 48px control image, or the rounded corners overlap.
+        control_slice=int(re.search(r'border-image:var\(--collection-control\) (\d+)',mod['build']())[1])
+        for key in mod['PROFILES']:
+            self.assertEqual(control_slice,int(ET.fromstring(mod['svg'](key,True)).attrib['width'])//4)
+        from tests.test_theme_surface_audit import contrast
+        for profile in mod['PROFILES'].values():
+            self.assertGreaterEqual(contrast(profile['ink'],profile['action']),4.5)
 
 if __name__=='__main__':unittest.main()
