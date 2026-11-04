@@ -1,0 +1,21 @@
+{
+  "source": "Original built-in imagegen asset from approved Mistbound Ink Folio concept; no UI text baked in",
+  "generated": "2026-11-04",
+  "assets": [
+    {
+      "file": "icons/skins/ink-folio-landscape-v1.webp",
+      "bytes": 47714,
+      "sha256": "ae83b6e05d6ac458c605d72647d555388184ca331e1a21358727c4aaeb3c073e"
+    },
+    {
+      "file": "icons/skins/ink-folio-paper-v1.webp",
+      "bytes": 390,
+      "sha256": "73a38abbc39a33a8c1ff99857f267967d48835cf9cab28683f9e30bdeb7d7bdf"
+    },
+    {
+      "file": "icons/skins/ink-folio-frame-v1.svg",
+      "bytes": 666,
+      "sha256": "2071ee37d1d11643e0bd0f4c71ed4f1da3f17007db8922ba115e77b9b5f434eb"
+    }
+  ]
+}

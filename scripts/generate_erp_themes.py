@@ -229,6 +229,7 @@ html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.orde
 @media print{html body{background:#fff!important}}
 ''')
     out.append((ROOT/'scripts/theme_skins_round2.css').read_text(encoding='utf8'))
+    out.append((ROOT/'scripts/theme_ink_folio.css').read_text(encoding='utf8'))
     return '\n'.join(out)
 
 if __name__=='__main__':(ROOT/'erp-themes.css').write_text(build(),encoding='utf8',newline='\n')

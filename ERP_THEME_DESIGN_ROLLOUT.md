@@ -26,6 +26,14 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 - 證據：工作區 `營運管理/outputs/theme-round2-integrated-20261104/{geometry,matrix,states}.json` 與四張訂單實作截圖。發布 CSS query v11、SW cache v89；精確正式版本／SHA 以 `output/integrated-theme-round2-20261104/release.json` 為準。
 - 其餘 12 個主題不納入本次造型變更；精密暖灰既有成果保留。下一批再個別訂定其他主題的造型語言，不宣稱 14 主題都已重設。
 
+## 水墨重製：雲岫墨卷（2026-11-04）
+
+- Vic 否決上一版幾何山水，已檢視大型國風遊戲介面參考及完整生成稿，並指示照此修正部署。本批只覆寫原 `ink` 主題，保持名稱／儲存 ID、架構、操作次序與尺寸。
+- 以認可稿另產原創可用背景（無文字／按鈕），再用 ffmpeg 裁切、縮放與 WebP 壓縮；正式素材為手繪山水 47,714 bytes、紙紋 390 bytes 及固定尺寸雙線角框 SVG。完整稿不是直接切成一張功能頁。來源／尺寸／hash 以 `icons/skins/ink-folio-manifest.json` 為準；生成原稿與 brief 在工作區 `營運管理/outputs/ink-game-reference-20261104/`。
+- 山石皴法、松樹、雲霧與瀑布融入整片標頭；窄標頭採遠山頂部裁切，避免每一條都重複瀑布。導航、古金／朱色細框、宣紙按鈕與墨綠選取共同呼應。表格及輸入保持純淺色閱讀面；背景開關可清除身體／標頭／導航圖層；列印關閉裝飾。
+- 合成資料的實際訂單／庫存／看板 renderer，以及共享元件樣本，在 1280×900、390×844 各驗收。無整頁溢出或 fixture errors；角框 pointer-events:none。勾選啟用／取消停用、鍵盤焦點、缺料警告與背景開關正常。手機為 Chrome viewport，不代表實體 iPhone／Safari 或正式交易驗收。
+- 證據：工作區 `營運管理/outputs/ink-folio-implementation-20261104/`；正式版本／資產讀回見 repo `output/ink-folio-20261104/release.json`。CSS query v12、SW cache v90。未呼叫正式庫存或訂單寫入 API。
+
 ## 後續批次（尚未完成）
 
 1. 精密暖灰其他常用頁面的細節與真實角色唯讀驗收、必要的手機簡化和空／錯誤狀態。
