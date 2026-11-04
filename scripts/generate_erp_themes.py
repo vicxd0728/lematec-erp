@@ -228,6 +228,7 @@ html[data-theme="industrial"][data-scene="off"] :is(.module-brief,.analytics-her
 html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.order-action-head){background-image:linear-gradient(#f8f5ed,#eee8dc)!important;background-size:100% 100%!important;background-position:center!important}
 @media print{html body{background:#fff!important}}
 ''')
+    out.append((ROOT/'scripts/theme_skins_round2.css').read_text(encoding='utf8'))
     return '\n'.join(out)
 
 if __name__=='__main__':(ROOT/'erp-themes.css').write_text(build(),encoding='utf8',newline='\n')

@@ -31,7 +31,7 @@ jobs:
           node --test tests/order_stock_identity.cjs
           node --test tests/stock_log_receipt_repair.cjs
           python -m unittest tests.test_daily_erp_quality tests.test_verify_erp_static tests.test_worker_acceptance
-          python -m unittest tests.test_theme_palette tests.test_theme_assets tests.test_industrial_skin_assets
+          python -m unittest tests.test_theme_palette tests.test_theme_assets tests.test_industrial_skin_assets tests.test_integrated_theme_skins
           python -m unittest tests.test_theme_surface_audit
           node --test tests/theme_picker.cjs
           python scripts/verify_erp_static.py

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" fill="none">
+<defs><linearGradient id="fade"><stop stop-color="#69a8ed" stop-opacity="0"/><stop offset=".48" stop-color="#69a8ed" stop-opacity=".5"/><stop offset="1" stop-color="#91ccff" stop-opacity=".8"/></linearGradient><pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#80b8ef" opacity=".2"/></pattern></defs>
+<path fill="url(#dots)" d="M390 0H960V300H390z"/>
+<g stroke="url(#fade)" stroke-width="1.4"><path d="M180 55H530L580 105H702M300 83H490L540 133H702M200 227H538L588 177H702M440 255H610L650 215H760M450 23H650L690 63H780M475 280H700L750 230H960M750 122H860L910 72H960M750 154H885L930 199H960M810 40H860L900 0M810 260H855L895 300"/>
+<path d="M690 90H798L823 115V187L798 212H690L665 187V115Z"/><path d="M702 102H786L811 127V175L786 200H702L677 175V127Z" opacity=".4"/>
+<path d="M720 137h48v29h-48zM730 128v9m12-9v9m12-9v9m-24 29v9m12-9v9m12-9v9m-43-28h9m-9 12h9m48-12h9m-9 12h9"/>
+<path d="M595 112v75m-5-75h10m-10 15h5m-5 15h5m-5 15h5m-5 15h5m-5 15h10" opacity=".6"/>
+</g><g fill="#90c6fa"><circle cx="530" cy="55" r="3"/><circle cx="538" cy="227" r="3"/><circle cx="860" cy="122" r="3"/><circle cx="885" cy="154" r="3"/></g>
+<g stroke="#b8ddff" stroke-width="2"><path d="M680 82h22m-22 0v17M808 82h-22m22 0v17M680 220h22m-22 0v-17M808 220h-22m22 0v-17"/></g>
+</svg>

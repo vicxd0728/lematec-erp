@@ -16,6 +16,16 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 - 13項 Python＋16項 Node 檢查及離線 syntax/assets verifier 通過；3個 skin 資產約105KiB。Fixture 以合成資料、CSP 阻擋正式API。正式業務／庫存寫入0。
 - 證據：`output/industrial-instrument-stage1-20261104/acceptance.json`；畫面於工作區 `營運管理/outputs/industrial-instrument-stage1-20261104/`。桌面手機為 Chrome viewport，未做實體 iPhone／Safari 或正式交易驗收。
 
+## 第二批：經典深藍／水墨山河（2026-11-04）
+
+- 本次授權：逐步修正其他既有主題，融入底圖／邊框／按鈕，保留架構與操作位置，桌機手機驗收後直接部署，不碰正式庫存。依這次授權完成整頁可檢視實作，再發布；沒有另要求等待新方向確認。
+- `tech`「深藍電路控制台」：連續電路走線與節點融入原標頭背板，雙層節點角框、控制面板按鈕、左緣選取定位。`ink`「山水畫框」：山巒／瀑布／遠日背景、雙線畫框、朱色角記與墨綠選取。四個固定尺寸本機 SVG 合計不到 12KB；沒有新增外部服務、動畫或獨立插圖卡。
+- 原英雄區裝飾格保留透明占位，只把圖片移到整片背景層，避免改變既有高度及下方操作位置。未重新排列導覽、欄位、按鈕，未改尺寸或字級。背景開關可關閉圖案；框體仍保留辨識；列印移除背景／裝飾框。
+- 已實看兩個主題的 1280×900／390×844 訂單、庫存、看板及跨模組元件樣本。訂單控制項名稱／順序／尺寸與原版四組基準逐一相同；兩版無整頁溢出及 fixture errors，框體 pointer-events:none。庫存勾選啟用／取消勾選停用、兩主題焦點及背景關閉正常；缺料樣本保留明確警告。
+- 實際 renderer＋合成資料，fixture CSP connect-src/form-action 為 none；未連正式業務 API，正式庫存／業務寫入 0。手機為 Chrome viewport，非實體 Safari；元件樣本不等於完整領料／品管交易驗收。
+- 證據：工作區 `營運管理/outputs/theme-round2-integrated-20261104/{geometry,matrix,states}.json` 與四張訂單實作截圖。發布 CSS query v11、SW cache v89；精確正式版本／SHA 以 `output/integrated-theme-round2-20261104/release.json` 為準。
+- 其餘 12 個主題不納入本次造型變更；精密暖灰既有成果保留。下一批再個別訂定其他主題的造型語言，不宣稱 14 主題都已重設。
+
 ## 後續批次（尚未完成）
 
 1. 精密暖灰其他常用頁面的細節與真實角色唯讀驗收、必要的手機簡化和空／錯誤狀態。
