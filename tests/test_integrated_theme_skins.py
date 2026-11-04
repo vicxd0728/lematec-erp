@@ -2,6 +2,8 @@
 import importlib.util
 import hashlib
 import json
+import runpy
+from urllib.parse import unquote
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
@@ -9,6 +11,22 @@ import xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parents[1]
 
 class IntegratedThemeSkinsTest(unittest.TestCase):
+    def test_all_native_frame_families_have_proportional_safe_svg(self):
+        mod=runpy.run_path(str(ROOT/'scripts/theme_frame_families.py'))
+        families=mod['PROFILES']
+        self.assertEqual(len(families),11)
+        drawings=[]
+        for profile in families.values():
+            image=mod['frame'](profile[0],'#82dcd7','#526376')
+            source=unquote(image[len('url("data:image/svg+xml,'):-2])
+            doc=ET.fromstring(source)
+            self.assertEqual(doc.attrib['viewBox'],'0 0 96 96')
+            self.assertEqual(doc.attrib['width'],'96')
+            for forbidden in ['<script','href=','<foreignObject','<animate']:
+                self.assertNotIn(forbidden,source)
+            drawings.append(source)
+        self.assertEqual(len(set(drawings)),11)
+
     def test_folio_raster_pack_matches_manifest_and_budget(self):
         manifest=json.loads((ROOT/'icons/skins/ink-folio-manifest.json').read_text(encoding='utf8'))
         self.assertEqual(len(manifest['assets']),3)

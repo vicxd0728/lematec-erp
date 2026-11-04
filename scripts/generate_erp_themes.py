@@ -141,9 +141,9 @@ html .dash-hero-kicker,html .qc-tab.active small{color:var(--cyan2)}
 html .dash-hero-main::after{content:none}
 html .source-strip,html .analytics-source-strip,html .picking-role-note{background:var(--bg3);border-color:var(--border)}
 html .order-action-panel .table-wrap,html .premium-corder-panel .table-wrap{background:var(--bg2)!important}
-/* Illustration occupies its own grid cell; never covers a label, count, button or chart. */
-html :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr) 210px;gap:8px 24px;align-items:center}
-html :is(.module-brief,.analytics-hero)::before{content:"";position:static;grid-column:2;grid-row:1 / 3;display:block;align-self:center;width:210px;height:122px;border-radius:12px;background:var(--theme-illustration) center / contain no-repeat;opacity:1;pointer-events:none}
+/* Decoration belongs to the component frame/background, never a reserved picture cell. */
+html :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr);gap:8px 24px;align-items:center}
+html :is(.module-brief,.analytics-hero)::before{content:none!important;display:none!important}
 html :is(.module-brief,.analytics-hero)>div:first-of-type{grid-column:1;grid-row:1;min-width:0}
 html :is(.module-brief-actions,.analytics-hero-actions){grid-column:1;grid-row:2;justify-content:flex-start}
 html[data-scene="off"] :is(.module-brief,.analytics-hero)::before{display:none}
@@ -152,7 +152,6 @@ html[data-scene="off"] :is(.module-brief,.analytics-hero)>div{grid-column:auto;g
 /* Raster material kit: original layout cells, calm reading surfaces and lightweight local crops. */
 html body{background-image:none!important}
 html :is(.panel-hdr,.panel-head){background-image:var(--header-art)!important;background-size:auto 180px!important;background-position:right center!important;background-repeat:no-repeat!important}
-html :is(.module-brief,.analytics-hero)::before{background-image:var(--detail-art)!important;background-size:cover!important;border-radius:10px;box-shadow:inset 0 0 0 1px var(--border)}
 html .ops-hero{background-image:var(--header-art)!important;background-size:auto 100%!important;background-position:right center!important;background-repeat:no-repeat!important}
 html[data-scene="off"] :is(.panel-hdr,.panel-head,.ops-hero){background-image:none!important}
 html[data-theme="ink"] :is(.module-brief h2,.analytics-hero h2,.panel-title,.dash-hero-title){font-family:"Noto Serif TC","PMingLiU",serif;font-weight:700;letter-spacing:.06em}
@@ -192,8 +191,7 @@ html[data-theme="industrial"] .inventory-stock-table tr:has(input[type="checkbox
 @media(max-width:640px){html body{background-size:auto 100vh!important}#themePanel{top:76px!important;max-height:calc(100dvh - 90px)!important}.topbar-brand{letter-spacing:2px!important}html[data-theme="board"] #mainContent{padding:14px}html[data-theme="board"] .kpi-num{font-size:48px}}
 @media(max-width:640px){
  html :is(.panel-hdr,.panel-head){background-size:auto 130px!important}
- html :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr) 106px;gap:12px;padding:18px 16px}
- html :is(.module-brief,.analytics-hero)::before{grid-row:1;grid-column:2;width:106px;height:116px}
+ html :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr);gap:12px;padding:18px 16px}
  html :is(.module-brief-actions,.analytics-hero-actions){grid-column:1 / -1;grid-row:2}
  html[data-scene="off"] :is(.module-brief,.analytics-hero){grid-template-columns:minmax(0,1fr)}
  html[data-theme="ink"] body{background-size:440px auto!important;background-position:right 120px!important}
@@ -230,6 +228,8 @@ html[data-theme="industrial"][data-scene="off"] :is(.panel-hdr,.panel-head,.orde
 ''')
     out.append((ROOT/'scripts/theme_skins_round2.css').read_text(encoding='utf8'))
     out.append((ROOT/'scripts/theme_ink_folio.css').read_text(encoding='utf8'))
+    import runpy
+    out.append(runpy.run_path(str(ROOT/'scripts/theme_frame_families.py'))['build'](THEMES))
     return '\n'.join(out)
 
 if __name__=='__main__':(ROOT/'erp-themes.css').write_text(build(),encoding='utf8',newline='\n')

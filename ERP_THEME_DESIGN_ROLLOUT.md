@@ -34,6 +34,17 @@ Skill：`integrated-ui-theme-design`（本機已安裝，另有完整 ZIP 交接
 - 合成資料的實際訂單／庫存／看板 renderer，以及共享元件樣本，在 1280×900、390×844 各驗收。無整頁溢出或 fixture errors；角框 pointer-events:none。勾選啟用／取消停用、鍵盤焦點、缺料警告與背景開關正常。手機為 Chrome viewport，不代表實體 iPhone／Safari 或正式交易驗收。
 - 證據：工作區 `營運管理/outputs/ink-folio-implementation-20261104/`；正式版本／資產讀回見 repo `output/ink-folio-20261104/release.json`。CSS query v12、SW cache v90。未呼叫正式庫存或訂單寫入 API。
 
+## 全主題移除獨立圖格＋框體補齊（2026-11-04）
+
+- Vic 指出 C端訂單的科技青黛仍有「一塊圖片」，要求所有既有主題一併修正，以精密暖灰的整體性為基準，參考不同行業及遊戲。這次直接授權修正發布；未改訂單／庫存權限或交易。
+- 從共用 generator 源頭刪除獨立圖格與 210px／106px 保留欄，不只覆蓋單一主題。全部 14 主題的 `.module-brief`／`.analytics-hero` 取消插圖占位，文字用回完整寬度。原導覽／功能／欄位／操作順序保留；裝飾占位移除會縮短部分標頭並上移後續內容，不宣稱絕對 y 座標不變。
+- 精密暖灰與原有水墨／經典深藍框體保留。其餘 11 主題各用不同 SVG 原生框體：青黛航太雙定位框、看板訊號機架、企業藍角記、暖白書冊、海藍弧角刻度、紫色軌道雙弧、琥珀黃銅雙框、鈦金斜角、玫瑰菱角、森林葉脈、極簡直線。框體不占位、固定角落比例、pointer-events:none；不新增任何獨立圖片或新主題 ID。
+- 手機科技青黛統計卡原左側裝飾 padding 94px、54px 圖示擠壓標題；在原雙欄卡片中改為 62px padding／34px 圖示，6個標題均維持單行；卡片用途與順序保留。
+- 參考：正式知識庫「跨產業 UI 美學與參考範本圖鑑」；[IBM Carbon Data Table](https://www.carbondesignsystem.com/building-blocks/core/components/data-table/guidelines) 的表格層次與操作秩序；[teenage engineering OP-1](https://teenage.engineering/products/op-1) 的硬體／儀器精準標示；[Xbox Starfield 官方介面示例](https://news.xbox.com/fr-fr/2023/09/06/debuter-starfield-10-choses-a-savoir-pour-bien-commencer-son-aventure/) 的功能框線與讀數層次。參考是風格轉譯，非照搬原資產／娛樂流程，不聲稱操作過原產品。
+- 擴充合成 fixture 加入實際 `renderCorders`，連同訂單／庫存 renderer 與共享元件樣本，14主題 × 桌機1280×900／手機390×844 × 4頁共112組，無整頁溢出、fixture錯誤或圖格。14主題C端勾選→啟用清除→取消停用均通過。手機為Chrome viewport，非實體Safari；元件樣本不是全模組交易驗收。
+- 工作區證據：`營運管理/outputs/all-theme-frames-20261104/{matrix,states}.json`、跨頁視覺 contact sheets；明確 C端最終畫面為 `premium-corder-final-desktop.png`／`premium-corder-final-mobile.png`。合成fixture限制connect-src與form-action為none，正式業務寫入0。其他28張為自動巡檢跨頁視覺快照，不逐一標成C端畫面。
+- CSS query v13、SW cache v91；正式版本／SHA／38個素材讀回以 repo `output/all-theme-frames-20261104/release.json` 為準。
+
 ## 後續批次（尚未完成）
 
 1. 精密暖灰其他常用頁面的細節與真實角色唯讀驗收、必要的手機簡化和空／錯誤狀態。
