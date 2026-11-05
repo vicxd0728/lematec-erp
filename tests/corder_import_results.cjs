@@ -28,14 +28,14 @@ function setup(options={}){
      if(method==='POST'&&path==='pages'){
        created++;
        const page={id:'page'+created,parent:{database_id:'db'},properties:body.properties};
-       if(created===3){if(options.lostResponse)pages.push(page);throw Error('third create connection lost');}
+       if(created===(options.failAt??3)){if(options.lostResponse)pages.push(page);throw Error('third create connection lost');}
        pages.push(page);return page;
      }
      if(method==='GET')return pages.find(p=>p.id===path.slice(6));
      if(path.endsWith('/query'))return {results:options.queryMissing?[]:pages.filter(p=>p.properties.訂單號碼.title[0].text.content===body.filter.title.equals),has_more:!!options.incomplete};
      throw Error('unexpected call');
    },
-   requestCorderResume:async()=>{deducted++;if(options.pauseAfter===deducted)c.requestCorderImportStop();return {ok:true};},
+   requestCorderResume:async()=>{deducted++;if(options.failResumeAt===deducted)throw Error('stock response unknown');if(options.pauseAfter===deducted)c.requestCorderImportStop();return {ok:true};},
  });
  vm.runInContext(code,c);c.window._corderImportPreflight={incoming:JSON.parse(JSON.stringify(incoming)),stockImpact:[],errors:0};
  return {c,store,local,events,pages,calls,toasts,counts:()=>({created,deducted,reserved})};
@@ -46,6 +46,22 @@ test('three executable rows: third create failure remains visible with reserved 
  assert.equal(r.rows[2].no,'SHPTW16681');assert.equal(r.rows[2].state,'建檔結果未確認');assert.match(r.rows[2].message,/third create/);
  assert.match(h.c.renderCorderImportResult(),/2\/3/);assert.match(h.c.renderCorderImportResult(),/SHPTW16681/);
  assert.deepEqual(h.counts(),{created:3,deducted:2,reserved:1});
+});
+test('uncertain middle create stops subsequent rows and retains the unexecuted line',async()=>{
+ const h=setup({failAt:2,lostResponse:true});await h.c.applyCorderImportPreflight();
+ const r=h.c.window._corderImportResult;
+ assert.deepEqual(h.counts(),{created:2,deducted:1,reserved:1});
+ assert.equal(r.rows[1].state,'建檔結果未確認');assert.equal(r.rows[2].state,'尚未執行');
+ assert.match(r.error,/停止處理後續品項/);assert.match(h.c.renderCorderImportResult(),/尚有 2 筆待處理/);
+ const before=h.counts();await h.c.verifyCorderImportResult();assert.deepEqual(h.counts(),before);
+});
+test('unknown stock outcome stops later lines and preserves the exact original page',async()=>{
+ const h=setup({failResumeAt:1});await h.c.applyCorderImportPreflight();
+ const r=h.c.window._corderImportResult;
+ assert.deepEqual(h.counts(),{created:1,deducted:1,reserved:1});
+ assert.equal(r.rows[0].pageId,'page1');assert.equal(r.rows[0].state,'原單待續接');
+ assert.equal(r.rows[1].state,'尚未執行');assert.equal(r.rows[2].state,'尚未執行');
+ assert.match(r.error,/停止處理後續品項/);
 });
 test('reload restores all three outcomes and a list-refresh failure cannot erase the missing row',async()=>{
  const h=setup({refreshFail:true});await h.c.applyCorderImportPreflight();

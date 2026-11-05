@@ -27147,6 +27147,10 @@ async function applyCorderImportPreflightOnce(){
     if(!no) throw new Error(`無法取得第 ${item.sourceRow} 列的共用訂單號碼`);
     return no;
   }
+  function stopCorderImportAfterFailure(item){
+    window._corderImportResult.error=`第 ${item.sourceRow} 行未完成，已停止處理後續品項；請先核對這一筆及原始扣料憑證，勿刪單重建或重複扣料。`;
+    saveCorderImportResult();
+  }
 
   for(const [resultIndex,item] of incoming.entries()){
     if(window._corderImportStopRequested){
@@ -27162,7 +27166,7 @@ async function applyCorderImportPreflightOnce(){
       if(!updateCorderImportResult(resultIndex,{pageId:dup.id,state:'原單待核對',message:'找到既有原單，未另建單'}))break;
       if(dup.status==='需確認'){
         try{await requestCorderResume(dup.id);ok++;dup.status='出貨中';updateCorderImportResult(resultIndex,{state:'完成',message:'原單已核對憑證並續接'});}
-        catch(e){failed++;updateCorderImportResult(resultIndex,{state:'原單待續接',message:e.message});warnList.push(`${item.shopeeNo||item.no} / ${item.sku}：原單續接未確認：${e.message}；未另建單，勿刪除重建`);}
+        catch(e){failed++;updateCorderImportResult(resultIndex,{state:'原單待續接',message:e.message});warnList.push(`${item.shopeeNo||item.no} / ${item.sku}：原單續接未確認：${e.message}；未另建單，勿刪除重建`);stopCorderImportAfterFailure(item);break;}
       }else{skip++;updateCorderImportResult(resultIndex,{state:'已存在略過',message:'沿用既有原單，未再次扣庫'});}
       continue;
     }
@@ -27172,14 +27176,14 @@ async function applyCorderImportPreflightOnce(){
       warnList.push((item.shopeeNo||item.no)+'：無料號');
       failed++;
       updateCorderImportResult(resultIndex,{state:'未建單',message:'料號空白；未送出建單或扣庫'});
-      continue;
+      stopCorderImportAfterFailure(item);break;
     }
     mat=findMatBySku(item.sku);
     if(!mat){
       warnList.push((item.shopeeNo||item.no)+'：找不到 '+item.sku);
       failed++;
       updateCorderImportResult(resultIndex,{state:'未建單',message:'庫存主檔找不到 '+item.sku+'；未送出建單或扣庫'});
-      continue;
+      stopCorderImportAfterFailure(item);break;
     }
 
     const displaySku=item.sku||item.prodName||'(無貨號)';
@@ -27232,6 +27236,8 @@ async function applyCorderImportPreflightOnce(){
         warnList.push((item.shopeeNo||item.no)+'：已扣庫但後續同步未完成，請勿重複匯入');
       }
       console.error('C端訂單建立失敗:',item,eCreate);
+      stopCorderImportAfterFailure(item);
+      break;
     }
   }
 
