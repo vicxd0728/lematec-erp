@@ -27,6 +27,7 @@ jobs:
           node --test tests/qc_batch_recovery.cjs
           node --test tests/picking_record_details.cjs
           node --test tests/corder_recovery.cjs
+          node --test tests/corder_import_results.cjs
           node --test tests/corder_reversal.cjs
           node --test tests/order_stock_identity.cjs
           node --test tests/stock_log_receipt_repair.cjs

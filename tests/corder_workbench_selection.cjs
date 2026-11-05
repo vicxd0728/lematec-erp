@@ -3,7 +3,9 @@ const html=fs.readFileSync('index.html','utf8');
 function setup(){
  const writes=[],messages=[],ctx=vm.createContext({CURRENT_TAB:'other',window:{corders:[],_cordersLoaded:true},DATA_LOAD_MODE:{corders:'recent'},DATA_LOAD_DAYS:{corders:30},FIRST_LOAD_DAYS:30,renderTab(){},showToast:(...x)=>messages.push(x),ensureXlsxLoaded:async()=>{},taipeiDateKey:()=> '2026-10-18',XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(book,sheet,name)=>{book[name]=sheet}},writeFile:(...x)=>writes.push(x)}});
  const a=html.indexOf('function corderSelectionIds('),b=html.indexOf('function renderCorders(){',a);
- if(a>=0&&b>a)vm.runInContext(html.slice(a,b),ctx);return {ctx,writes,messages};
+ if(a>=0&&b>a)vm.runInContext(html.slice(a,b),ctx);
+ vm.runInContext(html.slice(html.indexOf('const CORDER_IMPORT_RESULT_KEY='),html.indexOf('async function applyCorderImportPreflight(')),ctx);
+ return {ctx,writes,messages};
 }
 test('pagination clamps bounds, resets on filter changes and preserves selection across pages',()=>{
  const {ctx:c}=setup(),rows=Array.from({length:121},(_,i)=>({id:String(i),no:'SHARED-NO'}));c.window.corders=rows;

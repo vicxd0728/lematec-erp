@@ -7,7 +7,7 @@ const css=fs.readFileSync(process.env.ERP_QA_CSS||path.join(root,'erp-themes.css
 const cut=(a,b)=>{const start=html.indexOf(a),end=html.indexOf(b,start);if(start<0||end<=start)throw Error('Missing '+a);return html.slice(start,end);};
 const style=html.match(/<style>[\s\S]*?<\/style>/)[0];
 const picker=cut('const THEMES=','const ADMIN_ROLE_PIN_KEY=');
-const functions=[cut('function getOrderFilters(','function getCorderSearchDraft('),cut('function updateOrderFilter(','function searchIncludesAll('),
+const functions=[cut('const CORDER_IMPORT_RESULT_KEY=','async function applyCorderImportPreflight('),cut('function getOrderFilters(','function getCorderSearchDraft('),cut('function updateOrderFilter(','function searchIncludesAll('),
 cut('function renderOpsBoard(){','let _healthReport='),
 cut('function corderSelectionIds(','function renderCorders(){'),cut('function renderCorders(){','function pickShortageMaterialMatch('),
 cut('function inventoryReportState(){','function renderInventory(){'),

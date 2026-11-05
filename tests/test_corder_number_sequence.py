@@ -56,7 +56,7 @@ class CorderNumberSequenceTests(unittest.TestCase):
 
     def test_excel_import_checks_sequence_before_batch_reservation(self):
         import_body = function_body("importShopeeExcel")
-        apply_body = function_body("applyCorderImportPreflight")
+        apply_body = function_body("applyCorderImportPreflightOnce")
         self.assertIn("buildCorderImportPreflight(incoming)", import_body)
         self.assertNotIn("reserveCorderNumbers(newOrderKeys.length)", import_body)
         self.assertLess(
