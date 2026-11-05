@@ -3,8 +3,10 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),
 const code=html.slice(html.indexOf("const CORDER_IMPORT_RESULT_KEY="),html.indexOf('async function importShopeeExcel('));
 const incoming=[0,1,2].map(i=>({sourceRow:i+2,shopeeNo:'SHOP'+i,buyer:'BUYER'+i,sku:'S-X'+i,qty:1}));
 function setup(options={}){
- const store=options.store||new Map(),pages=[],calls=[],toasts=[];let created=0,deducted=0,reserved=0;
- const c=vm.createContext({window:{corders:[]},CURRENT_TAB:'corders',DB:{corders:'db'},console:{error(){}},sessionStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(options.storageFail)throw Error('disabled');store.set(k,v);}},
+ const store=options.store||new Map(),local=options.local||new Map(),events={},pages=[],calls=[],toasts=[];let created=0,deducted=0,reserved=0,storageWrites=0;
+ const put=(target,k,v)=>{storageWrites++;if(options.storageFail||storageWrites>(options.failStorageAfter??Infinity))throw Error('disabled');target.set(k,v);};
+ const c=vm.createContext({window:{corders:[],addEventListener:(name,fn)=>events[name]=fn},CURRENT_TAB:'corders',DB:{corders:'db'},console:{error(){}},sessionStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>put(store,k,v)},
+   localStorage:{getItem:k=>local.get(k)||null,setItem:(k,v)=>put(local,k,v)},
    normalizeSku:s=>String(s||'').toUpperCase(),escapeHtml:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
    getTitle:(p,k)=>p[k]?.title?.[0]?.text?.content||'',getRichText:(p,k)=>p[k]?.rich_text?.[0]?.text?.content||'',
    loadCoreEssentials:async()=>{},buildCorderImportPreflight:()=>({errors:0,stockImpact:[],newOrderKeys:incoming.map(x=>x.shopeeNo+'|||'+x.buyer)}),
@@ -25,10 +27,10 @@ function setup(options={}){
      if(path.endsWith('/query'))return {results:options.queryMissing?[]:pages.filter(p=>p.properties.訂單號碼.title[0].text.content===body.filter.title.equals),has_more:!!options.incomplete};
      throw Error('unexpected call');
    },
-   requestCorderResume:async()=>{deducted++;return {ok:true};},
+   requestCorderResume:async()=>{deducted++;if(options.pauseAfter===deducted)c.requestCorderImportStop();return {ok:true};},
  });
  vm.runInContext(code,c);c.window._corderImportPreflight={incoming:JSON.parse(JSON.stringify(incoming)),stockImpact:[],errors:0};
- return {c,store,pages,calls,toasts,counts:()=>({created,deducted,reserved})};
+ return {c,store,local,events,pages,calls,toasts,counts:()=>({created,deducted,reserved})};
 }
 test('three executable rows: third create failure remains visible with reserved number and exact error',async()=>{
  const h=setup();await h.c.applyCorderImportPreflight();const r=h.c.window._corderImportResult;
@@ -69,8 +71,45 @@ test('mismatched direct page cannot be accepted as original order',async()=>{
  const h=setup();await h.c.applyCorderImportPreflight();h.pages[0].properties.數量.number=99;
  await h.c.verifyCorderImportResult();assert.match(h.c.window._corderImportResult.rows[0].readback,/身分或數量不符/);
 });
-test('unavailable session storage does not interrupt business results; public rendering escapes error content',async()=>{
+test('both unavailable journals stop before any page creation or stock request',async()=>{
  const h=setup({storageFail:true});await h.c.applyCorderImportPreflight();
+ assert.equal(h.counts().created,0);assert.equal(h.counts().deducted,0);assert.match(h.toasts.at(-1),/無法保存/);
+});
+test('journal failure before create stops that request; failure after create stops deduction',async()=>{
+ for(const [limit,expectedCreates] of [[2,0],[4,1]]){
+  const h=setup({failStorageAfter:limit});await h.c.applyCorderImportPreflight();
+  assert.equal(h.counts().created,expectedCreates);assert.equal(h.counts().deducted,0);
+ }
+});
+test('public rendering escapes error content',async()=>{
+ const h=setup();await h.c.applyCorderImportPreflight();
  h.c.window._corderImportResult.rows[2].message='<img src=x onerror=alert(1)>';
  const view=h.c.renderCorderImportResult();assert(!view.includes('<img'));assert(view.includes('&lt;img'));assert.equal(h.counts().deducted,2);
+});
+test('pause after two completed rows preserves every unexecuted row after closing the tab',async()=>{
+ const h=setup({pauseAfter:2});await h.c.applyCorderImportPreflight();
+ assert.deepEqual(h.counts(),{created:2,deducted:2,reserved:1});
+ assert.equal(h.c.window._corderImportResult.rows[2].state,'尚未執行');
+ const reopened=setup({local:h.local});const saved=reopened.c.corderImportResult();
+ assert.equal(saved.rows.length,3);assert.equal(saved.rows[2].state,'尚未執行');
+ assert.match(reopened.c.renderCorderImportResult(),/尚有 1 筆待處理/);
+});
+test('unknown create stays blocked in a new tab, even after a different completed batch',async()=>{
+ const h=setup();await h.c.applyCorderImportPreflight();
+ h.c.window._corderImportResult={version:1,startedAt:'2099-01-01T00:00:00Z',rows:[{sourceRow:2,shopeeNo:'OTHER',sku:'S-OTHER',qty:1,state:'完成'}]};h.c.saveCorderImportResult();
+ const reopened=setup({local:h.local});await reopened.c.applyCorderImportPreflight();
+ assert.deepEqual(reopened.counts(),{created:0,deducted:0,reserved:0});assert.match(reopened.toasts.at(-1),/建檔結果未確認/);
+});
+test('a multi-item order counts as complete only after all its lines are complete',()=>{
+ const h=setup();h.c.window._corderImportResult={version:1,rows:[
+  {shopeeNo:'SHOP1',sourceRow:2,sku:'S-X',qty:1,state:'完成'},
+  {shopeeNo:'SHOP1',sourceRow:3,sku:'S-Y',qty:1,state:'尚未執行'},
+  {shopeeNo:'SHOP2',sourceRow:4,sku:'S-Z',qty:1,state:'完成'}]};
+ assert.match(h.c.renderCorderImportResult(),/1\/2 張訂單完整.*2\/3 筆品項/);
+});
+test('leaving the page warns only while importing; no unload handler sends stock requests',()=>{
+ const h=setup();let prevented=0;const event={preventDefault(){prevented++;}};
+ h.events.beforeunload(event);assert.equal(prevented,0);
+ h.c.window._corderImportBusy=true;h.events.beforeunload(event);assert.equal(prevented,1);
+ assert.deepEqual(h.counts(),{created:0,deducted:0,reserved:0});
 });

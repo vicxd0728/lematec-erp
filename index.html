@@ -26963,26 +26963,83 @@ async function resumeCorder(id){
   finally{window._corderResuming.delete(id);if(CURRENT_TAB==='corders')renderTab('corders');}
 }
 const CORDER_IMPORT_RESULT_KEY='erp-corder-import-result-v1';
+const CORDER_IMPORT_HISTORY_KEY='erp-corder-import-history-v1';
+function corderImportBatches(){
+  let batches=[];
+  try{const saved=JSON.parse(localStorage.getItem(CORDER_IMPORT_HISTORY_KEY)||'[]');if(Array.isArray(saved))batches=saved.filter(x=>x?.version===1&&Array.isArray(x.rows));}catch{}
+  const current=window._corderImportResult;
+  if(current?.startedAt&&Array.isArray(current.rows))batches=[...batches.filter(x=>x.startedAt!==current.startedAt),current];
+  return batches;
+}
 function corderImportResult(){
   if(window._corderImportResult)return window._corderImportResult;
-  try{const saved=JSON.parse(sessionStorage.getItem(CORDER_IMPORT_RESULT_KEY)||'null');
-    if(saved?.version===1&&Array.isArray(saved.rows))window._corderImportResult=saved;
-  }catch{}
+  let session=null;
+  try{session=JSON.parse(sessionStorage.getItem(CORDER_IMPORT_RESULT_KEY)||'null');}catch{}
+  const history=corderImportBatches();
+  const candidates=[...history,session].filter(x=>x?.version===1&&Array.isArray(x.rows));
+  candidates.sort((a,b)=>String(b.updatedAt||b.startedAt||'').localeCompare(String(a.updatedAt||a.startedAt||'')));
+  if(candidates.length)window._corderImportResult=candidates[0];
   return window._corderImportResult||null;
 }
 function saveCorderImportResult(){
-  try{sessionStorage.setItem(CORDER_IMPORT_RESULT_KEY,JSON.stringify(window._corderImportResult));}catch{}
+  const result=window._corderImportResult;if(!result)return false;
+  result.updatedAt=new Date().toISOString();
+  let sessionSaved=false,historySaved=false;
+  try{sessionStorage.setItem(CORDER_IMPORT_RESULT_KEY,JSON.stringify(result));sessionSaved=true;}catch{}
+  try{
+    const all=corderImportBatches();
+    // Keep every unfinished batch. Limit only completed history, never discard
+    // an unresolved create just because another workbook was imported later.
+    const pending=all.filter(b=>b.rows.some(r=>!['完成','已存在略過'].includes(r.state)));
+    const completed=all.filter(b=>!pending.includes(b)).slice(-10);
+    localStorage.setItem(CORDER_IMPORT_HISTORY_KEY,JSON.stringify([...completed,...pending]));historySaved=true;
+  }catch{}
+  window._corderImportStorageWarning=historySaved?'':sessionSaved?'此瀏覽器無法保留跨分頁紀錄；請勿關閉分頁，先完成或核對本批次。':'匯入結果無法保存；已停止送出新資料，請保留畫面。';
+  return sessionSaved||historySaved;
+}
+function requestCorderImportStop(){
+  if(!window._corderImportBusy)return;
+  window._corderImportStopRequested=true;
+  showToast('將完成目前品項後暫停；已送出的請求不會取消或重送。','warn',9000);
+}
+function selectCorderImportBatch(startedAt){
+  if(window._corderImportBusy||window._corderImportChecking)return;
+  const batch=corderImportBatches().find(x=>x.startedAt===startedAt);
+  if(!batch)return;
+  window._corderImportResult=batch;
+  refreshCorderImportResultPanel();
+}
+window.addEventListener?.('beforeunload',event=>{
+  if(!window._corderImportBusy)return;
+  event.preventDefault();event.returnValue='';
+});
+function refreshCorderImportResultPanel(){
+  if(typeof document==='undefined')return;
+  const panel=document.getElementById('corder-import-result');
+  if(panel)panel.outerHTML=renderCorderImportResult();
 }
 function updateCorderImportResult(index,patch){
   const row=window._corderImportResult?.rows?.[index];
-  if(row){Object.assign(row,patch);saveCorderImportResult();}
+  if(!row)return false;
+  Object.assign(row,patch);const saved=saveCorderImportResult();
+  if(!saved)window._corderImportStopRequested=true;
+  refreshCorderImportResultPanel();return saved;
 }
 function renderCorderImportResult(){
   const result=corderImportResult();if(!result?.rows?.length)return '';
   const done=result.rows.filter(r=>r.state==='完成'||r.state==='已存在略過').length;
+  const orders=new Map();
+  for(const row of result.rows){const key=row.shopeeNo||row.no||`row:${row.sourceRow}`;if(!orders.has(key))orders.set(key,[]);orders.get(key).push(row);}
+  const completeOrders=[...orders.values()].filter(rows=>rows.every(r=>['完成','已存在略過'].includes(r.state))).length;
+  const remaining=result.rows.length-done;
+  const otherPending=corderImportBatches().filter(b=>b.startedAt!==result.startedAt&&b.rows.some(r=>!['完成','已存在略過'].includes(r.state)));
   return `<details open class="info-box ${done===result.rows.length?'':'info-warn'}" id="corder-import-result" style="margin-bottom:12px">
-    <summary><b>最近一次匯入結果：${done}/${result.rows.length} 筆完成或已存在</b></summary>
-    <p>預覽可執行不代表建單完成。以下保留每筆結果；本頁籤重新整理後仍可查看。保留單號不代表已建單。</p>
+    <summary><b>最近一次匯入結果：${completeOrders}/${orders.size} 張訂單完整 · ${done}/${result.rows.length} 筆品項完成或已存在${remaining?` · 尚有 ${remaining} 筆待處理`:''}</b></summary>
+    <p>同一張訂單的所有品項完成，才算整張完整。預覽可執行、保留單號均不代表建單完成。紀錄保留在這台電腦的瀏覽器，關閉分頁後重開仍可查看；不是伺服器備份。</p>
+    ${remaining?'<p role="status">未完成時請重新匯入同一份原檔，先核對預覽。既有原單會略過或續接；建檔結果不明的列必須先核對，不能直接重建。</p>':''}
+    ${window._corderImportStorageWarning?`<p role="alert">${escapeHtml(window._corderImportStorageWarning)}</p>`:''}
+    ${otherPending.length?`<p>另有 ${otherPending.length} 批未完成紀錄：</p><div style="display:flex;flex-wrap:wrap;gap:8px">${otherPending.map(b=>`<button class="btn btn-ghost btn-sm" style="min-height:44px;white-space:normal;overflow-wrap:anywhere" data-batch-at="${escapeHtml(b.startedAt)}" onclick="selectCorderImportBatch(this.dataset.batchAt)" ${window._corderImportBusy||window._corderImportChecking?'disabled':''}>查看 ${escapeHtml(b.startedAt)} · ${b.rows.length} 個品項</button>`).join('')}</div>`:''}
+    ${window._corderImportBusy?'<button class="btn btn-yellow btn-sm" style="min-height:44px" onclick="requestCorderImportStop()">完成目前品項後暫停</button>':''}
     <button class="btn btn-ghost btn-sm" style="min-height:44px" onclick="verifyCorderImportResult()" ${window._corderImportChecking||window._corderImportBusy?'disabled':''}>僅核對原單，不建單、不重送扣庫</button>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${result.rows.map(r=>`<div style="flex:1 1 240px;min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;overflow-wrap:anywhere">
       <b>${escapeHtml(r.no||'單號尚未取得')} · ${escapeHtml(r.state)}</b><br>
@@ -27025,6 +27082,7 @@ async function verifyCorderImportResult(){
 async function applyCorderImportPreflight(){
   if(window._corderImportBusy)return;
   window._corderImportBusy=true;
+  window._corderImportStopRequested=false;
   try{return await applyCorderImportPreflightOnce();}
   catch(e){
     if(window._corderImportResult){window._corderImportResult.error='匯入中斷：'+e.message+'；請逐筆核對，勿刪除重建。';saveCorderImportResult();}
@@ -27042,8 +27100,10 @@ async function applyCorderImportPreflightOnce(){
   }
   try{await loadCorders({mode:'all',strict:true,skipAutoComplete:true});}catch(e){showToast('原訂單查核失敗，已停止匯入；未保留新號碼','err');return;}
   const incoming=report.incoming;
-  const unresolved=corderImportResult()?.rows?.find(r=>r.state==='建檔結果未確認'&&!(r.pageId&&(window.corders||[]).some(c=>c.id===r.pageId))&&incoming.some(item=>item.shopeeNo===r.shopeeNo&&normalizeSku(item.sku)===normalizeSku(r.sku)));
-  if(unresolved){showToast(`${unresolved.no} 建檔結果未確認，請先按「僅核對原單」；未保留新號碼、未重送建單或扣庫。`,'err',12000);return;}
+  corderImportResult();
+  const batches=corderImportBatches();
+  const unresolved=batches.flatMap(b=>b.rows).find(r=>r.state==='建檔結果未確認'&&!(r.pageId&&(window.corders||[]).some(c=>c.id===r.pageId))&&incoming.some(item=>item.shopeeNo===r.shopeeNo&&normalizeSku(item.sku)===normalizeSku(r.sku)));
+  if(unresolved){window._corderImportResult=batches.find(b=>b.rows.includes(unresolved));showToast(`${unresolved.no} 建檔結果未確認，請先按「僅核對原單」；未保留新號碼、未重送建單或扣庫。`,'err',12000);return;}
   let ok=0, skip=0, warn=0, failed=0;
   const warnList=[];
   const assignedNos=new Map();
@@ -27070,8 +27130,9 @@ async function applyCorderImportPreflightOnce(){
     return;
   }
   window._corderImportResult={version:1,startedAt:new Date().toISOString(),rows:incoming.map(item=>({sourceRow:item.sourceRow,shopeeNo:item.shopeeNo||'',sku:item.sku,qty:item.qty,no:assignInternalNo(item),pageId:'',state:'尚未執行',message:'單號已保留，尚未建單或扣庫'}))};
-  saveCorderImportResult();
+  if(!saveCorderImportResult()){showToast('匯入結果無法保存，已停止建單與扣庫；請檢查瀏覽器儲存空間。','err',12000);return;}
   closeModal();
+  if(CURRENT_TAB==='corders')renderTab('corders');
   showToast('⏳ 匯入 '+incoming.length+' 筆品項...','ok');
   function assignInternalNo(item){
     const key=corderSameOrderKey(item.shopeeNo,item.buyer)||`row:${item.sourceRow}`;
@@ -27082,13 +27143,17 @@ async function applyCorderImportPreflightOnce(){
   }
 
   for(const [resultIndex,item] of incoming.entries()){
+    if(window._corderImportStopRequested){
+      window._corderImportResult.error='本批次已暫停，後續尚未執行的品項沒有送出建單或扣庫。請保留原檔，重新匯入時先核對原單。';
+      saveCorderImportResult();break;
+    }
     item.no=assignInternalNo(item);
     const dup=(window.corders||[]).find(c=>
       corderSameOrderKey(c.shopeeNo,c.buyer)===corderSameOrderKey(item.shopeeNo,item.buyer) &&
       c.no===item.no&&normalizeSku(c.matCode||c.matName)===normalizeSku(item.sku)
     );
     if(dup){
-      updateCorderImportResult(resultIndex,{pageId:dup.id,state:'原單待核對',message:'找到既有原單，未另建單'});
+      if(!updateCorderImportResult(resultIndex,{pageId:dup.id,state:'原單待核對',message:'找到既有原單，未另建單'}))break;
       if(dup.status==='需確認'){
         try{await requestCorderResume(dup.id);ok++;dup.status='出貨中';updateCorderImportResult(resultIndex,{state:'完成',message:'原單已核對憑證並續接'});}
         catch(e){failed++;updateCorderImportResult(resultIndex,{state:'原單待續接',message:e.message});warnList.push(`${item.shopeeNo||item.no} / ${item.sku}：原單續接未確認：${e.message}；未另建單，勿刪除重建`);}
@@ -27133,10 +27198,10 @@ async function applyCorderImportPreflightOnce(){
       const shipPlan=resolveCorderShipPlan(mat,item.qty);
       if(shipPlan.items.some(x=>Number(x.stock)<x.needed))throw new Error('C端子件庫存不足');
       cProps['料件ID']={rich_text:[{text:{content:corderStockRefs(shipPlan.refs)}}]};
-      updateCorderImportResult(resultIndex,{state:'建檔結果未確認',message:'建單請求已準備送出，尚未取得原單 ID；勿重送'});
+      if(!updateCorderImportResult(resultIndex,{state:'建檔結果未確認',message:'建單請求已準備送出，尚未取得原單 ID；勿重送'}))throw new Error('建單前無法保存結果，已停止送出；請保留畫面並先核對');
       stagedOrder=await notionAPI('POST','pages',{parent:{database_id:DB.corders},properties:cProps});
       if(stagedOrder?.object==='error'||!stagedOrder?.id) throw new Error(stagedOrder?.message||'C端訂單未回傳暫存建檔結果');
-      updateCorderImportResult(resultIndex,{pageId:stagedOrder.id,state:'原單待核對',message:'原單已建立，尚未確認扣庫'});
+      if(!updateCorderImportResult(resultIndex,{pageId:stagedOrder.id,state:'原單待核對',message:'原單已建立，尚未確認扣庫'}))throw new Error('原單 ID 無法保存，已停止送出扣庫；請先核對原單');
       await assertCorderInternalNoForIdentity(item.no,item.shopeeNo,item.buyer,stagedOrder.id,item.sku);
 
       stockAttempted=true;
