@@ -2,6 +2,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
 const code=html.slice(html.indexOf("const CORDER_IMPORT_RESULT_KEY="),html.indexOf('async function importShopeeExcel('));
 const incoming=[0,1,2].map(i=>({sourceRow:i+2,shopeeNo:'SHOP'+i,buyer:'BUYER'+i,sku:'S-X'+i,qty:1}));
+test('lost C-order create response is never retried, while read queries can retry',async()=>{
+ let calls=0;
+ const c=vm.createContext({DB:{corders:'11111111-1111-1111-1111-111111111111'},PROXY:'test',NOTION_MAX_RETRIES:2,waitNotionTurn:async()=>{},sleep:async()=>{},notionRetryDelay:()=>0,isNotionRateLimit:()=>false,showToast:()=>{},fetch:async()=>{calls++;throw Error('connection lost');}});
+ vm.runInContext(html.slice(html.indexOf('async function notionProxyRequest('),html.indexOf('function advancesNotionCacheEpoch(')),c);
+ const created=await c.notionProxyRequest({method:'POST',endpoint:'pages',body:{parent:{database_id:'11111111111111111111111111111111'}}});
+ assert.equal(calls,1);assert.equal(created.code,'corder_create_unknown');
+ calls=0;await c.notionProxyRequest({method:'POST',endpoint:'databases/x/query',body:{}});assert.equal(calls,3);
+});
 function setup(options={}){
  const store=options.store||new Map(),local=options.local||new Map(),events={},pages=[],calls=[],toasts=[];let created=0,deducted=0,reserved=0,storageWrites=0;
  const put=(target,k,v)=>{storageWrites++;if(options.storageFail||storageWrites>(options.failStorageAfter??Infinity))throw Error('disabled');target.set(k,v);};

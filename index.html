@@ -6765,6 +6765,12 @@ async function notionProxyRequest(payload,actionLabel='Notion API'){
       lastData=data;
     }catch(e){
       lastData={object:'error',status:0,code:'network_error',message:e.message||String(e)};
+      // Creating a C-order page has no request idempotency key. A lost response
+      // may mean the page already exists; never replay this POST blindly.
+      if(String(payload?.method||'').toUpperCase()==='POST'&&payload?.endpoint==='pages'&&
+         String(payload?.body?.parent?.database_id||'').replace(/-/g,'').toLowerCase()===String(DB.corders||'').replace(/-/g,'').toLowerCase()){
+        return {object:'error',status:0,code:'corder_create_unknown',message:'建單回應中斷，結果未確認；請先核對原單，勿重複建單或扣料。'};
+      }
       if(attempt<NOTION_MAX_RETRIES){
         await sleep(notionRetryDelay(attempt));
         continue;
