@@ -1360,6 +1360,26 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-material-card-metrics span{font-size:12px;color:var(--text3);display:block;}
 .analytics-material-card-metrics strong{font-size:16px;color:var(--text);}
 .analytics-material-card-note{font-size:12px;color:var(--text2);margin-top:9px;}
+.analytics-material-visuals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:13px 0;}
+.analytics-material-visual{min-width:0;border:1px solid var(--border);border-radius:14px;padding:13px;background:var(--bg2);}
+.analytics-material-visual h4{margin:0 0 4px;font-size:14px;}
+.analytics-material-visual p{margin:0 0 10px;font-size:12px;color:var(--text2);line-height:1.5;}
+.analytics-material-visual-wide{grid-column:1/-1;}
+.analytics-material-bar-row{display:grid;grid-template-columns:minmax(95px,150px) minmax(0,1fr) auto;gap:8px;align-items:center;margin:8px 0;font-size:12px;}
+.analytics-material-bar-row button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
+.analytics-material-track{height:10px;border-radius:99px;background:rgba(100,116,139,.2);overflow:hidden;}
+.analytics-material-fill{height:100%;border-radius:99px;background:var(--cyan2);}
+.analytics-material-focus{display:flex;flex-wrap:wrap;gap:5px;margin:5px 0 10px;}
+.analytics-material-focus button.active{border-color:var(--cyan2);color:var(--cyan2);}
+.analytics-material-weeks{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:4px;align-items:end;height:135px;border-bottom:1px solid var(--border);}
+.analytics-material-week{height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0;}
+.analytics-material-week i{display:block;width:min(23px,80%);min-height:2px;background:var(--blue);border-radius:4px 4px 0 0;}
+.analytics-material-week small{font-size:9px;color:var(--text3);white-space:nowrap;}
+.analytics-material-compare{display:grid;grid-template-columns:minmax(100px,170px) minmax(0,1fr) auto;gap:8px;align-items:center;margin:10px 0;font-size:12px;}
+.analytics-material-compare-bars{display:grid;gap:3px;}
+.analytics-material-compare-bars .analytics-material-track{height:7px;}
+.analytics-material-compare-bars .forecast{background:var(--amber);}
+.analytics-material-compare-bars .demand{background:var(--blue);}
 .analytics-decision-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
 .analytics-decision-card{position:relative;min-height:128px;text-align:left;cursor:pointer;padding:15px 15px 14px 56px;border-radius:16px;border:1px solid rgba(170,194,180,.14);background:var(--bg2);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);transition:transform .16s,border-color .16s,background .16s;}
 .analytics-decision-card::before{content:attr(data-icon);position:absolute;left:15px;top:16px;width:30px;height:30px;border-radius:11px;display:grid;place-items:center;background:rgba(34,211,238,.1);border:1px solid rgba(94,234,212,.18);}
@@ -1495,6 +1515,14 @@ td{font-size:16px;padding:16px 17px;}
   .analytics-mobile-hint{display:block;}
   .analytics-material-table{display:none;}
   .analytics-material-mobile{display:block;}
+  .analytics-material-visuals{grid-template-columns:1fr;}
+  .analytics-material-visual-wide{grid-column:auto;}
+  .analytics-material-visuals .analytics-material-visual:nth-child(2){order:-1;}
+  .analytics-material-bar-row{grid-template-columns:minmax(0,1fr) auto;}
+  .analytics-material-bar-row button{grid-column:1/-1;min-width:0;width:100%;white-space:normal;overflow-wrap:anywhere;}
+  .analytics-material-bar-row .analytics-material-track{grid-column:1;}
+  .analytics-material-bar-row b{grid-column:2;}
+  .analytics-material-compare{grid-template-columns:minmax(78px,105px) minmax(0,1fr) auto;}
   .focus-stat{padding:12px 12px 12px 48px;min-height:72px;}
   .focus-stat::before{left:12px;top:14px;width:26px;height:26px;}
   .ops-board{height:auto;overflow:visible;grid-template-rows:auto auto;}
@@ -12303,10 +12331,10 @@ async function repairShopeeStockInFromAudit(orderNo,sku,qty){
 // ══════════════════════════════════════════════
 // 營運分析模組（唯讀，使用目前 ERP 已載入資料）
 // ══════════════════════════════════════════════
-function analyticsRange(){return window._ANALYTICS_RANGE||'30';}
+function analyticsRange(){return window._ANALYTICS_RANGE||'90';}
 function analyticsRangeLabel(range=analyticsRange()){
   if(range==='all')return '全部已載入資料';
-  return `近 ${Number(range)||30} 天`;
+  return `近 ${Number(range)||90} 天`;
 }
 function analyticsDataReady(){
   return window._coreLoaded&&Array.isArray(mats)&&Array.isArray(orders)&&window._cordersLoaded&&Array.isArray(stockLogs);
@@ -12336,10 +12364,10 @@ async function loadAnalyticsData(){
 async function setAnalyticsRange(range,{force=false,initial=false}={}){
   if(window._analyticsLoading)return;
   window._analyticsLoading=true;
-  window._ANALYTICS_RANGE=range||'30';
+  window._ANALYTICS_RANGE=range||'90';
   const c=document.getElementById('mainContent');
   if(c&&CURRENT_TAB==='analytics')c.innerHTML='<div class="loading-row"><div class="spin"></div>更新營運分析...</div>';
-  const all=analyticsRange()==='all',days=Number(analyticsRange())||30;
+  const all=analyticsRange()==='all',days=Number(analyticsRange())||90;
   const options=all?{mode:'all'}:{mode:'recent',days};
   const covered=key=>DATA_LOAD_MODE[key]==='all'||(!all&&DATA_LOAD_DAYS[key]>=days);
   const tasks=[];
@@ -12458,7 +12486,7 @@ function analyticsInventoryState(material){
 }
 const ANALYTICS_USE_SOURCES=new Set(['order_pick_batch','manual_pick_batch','corder_ship','corder_ship_bundle','corder_ship_recoverable']);
 const ANALYTICS_RETURN_SOURCES=new Set(['order_pick_reversal','order_pick_reversal_shortfall','order_pick_reversal_repair','corder_return_batch','corder_reversal']);
-function analyticsMaterialModel(report,materials,openDemand=[],range='30'){
+function analyticsMaterialModel(report,materials,openDemand=[],range='90'){
   if(!report||report.complete!==true||report.source!=='inventory_transactions'||!Array.isArray(report.transactions))return null;
   const end=String(report.end||'');
   const endMs=Date.parse(`${end}T00:00:00Z`);
@@ -12489,21 +12517,50 @@ function analyticsMaterialModel(report,materials,openDemand=[],range='30'){
   const sum=(array,start,end)=>array.slice(start,end).reduce((total,value)=>total+value,0);
   const rows=[...byId.values()].map(row=>{
     const used=sum(row.usedDays,0,days),returned=sum(row.returnDays,0,days);
-    const recent28=sum(row.usedDays,0,28),prior28=sum(row.usedDays,28,56);
+    const recent28=sum(row.usedDays,0,28),prior28=sum(row.usedDays,28,56),total90=sum(row.usedDays,0,90);
     const recentDays=row.usedDays.slice(0,28).filter(Boolean).length;
     const priorDays=row.usedDays.slice(28,56).filter(Boolean).length;
-    const enough=recentDays>=2&&priorDays>=2;
-    const error=enough?Math.abs(recent28-prior28)/Math.max(recent28,prior28):null;
-    const forecast=enough?Math.max(0,(recent28*.7+prior28*.3)*30/28):null;
-    const confidence=!enough?'資料不足':error<=.35&&recentDays+priorDays>=8?'較穩':error<=.7?'中':'波動高';
+    const activeDays90=row.usedDays.filter(Boolean).length;
+    const weighted=recentDays>=2&&priorDays>=2;
+    const baseline=!weighted&&activeDays90>=2;
+    const error=weighted?Math.abs(recent28-prior28)/Math.max(recent28,prior28):null;
+    const forecast=weighted?Math.max(0,(recent28*.7+prior28*.3)*30/28):baseline?total90/3:null;
+    const method=weighted?'趨勢加權':baseline?'90 天均值':'單次觀測';
+    const confidence=weighted?(error<=.35&&recentDays+priorDays>=8?'較穩':error<=.7?'中':'波動高'):baseline?'低信心':'資料不足';
     const inventory=analyticsInventoryState(row.material);
     const open=Number.isFinite(demandById.get(String(row.material?.id)))?demandById.get(String(row.material.id)):null;
     const coverDays=inventory.stock!==null&&recent28>0?inventory.stock/(recent28/28):null;
-    return {...row,used,returned,recent28,prior28,forecast,confidence,error,inventory,openDemand:open,coverDays};
+    return {...row,used,returned,recent28,prior28,total90,activeDays90,forecast,method,confidence,error,inventory,openDemand:open,coverDays};
   }).filter(row=>row.used>0).sort((a,b)=>b.used-a.used||a.sku.localeCompare(b.sku));
   const risk=rows.filter(row=>row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast);
   return {rows,days,usedTransactions,excluded,riskCount:risk.length,forecastable:rows.filter(row=>row.forecast!==null).length,
+    weightedCount:rows.filter(row=>row.method==='趨勢加權').length,baselineCount:rows.filter(row=>row.method==='90 天均值').length,
     start:report.start,end:report.end,generatedAt:report.generated_at||'',source:'inventory_transactions'};
+}
+function analyticsSelectMaterial(id){
+  window._analyticsSelectedMaterialId=String(id||'');
+  if(CURRENT_TAB==='analytics'){
+    document.getElementById('mainContent').innerHTML=renderAnalytics();
+    document.getElementById('analytics-materials')?.scrollIntoView({block:'start'});
+  }
+}
+function analyticsMaterialVisuals(model,number){
+  if(!model.rows.length)return '';
+  const unit=model.rows[0].unit;
+  const sameUnit=model.rows.filter(row=>row.unit===unit);
+  const top=sameUnit.slice(0,8),topValue=Math.max(1,...top.map(row=>row.used));
+  const selected=model.rows.find(row=>row.id===window._analyticsSelectedMaterialId)||model.rows[0];
+  const weekTotals=Array.from({length:13},(_,i)=>{
+    const week=12-i;
+    return {week,value:selected.usedDays.slice(week*7,week*7+7).reduce((sum,value)=>sum+value,0)};
+  });
+  const maxWeek=Math.max(1,...weekTotals.map(item=>item.value));
+  const compare=sameUnit.filter(row=>row.forecast!==null).slice(0,6);
+  return `<div class="analytics-material-visuals">
+    <div class="analytics-material-visual"><h4>實際耗用排行</h4><p>近 ${model.days} 天，圖中只比較「${escapeHtml(unit)}」；點料號看每週變化。</p>${top.map(row=>`<div class="analytics-material-bar-row"><button class="btn btn-ghost btn-xs" data-material-id="${escapeHtml(row.id)}" onclick="analyticsSelectMaterial(this.dataset.materialId)">${escapeHtml(row.sku)}</button><div class="analytics-material-track"><div class="analytics-material-fill" style="width:${Math.max(2,Math.round(row.used*100/topValue))}%"></div></div><b>${number(row.used)}</b></div>`).join('')}</div>
+    <div class="analytics-material-visual"><h4>單一物料每週耗用</h4><p>${escapeHtml(selected.sku)} · 正式扣庫量，沒有交易的週別保留為 0。</p><div class="analytics-material-focus">${model.rows.slice(0,5).map(row=>`<button class="btn btn-ghost btn-xs ${row.id===selected.id?'active':''}" aria-pressed="${row.id===selected.id}" data-material-id="${escapeHtml(row.id)}" onclick="analyticsSelectMaterial(this.dataset.materialId)">${escapeHtml(row.sku)}</button>`).join('')}</div><div class="analytics-material-weeks" role="img" aria-label="${escapeHtml(selected.sku)} 近十三週耗用趨勢">${weekTotals.map(({week,value})=>`<div class="analytics-material-week" title="${week===0?'最近7天':`${week*7}至${week*7+6}天前`}：${number(value)} ${escapeHtml(selected.unit)}"><i style="height:${Math.max(2,Math.round(value*100/maxWeek))}%"></i><small>${week===0?'本週':week%3===0?`-${week}週`:''}</small></div>`).join('')}</div><p>近 90 天 ${number(selected.total90)} ${escapeHtml(selected.unit)} · ${selected.activeDays90} 個耗用日 · ${selected.method}／${selected.confidence}</p></div>
+    <div class="analytics-material-visual analytics-material-visual-wide"><h4>庫存、試算與已開未領需求</h4><p>每列各自比較相同料號與單位；藍色需求是已開未領，與橘色耗用試算不相加。</p>${compare.length?compare.map(row=>{const max=Math.max(1,row.inventory.stock||0,row.forecast||0,row.openDemand||0);const bar=(value,kind)=>`<div class="analytics-material-track" title="${kind}：${value===null?'待確認':number(value)} ${escapeHtml(row.unit)}"><div class="analytics-material-fill ${kind==='30 天試算'?'forecast':kind==='已開未領'?'demand':''}" style="width:${value===null?0:Math.round(value*100/max)}%"></div></div>`;return `<div class="analytics-material-compare"><span>${escapeHtml(row.sku)}</span><div class="analytics-material-compare-bars">${bar(row.inventory.stock,'庫存')}${bar(row.forecast,'30 天試算')}${bar(row.openDemand,'已開未領')}</div><b>${row.inventory.stock===null?'待核庫存':row.inventory.stock<row.forecast?'低於試算':'可覆蓋試算'}</b></div>`}).join(''):'<p>目前沒有足夠樣本可比較庫存與耗用試算。</p>'}<p>三條由上至下：庫存（青）、30 天耗用試算（橘）、已開未領需求（藍）；空白需求表示未取得可核對的直接需求。</p></div>
+  </div>`;
 }
 function analyticsShowMoreMaterials(){
   window._analyticsMaterialLimit=(window._analyticsMaterialLimit||10)+10;
@@ -12516,10 +12573,11 @@ function analyticsMaterialPanel(model){
   const top=Math.max(1,...rows.map(row=>row.used));
   return `<section class="analytics-panel" id="analytics-materials" aria-label="常用物料與需求預測">
     <div class="analytics-panel-head"><div><h3>常用物料排行與 30 天耗用試算</h3><p>正式扣庫交易排行；轉庫、入料與組立母件入庫不算耗用。試算只供補料評估，不自動建立採購單。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','consume')">查操作明細</button></div>
-    <div class="analytics-source-strip"><span><b>近 ${model.days} 天</b>：${model.rows.length} 個實際耗用料號 · ${model.usedTransactions} 筆相關交易。</span><span><b>可試算</b> ${model.forecastable} 個；試算量高於現有庫存 ${model.riskCount} 個。</span><span>正式交易 ${escapeHtml(model.start)}～${escapeHtml(model.end)}；更新 ${escapeHtml(model.generatedAt||'時間未提供')}${model.excluded?`；${model.excluded} 筆資料不完整未計入`:''}。</span></div>
-    ${rows.length?`<div class="table-wrap analytics-material-table"><table class="data-table" style="min-width:900px"><thead><tr><th>排行／料號</th><th>實際耗用</th><th>期間退回</th><th>目前庫存</th><th>已開未領</th><th>未來30天試算</th><th>判讀</th></tr></thead><tbody>${rows.map((row,i)=>`<tr><td><b>${i+1}. ${escapeHtml(row.sku)}</b><br><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></td><td>${number(row.used)} ${escapeHtml(row.unit)}<div class="progress" style="margin-top:4px"><div style="width:${Math.max(3,Math.round(row.used*100/top))}%;background:var(--cyan2)"></div></div></td><td>${number(row.returned)}</td><td>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</td><td>${row.openDemand===null?'—':number(row.openDemand)}</td><td>${row.forecast===null?'資料不足':`${number(row.forecast)} ${escapeHtml(row.unit)}`}</td><td>${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</td></tr>`).join('')}</tbody></table></div><div class="analytics-material-mobile">${rows.map((row,i)=>`<article class="analytics-material-card"><div class="analytics-material-card-head"><b>${i+1}. ${escapeHtml(row.sku)}</b><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></div><div class="analytics-material-card-metrics"><div><span>實際耗用</span><strong>${number(row.used)} ${escapeHtml(row.unit)}</strong></div><div><span>未來 30 天試算</span><strong>${row.forecast===null?'資料不足':number(row.forecast)}</strong></div><div><span>目前庫存</span><strong>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</strong></div><div><span>已開未領需求</span><strong>${row.openDemand===null?'—':number(row.openDemand)}</strong></div></div><div class="analytics-material-card-note">退回 ${number(row.returned)} · ${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</div></article>`).join('')}</div>`:'<div class="empty">所選期間沒有可核對的正式耗用交易。</div>'}
+    <div class="analytics-source-strip"><span><b>近 ${model.days} 天</b>：${model.rows.length} 個實際耗用料號 · ${model.usedTransactions} 筆相關交易。</span><span><b>30 天試算</b> ${model.forecastable} 個（趨勢 ${model.weightedCount}、90 天均值 ${model.baselineCount}）；庫存低於試算 ${model.riskCount} 個。</span><span>正式交易 ${escapeHtml(model.start)}～${escapeHtml(model.end)}；更新 ${escapeHtml(model.generatedAt||'時間未提供')}${model.excluded?`；${model.excluded} 筆資料不完整未計入`:''}。</span></div>
+    ${analyticsMaterialVisuals(model,number)}
+    ${rows.length?`<div class="table-wrap analytics-material-table"><table class="data-table" style="min-width:900px"><thead><tr><th>排行／料號</th><th>實際耗用</th><th>期間退回</th><th>目前庫存</th><th>已開未領</th><th>未來30天試算</th><th>判讀</th></tr></thead><tbody>${rows.map((row,i)=>`<tr><td><b>${i+1}. ${escapeHtml(row.sku)}</b><br><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></td><td>${number(row.used)} ${escapeHtml(row.unit)}<div class="progress" style="margin-top:4px"><div style="width:${Math.max(3,Math.round(row.used*100/top))}%;background:var(--cyan2)"></div></div></td><td>${number(row.returned)}</td><td>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</td><td>${row.openDemand===null?'—':number(row.openDemand)}</td><td>${row.forecast===null?'資料不足':`${number(row.forecast)} ${escapeHtml(row.unit)}`}</td><td>${row.method}／${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</td></tr>`).join('')}</tbody></table></div><div class="analytics-material-mobile">${rows.map((row,i)=>`<article class="analytics-material-card"><div class="analytics-material-card-head"><b>${i+1}. ${escapeHtml(row.sku)}</b><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></div><div class="analytics-material-card-metrics"><div><span>實際耗用</span><strong>${number(row.used)} ${escapeHtml(row.unit)}</strong></div><div><span>未來 30 天試算</span><strong>${row.forecast===null?'資料不足':number(row.forecast)}</strong></div><div><span>目前庫存</span><strong>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</strong></div><div><span>已開未領需求</span><strong>${row.openDemand===null?'—':number(row.openDemand)}</strong></div></div><div class="analytics-material-card-note">退回 ${number(row.returned)} · ${row.method}／${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</div></article>`).join('')}</div>`:'<div class="empty">所選期間沒有可核對的正式耗用交易。</div>'}
     ${rows.length<model.rows.length?'<button class="btn btn-ghost btn-sm" onclick="analyticsShowMoreMaterials()">顯示更多料號</button>':''}
-    <details class="analytics-method"><summary>試算方法與限制</summary><p>未來 30 天 = 最近 28 天實際耗用 × 70% ＋ 前 28 天實際耗用 × 30%，換算成 30 天。兩段期間各少於 2 個耗用日就顯示資料不足；穩定度依兩段耗用差異判斷。尚無季節、客戶交期或供應商前置時間模型。「已開未領」只含可核對的國內／國外待排程直接需求，與試算並列、不相加，也不代表庫存預留。退回另列，不抹除原耗用。</p></details>
+    <details class="analytics-method"><summary>試算方法與限制</summary><p>若最近與前一段各 28 天都有至少 2 個耗用日，用 70%／30% 加權換算未來 30 天。否則，近 90 天至少 2 個耗用日才顯示「90 天均值」低信心參考量；僅單次耗用時不提供預測。尚無季節、客戶交期或供應商前置時間模型。「已開未領」只含可核對的國內／國外待排程直接需求，與試算並列、不相加，也不代表庫存預留。退回另列，不抹除原耗用。</p></details>
   </section>`;
 }
 function analyticsReturnReasonLabel(reason=''){

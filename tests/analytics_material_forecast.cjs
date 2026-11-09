@@ -61,9 +61,25 @@ test('forecast requires observations in both windows and keeps open demand separ
   ]);
   const model = context.analyticsMaterialModel(source, materials, [{id: 'page-a', needed: 11}], '30');
   assert.equal(model.rows[0].forecast, 30);
+  assert.equal(model.rows[0].method, '趨勢加權');
   assert.equal(model.rows[0].openDemand, 11);
   assert.equal(model.rows[1].forecast, null);
   assert.equal(model.rows[1].confidence, '資料不足');
+});
+
+test('sparse but repeated use gets a visibly low confidence 90-day baseline', () => {
+  const model = context.analyticsMaterialModel(report([
+    transaction('mat-a', 5, 'order_pick_batch', -9),
+    transaction('mat-a', 70, 'order_pick_batch', -6),
+  ]), materials, [], '90');
+  assert.equal(model.rows[0].forecast, 5);
+  assert.equal(model.rows[0].method, '90 天均值');
+  assert.equal(model.rows[0].confidence, '低信心');
+  assert.equal(model.baselineCount, 1);
+});
+
+test('operations analytics defaults to 90 days without an explicit selection', () => {
+  assert.equal(context.analyticsRange(), '90');
 });
 
 test('incomplete official report cannot produce a ranking or forecast', () => {
@@ -87,6 +103,8 @@ test('material panel gives mobile a visible forecast card', () => {
   ]), materials, [], '30');
   const panel = context.analyticsMaterialPanel(model);
   assert.match(panel, /analytics-material-mobile/);
+  assert.match(panel, /analytics-material-visuals/);
+  assert.match(panel, /單一物料每週耗用/);
   assert.match(panel, /未來 30 天試算/);
   assert.match(panel, /資料不足/);
 });

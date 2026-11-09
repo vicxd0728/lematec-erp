@@ -14,7 +14,7 @@ vm.runInContext(script,ctx);
 const end='2026-11-09',tx=[];
 for(let i=1;i<=14;i++)for(const day of [2,8,17,29,38,49])tx.push({material_id:`m-${i}`,source_type:'order_pick_batch',quantity_delta:-i*(day<28?2:1),occurred_at:new Date(Date.parse(end+'T12:00:00Z')-day*86400000).toISOString(),materials:{sku:`Y-EXAMPLE-${String(i).padStart(2,'0')}`,name:'示範物料',unit:'件'}});
 const mats=Array.from({length:14},(_,i)=>({supabaseId:`m-${i+1}`,id:`p-${i+1}`,code:`Y-EXAMPLE-${String(i+1).padStart(2,'0')}`,name:'示範物料',stock:20+i*3,unit:'件'}));
-const model=ctx.analyticsMaterialModel({complete:true,source:'inventory_transactions',start:'2026-08-12',end,generated_at:end+'T12:00:00Z',transactions:tx},mats,[{id:'p-14',needed:12}], '30');
+const model=ctx.analyticsMaterialModel({complete:true,source:'inventory_transactions',start:'2026-08-12',end,generated_at:end+'T12:00:00Z',transactions:tx},mats,[{id:'p-14',needed:12}], '90');
 const style=html.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1]||'';
 fs.writeFileSync(path.join(output,'preview.html'),`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${style}</style></head><body><main style="max-width:1280px;margin:24px auto;padding:16px"><h1>營運分析</h1>${ctx.analyticsMaterialPanel(model)}</main></body></html>`);
 const profile=path.join(output,`profile-${process.pid}`);
