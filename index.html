@@ -18753,7 +18753,6 @@ function renderInventory(){
         ${isAdminRole()?`<button class="btn btn-yellow btn-sm" onclick="openDeepInventoryAudit()">🧪 深度檢視</button>`:''}
         ${canAuditBomRole()?`<button class="btn btn-ghost btn-sm" onclick="auditAllBomInventory()">🔍 全料號 BOM 查驗</button>`:''}
         ${canImportBomRole()?`<button class="btn btn-ghost btn-sm" onclick="downloadGeneralBomTemplate()">下載BOM範本</button><button class="btn btn-cyan btn-sm" onclick="document.getElementById('bomExcelInput')?.click()">🔩 匯入BOM Excel</button><input id="bomExcelInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="importGeneralBomExcel(this)">`:''}
-        ${isAdminRole()?`<button class="btn btn-cyan btn-sm" onclick="importShopeeBomToNotion()">🛒 匯入蝦皮BOM</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-cyan btn-sm" onclick="openInventoryBatchAdjust()">Excel/貼表批量</button>`:''}
         ${usingSupabase&&canEditStock?`<button class="btn btn-green btn-sm" onclick="openSelectedSafetyStockBatch()" ${selectedCount?'':'disabled'}>勾選改安全庫存</button>`:''}
         ${canEditMat?`<button class="btn btn-blue btn-sm" onclick="openModal('newInbound')">＋ 入料</button>`:''}
