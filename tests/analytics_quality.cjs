@@ -44,6 +44,30 @@ function makeContext(overrides = {}) {
   return ctx;
 }
 
+test('first analytics entry loads its default range even when other tabs preloaded short-range arrays', async () => {
+  const start = html.indexOf('function renderTab(tab)');
+  const end = html.indexOf('\nfunction taipeiDateKey(', start);
+  assert(start >= 0 && end > start);
+  const host = { innerHTML: '' };
+  const calls = [];
+  const ctx = vm.createContext({
+    window: { _analyticsLoadAttempted: false },
+    document: { getElementById: () => host },
+    CURRENT_TAB: 'analytics',
+    analyticsDataReady: () => true,
+    renderAnalytics: () => '<section>90-day analysis</section>',
+    loadAnalyticsData: async () => { calls.push('load-default-range'); },
+  });
+  vm.runInContext(html.slice(start, end), ctx);
+  ctx.renderTab('analytics');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['load-default-range']);
+  assert.equal(host.innerHTML, '<section>90-day analysis</section>');
+  ctx.window._analyticsLoadAttempted = true;
+  ctx.renderTab('analytics');
+  assert.deepEqual(calls, ['load-default-range']);
+});
+
 test('analytics date range uses order creation date, never deadline or ship date', () => {
   const ctx = makeContext();
   const rows = [
