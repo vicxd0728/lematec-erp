@@ -37,7 +37,7 @@ test('all-ready picking remains expanded for confirmation',()=>{
 test('read-only summary has no write controls and retains existing operation permission gate',()=>{
  const c=setup();assert.doesNotMatch(c.renderOrderWorkHint({status:'待排程'}),/onclick|doPick|deleteOrder|notionAPI/);
  const list=source('function _renderOrdersList(','function orderTimelineEvents(');assert.match(list,/const canOperate=!isViewOnly\(\)/);assert.match(list,/canOperate\?/);assert.match(list,/<summary>編輯／刪除<\/summary>/);assert.match(list,/data-order-no=/);
- const pick=source('function openPickModal(','// ══ 品管檢驗單');assert.match(pick,/\$\{errors\?'disabled':''\}/);assert.match(pick,/blockedSummaryShown:true/);
+ const pick=source('function openPickModal(','// ══ 品管檢驗單');assert.match(pick,/\$\{errors&&!canCheckExistingReceipt\?'disabled':''\}/);assert.match(pick,/blockedSummaryShown:true/);
 });
 test('mobile sorting preserves supported column directions without changing query filters',()=>{
  const SORT={};let rendered=0;const c=setup({SORT,renderTab:()=>rendered++});
