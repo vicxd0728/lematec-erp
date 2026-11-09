@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{test}=require('node:test');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
-function setup(type='國外',stock=1446){
+function setup(type='國外',stock=1446,options={}){
  const parent={id:'parent',name:'F-GAB-03D-B',code:'F-GAB-03D-B',type:'半成品',stock};
  const children=['Y-SRG-15','Y-SRB-14-B','Y-SRG-13-B','Y-SRG-12A'].map((code,i)=>({id:'c'+i,code,name:code,type:'零件',stock:100}));
  const order={id:'order',no:'111111',productId:parent.id,product:parent.code,orderType:type,qty:1};
@@ -9,11 +9,11 @@ function setup(type='國外',stock=1446){
  _bomDataReady:true,_bomDataSource:'supabase',ROLE:'warehouse',todayStr:()=> '2026-09-26',console:{error:()=>{}},
  explodeBOM:()=>[],document:{getElementById:()=>field},renderPreflightCenter:x=>{preview=x;return '';},escapeHtml:x=>String(x),
  openModal:()=>{},closeModal:()=>{},loadPickShortageFollowups:async()=>{},showToast:(...x)=>toast.push(x),canonicalPageId:x=>x,
- pickingWorkerRequest:async(path,req)=>{calls.push({path,body:req.body});return {row:{id:'pick',items:req.body.items.map(i=>({matId:i.material_notion_page_id,pickedQty:0,notionId:'n-'+i.material_notion_page_id}))}};},
+ pickingWorkerRequest:async(path,req)=>{calls.push({path,body:req.body});return {existing:!!options.existing,row:{id:'pick',items:req.body.items.map(i=>({matId:i.material_notion_page_id,pickedQty:0,notionId:'n-'+i.material_notion_page_id}))}};},
  mapSupabasePick:r=>({...r,no:'P1',supabaseId:r.id,notionId:'pn'}),
  ensurePickingNotionMirror:async()=>{},updateWorkflowPageAfterInventory:async()=>({pending:false}),loadPicks:async()=>{},
  updateSupabasePickingStatus:async(...x)=>calls.push({status:x[1]}),
- applyInventoryBatchAndMirror:async(items,opts)=>{calls.push({batch:items,opts});return {items:items.map(i=>({pageId:i.pageId,before:100,after:100+i.delta,duplicate:false}))};},
+ applyInventoryBatchAndMirror:async(items,opts)=>{calls.push({batch:items,opts});if(options.rejectNew)throw Error('insufficient stock');return {items:items.map(i=>({pageId:i.pageId,before:options.existing?120:100,after:options.existing?0:100+i.delta,duplicate:!!options.existing}))};},
  logStockChange:async()=>{},logUserAction:()=>{},refreshAffectedData:async()=>{}});
  vm.runInContext(html.slice(html.indexOf('function isShopeeProductionOrder'),html.indexOf('function canMoveOrderStatus')),ctx);
  vm.runInContext(html.slice(html.indexOf('function openPickModal('),html.indexOf('// ══ 品管檢驗單')),ctx);
@@ -61,6 +61,22 @@ test('Shopee preview shows both stock legs and confirmation uses one transfer wi
 test('insufficient customer stock blocks deduction without falling back to available parts',async()=>{
  const t=setup('國外',0);t.ctx.openPickPreview('order');assert.equal(t.preview.errors,1);assert(t.field.innerHTML.includes('disabled'));
  await t.ctx.doPick('order');assert(!t.calls.some(x=>x.batch));assert(t.calls.some(x=>x.status==='缺料待補'));
+});
+test('an existing pending pick with a committed batch resumes its status without another deduction',async()=>{
+ const t=setup('國外',0,{existing:true});await t.ctx.doPick('order');
+ assert.equal(t.calls.filter(x=>x.batch).length,1);
+ assert(t.calls.some(x=>x.status==='已領料'));
+ assert(!t.calls.some(x=>x.status==='缺料待補'));
+});
+test('shortage preview offers receipt reconciliation for the exact existing pick',()=>{
+ const t=setup('國外',0,{existing:true});t.ctx.picks=[{supabaseId:'pick',orderId:'order',status:'待領料'}];
+ t.ctx.openPickPreview('order');
+ assert.match(t.field.innerHTML,/核對原領料憑證並續接/);
+ assert.doesNotMatch(t.field.innerHTML,/disabled[^>]*>核對原領料憑證並續接/);
+});
+test('an existing pending pick without a receipt stays incomplete when stock is short',async()=>{
+ const t=setup('國外',0,{existing:true,rejectNew:true});await t.ctx.doPick('order');
+ assert(!t.calls.some(x=>x.status==='已領料'));
 });
 test('production missing BOM, missing child, zero quantity or unloaded BOM blocks writes',async()=>{
  for(const mode of ['empty','missing-child','zero','unloaded']){

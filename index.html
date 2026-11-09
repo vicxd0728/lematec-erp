@@ -23451,6 +23451,10 @@ function openPickModal(orderId){
   const shortageCount=blocked.filter(row=>row.error==='庫存不足').length;
   const missingCount=blocked.filter(row=>row.error==='BOM 子料號尚未建檔').length;
   const errors=blocked.length;
+  const resumablePick=!plan.transfer&&typeof picks!=='undefined'&&Array.isArray(picks)&&picks.some(p=>
+    p.supabaseId&&canonicalPageId(p.orderId)===canonicalPageId(orderId)&&
+    ['待領料','待確認','缺料待補'].includes(p.status));
+  const canCheckExistingReceipt=resumablePick&&errors>0&&shortageCount===errors;
   const blockedTitle=hasBOM
     ?`無法領料：${shortageCount?'部分 BOM 子件庫存不足':''}${shortageCount&&missingCount?'，且有子件未建檔':!shortageCount?'BOM 子件尚未建檔':''}`
     :plan.transfer?'無法轉入蝦皮庫存：一般倉庫來源庫存不足':'無法領料：訂購品項庫存不足';
@@ -23465,7 +23469,7 @@ function openPickModal(orderId){
       <b style="color:var(--red2);font-size:.9rem">${blockedTitle}</b>
       <div style="color:var(--text2);font-size:.76rem;margin-top:4px">共 ${errors} 項阻擋；系統已停止扣庫，庫存沒有因這次預覽而變動。</div>
       <ul style="margin:8px 0 6px 18px;padding:0;font-size:.8rem">${blocked.map(row=>`<li><b>${escapeHtml(row.lineLabel)}</b>：${escapeHtml(row.detail)}</li>`).join('')}</ul>
-      <div style="color:var(--text2);font-size:.76rem">${plan.transfer?'請確認一般倉庫來源料號與庫存，補足後重新整理資料，再檢查轉庫。':'請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。'}</div>
+      <div style="color:var(--text2);font-size:.76rem">${canCheckExistingReceipt?'已有原領料單：可核對同一筆正式扣庫憑證並續接；若原本未扣庫，庫存不足仍會阻止扣料。':plan.transfer?'請確認一般倉庫來源料號與庫存，補足後重新整理資料，再檢查轉庫。':'請補足缺料或建立缺少的料號，重新整理資料後再開啟領料檢查。'}</div>
     </div>`:`<div class="info-box info-tip" role="status"><b>目前資料檢查未見缺料</b><br>請核對下方料號與數量，按確認後才會執行；執行時仍會重新檢查。</div>`}
     ${!plan.transfer&&items.some(item=>item.id&&!item.missing&&(Number(item.stock)||0)<Number(item.needed||0))?'<div id="pickShortageFollowups" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;font-size:.8rem">正在查詢缺料後續紀錄…</div>':''}
     ${renderPreflightCenter({
@@ -23492,7 +23496,7 @@ function openPickModal(orderId){
     })}
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" ${errors?'disabled':''} onclick="doPick('${orderId}')">${plan.transfer?'確認轉入蝦皮庫存':'🗂️ 確認領料'}</button>
+      <button class="btn btn-blue" ${errors&&!canCheckExistingReceipt?'disabled':''} onclick="doPick('${orderId}')">${canCheckExistingReceipt?'核對原領料憑證並續接':plan.transfer?'確認轉入蝦皮庫存':'🗂️ 確認領料'}</button>
     </div>`;
   openModal();
   if(!plan.transfer){
@@ -25123,7 +25127,10 @@ async function doPick(orderId){
     }
 
     const shortages=items.filter(item=>Number(item.stock)<Number(item.needed));
-    if(shortages.length){
+    // A previous attempt may have committed the exact order batch before the
+    // picking status update failed. Let the atomic idempotency key resolve that
+    // existing batch first; a genuinely new short batch is rejected by the RPC.
+    if(shortages.length&&!stageResult.existing){
       await updateSupabasePickingStatus(pick,'缺料待補',pick.items);
       throw new Error('庫存不足：'+shortages.map(x=>`${x.code||x.name} 缺 ${Number(x.needed)-Number(x.stock)}`).join('、'));
     }
