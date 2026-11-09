@@ -20,7 +20,7 @@ function setup(options={}){
    loadCoreEssentials:async()=>{},buildCorderImportPreflight:()=>({errors:0,stockImpact:[],newOrderKeys:incoming.map(x=>x.shopeeNo+'|||'+x.buyer)}),
    loadCorders:async()=>{},ensureCorderSequenceReady:async()=>{},reserveCorderNumbers:async()=>{reserved++;return {start_number:16679};},
    formatCorderNo:n=>'SHPTW'+n,corderSameOrderKey:(s,b)=>s+'|||'+b,corderExistingNoByShopeeAndBuyer:()=>'',assertCorderInternalNoForIdentity:async()=>{},
-   closeModal(){},showToast:s=>toasts.push(s),openCorderImportPreflightModal(){},renderTab(){},alert(){},parseMoneyNumber:()=>0,
+   closeModal(){},showToast:s=>toasts.push(s),openCorderImportPreflightModal(){},renderTab(){},alert(){},confirm:()=>options.confirmClear!==false,parseMoneyNumber:()=>0,
    findMatBySku:sku=>({id:sku,code:sku}),resolveCorderShipPlan:()=>({items:[{stock:10,needed:1}],refs:[{id:'mat',qty:1}]}),corderStockRefs:()=> 'mat:1',
    refreshAffectedData:async()=>{if(options.refreshFail)throw Error('refresh failed');},
    notionAPI:async(method,path,body)=>{
@@ -130,6 +130,36 @@ test('a multi-item order counts as complete only after all its lines are complet
   {shopeeNo:'SHOP1',sourceRow:3,sku:'S-Y',qty:1,state:'尚未執行'},
   {shopeeNo:'SHOP2',sourceRow:4,sku:'S-Z',qty:1,state:'完成'}]};
  assert.match(h.c.renderCorderImportResult(),/1\/2 張訂單完整.*2\/3 筆品項/);
+});
+test('completed import is collapsed and can clear only completed browser history',()=>{
+ const h=setup();
+ const done={version:1,startedAt:'2026-11-01',rows:[{shopeeNo:'SHOP1',sourceRow:2,sku:'S-X',qty:1,state:'完成'}]};
+ const pending={version:1,startedAt:'2026-11-02',rows:[{shopeeNo:'SHOP2',sourceRow:3,sku:'S-Y',qty:1,state:'尚未執行'}]};
+ h.local.set('erp-corder-import-history-v1',JSON.stringify([done]));
+ h.store.set('erp-corder-import-result-v1',JSON.stringify(done));
+ h.c.window._corderImportResult=done;
+ const view=h.c.renderCorderImportResult();
+ assert.match(view,/id="corder-import-result"/);assert.doesNotMatch(view,/<details open/);
+ assert.match(view,/清除已完成的本機匯入紀錄/);
+ h.local.set('erp-corder-import-history-v1',JSON.stringify([done,pending]));
+ assert.match(h.c.renderCorderImportResult(),/<details open/);
+ h.c.clearCompletedCorderImportHistory();
+ assert.deepEqual(JSON.parse(h.local.get('erp-corder-import-history-v1')).map(b=>b.startedAt),['2026-11-02']);
+ assert.equal(h.store.get('erp-corder-import-result-v1'),'null');
+ assert.equal(h.c.corderImportResult().startedAt,'2026-11-02');
+ assert.match(h.c.renderCorderImportResult(),/<details open/);
+ assert.doesNotMatch(h.c.renderCorderImportResult(),/onclick="clearCompletedCorderImportHistory/);
+ assert.deepEqual(h.counts(),{created:0,deducted:0,reserved:0});
+});
+test('declining or failing local clear preserves the completed import result',()=>{
+ const done={version:1,startedAt:'2026-11-01',rows:[{shopeeNo:'SHOP1',sourceRow:2,sku:'S-X',qty:1,state:'完成'}]};
+ for(const options of [{confirmClear:false},{storageFail:true}]){
+  const h=setup(options);h.local.set('erp-corder-import-history-v1',JSON.stringify([done]));h.c.window._corderImportResult=done;
+  h.c.clearCompletedCorderImportHistory();
+  assert.equal(JSON.parse(h.local.get('erp-corder-import-history-v1')).length,1);
+  assert.equal(h.c.window._corderImportResult,done);
+  assert.deepEqual(h.counts(),{created:0,deducted:0,reserved:0});
+ }
 });
 test('leaving the page warns only while importing; no unload handler sends stock requests',()=>{
  const h=setup();let prevented=0;const event={preventDefault(){prevented++;}};

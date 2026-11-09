@@ -17540,32 +17540,13 @@ function _renderOrdersList(tabs, soonOrders=[]){
   const ORDER_STATUS_OPTIONS=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
   const orderStatusOptions=[...new Set([...ORDER_STATUS_OPTIONS,...orders.map(o=>o.status).filter(Boolean)])];
   const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
-  const orderShipCount=orders.filter(o=>o.status==='待出貨').length;
-  const orderQcCount=orders.filter(o=>o.status==='待檢驗').length;
   const countStatus=s=>s==='all'?orders.length:s==='production-active'?orderActiveCount:orders.filter(o=>(o.status||'')===s).length;
   const statusChips=['all','production-active','待排程','生產中','待檢驗','待出貨','已完成','取消'].map(s=>{
     const label=s==='all'?'全部':s==='production-active'?'待排程／生產中':s;
     const active=_ordStatus===s||(!_ordStatus&&s==='all');
     return `<button class="order-status-chip${active?' active':''}" onclick="updateOrderFilter('status','${s}')">${label} <b>${countStatus(s)}</b></button>`;
   }).join('');
-  const orderBrief=`
-  <div class="module-brief">
-    <div>
-      <h2>訂單</h2>
-      <p>先看交期與狀態；展開作業摘要核對缺料或下一步，再使用該筆訂單的操作。</p>
-    </div>
-    <div class="module-brief-actions">
-      <span class="module-pill">全部 <b>${orders.length}</b></span>
-      <span class="module-pill">進行中 <b>${orderActiveCount}</b></span>
-      <span class="module-pill">待出貨 <b>${orderShipCount}</b></span>
-      <span class="module-pill">待檢驗 <b>${orderQcCount}</b></span>
-    </div>
-  </div>
-  <div class="source-strip"><span>目前篩選 <b>${data.length}</b> 筆</span><span>交期提醒 <b>${soonOrders.length}</b> 筆</span></div>
-  <div class="source-strip">
-    <span><b>${filters.deadline==='overdue'?'分析帶入':'資料路徑'}</b>：${filters.deadline==='overdue'?'目前顯示所有類型逾期且未完成的正式訂單。':'訂單仍依現有 Notion 訂單資料庫；領料扣庫時才走 Supabase 庫存/BOM 正式交易。'}</span>
-    ${filters.deadline==='overdue'?`<button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button>`:`<button class="btn btn-ghost btn-xs" onclick="switchTab('picking')">查看領料</button>`}
-  </div>`;
+  const orderBrief=filters.deadline==='overdue'?`<div class="source-strip"><span>分析帶入：目前顯示所有類型逾期且未完成的正式訂單。</span><button class="btn btn-ghost btn-xs" onclick="updateOrderFilter('deadline','')">清除分析條件</button></div>`:'';
 
   return `<div class="order-workbench">${orderBrief}${tabs}<div class="order-action-panel">
     <div class="order-action-head">
@@ -27226,6 +27207,26 @@ function refreshCorderImportResultPanel(){
   const panel=document.getElementById('corder-import-result');
   if(panel)panel.outerHTML=renderCorderImportResult();
 }
+function clearCompletedCorderImportHistory(){
+  if(window._corderImportBusy||window._corderImportChecking){showToast('匯入或核對進行中，請完成後再清除本機紀錄','warn');return;}
+  const complete=b=>b?.version===1&&Array.isArray(b.rows)&&b.rows.length>0&&b.rows.every(r=>['完成','已存在略過'].includes(r.state));
+  let history,session;
+  try{
+    history=JSON.parse(localStorage.getItem(CORDER_IMPORT_HISTORY_KEY)||'[]');
+    session=JSON.parse(sessionStorage.getItem(CORDER_IMPORT_RESULT_KEY)||'null');
+    if(!Array.isArray(history))throw Error('本機歷史格式不符');
+  }catch(e){showToast('本機匯入紀錄讀取失敗，未清除：'+e.message,'warn');return;}
+  const count=history.filter(complete).length+Number(complete(session)&&!history.some(b=>b.startedAt===session.startedAt));
+  if(!count&&!complete(window._corderImportResult)){showToast('沒有可清除的已完成匯入紀錄','warn');return;}
+  if(!confirm('只清除這台瀏覽器已完成的匯入結果；未完成紀錄保留，正式訂單與庫存不變。清除後無法從本機找回這些明細。確定清除嗎？'))return;
+  try{
+    localStorage.setItem(CORDER_IMPORT_HISTORY_KEY,JSON.stringify(history.filter(b=>!complete(b))));
+    if(complete(session))sessionStorage.setItem(CORDER_IMPORT_RESULT_KEY,'null');
+  }catch(e){showToast('本機匯入紀錄清除未完成，請重新整理確認：'+e.message,'warn');return;}
+  if(complete(window._corderImportResult))window._corderImportResult=null;
+  if(CURRENT_TAB==='corders')renderTab('corders');
+  showToast('已清除已完成的本機匯入結果；未完成紀錄、正式訂單與庫存不變','ok');
+}
 function updateCorderImportResult(index,patch){
   const row=window._corderImportResult?.rows?.[index];
   if(!row)return false;
@@ -27241,7 +27242,8 @@ function renderCorderImportResult(){
   const completeOrders=[...orders.values()].filter(rows=>rows.every(r=>['完成','已存在略過'].includes(r.state))).length;
   const remaining=result.rows.length-done;
   const otherPending=corderImportBatches().filter(b=>b.startedAt!==result.startedAt&&b.rows.some(r=>!['完成','已存在略過'].includes(r.state)));
-  return `<details open class="info-box ${done===result.rows.length?'':'info-warn'}" id="corder-import-result" style="margin-bottom:12px">
+  const hasPending=remaining>0||otherPending.length>0;
+  return `<details ${hasPending?'open':''} class="info-box ${hasPending?'info-warn':''}" id="corder-import-result" style="margin-bottom:12px">
     <summary><b>最近一次匯入結果：${completeOrders}/${orders.size} 張訂單完整 · ${done}/${result.rows.length} 筆品項完成或已存在${remaining?` · 尚有 ${remaining} 筆待處理`:''}</b></summary>
     <p>同一張訂單的所有品項完成，才算整張完整。預覽可執行、保留單號均不代表建單完成。紀錄保留在這台電腦的瀏覽器，關閉分頁後重開仍可查看；不是伺服器備份。</p>
     ${remaining?'<p role="status">未完成時請重新匯入同一份原檔，先核對預覽。既有原單會略過或續接；建檔結果不明的列必須先核對，不能直接重建。</p>':''}
@@ -27249,6 +27251,7 @@ function renderCorderImportResult(){
     ${otherPending.length?`<p>另有 ${otherPending.length} 批未完成紀錄：</p><div style="display:flex;flex-wrap:wrap;gap:8px">${otherPending.map(b=>`<button class="btn btn-ghost btn-sm" style="min-height:44px;white-space:normal;overflow-wrap:anywhere" data-batch-at="${escapeHtml(b.startedAt)}" onclick="selectCorderImportBatch(this.dataset.batchAt)" ${window._corderImportBusy||window._corderImportChecking?'disabled':''}>查看 ${escapeHtml(b.startedAt)} · ${b.rows.length} 個品項</button>`).join('')}</div>`:''}
     ${window._corderImportBusy?'<button class="btn btn-yellow btn-sm" style="min-height:44px" onclick="requestCorderImportStop()">完成目前品項後暫停</button>':''}
     <button class="btn btn-ghost btn-sm" style="min-height:44px" onclick="verifyCorderImportResult()" ${window._corderImportChecking||window._corderImportBusy?'disabled':''}>僅核對原單，不建單、不重送扣庫</button>
+    ${remaining?'':'<button class="btn btn-ghost btn-sm" style="min-height:44px" onclick="clearCompletedCorderImportHistory()">清除已完成的本機匯入紀錄</button>'}
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${result.rows.map(r=>`<div style="flex:1 1 240px;min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;overflow-wrap:anywhere">
       <b>${escapeHtml(r.no||'單號尚未取得')} · ${escapeHtml(r.state)}</b><br>
       Excel 第 ${escapeHtml(String(r.sourceRow))} 行 · ${escapeHtml(r.sku)} × ${escapeHtml(String(r.qty))}<br>

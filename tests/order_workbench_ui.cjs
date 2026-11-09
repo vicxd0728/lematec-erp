@@ -45,3 +45,10 @@ test('mobile sorting preserves supported column directions without changing quer
  c.setOrderMobileSort('unknown:desc');c.setOrderMobileSort('created:bad');assert.equal(rendered,1);
  assert.match(html,/\.order-list-table tr:first-child\{display:none\}/);assert.match(html,/id="orderMobileSort"/);assert.match(html,/data-label="狀態與作業摘要"/);
 });
+test('order list keeps actionable status counts without the duplicate intro totals',()=>{
+ const list=source('function _renderOrdersList(','function orderTimelineEvents(');
+ assert.doesNotMatch(list,/<h2>訂單<\/h2>|<span class="module-pill">全部/);
+ assert.match(list,/class="order-status-chips"/);
+ assert.match(list,/訂單列表 <span class="badge">\$\{data.length\}\/\$\{orders.length\}/);
+ assert.match(list,/filters.deadline==='overdue'/);
+});
