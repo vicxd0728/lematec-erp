@@ -2362,7 +2362,7 @@ async function erpPickingStatus(request, env, cors) {
     if (!allowedStatuses.has(status)) return resp400(cors, 'Invalid picking status');
     const existing = await supabaseSingle(
       env,
-      `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,status,picked_at,notion_page_id&limit=1`
+      `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,status,picked_at,notion_page_id,pick_number,source,source_order_notion_page_id&limit=1`
     );
     if (['已領料', '已確認扣料'].includes(cleanText(existing.status)) && !['已領料', '已確認扣料', '待回料確認', '已沖銷', '已退料'].includes(status)) {
       return new Response(JSON.stringify({ error: 'Completed picking cannot move back to an incomplete status' }), {
@@ -2381,6 +2381,72 @@ async function erpPickingStatus(request, env, cors) {
     if (['已領料', '已確認扣料'].includes(status)) {
       masterPatch.picked_at = cleanText(existing.picked_at) || taipeiISOString();
     }
+    const itemPatches = Array.isArray(body?.items) ? body.items : [];
+    if (['已領料', '已確認扣料'].includes(status)) {
+      const storedItems = await supabaseAll(
+        env,
+        `/rest/v1/pick_items?pick_list_id=eq.${encodeURIComponent(pickId)}&select=id,material_id,required_quantity`
+      );
+      const submitted = new Map(itemPatches.map(item => [cleanText(item?.id), Number(item?.picked_quantity)]));
+      if (!storedItems.length || submitted.size !== storedItems.length ||
+          storedItems.some(item => !submitted.has(cleanText(item.id)) ||
+            !(Number(item.required_quantity) > 0) ||
+            submitted.get(cleanText(item.id)) !== Number(item.required_quantity))) {
+        return new Response(JSON.stringify({error:'領料明細不完整或數量不符，尚未標示已領料'}),{status:409,headers:jh(cors)});
+      }
+      if (['ERP_ORDER', 'ERP_MANUAL'].includes(cleanText(existing.source))) {
+        const sourceType = existing.source === 'ERP_ORDER' ? 'order_pick_batch' : 'manual_pick_batch';
+        const sourceId = existing.source === 'ERP_ORDER'
+          ? cleanText(existing.source_order_notion_page_id) : pickId;
+        if (!sourceId || !cleanText(existing.pick_number)) {
+          return new Response(JSON.stringify({error:'原領料單缺少正式交易識別，尚未標示已領料'}),{status:409,headers:jh(cors)});
+        }
+        const context = await getSupabaseInventoryContext(env);
+        const transactions = await supabaseAll(env,
+          `/rest/v1/inventory_transactions?organization_id=eq.${encodeURIComponent(context.organization.id)}`+
+          `&source_type=eq.${encodeURIComponent(sourceType)}&source_id=eq.${encodeURIComponent(sourceId)}`+
+          `&source_number=eq.${encodeURIComponent(existing.pick_number)}&select=id,material_id,quantity_delta`
+        );
+        const expected = new Map(), actual = new Map();
+        const units = value => Math.round(Number(value) * 10000);
+        for (const item of storedItems) {
+          const key = cleanText(item.material_id);
+          expected.set(key, (expected.get(key) || 0) + units(item.required_quantity));
+        }
+        for (const tx of transactions) {
+          const key = cleanText(tx.material_id);
+          actual.set(key, (actual.get(key) || 0) - units(tx.quantity_delta));
+        }
+        if (!transactions.length || expected.size !== actual.size ||
+            [...expected].some(([key, quantity]) => !key || !(quantity > 0) || actual.get(key) !== quantity)) {
+          return new Response(JSON.stringify({error:'尚未查到與原領料單、料號及數量相符的正式扣庫交易；請核對憑證，未更新領料狀態'}),{status:409,headers:jh(cors)});
+        }
+      }
+    }
+    for (const item of itemPatches) {
+      const itemId = cleanText(item?.id);
+      if (!itemId) continue;
+      const patch = {
+        status: cleanText(item?.status || (['已領料', '已確認扣料'].includes(status) ? '足夠' : '')),
+        picked_quantity: Number(item?.picked_quantity ?? item?.required_quantity ?? 0),
+        updated_at: taipeiISOString(),
+      };
+      const itemData = await supabaseFetch(
+        env,
+        `/rest/v1/pick_items?id=eq.${encodeURIComponent(itemId)}&pick_list_id=eq.${encodeURIComponent(pickId)}&select=id`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify(patch),
+        }
+      );
+      if (!Array.isArray(itemData) || itemData.length !== 1 || cleanText(itemData[0]?.id) !== itemId) {
+        throw new Error(`Picking detail update not confirmed: ${itemId}`);
+      }
+    }
+    // Keep the master incomplete until every detail write is confirmed. A retry
+    // can safely repeat detail updates; it must never expose a completed master
+    // with an unfinished detail after a partial API failure.
     const data = await supabaseFetch(
       env,
       `/rest/v1/pick_lists?id=eq.${encodeURIComponent(pickId)}&select=id,pick_number,status,picked_at,notion_page_id`,
@@ -2391,25 +2457,7 @@ async function erpPickingStatus(request, env, cors) {
       }
     );
     const saved = Array.isArray(data) ? data[0] : data;
-    const itemPatches = Array.isArray(body?.items) ? body.items : [];
-    for (const item of itemPatches) {
-      const itemId = cleanText(item?.id);
-      if (!itemId) continue;
-      const patch = {
-        status: cleanText(item?.status || (['已領料', '已確認扣料'].includes(status) ? '足夠' : '')),
-        picked_quantity: Number(item?.picked_quantity ?? item?.required_quantity ?? 0),
-        updated_at: taipeiISOString(),
-      };
-      await supabaseFetch(
-        env,
-        `/rest/v1/pick_items?id=eq.${encodeURIComponent(itemId)}&pick_list_id=eq.${encodeURIComponent(pickId)}&select=id`,
-        {
-          method: 'PATCH',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify(patch),
-        }
-      );
-    }
+    if (!saved?.id || cleanText(saved.id) !== pickId) throw new Error(`Picking master update not confirmed: ${pickId}`);
     return respOK(cors, { ok: true, row: saved });
   } catch (e) {
     return resp500(cors, e.message);

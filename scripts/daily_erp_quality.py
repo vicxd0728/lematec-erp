@@ -78,6 +78,79 @@ def audit_qc_links(order_pages: list[dict], inspection_pages: list[dict]) -> dic
     return {"checked": len(inspections), "inconsistent": len(issues), "unmatched_order_refs": unmatched}
 
 
+def audit_stock_workflows(picking: dict, inbound: dict, report: dict) -> dict:
+    """Compare formal movements with their original workflow IDs, never display numbers alone."""
+    if (picking.get("source") != "supabase" or inbound.get("source") != "supabase"
+            or report.get("complete") is not True or report.get("source") != "inventory_transactions"):
+        raise RuntimeError("Formal stock workflow audit is incomplete")
+    picks, receipts, transactions = (picking.get("rows") or []), (inbound.get("rows") or []), (report.get("transactions") or [])
+    if len(picks) >= 10000 or len(receipts) >= 10000:
+        raise RuntimeError("Stock workflow list may be capped")
+    cutoff = str(report.get("start") or "")
+    if not cutoff or not isinstance(report.get("transactions"), list):
+        raise RuntimeError("Formal stock transaction window is missing")
+    pick_by_key: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    receipt_by_id = {row.get("id"): row for row in receipts}
+    for row in picks:
+        source_id = row.get("source_order_notion_page_id") or row.get("id")
+        pick_by_key[(source_id, row.get("pick_number"))].append(row)
+    pick_moves: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    inbound_moves: dict[str, list[dict]] = defaultdict(list)
+    for tx in transactions:
+        if tx.get("source_type") in ("order_pick_batch", "manual_pick_batch"):
+            pick_moves[(tx.get("source_id"), tx.get("source_number"))].append(tx)
+        elif tx.get("source_type") == "inbound_qc_pass":
+            inbound_moves[tx.get("source_id")].append(tx)
+    findings = {key: 0 for key in (
+        "pick_deducted_but_pending", "pick_completed_without_deduction",
+        "pick_deduction_quantity_mismatch", "pick_transaction_without_unique_record",
+        "inbound_stocked_without_transaction", "inbound_transaction_not_stocked",
+        "inbound_transaction_reference_mismatch", "inbound_transaction_without_record",
+    )}
+    for key, moves in pick_moves.items():
+        matching = pick_by_key.get(key, [])
+        if len(matching) != 1:
+            findings["pick_transaction_without_unique_record"] += 1
+            continue
+        pick = matching[0]
+        if pick.get("status") in ("待領料", "待確認", "缺料待補"):
+            findings["pick_deducted_but_pending"] += 1
+        elif pick.get("status") in ("已領料", "已確認扣料"):
+            actual: dict[str, Decimal] = defaultdict(Decimal)
+            expected: dict[str, Decimal] = defaultdict(Decimal)
+            for tx in moves:
+                actual[tx.get("material_id")] += -Decimal(str(tx.get("quantity_delta") or 0))
+            for item in pick.get("items") or []:
+                expected[item.get("material_id")] += Decimal(str(item.get("picked_quantity") or 0))
+            if actual != expected:
+                findings["pick_deduction_quantity_mismatch"] += 1
+    for key, matches in pick_by_key.items():
+        for pick in matches:
+            if (str(pick.get("created_at") or "")[:10] >= cutoff
+                    and pick.get("status") in ("已領料", "已確認扣料")
+                    and key not in pick_moves):
+                findings["pick_completed_without_deduction"] += 1
+    for receipt_id, moves in inbound_moves.items():
+        receipt = receipt_by_id.get(receipt_id)
+        if not receipt:
+            findings["inbound_transaction_without_record"] += 1
+            continue
+        if receipt.get("qc_status") != "品檢通過" or receipt.get("stock_status") != "已入庫":
+            findings["inbound_transaction_not_stocked"] += 1
+        item = receipt.get("item") or {}
+        if (len(moves) != 1 or item.get("inventory_transaction_id") != moves[0].get("id")
+                or Decimal(str(item.get("accepted_quantity") or 0)) != Decimal(str(moves[0].get("quantity_delta") or 0))):
+            findings["inbound_transaction_reference_mismatch"] += 1
+    for receipt in receipts:
+        if (str(receipt.get("created_at") or "")[:10] >= cutoff
+                and receipt.get("qc_status") == "品檢通過" and receipt.get("stock_status") == "已入庫"
+                and receipt.get("id") not in inbound_moves):
+            findings["inbound_stocked_without_transaction"] += 1
+    return {"coverage": {"pick_records": len(picks), "inbound_records": len(receipts),
+                         "transactions": len(transactions), "from": cutoff, "through": report.get("end")},
+            "findings": findings}
+
+
 def summarize(inventory: dict, versions: dict, mirror_pages: list[dict],
               reconcile: dict, reliability: dict, corder_pages: list[dict],
               order_pages: list[dict], inspection_pages: list[dict]) -> dict:
@@ -142,6 +215,13 @@ def run(token: str) -> dict:
     cutoff = (datetime.now(ZoneInfo("Asia/Taipei")).date() - timedelta(days=180)).isoformat()
     inspections = query_all(QC_DB_ID, token, {"filter": {"property": "檢驗日期", "date": {"on_or_after": cutoff}}})
     result = summarize(inventory, versions, mirror, reconcile, reliability, corders, orders, inspections)
+    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+    # The daily alert covers new operational records. Earlier migrated records
+    # need a separate historical audit, not a false-positive live alert.
+    period = worker_get(f"/api/inventory/period-report?start={(today - timedelta(days=29)).isoformat()}&end={today.isoformat()}", token)
+    result["stock_workflows"] = audit_stock_workflows(
+        worker_get("/api/picking/list?limit=10000"),
+        worker_get("/api/inbound/list?limit=10000"), period)
     result["worker_sha"] = worker_get("/api/version").get("deploy_sha", "")
     return result
 
@@ -157,9 +237,13 @@ def main() -> None:
         lines = ["## ERP daily read-only quality", "", f"Worker: `{result['worker_sha']}`", "",
                  "| Check | Count |", "| --- | ---: |"]
         lines.extend(f"| {key} | {value} |" for key, value in result["findings"].items())
+        lines += ["", "### Formal stock workflow cross-check", "", "| Check | Count |", "| --- | ---: |"]
+        lines.extend(f"| {key} | {value} |" for key, value in result["stock_workflows"]["findings"].items())
         lines += ["", "Mirror count is raw and includes queued sync work. No records were changed."]
         with open(summary_path, "a", encoding="utf-8") as output:
             output.write("\n".join(lines) + "\n")
+    if any(result["stock_workflows"]["findings"].values()):
+        raise RuntimeError("Formal stock workflow discrepancy detected; see the job summary")
 
 
 if __name__ == "__main__":

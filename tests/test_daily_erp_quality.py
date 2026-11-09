@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from daily_erp_quality import audit_corder_identity, summarize
+from daily_erp_quality import audit_corder_identity, audit_stock_workflows, summarize
 
 
 def rich(value):
@@ -64,6 +64,35 @@ class DailyQualityTests(unittest.TestCase):
         pages = [order("SHPTW100", "S-1", "A"), order("SHPTW100", "S-1", "A"),
                  order("SHPTW101", "S-2", "B"), order("SHPTW101", "S-3", "C")]
         self.assertEqual(audit_corder_identity(pages), 1)
+
+    def test_stock_workflow_audit_uses_original_ids_even_when_pick_numbers_collide(self):
+        picks = {"source": "supabase", "rows": [
+            {"id": "p1", "source_order_notion_page_id": "order-a", "pick_number": "PK-SAME",
+             "created_at": "2026-11-08", "status": "已領料",
+             "items": [{"material_id": "part-a", "picked_quantity": 2}]},
+            {"id": "p2", "source_order_notion_page_id": "order-b", "pick_number": "PK-SAME",
+             "created_at": "2026-11-08", "status": "已領料",
+             "items": [{"material_id": "part-b", "picked_quantity": 3}]},
+        ]}
+        inbound = {"source": "supabase", "rows": [{"id": "receipt", "created_at": "2026-11-08",
+            "qc_status": "品檢通過", "stock_status": "已入庫",
+            "item": {"accepted_quantity": 4, "inventory_transaction_id": "tx-in"}}]}
+        transactions = {"complete": True, "source": "inventory_transactions", "start": "2026-11-01",
+            "end": "2026-11-09", "transactions": [
+                {"id": "tx-a", "source_type": "order_pick_batch", "source_id": "order-a",
+                 "source_number": "PK-SAME", "material_id": "part-a", "quantity_delta": -2},
+                {"id": "tx-b", "source_type": "order_pick_batch", "source_id": "order-b",
+                 "source_number": "PK-SAME", "material_id": "part-b", "quantity_delta": -3},
+                {"id": "tx-in", "source_type": "inbound_qc_pass", "source_id": "receipt",
+                 "quantity_delta": 4},
+            ]}
+        result = audit_stock_workflows(picks, inbound, transactions)
+        self.assertTrue(all(value == 0 for value in result["findings"].values()))
+        picks["rows"][0]["status"] = "待領料"
+        inbound["rows"][0]["stock_status"] = "待入庫"
+        result = audit_stock_workflows(picks, inbound, transactions)
+        self.assertEqual(result["findings"]["pick_deducted_but_pending"], 1)
+        self.assertEqual(result["findings"]["inbound_transaction_not_stocked"], 1)
 
 
 if __name__ == "__main__":

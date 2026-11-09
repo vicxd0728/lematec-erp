@@ -30,7 +30,7 @@ jobs:
         run: node --test tests/worker_auth_boundary.cjs tests/ai_role.cjs tests/supply_chain_v1.cjs tests/inventory_period_report.cjs tests/inbound_cancel.cjs tests/corder_recovery.cjs
 
       - name: Verify assembly completion and stock safety
-        run: node --test tests/assembly_complete.cjs tests/order_stock_identity.cjs
+        run: node --test tests/assembly_complete.cjs tests/order_stock_identity.cjs tests/picking_status_commit_order.cjs
 
       - name: Verify material mirror recovery and stock preservation
         run: node --test tests/inventory_mirror_recovery.cjs tests/stock_log_receipt_repair.cjs
