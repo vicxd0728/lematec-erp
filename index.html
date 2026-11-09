@@ -1342,6 +1342,16 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-hero h2{margin:0;font-size:25px;line-height:1.18;color:var(--text);letter-spacing:0;}
 .analytics-hero p{margin:8px 0 0;font-size:14px;line-height:1.55;color:var(--text2);}
 .analytics-hero-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.analytics-view-tabs{display:flex;gap:7px;overflow-x:auto;padding:2px 0 5px;scrollbar-width:thin;}
+.analytics-view-tabs button{flex:0 0 auto;padding:10px 15px;border-radius:12px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-weight:750;cursor:pointer;}
+.analytics-view-tabs button[aria-selected="true"]{border-color:var(--cyan2);background:rgba(34,211,238,.12);color:var(--text);}
+#analytics-view-content{display:flex;flex-direction:column;gap:14px;min-width:0;}
+.analytics-section-lead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0 0;}
+.analytics-section-lead h3{font-size:19px;margin:0;color:var(--text);}
+.analytics-section-lead p{font-size:13px;color:var(--text2);margin:0;}
+.analytics-source-details{border:1px solid var(--border);border-radius:12px;padding:9px 12px;color:var(--text2);font-size:12px;}
+.analytics-source-details summary{cursor:pointer;color:var(--cyan2);font-weight:750;}
+.analytics-source-details p{margin:8px 0 0;line-height:1.5;}
 .analytics-source-strip{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;padding:11px 14px;border-radius:14px;border:1px solid rgba(94,234,212,.18);background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(79,140,255,.04));color:var(--text2);font-size:13px;line-height:1.55;}
 .analytics-source-strip b{color:var(--cyan2);}
 .analytics-material-table{margin-top:12px;}
@@ -1380,7 +1390,7 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-material-compare-bars .analytics-material-track{height:7px;}
 .analytics-material-compare-bars .forecast{background:var(--amber);}
 .analytics-material-compare-bars .demand{background:var(--blue);}
-.analytics-decision-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+.analytics-decision-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
 .analytics-decision-card{position:relative;min-height:128px;text-align:left;cursor:pointer;padding:15px 15px 14px 56px;border-radius:16px;border:1px solid rgba(170,194,180,.14);background:var(--bg2);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);transition:transform .16s,border-color .16s,background .16s;}
 .analytics-decision-card::before{content:attr(data-icon);position:absolute;left:15px;top:16px;width:30px;height:30px;border-radius:11px;display:grid;place-items:center;background:rgba(34,211,238,.1);border:1px solid rgba(94,234,212,.18);}
 .analytics-decision-card:hover{transform:translateY(-2px);border-color:rgba(94,234,212,.34);background:var(--bg2);}
@@ -1509,7 +1519,8 @@ td{font-size:16px;padding:16px 17px;}
   .video-source-notice .btn{width:100%;margin-top:9px;}
   .analytics-hero{grid-template-columns:1fr;padding:17px 16px;border-radius:18px;}
   .analytics-hero-actions{justify-content:flex-start;}
-  .analytics-decision-grid{grid-template-columns:1fr 1fr;}
+  .analytics-view-tabs{margin-inline:-2px;}
+  .analytics-decision-grid{grid-template-columns:1fr;}
   .analytics-decision-card{min-height:118px;padding:14px 13px 14px 52px;}
   .analytics-source-strip{display:block;}
   .analytics-mobile-hint{display:block;}
@@ -12690,7 +12701,7 @@ function analyticsJsArg(value){
 }
 function analyticsGo(tab,action='',value=''){
   if(tab==='analytics'&&action==='materials'){
-    document.getElementById('analytics-materials')?.scrollIntoView({behavior:'smooth',block:'start'});
+    setAnalyticsView('materials');
     return;
   }
   try{
@@ -12896,6 +12907,19 @@ function analyticsOrderActionPanel(data){
     </section>
   </div>`;
 }
+const ANALYTICS_VIEWS=['overview','orders','materials','corders','quality'];
+function analyticsView(){
+  return ANALYTICS_VIEWS.includes(window._analyticsView)?window._analyticsView:'overview';
+}
+function setAnalyticsView(view){
+  if(!ANALYTICS_VIEWS.includes(view))return;
+  window._analyticsView=view;
+  if(CURRENT_TAB==='analytics'){
+    document.getElementById('mainContent').innerHTML=renderAnalytics();
+    document.getElementById('analytics-view-tabs')?.scrollIntoView({block:'start'});
+    document.getElementById(`analytics-tab-${view}`)?.scrollIntoView({block:'nearest',inline:'center'});
+  }
+}
 function renderAnalytics(){
   if(!analyticsDataReady()||window._analyticsErrors?.core||window._analyticsErrors?.corders){
     const missing=[];
@@ -12905,19 +12929,19 @@ function renderAnalytics(){
   }
   const a=buildOperationsAnalytics();
   const formalModel=window._analyticsErrors?.formal?null:analyticsMaterialModel(window._analyticsFormal,mats,a.orderAction.materialDemand,a.range);
-  const totalOrders=a.orderRows.length+a.corderRows.length;
-  const totalDone=a.doneOrders.length+a.doneCorders.length;
-  const countableTotal=a.countableOrders.length;
+  const formalCountable=a.orderRows.filter(analyticsIsCountableOrder).length;
+  const formalDone=a.doneOrders.length;
   const cReturnRate=a.cSoldQty?Math.round(a.cReturnQty*1000/a.cSoldQty)/10:0;
+  const view=analyticsView();
   const allRangeWarn=DATA_LOAD_MODE.corders!=='all'||DATA_LOAD_MODE.stocklog!=='all';
   const rangeButtons=['30','90','all'].map(r=>`<button class="btn ${a.range===r?'btn-blue':'btn-ghost'} btn-sm" onclick="setAnalyticsRange('${r}')">${escapeHtml(analyticsRangeLabel(r))}</button>`).join('');
   const orderKpis=[
-    analyticsKpiCard('訂單總量',analyticsNum(totalOrders),`正式 ${a.orderRows.length} / C端 ${a.corderRows.length}`,'var(--cyan2)',Math.min(100,totalOrders),'orders'),
-    analyticsKpiCard('完成率',analyticsPercent(totalDone,countableTotal),`已完成 ${totalDone} / 未取消 ${countableTotal} 筆`,'var(--green2)',countableTotal?totalDone*100/countableTotal:0,'orders','status','已完成'),
-    analyticsKpiCard('目前進行中',analyticsNum(a.activeOrders.length+a.activeCorders.length),`未結案總覽：正式 ${a.activeOrders.length} / C端 ${a.activeCorders.length}`,'var(--amber)',Math.min(100,a.activeOrders.length+a.activeCorders.length),'orders','status','生產中'),
-    analyticsKpiCard('目前逾期',analyticsNum(a.overdue.length),`所有未結案正式訂單，不受期間篩選`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
+    analyticsKpiCard('正式訂單建單',analyticsNum(a.orderRows.length),`本期建立；C端另列`,'var(--cyan2)',Math.min(100,a.orderRows.length),'orders'),
+    analyticsKpiCard('正式訂單結案率',analyticsPercent(formalDone,formalCountable),`本期結案 ${formalDone} / 未取消 ${formalCountable} 筆`,'var(--green2)',formalCountable?formalDone*100/formalCountable:0,'orders'),
+    analyticsKpiCard('正式訂單進行中',analyticsNum(a.activeOrders.length),`所有未結案正式訂單，不受期間篩選`,'var(--amber)',Math.min(100,a.activeOrders.length),'orders','status','生產中'),
+    analyticsKpiCard('正式訂單逾期',analyticsNum(a.overdue.length),`所有未結案正式訂單，不受期間篩選`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
     analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`本期建立訂單：退貨 ${analyticsNum(a.cReturnQty)} / 已完成出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
-  ].join('');
+  ];
   const topRisk=formalModel?.rows.find(row=>row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast);
   const topCProduct=analyticsTopEntries(a.cProductTotals,1)[0];
   const topReturnReason=analyticsTopEntries(a.cReturnReasons,1)[0];
@@ -12959,7 +12983,7 @@ function renderAnalytics(){
       sub:topReturnReason?`期間退貨 ${analyticsNum(topReturnReason[1])} 件，點回 C端查來源`:'已載入範圍內未記錄 C端退貨',
       action:'查看退貨訂單',tab:'corders',nav:'search',filter:topReturnReason?.[0]||'退貨',color:topReturnReason?'var(--red2)':'var(--text3)'
     })
-  ].join('');
+  ];
   const dataQualityRows=[
     {name:'異動稽核異常',sub:'重複、數學不一致、流程未扣/未入',value:movementUnverified&&!a.audit.issues.length?'待確認':a.audit.issues.length,hint:auditSub,color:a.audit.issues.length?'var(--amber)':movementUnverified?'var(--text3)':'var(--green2)',tab:'stocklog',nav:'audit'},
     {name:'手動調整',sub:'期間內庫存手動調整',value:a.manualAdjustments.length,hint:a.manualAdjustments.length?'建議定期看原因':'正常',color:a.manualAdjustments.length?'var(--amber)':'var(--green2)',tab:'stocklog',nav:'manual'},
@@ -12968,48 +12992,54 @@ function renderAnalytics(){
     {name:'庫存數值待確認',sub:'全庫存主檔中缺值或非數字',value:a.stockUnknownCount,hint:a.stockUnknownCount?'先確認庫存數值':'正常',color:a.stockUnknownCount?'var(--amber)':'var(--green2)',tab:'inventory',nav:'unknown',filter:''},
     {name:'未設定安全庫存',sub:'有正庫存但安全庫存未設定',value:a.safetyStockUnsetCount,hint:a.safetyStockUnsetCount?'補齊安全庫存基準':'正常',color:a.safetyStockUnsetCount?'var(--amber)':'var(--green2)',tab:'inventory',nav:'unset',filter:''}
   ];
+  const viewNames={overview:'總覽',orders:'訂單流轉',materials:'物料與預測',corders:'C端訂單',quality:'資料品質'};
+  const viewTabs=ANALYTICS_VIEWS.map(key=>`<button type="button" id="analytics-tab-${key}" role="tab" aria-selected="${view===key}" aria-controls="analytics-view-content" onclick="setAnalyticsView('${key}')">${viewNames[key]}</button>`).join('');
+  const orderTrend=()=>`<section class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單建立趨勢</h3><p>依建立日期統計新建單量；近 30 天按日、近 90 天按週、全部資料按月。取消單仍計入建立量。</p></div></div>${analyticsTrendChart(a.orderRows,a.corderRows,a.range)}</section>`;
+  const viewContent={
+    overview:()=>`<div class="analytics-section-lead"><h3>現在要處理</h3><p>先看交期、供料與資料可信度，再進各專區查明細。</p></div>
+      <div class="analytics-decision-grid">${decisionCards.slice(0,3).join('')}</div>
+      <div class="analytics-section-lead"><h3>營運概況</h3><p>期間數字與目前未結案快照分開標示。</p></div>
+      <div class="kpi-grid">${orderKpis.slice(0,4).join('')}</div>${orderTrend()}`,
+    orders:()=>`<div class="analytics-section-lead"><h3>訂單流轉</h3><p>從待排程、缺料、階段年齡到客戶訂單分布。</p></div>
+      ${analyticsOrderActionPanel(a.orderAction)}
+      <div class="analytics-panel-grid">
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單狀態</h3><p>目前分布；回原單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</section>
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>排除組立單與蝦皮內部作業單。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</section>
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>內部作業單</h3><p>組立與蝦皮流程獨立呈現。</p></div></div>${analyticsBarList(analyticsTopEntries(a.orderCategoryTotals,8),{empty:'期間內沒有內部作業單',tab:'orders',action:'customer'})}</section>
+      </div>`,
+    materials:()=>`<div class="analytics-section-lead"><h3>物料與預測</h3><p>先看已開未領的確定需求，再看實耗與低信心試算。</p></div>
+      ${analyticsMaterialDemandPanel(a.orderAction)}${analyticsMaterialPanel(formalModel)}`,
+    corders:()=>`<div class="analytics-section-lead"><h3>C端訂單</h3><p>建單與退貨分開看；建單排行不是實際出貨量。</p></div>
+      <div class="kpi-grid">${orderKpis[4]}</div>
+      <div class="analytics-panel-grid">
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>回原單看寄件與完成進度。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders',action:'status'})}</section>
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端建單品項排行</h3><p>依訂購數量，含取消與未完成；非出貨量。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看來源</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders',action:'product'})}</section>
+      </div><div class="analytics-panel-grid">
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨原因</h3><p>依退貨流程原因統計，回原單查來源。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看退貨</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnReasons,8),{empty:'期間內沒有 C端退貨',unit:' 件',tab:'corders',action:'search'})}</section>
+        <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨品項</h3><p>觀察需追查品質或選購問題的品項。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看來源</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnProducts,8),{empty:'期間內沒有退貨品項',unit:' 件',tab:'corders',action:'product'})}</section>
+      </div>`,
+    quality:()=>`<div class="analytics-section-lead"><h3>資料品質</h3><p>只指出可追溯的異常；修正回原分頁執行。</p></div>
+      <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>稽核與補資料</h3><p>正式交易與來源載入範圍不足時，顯示待確認。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','audit')">查稽核</button></div>${analyticsMiniTable(dataQualityRows,{tab:'stocklog'})}</section>`
+  };
   return `
   <div class="analytics-shell">
   <section class="analytics-hero">
     <div>
       <h2>營運分析</h2>
-      <p>把訂單、C端、用料與資料品質整理成決策入口；每張卡片都能回到來源分頁處理。</p>
+      <p>先看待處理事項，再依訂單、物料、C端與資料品質逐層查看。</p>
     </div>
     <div class="analytics-hero-actions">
       ${rangeButtons}
       <button class="btn btn-ghost btn-sm" onclick="setAnalyticsRange(analyticsRange(),{force:true})">重新整理</button>
     </div>
   </section>
-  <div class="analytics-source-strip">
-    <span><b>資料範圍</b>：${escapeHtml(analyticsRangeLabel(a.range))}；期間統計依訂單建立日／異動日期，目前逾期與進行中採未結案清單。</span>
-    <span>C端已載入 ${analyticsNum(DATA_LOAD_COUNT.corders||window.corders?.length||0)} 筆（${DATA_LOAD_MODE.corders==='all'?'全部歷史':`近${DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS}天新單及未結案`}）；異動已載入 ${analyticsNum(DATA_LOAD_COUNT.stocklog||stockLogs.length)} 筆（${DATA_LOAD_MODE.stocklog==='all'?'全部可載入，最多20,000筆':`近${DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS}天`}）${stockLogLoadError?`；異動載入失敗：${escapeHtml(stockLogLoadError)}`:''}</span>
-    <span>庫存主檔 ${analyticsNum(mats.length)} 筆；BOM ${analyticsNum(boms.length)} 條（${escapeHtml(_bomDataSource||'來源未確認')}）。</span>
-    <span>${allRangeWarn?(a.range==='all'?'歷史資料載入尚未完整；目前只統計已成功載入的資料，請重新整理後確認。':'目前是快速載入範圍，切「全部已載入資料」可補齊 C端與異動歷史。'):`本期納入正式 ${a.orderRows.length}、C端 ${a.corderRows.length}、異動 ${a.logRows.length} 筆。`}</span>
-  </div>
-  <div class="analytics-decision-grid">${decisionCards}</div>
-  ${analyticsMaterialPanel(formalModel)}
-  <div class="kpi-grid">${orderKpis}</div>
-  ${analyticsOrderActionPanel(a.orderAction)}
-  ${analyticsMaterialDemandPanel(a.orderAction)}
-  <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單建立趨勢</h3><p>依建立日期統計新建單量；近 30 天按日、近 90 天按週、全部資料按月呈現。取消單仍計入建立量。</p></div></div>${analyticsTrendChart(a.orderRows,a.corderRows,a.range)}</div>
-  <div class="analytics-panel-grid">
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>訂單狀態</h3><p>正式訂單目前分布，點列或按鈕回訂單處理。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看正式訂單</button></div>${analyticsBarList(analyticsTopEntries(a.orderStatus,8),{empty:'期間內沒有正式訂單',tab:'orders',action:'status'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端狀態</h3><p>蝦皮/C端流程狀態，回 C端訂單看寄件與完成。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端訂單</button></div>${analyticsBarList(analyticsTopEntries(a.corderStatus,8),{empty:'期間內沒有 C端訂單',tab:'corders',action:'status'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>排除「組立單／蝦皮」系統作業單，避免混入客戶排名。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>內部作業單</h3><p>組立單與蝦皮內部流程數量獨立呈現，不列為客戶。</p></div></div>${analyticsBarList(analyticsTopEntries(a.orderCategoryTotals,8),{empty:'期間內沒有內部作業單',tab:'orders',action:'customer'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端建單品項排行</h3><p>依本期建立訂單的訂購數量排行（含取消及未完成單）；非實際出貨或淨銷量。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders',action:'product'})}</div>
-  </div>
-  <div class="analytics-panel-grid">
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨原因</h3><p>由退貨流程的固定原因統計；點擊可回 C端訂單追來源。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看退貨訂單</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnReasons,8),{empty:'期間內沒有 C端退貨',unit:' 件',tab:'corders',action:'search'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨品項</h3><p>用來觀察容易退貨的品項，後續可搭配故障原因追品質。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看 C端來源</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnProducts,8),{empty:'期間內沒有退貨品項',unit:' 件',tab:'corders',action:'product'})}</div>
-  </div>
-  <div class="analytics-panel">
-    <div class="analytics-panel-head">
-      <div><h3>資料品質與半自動修正入口</h3><p>異常只列可追查的來源，修正仍回原分頁，避免在分析頁直接改資料。</p></div>
-      <button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','audit')">處理異常</button>
-    </div>
-    ${analyticsMiniTable(dataQualityRows,{tab:'stocklog'})}
-  </div>
+  <nav class="analytics-view-tabs" id="analytics-view-tabs" role="tablist" aria-label="營運分析視角">${viewTabs}</nav>
+  <div class="analytics-source-strip" role="status"><span><b>${escapeHtml(analyticsRangeLabel(a.range))}</b> · 正式訂單 ${a.orderRows.length} 筆 · C端 ${a.corderRows.length} 筆 · 正式耗用／退回 ${formalModel?formalModel.usedTransactions:'待確認'} 筆</span><span>${movementUnverified?'異動稽核待確認':`異動稽核 ${a.audit.issues.length} 項待處理`}</span></div>
+  <section id="analytics-view-content" role="tabpanel" aria-labelledby="analytics-tab-${view}">${viewContent[view]()}</section>
+  <details class="analytics-source-details" ${view==='quality'?'open':''}><summary>資料來源、涵蓋期間與統計口徑</summary>
+    <p>期間統計依訂單建立日／異動日期；目前逾期與進行中採未結案清單。物料排行讀 Supabase 正式庫存交易，最多近 90 天；C端已載入 ${analyticsNum(DATA_LOAD_COUNT.corders||window.corders?.length||0)} 筆（${DATA_LOAD_MODE.corders==='all'?'全部歷史':`近${DATA_LOAD_DAYS.corders||FIRST_LOAD_DAYS}天新單及未結案`}）；異動已載入 ${analyticsNum(DATA_LOAD_COUNT.stocklog||stockLogs.length)} 筆（${DATA_LOAD_MODE.stocklog==='all'?'全部可載入，最多20,000筆':`近${DATA_LOAD_DAYS.stocklog||FIRST_LOAD_DAYS}天`}）${stockLogLoadError?`；異動載入失敗：${escapeHtml(stockLogLoadError)}`:''}。庫存主檔 ${analyticsNum(mats.length)} 筆；BOM ${analyticsNum(boms.length)} 條（${escapeHtml(_bomDataSource||'來源未確認')}）。</p>
+    <p>${a.range==='all'&&allRangeWarn?'歷史資料載入尚未完整；目前只統計已成功載入的資料，請重新整理後確認。':`本期納入正式 ${a.orderRows.length}、C端 ${a.corderRows.length}、異動 ${a.logRows.length} 筆。`}</p>
+  </details>
   </div>`;
 }
 

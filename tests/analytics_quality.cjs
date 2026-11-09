@@ -128,6 +128,25 @@ test('operations analytics includes a source-backed order creation trend and loa
   assert.match(markup, /異動.*已載入.*筆/);
 });
 
+test('operations views separate decisions, material model, C-end and data quality', () => {
+  const ctx = makeContext();
+  const overview = ctx.renderAnalytics();
+  assert.match(overview, /現在要處理/);
+  assert.match(overview, /訂單建立趨勢/);
+  assert.doesNotMatch(overview, /id="analytics-materials"/);
+  assert.doesNotMatch(overview, /C端退貨原因/);
+  ctx.setAnalyticsView('materials');
+  const materials = ctx.renderAnalytics();
+  assert.match(materials, /id="analytics-materials"/);
+  assert.match(materials, /已開未領/);
+  assert.doesNotMatch(materials, /訂單建立趨勢/);
+  ctx.setAnalyticsView('corders');
+  assert.match(ctx.renderAnalytics(), /C端退貨原因/);
+  ctx.setAnalyticsView('quality');
+  assert.match(ctx.renderAnalytics(), /生產／組立單 BOM 風險/);
+  assert.equal(ctx.analyticsRange(), '30');
+});
+
 test('empty or failed movement source never reports a healthy audit or replenishment', () => {
   const empty = makeContext();
   const emptyMarkup = empty.renderAnalytics();
@@ -179,6 +198,7 @@ test('BOM-risk metric counts all matching materials while retaining a bounded dr
   const result = ctx.buildOperationsAnalytics();
   assert.equal(result.noBomFinishedCount, 11);
   assert.equal(result.noBomFinished.length, 8);
+  ctx.window._analyticsView = 'quality';
   assert.match(ctx.renderAnalytics(), /生產／組立單 BOM 風險[\s\S]*?11/);
 });
 
@@ -238,6 +258,7 @@ test('action insight counts only assessable pending customer orders and exposes 
   assert.equal(insight.overdueBlocked.length, 1);
   assert.equal(insight.unknown.length, 1);
   assert.equal(ctx.analyticsOrderActionInsight(ctx.orders, ctx.mats, '2026-09-26').stages.find(row => row.status === '生產中').median, 8);
+  ctx.window._analyticsView = 'orders';
   const markup = ctx.renderAnalytics();
   assert.match(markup, /可計算 2\/3 筆待領料訂單/);
   assert.match(markup, /ORD-1[\s\S]*?Y-PART · 缺 7/);
@@ -314,7 +335,7 @@ test('refresh retry removes rejected-source state and restores metrics', async (
   assert.match(host.innerHTML,/重新嘗試/);
   fail=false;
   await ctx.setAnalyticsRange('30',{force:true});
-  assert.match(host.innerHTML,/訂單總量/);
+  assert.match(host.innerHTML,/正式訂單建單/);
   assert.equal(ctx.window._analyticsLoading,false);
 });
 

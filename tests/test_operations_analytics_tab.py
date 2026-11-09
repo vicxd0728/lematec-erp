@@ -24,7 +24,8 @@ def test_operations_analytics_tab_loads_own_data_sources():
     assert "loadAnalyticsData()" in html
     assert "renderAnalytics()" in html
     assert "loadCorders()" in html
-    assert "loadStockLog({mode:'recent'})" in html
+    assert "loadStockLog(options)" in html
+    assert "loadAnalyticsFormalMovements({force})" in html
     assert "'schedule','analytics'" in html
 
 
@@ -46,8 +47,10 @@ def test_operations_analytics_has_actionable_sections():
     start = html.index("function renderAnalytics()")
     end = html.index("function renderStockLog()", start)
     block = html[start:end]
-    for label in ("訂單狀態", "C端狀態", "用料耗用排行", "庫存決策提示", "資料品質與半自動修正入口"):
+    for label in ("現在要處理", "訂單流轉", "物料與預測", "C端訂單", "資料品質", "正式訂單狀態"):
         assert label in block
+    assert "role=\"tablist\"" in block
+    assert "viewContent[view]()" in block
     nav_start = html.index("function analyticsGo(")
     nav_block = html[nav_start:end]
     for tab in ("orders", "corders", "inventory", "stocklog"):
@@ -76,6 +79,6 @@ def test_c_end_decision_card_uses_c_end_shipments_not_global_consumption():
     end = html.index("}),", start)
     card = html[start:end]
     assert "topCProduct" in card
-    assert "期間出貨" in card
+    assert "期間建單" in card
     assert "filter:topCProduct?.[0]" in card
     assert "topUse" not in card
