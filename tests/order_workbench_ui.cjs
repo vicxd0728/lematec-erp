@@ -52,3 +52,11 @@ test('order list keeps actionable status counts without the duplicate intro tota
  assert.match(list,/訂單列表 <span class="badge">\$\{data.length\}\/\$\{orders.length\}/);
  assert.match(list,/filters.deadline==='overdue'/);
 });
+test('ERP order shortcut shares the order tabs instead of occupying its own row',()=>{
+ const render=source('function renderOrders(','function orderCustomerLabel(');
+ assert.match(render,/class="order-nav-bar order-source-links"/);
+ assert.match(render,/class="order-nav-tabs"/);
+ assert.match(render,/class="btn btn-ghost btn-sm order-nav-link"/);
+ assert.doesNotMatch(render,/const navigation=tabs\+/);
+ assert.match(render,/if\(OSUB==='deadline'\) return _renderDeadlineTab\(tabs,/);
+});

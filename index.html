@@ -1130,6 +1130,10 @@ td{font-size:16px;padding:16px 17px;}
   .inbound-list-table td[data-label]::before{content:attr(data-label);display:block;color:var(--text3);font-size:.7rem;margin-bottom:4px}
 }
 .order-action-panel{overflow:hidden;border-radius:18px;border:1px solid rgba(103,232,249,.18);background:var(--bg2);}
+.order-nav-bar{display:flex;align-items:stretch;gap:6px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:14px;min-width:0;}
+.order-nav-tabs{display:flex;flex:1;gap:2px;min-width:0;}
+.order-nav-tabs button{min-width:0;}
+.order-nav-link{flex:none;align-self:center;min-height:38px;}
 .order-action-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 17px;border-bottom:1px solid rgba(148,163,184,.16);background:var(--bg2);}
 .order-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto auto;gap:9px;padding:14px 16px;align-items:center;}
 .order-search-wrap{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;}
@@ -1871,6 +1875,10 @@ html[data-theme="warm"] #themePanel{
   .note-action-bar-label{display:block;grid-column:1/-1;color:var(--text3);font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
   .order-toolbar{grid-template-columns:1fr;padding:12px}
   .order-search-wrap{grid-template-columns:1fr}
+  .order-nav-bar{gap:3px;padding:3px}
+  .order-nav-tabs{gap:0}
+  .order-nav-tabs button{min-height:44px;padding:6px 2px!important;font-size:.69rem!important;line-height:1.2}
+  .order-nav-link{min-height:44px;padding:6px 7px!important;font-size:.69rem!important}
   .order-action-head{align-items:flex-start;flex-direction:column}
   .order-status-chips{padding:0 12px 12px}
   .note-targets label{flex:1 1 calc(50% - 8px);justify-content:center;min-height:40px}
@@ -17421,7 +17429,7 @@ function renderOrders(){
   // ── Tab 切換 ──
   const soonOrders = window._coreLoaded?orderDeadlineQueue(orders,warnDays).map(x=>x.order):[];
 
-  const tabs=`<div style="display:flex;gap:2px;padding:4px;background:var(--bg3);border-radius:12px;margin-bottom:14px">
+  const tabs=`<div class="order-nav-bar order-source-links"><div class="order-nav-tabs">
     ${[['list','📋 訂單列表'],['deadline','⏰ 交期提醒'+(soonOrders.length?` (${soonOrders.length})`:'')],['calendar','📅 月曆']].map(([k,l])=>`
     <button onclick="window._ORD_SUB='${k}';renderTab('orders')"
       style="flex:1;padding:8px 4px;border-radius:8px;font-size:0.75rem;font-weight:${OSUB===k?700:400};
@@ -17429,12 +17437,10 @@ function renderOrders(){
       color:${OSUB===k?(k==='deadline'&&soonOrders.length?'var(--red)':'var(--text)'):'var(--text3)'};
       border:${OSUB===k?'1px solid var(--border)':'1px solid transparent'};cursor:pointer;transition:all .15s;
       box-shadow:${OSUB===k?'0 1px 4px rgba(0,0,0,.3)':'none'}">${l}</button>`).join('')}
-  </div>`;
-
-  const navigation=tabs+'<div class="order-source-links" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><a class="btn btn-ghost btn-sm" href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" rel="noopener noreferrer" aria-label="開啟 Notion ERP 訂單">📋 ERP 訂單 ↗</a></div>';
-  if(OSUB==='list') return _renderOrdersList(navigation, soonOrders);
-  if(OSUB==='deadline') return _renderDeadlineTab(navigation, soonOrders, warnDays);
-  return _renderOrderCalendar(navigation);
+  </div><a class="btn btn-ghost btn-sm order-nav-link" href="https://www.notion.so/50b7ce68437e431f9a4fa0d0d65a7b25" target="_blank" rel="noopener noreferrer" aria-label="開啟 Notion ERP 訂單">ERP 訂單 ↗</a></div>`;
+  if(OSUB==='list') return _renderOrdersList(tabs, soonOrders);
+  if(OSUB==='deadline') return _renderDeadlineTab(tabs, soonOrders, warnDays);
+  return _renderOrderCalendar(tabs);
 }
 
 function orderCustomerLabel(o){
