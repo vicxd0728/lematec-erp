@@ -23335,10 +23335,6 @@ function renderCorders(){
   const STATUS=window._CO_STATUS, DAYS=window._CO_DAYS, SHIP=window._CO_SHIP;
   const SORT=window._CO_SORT, DIR=window._CO_DIR, Q=window._CO_Q;
   const qDraft=getCorderSearchDraft();
-  const notionBar=`<div class="notion-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)">
-    <span style="font-size:10px;color:var(--text3)">📌 Notion：</span>
-    <a href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">🛒 C端訂單</a>
-  </div>`;
   const data=window.corders||[];
   const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
   const normShip=v=>(String(v||'').trim()||'未設定物流');
@@ -23376,6 +23372,7 @@ function renderCorders(){
   const countReturn=data.filter(o=>o.status==='部分退貨'||o.status==='已退貨').length;
   const countWarn=data.filter(o=>o.status==='需確認').length;
   const countDataWarn=data.filter(o=>o.status!=='需確認'&&(!o.matId||/找不到|未扣|無料號/.test(o.note||''))).length;
+  const countReversalPending=data.filter(o=>window._corderReversalPending?.[o.id]).length;
   const nextNo=nextCorderInternalNo();
   const sequenceReady=corderSequenceReady();
   const sequenceBlocked=canOperate&&!sequenceReady;
@@ -23392,20 +23389,6 @@ function renderCorders(){
       : `<button class="btn btn-cyan btn-sm" disabled title="${sequenceBlockedMessage}" onclick="${sequenceBlockedToast}">📤 匯入 Excel</button>`)
     : '';
   let html=`<div class="premium-corder-shell">
-  <div class="module-brief">
-    <div>
-      <h2>C端訂單</h2>
-      <p>手動新增與 Excel 匯入共用 Supabase SHPTW 序號；確認前先預覽重複、庫存影響與錯誤列，確認後才扣 S- 成品庫存。</p>
-    </div>
-    <div class="module-brief-actions">
-      <span class="module-pill">下一號 <b>${nextNo}</b></span>
-      <span class="module-pill">出貨中 <b>${countShip}</b></span>
-      <span class="module-pill">需確認 <b>${countWarn}</b></span>
-      ${data.some(o=>window._corderReversalPending?.[o.id])?`<span class="module-pill">回料待續接 <b>${data.filter(o=>window._corderReversalPending?.[o.id]).length}</b></span>`:''}
-      ${countDataWarn?`<span class="module-pill">資料待補 <b>${countDataWarn}</b></span>`:''}
-    </div>
-  </div>
-  ${notionBar}
   ${renderCorderImportResult()}
   ${window._corderReversalLoadError?`<div class="info-box info-warn" role="alert">回料作業狀態讀取未完成：${escapeHtml(window._corderReversalLoadError)}。請按「重新讀取」核對待續接原單。</div>`:''}
   <div class="corder-stats">
@@ -23414,6 +23397,8 @@ function renderCorders(){
     <div class="corder-stat is-cancel" data-icon="↩"><span>退貨</span><strong>${countReturn}</strong><small>部分 / 已退貨</small></div>
     <div class="corder-stat is-cancel" data-icon="□"><span>已取消</span><strong>${countCancel}</strong><small>筆訂單</small></div>
     <div class="corder-stat is-warn" data-icon="!"><span>需確認</span><strong>${countWarn}</strong><small>筆訂單</small></div>
+    ${countReversalPending?`<div class="corder-stat is-warn" data-icon="↩"><span>回料待續接</span><strong>${countReversalPending}</strong><small>筆訂單</small></div>`:''}
+    ${countDataWarn?`<div class="corder-stat is-warn" data-icon="!"><span>資料待補</span><strong>${countDataWarn}</strong><small>筆訂單</small></div>`:''}
     <div class="corder-stat is-filter" data-icon="🔎"><span>目前顯示</span><strong>${filtered.length}</strong><small>共 ${data.length} 筆</small></div>
   </div>
   <div class="panel premium-corder-panel">
@@ -23424,6 +23409,7 @@ function renderCorders(){
         ${importButton}
         ${canOperate?`<label class="btn btn-green btn-sm" style="cursor:pointer">🚚 上傳運送單<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple style="display:none" onchange="uploadCorderShippingLabels(this)"></label>`:''}
         <button class="btn btn-ghost btn-sm" onclick="syncCordersFromShopee115()">🔄 重新讀取</button>
+        <a class="btn btn-ghost btn-sm corder-source-link" href="https://www.notion.so/64d6326ec82a4f5fbcccb34833f823c3" target="_blank" rel="noopener noreferrer" aria-label="開啟 Notion C端訂單">Notion C端訂單 ↗</a>
       </div>
     </div>
     ${sequenceBlocked?`<div class="info-box info-warn" style="margin:12px 16px 0">${sequenceBlockedMessage} <button class="btn btn-ghost btn-xs" style="margin-left:8px" onclick="fetchCorderSequenceState().then(()=>renderTab('corders')).catch(()=>{})">重新檢查</button></div>`:''}

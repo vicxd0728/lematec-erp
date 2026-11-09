@@ -31,9 +31,10 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
  vm.runInContext(html.slice(html.indexOf('function renderCorders(){'),html.indexOf('function pickShortageMaterialMatch(')),c);
  c.window.innerWidth=1400;c.window.corders=Array.from({length:121},(_,i)=>({id:String(i),no:'ORDER-'+i,matCode:'S-X',qty:1,matId:'m',status:'已完成'}));
  let out=c.renderCorders();assert.equal((out.match(/<tr>/g)||[]).length,51);assert.match(out,/changeCorderPage\(1\)/);assert.match(out,/toggleCorderSelection/);assert.doesNotMatch(out,/premium-page-dots/);
+ assert.match(out,/class="btn btn-ghost btn-sm corder-source-link"/);assert.match(out,/Notion C端訂單 ↗/);assert.doesNotMatch(out,/<div class="module-brief">|📌 Notion：/);
  c.window.innerWidth=390;out=c.renderCorders();assert.equal((out.match(/class="corder-row-mobile"/g)||[]).length,50);assert.equal((out.match(/勾選此筆/g)||[]).length,50);assert.match(out,/C端訂單每頁筆數/);assert.match(out,/changeCorderPage\(1\)/);assert.match(out,/第 1 \/ 3 頁/);
  c.window.corders=[{id:'pending',no:'SHPTW1',matCode:'S-X',qty:1,matId:'m',status:'需確認'},{id:'old-unlinked',no:'OLD',status:'已完成'}];c.isViewOnly=()=>false;
- out=c.renderCorders();assert.match(out,/需確認 <b>1<\/b>/);assert.match(out,/資料待補 <b>1<\/b>/);assert.match(out,/核對並續接/);
+ out=c.renderCorders();assert.match(out,/<span>需確認<\/span><strong>1<\/strong>/);assert.match(out,/<span>資料待補<\/span><strong>1<\/strong>/);assert.match(out,/核對並續接/);
  const pendingCard=out.slice(out.indexOf('data-id="pending"'),out.indexOf('data-id="old-unlinked"'));assert.match(pendingCard,/resumeCorder/);assert.doesNotMatch(pendingCard,/openEditCorder|deleteCorder/);
  for(const width of [1280,390]){
   c.window.innerWidth=width;c.window._corderResuming=new Set(['pending']);out=c.renderCorders();assert.match(out,/disabled aria-busy="true"/);assert.match(out,/核對中，請稍候/);
@@ -41,6 +42,6 @@ test('real renderer paginates desktop and mobile with actionable checkboxes; unl
   if(width===1280)assert.match(out,/<tr class="corder-recovery-feedback-row"><td colspan="8">/);else assert.doesNotMatch(out,/corder-recovery-feedback-row/);
  }
  c.isViewOnly=()=>true;assert.doesNotMatch(c.renderCorders(),/核對並續接/);
- c.isViewOnly=()=>false;c._corderReversalLocks=new Set();c.window._corderReversalPending={'old-unlinked':{page_id:'old-unlinked'}};c.window._CO_STATUS='回料待續接';out=c.renderCorders();assert.match(out,/續接原回料/);assert.doesNotMatch(out,/openEditCorder|deleteCorder|openReturnCorder|completeCorder/);assert.match(out,/回料待續接 <b>1<\/b>/);
+ c.isViewOnly=()=>false;c._corderReversalLocks=new Set();c.window._corderReversalPending={'old-unlinked':{page_id:'old-unlinked'}};c.window._CO_STATUS='回料待續接';out=c.renderCorders();assert.match(out,/續接原回料/);assert.doesNotMatch(out,/openEditCorder|deleteCorder|openReturnCorder|completeCorder/);assert.match(out,/<span>回料待續接<\/span><strong>1<\/strong>/);
  c.window._cordersLoaded=false;out=c.renderCorders();assert.match(out,/尚未成功載入/);assert.doesNotMatch(out,/已選|尚無/);
 });
