@@ -1344,6 +1344,22 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-hero-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
 .analytics-source-strip{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;padding:11px 14px;border-radius:14px;border:1px solid rgba(94,234,212,.18);background:linear-gradient(90deg,rgba(45,212,191,.08),rgba(79,140,255,.04));color:var(--text2);font-size:13px;line-height:1.55;}
 .analytics-source-strip b{color:var(--cyan2);}
+.analytics-material-table{margin-top:12px;}
+.analytics-material-table th:first-child,.analytics-material-table td:first-child{position:sticky;left:0;z-index:1;min-width:165px;background:var(--bg2);box-shadow:1px 0 0 var(--border);}
+.analytics-material-table th:first-child{z-index:2;}
+.analytics-material-table td{vertical-align:top;white-space:nowrap;}
+.analytics-method{margin-top:13px;color:var(--text2);font-size:12px;line-height:1.6;}
+.analytics-method summary{cursor:pointer;color:var(--cyan2);font-weight:700;}
+.analytics-method p{margin:8px 0 0;}
+.analytics-mobile-hint{display:none;color:var(--text3);font-size:12px;margin:10px 0 0;}
+.analytics-material-mobile{display:none;}
+.analytics-material-card{border:1px solid var(--border);border-radius:13px;padding:12px;margin-top:9px;background:var(--bg2);}
+.analytics-material-card-head{display:flex;justify-content:space-between;gap:8px;align-items:center;}
+.analytics-material-card-head b{overflow-wrap:anywhere;}
+.analytics-material-card-metrics{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px;}
+.analytics-material-card-metrics span{font-size:12px;color:var(--text3);display:block;}
+.analytics-material-card-metrics strong{font-size:16px;color:var(--text);}
+.analytics-material-card-note{font-size:12px;color:var(--text2);margin-top:9px;}
 .analytics-decision-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
 .analytics-decision-card{position:relative;min-height:128px;text-align:left;cursor:pointer;padding:15px 15px 14px 56px;border-radius:16px;border:1px solid rgba(170,194,180,.14);background:var(--bg2);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);transition:transform .16s,border-color .16s,background .16s;}
 .analytics-decision-card::before{content:attr(data-icon);position:absolute;left:15px;top:16px;width:30px;height:30px;border-radius:11px;display:grid;place-items:center;background:rgba(34,211,238,.1);border:1px solid rgba(94,234,212,.18);}
@@ -1476,6 +1492,9 @@ td{font-size:16px;padding:16px 17px;}
   .analytics-decision-grid{grid-template-columns:1fr 1fr;}
   .analytics-decision-card{min-height:118px;padding:14px 13px 14px 52px;}
   .analytics-source-strip{display:block;}
+  .analytics-mobile-hint{display:block;}
+  .analytics-material-table{display:none;}
+  .analytics-material-mobile{display:block;}
   .focus-stat{padding:12px 12px 12px 48px;min-height:72px;}
   .focus-stat::before{left:12px;top:14px;width:26px;height:26px;}
   .ops-board{height:auto;overflow:visible;grid-template-rows:auto auto;}
@@ -7908,6 +7927,8 @@ function resetRoleSessionRefreshState(){
   window._cordersLoaded=false;
   window._cordersLoadedAt=0;
   window._notesLoaded=false;
+  window._analyticsFormal=null;
+  window._analyticsFormalError='';
 }
 function uniqueTabs(list){return [...new Set((list||[]).filter(Boolean))];}
 function mapNotionMaterialPage(p){
@@ -12290,6 +12311,25 @@ function analyticsRangeLabel(range=analyticsRange()){
 function analyticsDataReady(){
   return window._coreLoaded&&Array.isArray(mats)&&Array.isArray(orders)&&window._cordersLoaded&&Array.isArray(stockLogs);
 }
+async function loadAnalyticsFormalMovements({force=false}={}){
+  if(!force&&window._analyticsFormal&&Date.now()-(window._analyticsFormalLoadedAt||0)<300000)return window._analyticsFormal;
+  const end=todayStr();
+  const first=new Date(`${end}T00:00:00Z`);
+  first.setUTCDate(first.getUTCDate()-89);
+  const start=first.toISOString().slice(0,10);
+  const response=await fetch(PROXY+'/api/inventory/period-report?'+new URLSearchParams({start,end}),{
+    headers:erpWorkerHeaders(),cache:'no-store'
+  });
+  const data=await response.json();
+  if(!response.ok||data?.ok!==true||data?.complete!==true||data?.source!=='inventory_transactions'||
+      data?.start!==start||data?.end!==end||!Array.isArray(data?.transactions)){
+    throw new Error(data?.error||`正式交易讀取失敗 HTTP ${response.status}`);
+  }
+  window._analyticsFormal=data;
+  window._analyticsFormalLoadedAt=Date.now();
+  window._analyticsFormalError='';
+  return data;
+}
 async function loadAnalyticsData(){
   return setAnalyticsRange(analyticsRange(),{initial:true});
 }
@@ -12308,11 +12348,13 @@ async function setAnalyticsRange(range,{force=false,initial=false}={}){
   if(force||!window._coreLoaded||errors.core)add('core',()=>loadCoreEssentials({force}));
   if(force||!window._cordersLoaded||!covered('corders')||errors.corders)add('corders',()=>loadCorders({...options,skipAutoComplete:true,strict:true}));
   if(force||(initial&&!isFresh('stocklog')&&!stockLogs.length)||!covered('stocklog')||stockLogLoadError||errors.stocklog)add('stocklog',()=>loadStockLog(options));
+  add('formal',()=>loadAnalyticsFormalMovements({force}));
   try{
     const results=await Promise.allSettled(tasks.map(task=>task.run));
     results.forEach((result,i)=>{
       const key=tasks[i].key;
       errors[key]=result.status==='rejected'||(key==='stocklog'&&!!stockLogLoadError);
+      if(key==='formal'&&result.status==='rejected')window._analyticsFormalError=String(result.reason?.message||'正式交易讀取失敗');
     });
   }finally{
     window._analyticsLoadAttempted=true;
@@ -12413,6 +12455,72 @@ function analyticsInventoryState(material){
   if(!safeKnown)return {state:'unset',stock,safe:null};
   const safe=Number(safeRaw);
   return {state:stock<=safe?'low':'ok',stock,safe};
+}
+const ANALYTICS_USE_SOURCES=new Set(['order_pick_batch','manual_pick_batch','corder_ship','corder_ship_bundle','corder_ship_recoverable']);
+const ANALYTICS_RETURN_SOURCES=new Set(['order_pick_reversal','order_pick_reversal_shortfall','order_pick_reversal_repair','corder_return_batch','corder_reversal']);
+function analyticsMaterialModel(report,materials,openDemand=[],range='30'){
+  if(!report||report.complete!==true||report.source!=='inventory_transactions'||!Array.isArray(report.transactions))return null;
+  const end=String(report.end||'');
+  const endMs=Date.parse(`${end}T00:00:00Z`);
+  if(!Number.isFinite(endMs))return null;
+  const days=range==='30'?30:90;
+  const byId=new Map(),materialById=new Map((materials||[]).filter(m=>m.supabaseId).map(m=>[String(m.supabaseId),m]));
+  const demandById=new Map((openDemand||[]).map(row=>[String(row.id),Number(row.needed)]));
+  let excluded=0,usedTransactions=0;
+  for(const tx of report.transactions){
+    const type=String(tx.source_type||'');
+    const use=ANALYTICS_USE_SOURCES.has(type)&&Number(tx.quantity_delta)<0;
+    const returned=ANALYTICS_RETURN_SOURCES.has(type)&&Number(tx.quantity_delta)>0;
+    if(!use&&!returned)continue;
+    const id=String(tx.material_id||''),quantity=Math.abs(Number(tx.quantity_delta));
+    const date=taipeiDateKey(tx.occurred_at);
+    const age=(endMs-Date.parse(`${date}T00:00:00Z`))/86400000;
+    if(!id||!Number.isFinite(quantity)||quantity<=0||!Number.isInteger(age)||age<0||age>=90){excluded++;continue;}
+    let row=byId.get(id);
+    if(!row){
+      const mat=materialById.get(id);
+      row={id,sku:String(mat?.code||tx.materials?.sku||'料號待核對'),name:String(mat?.name||tx.materials?.name||''),
+        unit:String(mat?.unit||tx.materials?.unit||'件'),material:mat||null,usedDays:Array(90).fill(0),returnDays:Array(90).fill(0)};
+      byId.set(id,row);
+    }
+    (use?row.usedDays:row.returnDays)[age]+=quantity;
+    if(age<days)usedTransactions++;
+  }
+  const sum=(array,start,end)=>array.slice(start,end).reduce((total,value)=>total+value,0);
+  const rows=[...byId.values()].map(row=>{
+    const used=sum(row.usedDays,0,days),returned=sum(row.returnDays,0,days);
+    const recent28=sum(row.usedDays,0,28),prior28=sum(row.usedDays,28,56);
+    const recentDays=row.usedDays.slice(0,28).filter(Boolean).length;
+    const priorDays=row.usedDays.slice(28,56).filter(Boolean).length;
+    const enough=recentDays>=2&&priorDays>=2;
+    const error=enough?Math.abs(recent28-prior28)/Math.max(recent28,prior28):null;
+    const forecast=enough?Math.max(0,(recent28*.7+prior28*.3)*30/28):null;
+    const confidence=!enough?'資料不足':error<=.35&&recentDays+priorDays>=8?'較穩':error<=.7?'中':'波動高';
+    const inventory=analyticsInventoryState(row.material);
+    const open=Number.isFinite(demandById.get(String(row.material?.id)))?demandById.get(String(row.material.id)):null;
+    const coverDays=inventory.stock!==null&&recent28>0?inventory.stock/(recent28/28):null;
+    return {...row,used,returned,recent28,prior28,forecast,confidence,error,inventory,openDemand:open,coverDays};
+  }).filter(row=>row.used>0).sort((a,b)=>b.used-a.used||a.sku.localeCompare(b.sku));
+  const risk=rows.filter(row=>row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast);
+  return {rows,days,usedTransactions,excluded,riskCount:risk.length,forecastable:rows.filter(row=>row.forecast!==null).length,
+    start:report.start,end:report.end,generatedAt:report.generated_at||'',source:'inventory_transactions'};
+}
+function analyticsShowMoreMaterials(){
+  window._analyticsMaterialLimit=(window._analyticsMaterialLimit||10)+10;
+  if(CURRENT_TAB==='analytics')document.getElementById('mainContent').innerHTML=renderAnalytics();
+}
+function analyticsMaterialPanel(model){
+  if(!model)return `<section class="analytics-panel" id="analytics-materials" role="status"><h3>常用物料與需求預測</h3><p>正式交易尚未載入，排行與預測暫停。${escapeHtml(window._analyticsFormalError||'請重新整理營運分析。')}</p><button class="btn btn-ghost btn-sm" onclick="setAnalyticsRange(analyticsRange(),{force:true})">重試讀取</button></section>`;
+  const limit=window._analyticsMaterialLimit||10,rows=model.rows.slice(0,limit);
+  const number=value=>Number(value).toLocaleString('zh-TW',{maximumFractionDigits:1});
+  const top=Math.max(1,...rows.map(row=>row.used));
+  return `<section class="analytics-panel" id="analytics-materials" aria-label="常用物料與需求預測">
+    <div class="analytics-panel-head"><div><h3>常用物料排行與 30 天耗用試算</h3><p>正式扣庫交易排行；轉庫、入料與組立母件入庫不算耗用。試算只供補料評估，不自動建立採購單。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','consume')">查操作明細</button></div>
+    <div class="analytics-source-strip"><span><b>近 ${model.days} 天</b>：${model.rows.length} 個實際耗用料號 · ${model.usedTransactions} 筆相關交易。</span><span><b>可試算</b> ${model.forecastable} 個；試算量高於現有庫存 ${model.riskCount} 個。</span><span>正式交易 ${escapeHtml(model.start)}～${escapeHtml(model.end)}；更新 ${escapeHtml(model.generatedAt||'時間未提供')}${model.excluded?`；${model.excluded} 筆資料不完整未計入`:''}。</span></div>
+    ${rows.length?`<div class="table-wrap analytics-material-table"><table class="data-table" style="min-width:900px"><thead><tr><th>排行／料號</th><th>實際耗用</th><th>期間退回</th><th>目前庫存</th><th>已開未領</th><th>未來30天試算</th><th>判讀</th></tr></thead><tbody>${rows.map((row,i)=>`<tr><td><b>${i+1}. ${escapeHtml(row.sku)}</b><br><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></td><td>${number(row.used)} ${escapeHtml(row.unit)}<div class="progress" style="margin-top:4px"><div style="width:${Math.max(3,Math.round(row.used*100/top))}%;background:var(--cyan2)"></div></div></td><td>${number(row.returned)}</td><td>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</td><td>${row.openDemand===null?'—':number(row.openDemand)}</td><td>${row.forecast===null?'資料不足':`${number(row.forecast)} ${escapeHtml(row.unit)}`}</td><td>${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</td></tr>`).join('')}</tbody></table></div><div class="analytics-material-mobile">${rows.map((row,i)=>`<article class="analytics-material-card"><div class="analytics-material-card-head"><b>${i+1}. ${escapeHtml(row.sku)}</b><button class="btn btn-ghost btn-xs" data-sku="${escapeHtml(row.sku)}" onclick="analyticsGo('inventory','sku',this.dataset.sku)">查庫存</button></div><div class="analytics-material-card-metrics"><div><span>實際耗用</span><strong>${number(row.used)} ${escapeHtml(row.unit)}</strong></div><div><span>未來 30 天試算</span><strong>${row.forecast===null?'資料不足':number(row.forecast)}</strong></div><div><span>目前庫存</span><strong>${row.inventory.stock===null?'待確認':number(row.inventory.stock)}</strong></div><div><span>已開未領需求</span><strong>${row.openDemand===null?'—':number(row.openDemand)}</strong></div></div><div class="analytics-material-card-note">退回 ${number(row.returned)} · ${row.confidence}${row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast?' · 庫存低於試算':''}</div></article>`).join('')}</div>`:'<div class="empty">所選期間沒有可核對的正式耗用交易。</div>'}
+    ${rows.length<model.rows.length?'<button class="btn btn-ghost btn-sm" onclick="analyticsShowMoreMaterials()">顯示更多料號</button>':''}
+    <details class="analytics-method"><summary>試算方法與限制</summary><p>未來 30 天 = 最近 28 天實際耗用 × 70% ＋ 前 28 天實際耗用 × 30%，換算成 30 天。兩段期間各少於 2 個耗用日就顯示資料不足；穩定度依兩段耗用差異判斷。尚無季節、客戶交期或供應商前置時間模型。「已開未領」只含可核對的國內／國外待排程直接需求，與試算並列、不相加，也不代表庫存預留。退回另列，不抹除原耗用。</p></details>
+  </section>`;
 }
 function analyticsReturnReasonLabel(reason=''){
   const text=String(reason||'').trim();
@@ -12523,6 +12631,10 @@ function analyticsJsArg(value){
   return `'${String(value??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ')}'`;
 }
 function analyticsGo(tab,action='',value=''){
+  if(tab==='analytics'&&action==='materials'){
+    document.getElementById('analytics-materials')?.scrollIntoView({behavior:'smooth',block:'start'});
+    return;
+  }
   try{
     if(tab==='orders'){
       const f=getOrderFilters();
@@ -12734,6 +12846,7 @@ function renderAnalytics(){
     return `<section class="analytics-panel" role="status"><h3>營運分析資料尚未完成</h3><p>${escapeHtml(missing.join('、')||'來源資料')}讀取未成功，目前無法確認統計；請重新嘗試。</p><button class="btn btn-blue" onclick="setAnalyticsRange(analyticsRange(),{force:true})">重新嘗試</button></section>`;
   }
   const a=buildOperationsAnalytics();
+  const formalModel=window._analyticsErrors?.formal?null:analyticsMaterialModel(window._analyticsFormal,mats,a.orderAction.materialDemand,a.range);
   const totalOrders=a.orderRows.length+a.corderRows.length;
   const totalDone=a.doneOrders.length+a.doneCorders.length;
   const countableTotal=a.countableOrders.length;
@@ -12747,8 +12860,7 @@ function renderAnalytics(){
     analyticsKpiCard('目前逾期',analyticsNum(a.overdue.length),`所有未結案正式訂單，不受期間篩選`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
     analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`本期建立訂單：退貨 ${analyticsNum(a.cReturnQty)} / 已完成出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
   ].join('');
-  const topRisk=a.lowStockRisk[0];
-  const topUse=analyticsTopEntries(a.consumptionBySku,1)[0];
+  const topRisk=formalModel?.rows.find(row=>row.forecast!==null&&row.inventory.stock!==null&&row.inventory.stock<row.forecast);
   const topCProduct=analyticsTopEntries(a.cProductTotals,1)[0];
   const topReturnReason=analyticsTopEntries(a.cReturnReasons,1)[0];
   const movementLoadFailed=!!stockLogLoadError||!!window._analyticsErrors?.stocklog;
@@ -12770,9 +12882,9 @@ function renderAnalytics(){
       action:'查看逾期訂單',tab:'orders',nav:'overdue',color:a.overdue.length?'var(--red2)':'var(--green2)'
     }),
     analyticsDecisionCard({
-      icon:'📦',title:topRisk?.stockState==='unknown'?'先確認庫存':topRisk?.stockState==='unmatched'?'先確認料號':'補料優先',value:topRisk?topRisk.sku:movementUnverified?'待確認':'未見高風險',
-      sub:topRisk?`本期耗用 ${analyticsNum(topRisk.used)}，${topRisk.hint}${topRisk.coverDays!==null?` · 約可供 ${analyticsNum(Math.round(topRisk.coverDays))} 天`:''}`:movementUnverified?movementEvidence:'已載入範圍內未見高耗用低庫存料號',
-      action:topRisk?'查看該料號':'查看異動來源',tab:topRisk?'inventory':'stocklog',nav:topRisk?'sku':'audit',filter:topRisk?.sku||'',color:topRisk?.stockState==='unknown'||topRisk?.stockState==='unmatched'||movementUnverified?'var(--text3)':topRisk?'var(--amber)':'var(--green2)'
+      icon:'📦',title:'物料供需',value:topRisk?topRisk.sku:!formalModel?'待確認':!formalModel.forecastable?'資料不足':'未見試算缺口',
+      sub:topRisk?`近 ${formalModel.days} 天實耗 ${analyticsNum(topRisk.used)}；30 天試算 ${analyticsNum(topRisk.forecast)}，目前庫存 ${analyticsNum(topRisk.inventory.stock)}`:!formalModel?'正式交易未完成載入，不能判斷補料優先':!formalModel.forecastable?'近期耗用樣本不足，尚不能預測':'可試算料號目前庫存未低於 30 天耗用試算',
+      action:topRisk?'查該料號':'查看物料排行',tab:topRisk?'inventory':'analytics',nav:topRisk?'sku':'materials',filter:topRisk?.sku||'',color:topRisk?'var(--amber)':formalModel?.forecastable?'var(--green2)':'var(--text3)'
     }),
     analyticsDecisionCard({
       icon:'🧾',title:'資料品質',value:movementUnverified&&!a.audit.issues.length?'待確認':analyticsNum(a.audit.issues.length),
@@ -12817,6 +12929,7 @@ function renderAnalytics(){
     <span>${allRangeWarn?(a.range==='all'?'歷史資料載入尚未完整；目前只統計已成功載入的資料，請重新整理後確認。':'目前是快速載入範圍，切「全部已載入資料」可補齊 C端與異動歷史。'):`本期納入正式 ${a.orderRows.length}、C端 ${a.corderRows.length}、異動 ${a.logRows.length} 筆。`}</span>
   </div>
   <div class="analytics-decision-grid">${decisionCards}</div>
+  ${analyticsMaterialPanel(formalModel)}
   <div class="kpi-grid">${orderKpis}</div>
   ${analyticsOrderActionPanel(a.orderAction)}
   ${analyticsMaterialDemandPanel(a.orderAction)}
@@ -12827,11 +12940,6 @@ function renderAnalytics(){
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>正式訂單客戶排行</h3><p>排除「組立單／蝦皮」系統作業單，避免混入客戶排名。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('orders')">看訂單來源</button></div>${analyticsBarList(analyticsTopEntries(a.customerTotals,8),{empty:'期間內沒有客戶訂單',tab:'orders',action:'customer'})}</div>
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>內部作業單</h3><p>組立單與蝦皮內部流程數量獨立呈現，不列為客戶。</p></div></div>${analyticsBarList(analyticsTopEntries(a.orderCategoryTotals,8),{empty:'期間內沒有內部作業單',tab:'orders',action:'customer'})}</div>
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端建單品項排行</h3><p>依本期建立訂單的訂購數量排行（含取消及未完成單）；非實際出貨或淨銷量。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders')">看 C端</button></div>${analyticsBarList(analyticsTopEntries(a.cProductTotals,8),{empty:'期間內沒有 C端品項',unit:' 件',tab:'corders',action:'product'})}</div>
-  </div>
-  <div class="analytics-panel-grid">
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>用料耗用排行</h3><p>由領料與 C端出貨扣庫彙整，適合判斷常用料。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('stocklog','consume')">看異動記錄</button></div>${analyticsBarList(analyticsTopEntries(a.consumptionBySku,10),{empty:'期間內沒有領料或 C端出貨扣庫',unit:' 件',tab:'stocklog',action:'consume'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>庫存決策提示</h3><p>缺貨、低於安全庫存、未知庫存與未對上主檔分開顯示，不把未知數字當零。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('inventory','low')">看低庫存</button></div>${analyticsMiniTable(a.lowStockRisk.map(r=>({name:r.sku,sub:`${r.hint}${r.coverDays!==null?` · 約可供 ${analyticsNum(Math.round(r.coverDays))} 天`:''}`,value:`耗用 ${analyticsNum(r.used)}`,hint:r.stockState==='out'?'需確認補庫':r.stockState==='unknown'?'先確認庫存數值':r.stockState==='unmatched'?'料號未對上主檔':'請確認補料',color:r.stockState==='out'?'var(--red2)':r.stockState==='unknown'||r.stockState==='unmatched'?'var(--text3)':'var(--amber)',tab:'inventory',nav:'sku',filter:r.sku})),{empty:'目前沒有缺貨、低於安全庫存或庫存待確認的高耗用料號',tab:'inventory'})}</div>
-    <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>耗用與庫存可供天數</h3><p>以期間異動計算日均耗用，再和目前庫存比較；供應天數是估算值，不含採購前置時間。</p></div></div>${analyticsConsumptionCoverageTable(a.consumptionCoverage.slice(0,12),a.range,a.consumptionBySku.size)}</div>
   </div>
   <div class="analytics-panel-grid">
     <div class="analytics-panel"><div class="analytics-panel-head"><div><h3>C端退貨原因</h3><p>由退貨流程的固定原因統計；點擊可回 C端訂單追來源。</p></div><button class="btn btn-ghost btn-xs" onclick="analyticsGo('corders','search','退貨')">看退貨訂單</button></div>${analyticsBarList(analyticsTopEntries(a.cReturnReasons,8),{empty:'期間內沒有 C端退貨',unit:' 件',tab:'corders',action:'search'})}</div>
