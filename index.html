@@ -7104,6 +7104,7 @@ function getRichText(props,...keys){for(const k of keys){const p=props?.[k];if(!
 // ═══════════════════════════════════════════════
 const LOGIN_LOG_DB_KEY='lematec_login_log_db_id';
 let _loginLogDbId='',_loginLogPageId='',_loginLogSession='',_loginStartedAt=0,_loginLastPatch=0,_loginLogLoading=false,_loginLogLoadedAt=0;
+let _loginVisibleMs=0,_loginTimeTick=0,_loginWasVisible=false;
 let loginLogs=[];
 function safeRt(s,max=1900){return String(s??'').slice(0,max);}
 function loginRoleLabel(role=ROLE){return ROLES[role]?.label||role||'未知';}
@@ -7160,8 +7161,13 @@ async function ensureLoginLogDB(){
 }
 function loginDurationSeconds(){
   if(!_loginStartedAt) return 0;
-  return Math.max(0,Math.round((Date.now()-_loginStartedAt)/1000));
+  const now=Date.now();
+  if(_loginTimeTick&&_loginWasVisible)_loginVisibleMs+=Math.min(Math.max(0,now-_loginTimeTick),30000);
+  _loginTimeTick=now;
+  _loginWasVisible=typeof document==='undefined'||document.visibilityState!=='hidden';
+  return Math.max(0,Math.round(_loginVisibleMs/1000));
 }
+document.addEventListener('visibilitychange',()=>{if(_loginStartedAt)loginDurationSeconds();});
 function loginAuditProps(status='線上'){
   const sec=loginDurationSeconds();
   const nowIso=new Date().toISOString();
@@ -7177,6 +7183,7 @@ async function startLoginAudit(){
   try{
     const dbId=await ensureLoginLogDB();
     _loginStartedAt=Date.now();
+    _loginVisibleMs=0;_loginTimeTick=_loginStartedAt;_loginWasVisible=document.visibilityState!=='hidden';
     _loginLastPatch=Date.now();
     const nowIso=new Date().toISOString();
     const roleLabel=loginRoleLabel();
@@ -7265,6 +7272,12 @@ function filterLoginLogsByRange(logs,range){
     return !Number.isNaN(d.getTime())&&d>=start;
   });
 }
+function loginDurationLabel(seconds){
+  const minutes=Math.max(0,Math.floor(Number(seconds||0)/60));
+  if(!minutes)return '少於 1 分鐘';
+  const hours=Math.floor(minutes/60),rest=minutes%60;
+  return hours?`${hours} 小時${rest?` ${rest} 分鐘`:''}`:`${minutes} 分鐘`;
+}
 function renderLoginAuditPanel(){
   const range=window._LOGIN_LOG_RANGE||'today';
   const rangeOpts=[['today','當日'],['3d','近 3 天'],['7d','近 7 天'],['30d','近 1 個月']];
@@ -7277,7 +7290,7 @@ function renderLoginAuditPanel(){
     byRole[key].seconds+=l.seconds||0;
     if(!byRole[key].last||String(l.loginAt)>String(byRole[key].last)) byRole[key].last=l.loginAt;
   }
-  const summary=Object.values(byRole).sort((a,b)=>b.count-a.count);
+  const summary=Object.values(byRole).sort((a,b)=>b.seconds-a.seconds||b.count-a.count);
   return `<div class="panel" style="margin-top:14px">
     <div class="panel-hdr">
       <span class="panel-title">🧾 登入紀錄 <span class="badge">${scoped.length}/${loginLogs.length}</span></span>
@@ -7286,16 +7299,17 @@ function renderLoginAuditPanel(){
         <button class="btn btn-ghost btn-sm" onclick="loadLoginLogs(true)">重新整理</button>
       </div>
     </div>
+    <div style="padding:10px 14px 0;color:var(--text3);font-size:.76rem">依累積在線時間排序；登入次數供參考。範圍按登入時間選取，跨日不拆分。新紀錄以分頁可見時間估算，舊紀錄可能包含背景停留。</div>
     <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       ${summary.length?summary.map(s=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px">
         <div style="color:var(--text2);font-size:.8rem">${escapeHtml(s.role)}</div>
-        <div style="font-family:var(--f-mono);font-size:1.7rem;font-weight:800;color:var(--cyan2)">${s.count}</div>
-        <div style="color:var(--text3);font-size:.78rem">累積在線 ${Math.round(s.seconds/60*10)/10} 分鐘</div>
+        <div style="font-family:var(--f-mono);font-size:1.7rem;font-weight:800;color:var(--cyan2)">${loginDurationLabel(s.seconds)}</div>
+        <div style="color:var(--text3);font-size:.78rem">累積在線 · 登入 ${s.count} 次</div>
         <div style="color:var(--text3);font-size:.72rem">最近 ${fmtDateTime(s.last)}</div>
       </div>`).join(''):`<div class="loading-row">尚無登入紀錄，登入後會自動建立。</div>`}
     </div>
     <div class="table-wrap"><table>
-      <tr><th>角色</th><th>登入時間</th><th>最後在線</th><th>在線</th><th>狀態</th><th class="hide-m">裝置</th></tr>
+      <tr><th>角色</th><th>登入時間</th><th>最後在線</th><th>在線時間</th><th>狀態</th><th class="hide-m">裝置</th></tr>
       ${scoped.slice(0,80).map(l=>`<tr>
         <td>${escapeHtml(l.role)}</td>
         <td style="font-family:var(--f-mono);font-size:.78rem">${fmtDateTime(l.loginAt)}</td>
@@ -7673,7 +7687,7 @@ async function login(){
   btn.disabled=false;btn.textContent='⚡ 進入系統';
 }
 function showLoginErr(msg){const el=document.getElementById('loginAlert');el.innerHTML=msg;el.className='alert alert-err show';}
-async function logout(){await finalizeLoginActivity();stopAutoSync();resetRoleSessionRefreshState();if(_onlineTimer){clearInterval(_onlineTimer);_onlineTimer=null;}stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');clearAdminRolePinSessions();TOKEN='';ROLE='';_loginLogPageId='';_loginLogSession='';document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
+async function logout(){await finalizeLoginActivity();stopAutoSync();resetRoleSessionRefreshState();if(_onlineTimer){clearInterval(_onlineTimer);_onlineTimer=null;}stopLiveClock();localStorage.removeItem('lt');localStorage.removeItem('lr');localStorage.removeItem('ldn');sessionStorage.removeItem('lm_online_session');clearAdminRolePinSessions();TOKEN='';ROLE='';_loginLogPageId='';_loginLogSession='';_loginStartedAt=0;_loginVisibleMs=0;_loginTimeTick=0;_loginWasVisible=false;document.getElementById('loginScreen').style.display='flex';document.getElementById('app').style.display='none';}
 
 // ═══════════════════════════════════════════════
 // APP START
@@ -7717,6 +7731,7 @@ function onlineDeviceLabel(){
   return `${kind} / ${ua}`;
 }
 async function syncOnlineHeartbeat(){
+  if(_loginStartedAt)loginDurationSeconds();
   if(_onlineBusy||!TOKEN||!DB.online) return;
   _onlineBusy=true;
   try{
