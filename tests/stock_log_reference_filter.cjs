@@ -35,3 +35,18 @@ test('malformed reference prefix is rejected before database access',async()=>{
   assert.equal(result.status,400);
   assert.equal(s.paths.length,0);
 });
+
+test('operation report date range narrows the formal log query',async()=>{
+  const s=setup();
+  const result=await s.ctx.erpStockLogList(new Request('https://erp.example/api/stock-log/list?mode=all&from=2026-11-01&to=2026-11-07'),{},{});
+  assert.equal(result.ok,true);
+  assert(s.paths[0].includes('change_date=gte.2026-11-01'));
+  assert(s.paths[0].includes('change_date=lte.2026-11-07'));
+});
+
+test('invalid operation report date range is rejected before database access',async()=>{
+  const s=setup();
+  const result=await s.ctx.erpStockLogList(new Request('https://erp.example/api/stock-log/list?from=2026-02-30&to=2026-03-01'),{},{});
+  assert.equal(result.status,400);
+  assert.equal(s.paths.length,0);
+});

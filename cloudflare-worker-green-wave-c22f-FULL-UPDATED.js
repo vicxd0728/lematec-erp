@@ -2856,6 +2856,14 @@ async function erpStockLogList(request, env, cors) {
   try {
     const url = new URL(request.url);
     const mode = cleanText(url.searchParams.get('mode') || 'recent');
+    const from = cleanText(url.searchParams.get('from') || '');
+    const to = cleanText(url.searchParams.get('to') || '');
+    const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      Number.isFinite(Date.parse(value + 'T00:00:00Z')) &&
+      new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+    if ((from || to) && (!validDate(from) || !validDate(to) || from > to)) {
+      return resp400(cors, 'Invalid stock log date range');
+    }
     const days = Math.max(1, Math.min(365, Number(url.searchParams.get('days') || 30) || 30));
     // Keep one row below PostgREST's common 1,000-row response cap so the
     // extra look-ahead row remains available for reliable pagination.
@@ -2871,7 +2879,10 @@ async function erpStockLogList(request, env, cors) {
       if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(refPrefix))return resp400(cors,'Invalid stock log reference prefix');
       filters.push(`ref_no=like.${encodeURIComponent(refPrefix)}*`);
     }
-    if (mode !== 'all') {
+    if (from && to) {
+      filters.push(`change_date=gte.${from}`);
+      filters.push(`change_date=lte.${to}`);
+    } else if (mode !== 'all') {
       const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
       filters.push(`change_date=gte.${since}`);
     }

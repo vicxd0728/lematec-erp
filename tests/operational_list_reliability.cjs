@@ -53,6 +53,7 @@ test('stock-log 30 and 90 day filters use days and render only one page',()=>{
     pendingStockLogCounts:()=>({total:0,detail:0,notion:0}),getStockLogFilters:()=>state,
     applyDateFilterValue:null,taipeiDateKey:value=>new Date(value).toISOString().slice(0,10),
     stockLogIsInventoryMove:()=>true,stockLogDisplayType:row=>row.type,
+    operationReportState:()=>({open:false}),
     stockLogDisplayName:row=>row.matName,stockLogDisplaySubText:()=>'',stockLogQtyLabel:()=>'+1',
     buildStockLogAuditReport:()=>({}),renderStockLogAuditPanel:()=>'',limitedDataHint:()=>'',escapeHtml,
   });

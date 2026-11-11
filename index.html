@@ -13066,6 +13066,136 @@ function renderAnalytics(){
   </div>`;
 }
 
+function operationReportDayShift(day, offset){
+  const date=new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate()+offset);
+  return date.toISOString().slice(0,10);
+}
+function operationReportPeriod(kind, anchor){
+  const day=/^\d{4}-\d{2}-\d{2}$/.test(anchor||'')?anchor:taipeiDateKey(new Date());
+  if(kind==='day')return {from:day,to:day};
+  if(kind==='week'){
+    const weekday=new Date(`${day}T00:00:00Z`).getUTCDay();
+    const from=operationReportDayShift(day,-((weekday+6)%7));
+    return {from,to:operationReportDayShift(from,6)};
+  }
+  const from=day.slice(0,7)+'-01';
+  return {from,to:operationReportDayShift(day.slice(0,7)+'-01',new Date(Date.UTC(Number(day.slice(0,4)),Number(day.slice(5,7)),0)).getUTCDate()-1)};
+}
+function operationReportState(){
+  return window._OPERATION_REPORT||(window._OPERATION_REPORT={open:false,kind:'week',anchor:taipeiDateKey(new Date()),rows:[],loading:false,error:'',truncated:false,selectedDay:'',page:1});
+}
+function operationReportModel(rows,from,to){
+  const days=new Map(),actions=new Map(),roles=new Map(),refs=new Set();
+  let movements=0,operations=0;
+  for(let date=from;date<=to;date=operationReportDayShift(date,1))days.set(date,{date,total:0,movements:0,operations:0});
+  for(const row of rows){
+    const date=String(row.date||'');
+    const bucket=days.get(date);
+    if(!bucket)continue;
+    bucket.total++;
+    if(stockLogIsInventoryMove(row)){bucket.movements++;movements++;}
+    else{bucket.operations++;operations++;}
+    const action=String(row.originalAction||row.type||'未分類').trim()||'未分類';
+    actions.set(action,(actions.get(action)||0)+1);
+    const role=String(row.operator||'未記錄角色').trim()||'未記錄角色';
+    roles.set(role,(roles.get(role)||0)+1);
+    if(row.ref)refs.add(row.ref);
+  }
+  const top=map=>[...map].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'zh-Hant'));
+  return {days:[...days.values()],total:movements+operations,movements,operations,refs:refs.size,actions:top(actions),roles:top(roles)};
+}
+async function loadOperationReport(){
+  const state=operationReportState();
+  const {from,to}=operationReportPeriod(state.kind,state.anchor);
+  const requestId=state.requestId=(state.requestId||0)+1;
+  state.loading=true;state.error='';state.truncated=false;state.rows=[];
+  if(CURRENT_TAB==='stocklog')renderTab('stocklog');
+  try{
+    const rows=[];let offset=0,hasMore=false;
+    do{
+      const params=new URLSearchParams({mode:'all',from,to,limit:'500',offset:String(offset)});
+      const response=await fetch(`${PROXY}/api/stock-log/list?${params}`,{cache:'no-store'});
+      const data=await response.json();
+      if(!response.ok||data?.ok!==true||!Array.isArray(data.rows))throw new Error(data?.error||`HTTP ${response.status}`);
+      rows.push(...data.rows);
+      hasMore=data.has_more===true;
+      if(hasMore&&!(Number(data.next_offset)>offset))throw new Error('紀錄分頁未完成');
+      offset=Number(data.next_offset)||0;
+    }while(hasMore&&rows.length<20000);
+    if(state.requestId!==requestId)return;
+    state.rows=mapSupabaseStockRows(rows);
+    state.truncated=hasMore;
+    state.loadedRange=`${from}|${to}`;
+  }catch(error){if(state.requestId===requestId){state.error=error?.message||String(error);state.rows=[];}}
+  finally{if(state.requestId===requestId){state.loading=false;if(CURRENT_TAB==='stocklog')renderTab('stocklog');}}
+}
+function toggleOperationReport(){
+  const state=operationReportState();state.open=!state.open;
+  if(state.open&&!state.loadedRange&&!state.loading)void loadOperationReport();
+  else renderTab('stocklog');
+}
+function setOperationReportRange(kind,anchor){
+  const state=operationReportState();
+  state.kind=['day','week','month'].includes(kind)?kind:'week';
+  state.anchor=/^\d{4}-\d{2}-\d{2}$/.test(anchor||'')?anchor:taipeiDateKey(new Date());
+  state.selectedDay='';state.page=1;
+  void loadOperationReport();
+}
+function shiftOperationReport(direction){
+  const state=operationReportState();
+  let anchor=state.anchor;
+  if(state.kind==='day')anchor=operationReportDayShift(anchor,direction);
+  else if(state.kind==='week')anchor=operationReportDayShift(anchor,direction*7);
+  else{
+    const [year,month]=anchor.split('-').map(Number);
+    const shifted=new Date(Date.UTC(year,month-1+direction,1));
+    anchor=shifted.toISOString().slice(0,10);
+  }
+  setOperationReportRange(state.kind,anchor);
+}
+function selectOperationReportDay(day){
+  const state=operationReportState();state.selectedDay=day;state.page=1;renderTab('stocklog');
+}
+function operationReportPage(direction){
+  const state=operationReportState();state.page=Math.max(1,state.page+direction);renderTab('stocklog');
+}
+function renderOperationReport(){
+  const state=operationReportState();
+  const {from,to}=operationReportPeriod(state.kind,state.anchor);
+  const maxDate=taipeiDateKey(new Date());
+  const controls=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0">
+    <div class="analytics-view-tabs" role="group" aria-label="操作報表期間">${[['day','日'],['week','週'],['month','月']].map(([key,label])=>`<button class="btn ${state.kind===key?'btn-blue':'btn-ghost'} btn-xs" onclick="setOperationReportRange('${key}',operationReportState().anchor)">${label}</button>`).join('')}</div>
+    <button class="btn btn-ghost btn-xs" onclick="shiftOperationReport(-1)" aria-label="上一期">‹ 上一期</button>
+    <input class="inp" type="date" aria-label="選擇操作報表日期" value="${escapeHtml(state.anchor)}" max="${maxDate}" style="width:145px" onchange="setOperationReportRange(operationReportState().kind,this.value)">
+    <button class="btn btn-ghost btn-xs" onclick="shiftOperationReport(1)" ${to>=maxDate?'disabled':''}>下一期 ›</button>
+    <button class="btn btn-ghost btn-xs" onclick="loadOperationReport()">重新整理</button>
+    <span style="font-size:.75rem;color:var(--text2)">${escapeHtml(from)} ～ ${escapeHtml(to)}</span>
+  </div>`;
+  if(state.loading)return `<section class="panel" style="padding:16px" aria-live="polite"><h3>📈 操作報表</h3>${controls}<p>正在讀取正式異動紀錄…</p></section>`;
+  if(state.error)return `<section class="panel" style="padding:16px" role="alert"><h3>📈 操作報表</h3>${controls}<p>讀取失敗：${escapeHtml(state.error)}。本期統計尚未確認，請重新整理。</p></section>`;
+  const model=operationReportModel(state.rows,from,to);
+  const peak=Math.max(1,...model.days.map(day=>day.total));
+  const chosen=state.selectedDay&&state.selectedDay>=from&&state.selectedDay<=to?state.selectedDay:(state.kind==='day'?from:'');
+  const details=state.rows.filter(row=>!chosen||row.date===chosen);
+  const pageCount=Math.max(1,Math.ceil(details.length/50));
+  state.page=Math.min(state.page,pageCount);
+  const visible=details.slice((state.page-1)*50,state.page*50);
+  const stats=[['已記錄筆數',model.total],['庫存異動明細',model.movements],['其他操作紀錄',model.operations],['關聯單號',model.refs]];
+  return `<section class="panel" style="padding:16px;margin-bottom:16px" aria-label="操作報表">
+    <h3>📈 操作報表</h3>${controls}
+    <div class="info-warn" role="status">依 Supabase「異動記錄」的紀錄日期統計；明細時間為資料建立時間。同一次作業可能有多筆料件記錄。角色是職務，並非個人帳號。未寫入的操作與登入停留時間不計入。${state.truncated?'本期超過 20,000 筆載入上限，統計不完整；請縮短日期範圍。':''}</div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin:12px 0">${stats.map(([label,value])=>`<div class="kpi-card" style="min-height:0;height:90px;padding:10px 12px"><div class="kpi-label">${label}</div><div class="kpi-num">${value.toLocaleString()}</div></div>`).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px">
+      <div><h4>每日記錄趨勢</h4><div style="display:flex;align-items:end;gap:3px;height:145px;overflow-x:auto;padding:12px 0;border-bottom:1px solid var(--border)" aria-label="每日記錄圖表">${model.days.map(day=>`<button title="${day.date}：${day.total} 筆（庫存 ${day.movements}、其他 ${day.operations}）" aria-label="${day.date} ${day.total} 筆，查看明細" onclick="selectOperationReportDay('${day.date}')" style="min-width:${model.days.length>10?'13px':'28px'};flex:1;height:${Math.max(3,day.total/peak*100)}%;background:${chosen===day.date?'var(--blue)':'var(--cyan2)'};border:0;border-radius:3px 3px 0 0;cursor:pointer"></button>`).join('')}</div><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text3)"><span>${from}</span><span>${to}</span></div></div>
+      <div><h4>常見動作</h4>${model.actions.slice(0,6).map(([label,count])=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${escapeHtml(label)}</span><b>${count}</b></div>`).join('')||'<p>本期無紀錄</p>'}</div>
+      <div><h4>角色分布</h4>${model.roles.slice(0,6).map(([label,count])=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${escapeHtml(label)}</span><b>${count}</b></div>`).join('')||'<p>本期無紀錄</p>'}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 8px"><h4 style="margin:0">${chosen?escapeHtml(chosen)+' ':''}記錄明細（${details.length}）</h4>${chosen&&state.kind!=='day'?`<button class="btn btn-ghost btn-xs" onclick="selectOperationReportDay('')">看全期</button>`:''}</div>
+    <div class="table-wrap"><table><thead><tr><th>日期／時間</th><th>動作</th><th>單號／料號</th><th>角色</th></tr></thead><tbody>${visible.map(row=>`<tr><td>${escapeHtml(row.createdAt?new Date(row.createdAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}):row.date)}</td><td>${escapeHtml(row.originalAction||row.type||'未分類')}</td><td>${escapeHtml([row.ref,row.matCode].filter(Boolean).join(' · ')||'—')}</td><td>${escapeHtml(row.operator||'未記錄')}</td></tr>`).join('')||'<tr><td colspan="4">此期間沒有已記錄的操作</td></tr>'}</tbody></table></div>
+    ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px"><button class="btn btn-ghost btn-xs" onclick="operationReportPage(-1)" ${state.page===1?'disabled':''}>上一頁</button><span>${state.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" onclick="operationReportPage(1)" ${state.page===pageCount?'disabled':''}>下一頁</button></div>`:''}
+  </section>`;
+}
 function renderStockLog(){
   const _notionBar='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:5px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)"><span style="font-size:0.625rem;color:var(--text3)">📌 Notion：</span><a href="https://www.notion.so/0aa78528a5bb4a0d8005c0c1e0aaf8a3" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📊 庫存異動記錄</a><a href="https://www.notion.so/43d801b4a7874101bd12d8b8199385c7?v=1372134af1164d4b81ff492c2f65a842" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:0.6875rem;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);text-decoration:none">📦 料件主檔</a></div>';;
   const pendingCounts=pendingStockLogCounts();
@@ -13112,7 +13242,7 @@ function renderStockLog(){
 
   const auditReport=buildStockLogAuditReport(stockLogs);
 
-  return _notionBar + syncStatus + renderStockLogAuditPanel(auditReport) + `
+  return _notionBar + syncStatus + `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-ghost btn-sm" onclick="toggleOperationReport()" aria-expanded="${operationReportState().open}">${operationReportState().open?'收起':'查看'}日／週／月操作報表</button><span style="font-size:.72rem;color:var(--text3)">正式紀錄唯讀彙整</span></div>` + (operationReportState().open?renderOperationReport():'') + renderStockLogAuditPanel(auditReport) + `
   <!-- 統計卡片 -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     ${[
