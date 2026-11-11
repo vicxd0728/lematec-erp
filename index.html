@@ -1349,6 +1349,34 @@ td{font-size:16px;padding:16px 17px;}
 .analytics-view-tabs{display:flex;gap:7px;overflow-x:auto;padding:2px 0 5px;scrollbar-width:thin;}
 .analytics-view-tabs button{flex:0 0 auto;padding:10px 15px;border-radius:12px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-weight:750;cursor:pointer;}
 .analytics-view-tabs button[aria-selected="true"]{border-color:var(--cyan2);background:rgba(34,211,238,.12);color:var(--text);}
+.operation-report-head{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap;}
+.operation-report-head h3{margin:0;font-size:20px;line-height:1.3;}
+.operation-report-meta{font-size:12px;color:var(--text2);line-height:1.5;}
+.operation-report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;}
+.operation-report-grid>*{min-width:0;}
+.operation-report-chart{display:flex;align-items:end;gap:5px;min-height:160px;overflow-x:auto;padding:12px 4px 0;border-bottom:1px solid var(--border);}
+.operation-report-day{display:flex;flex:1 0 35px;min-width:35px;flex-direction:column;align-items:center;justify-content:end;gap:4px;height:150px;padding:0 2px 4px;border:0;border-radius:8px 8px 0 0;background:transparent;color:var(--text2);cursor:pointer;}
+.operation-report-day:hover,.operation-report-day:focus-visible,.operation-report-day[aria-pressed="true"]{background:rgba(79,140,255,.13);outline:2px solid transparent;}
+.operation-report-day:focus-visible{outline-color:var(--blue);}
+.operation-report-day-count{font-size:11px;font-weight:750;line-height:1;}
+.operation-report-day-bar{display:block;width:min(100%,25px);min-height:0;background:var(--cyan2);border-radius:4px 4px 0 0;}
+.operation-report-day[aria-pressed="true"] .operation-report-day-bar{background:var(--blue);}
+.operation-report-day:disabled{cursor:default;opacity:.55;}
+.operation-report-day-label{font-size:11px;white-space:nowrap;line-height:1;}
+.operation-report-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;}
+.operation-report-calendar-weekday{text-align:center;font-size:11px;color:var(--text2);}
+.operation-report-calendar .operation-report-day{height:54px;min-width:0;flex-basis:auto;justify-content:center;gap:4px;border:1px solid var(--border);border-radius:8px;}
+.operation-report-calendar .operation-report-day[aria-pressed="true"]{border-color:var(--blue);}
+.operation-report-calendar .operation-report-day-count{font-size:15px;color:var(--text);}
+.operation-report-calendar .operation-report-day-label{font-size:10px;}
+.operation-report-calendar .operation-report-day-bar{display:none;}
+.operation-report-rank{display:grid;gap:8px;}
+.operation-report-rank-item{display:grid;gap:4px;min-width:0;}
+.operation-report-rank-label{display:flex;justify-content:space-between;gap:8px;font-size:13px;}
+.operation-report-rank-label span{overflow-wrap:anywhere;}
+.operation-report-rank-track{height:7px;background:var(--bg3);border-radius:999px;overflow:hidden;}
+.operation-report-rank-track i{display:block;height:100%;background:var(--cyan2);border-radius:inherit;}
+.operation-report-detail th,.operation-report-detail td{white-space:nowrap;}
 #analytics-view-content{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .analytics-section-lead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0 0;}
 .analytics-section-lead h3{font-size:19px;margin:0;color:var(--text);}
@@ -1524,6 +1552,9 @@ td{font-size:16px;padding:16px 17px;}
   .analytics-hero{grid-template-columns:1fr;padding:17px 16px;border-radius:18px;}
   .analytics-hero-actions{justify-content:flex-start;}
   .analytics-view-tabs{margin-inline:-2px;}
+  .operation-report-grid{grid-template-columns:minmax(0,1fr);}
+  .operation-report-chart{min-height:145px;}
+  .operation-report-day{flex-basis:37px;min-width:37px;}
   .analytics-decision-grid{grid-template-columns:1fr;}
   .analytics-decision-card{min-height:118px;padding:14px 13px 14px 52px;}
   .analytics-source-strip{display:block;}
@@ -13098,7 +13129,7 @@ function operationReportModel(rows,from,to){
     else{bucket.operations++;operations++;}
     const action=String(row.originalAction||row.type||'未分類').trim()||'未分類';
     actions.set(action,(actions.get(action)||0)+1);
-    const role=String(row.operator||'未記錄角色').trim()||'未記錄角色';
+    const role=operationReportRoleLabel(String(row.operator||'未記錄角色').trim()||'未記錄角色');
     roles.set(role,(roles.get(role)||0)+1);
     if(row.ref)refs.add(row.ref);
   }
@@ -13127,6 +13158,7 @@ async function loadOperationReport(){
     state.rows=mapSupabaseStockRows(rows);
     state.truncated=hasMore;
     state.loadedRange=`${from}|${to}`;
+    state.loadedAt=new Date().toISOString();
   }catch(error){if(state.requestId===requestId){state.error=error?.message||String(error);state.rows=[];}}
   finally{if(state.requestId===requestId){state.loading=false;if(CURRENT_TAB==='stocklog')renderTab('stocklog');}}
 }
@@ -13160,6 +13192,22 @@ function selectOperationReportDay(day){
 function operationReportPage(direction){
   const state=operationReportState();state.page=Math.max(1,state.page+direction);renderTab('stocklog');
 }
+function operationReportRoleLabel(role){
+  return ({vic:'Vic',manager:'廠長',sales:'業務',warehouse:'倉管',qc:'品管',purchase:'採購',viewer:'檢視',ai:'AI'})[role]||role;
+}
+function operationReportRank(items,labeler=label=>label){
+  if(!items.length)return '<p>本期無紀錄</p>';
+  const shown=items.slice(0,5);
+  const other=items.slice(5).reduce((sum,[,count])=>sum+count,0);
+  if(other)shown.push(['其他',other]);
+  const peak=Math.max(1,...shown.map(([,count])=>count));
+  return `<div class="operation-report-rank">${shown.map(([label,count])=>`<div class="operation-report-rank-item"><div class="operation-report-rank-label"><span>${escapeHtml(labeler(label))}</span><b>${count.toLocaleString()} 筆</b></div><div class="operation-report-rank-track" aria-hidden="true"><i style="width:${count/peak*100}%"></i></div></div>`).join('')}</div>`;
+}
+function operationReportDayButton(day,chosen,maxDate,peak,calendar=false){
+  const future=day.date>maxDate;
+  const background=calendar&&!future&&day.total?`background:rgba(34,211,238,${(0.09+0.32*day.total/peak).toFixed(2)})`:'';
+  return `<button class="operation-report-day" type="button" ${future?'disabled':''} title="${future?`${day.date} 尚未到期`:`${day.date}：${day.total} 筆（庫存 ${day.movements}、其他 ${day.operations}）`}" aria-label="${future?`${day.date} 尚未到期`:`${day.date} ${day.total} 筆，查看明細`}" aria-pressed="${!future&&chosen===day.date}" ${future?'':`onclick="selectOperationReportDay('${day.date}')"`} style="${background}"><span class="operation-report-day-count">${future?'—':day.total}</span>${calendar?'':`<span class="operation-report-day-bar" style="height:${day.total?Math.max(6,day.total/peak*105):0}px"></span>`}<span class="operation-report-day-label">${calendar?day.date.slice(8):day.date.slice(5)}</span></button>`;
+}
 function renderOperationReport(){
   const state=operationReportState();
   const {from,to}=operationReportPeriod(state.kind,state.anchor);
@@ -13176,23 +13224,25 @@ function renderOperationReport(){
   if(state.error)return `<section class="panel" style="padding:16px" role="alert"><h3>📈 操作報表</h3>${controls}<p>讀取失敗：${escapeHtml(state.error)}。本期統計尚未確認，請重新整理。</p></section>`;
   const model=operationReportModel(state.rows,from,to);
   const peak=Math.max(1,...model.days.map(day=>day.total));
+  const peakDay=model.days.reduce((best,day)=>day.total>best.total?day:best,{date:'',total:0});
   const chosen=state.selectedDay&&state.selectedDay>=from&&state.selectedDay<=to?state.selectedDay:(state.kind==='day'?from:'');
   const details=state.rows.filter(row=>!chosen||row.date===chosen);
   const pageCount=Math.max(1,Math.ceil(details.length/50));
   state.page=Math.min(state.page,pageCount);
   const visible=details.slice((state.page-1)*50,state.page*50);
-  const stats=[['已記錄筆數',model.total],['庫存異動明細',model.movements],['其他操作紀錄',model.operations],['關聯單號',model.refs]];
+  const stats=[['已記錄筆數',model.total],['庫存異動明細',model.movements],['其他操作紀錄',model.operations],['關聯單號（去重）',model.refs]];
+  const loadedAt=state.loadedAt?new Date(state.loadedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}):'尚未讀取';
   return `<section class="panel" style="padding:16px;margin-bottom:16px" aria-label="操作報表">
-    <h3>📈 操作報表</h3>${controls}
-    <div class="info-warn" role="status">依 Supabase「異動記錄」的紀錄日期統計；明細時間為資料建立時間。同一次作業可能有多筆料件記錄。角色是職務，並非個人帳號。未寫入的操作與登入停留時間不計入。${state.truncated?'本期超過 20,000 筆載入上限，統計不完整；請縮短日期範圍。':''}</div>
+    <div class="operation-report-head"><div><h3>📈 操作報表</h3><div class="operation-report-meta">${model.total?`本期已記錄 ${model.total.toLocaleString()} 筆${peakDay.total&&state.kind!=='day'?`；最多的是 ${peakDay.date}（${peakDay.total.toLocaleString()} 筆）`:''}`:'本期沒有已記錄的資料'}</div></div><div class="operation-report-meta">來源：Supabase 異動記錄<br>查詢時間：${escapeHtml(loadedAt)}</div></div>${controls}
+    <div class="info-warn" role="status">統計的是已記錄明細筆數，並非功能使用次數；同一次作業可能有多筆料件記錄。未寫入的操作與登入停留時間不計入。${state.truncated?'本期超過 20,000 筆載入上限，統計不完整；請縮短日期範圍。':''}</div>
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin:12px 0">${stats.map(([label,value])=>`<div class="kpi-card" style="min-height:0;height:90px;padding:10px 12px"><div class="kpi-label">${label}</div><div class="kpi-num">${value.toLocaleString()}</div></div>`).join('')}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px">
-      <div><h4>每日記錄趨勢</h4><div style="display:flex;align-items:end;gap:3px;height:145px;overflow-x:auto;padding:12px 0;border-bottom:1px solid var(--border)" aria-label="每日記錄圖表">${model.days.map(day=>`<button title="${day.date}：${day.total} 筆（庫存 ${day.movements}、其他 ${day.operations}）" aria-label="${day.date} ${day.total} 筆，查看明細" onclick="selectOperationReportDay('${day.date}')" style="min-width:${model.days.length>10?'13px':'28px'};flex:1;height:${Math.max(3,day.total/peak*100)}%;background:${chosen===day.date?'var(--blue)':'var(--cyan2)'};border:0;border-radius:3px 3px 0 0;cursor:pointer"></button>`).join('')}</div><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text3)"><span>${from}</span><span>${to}</span></div></div>
-      <div><h4>常見動作</h4>${model.actions.slice(0,6).map(([label,count])=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${escapeHtml(label)}</span><b>${count}</b></div>`).join('')||'<p>本期無紀錄</p>'}</div>
-      <div><h4>角色分布</h4>${model.roles.slice(0,6).map(([label,count])=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border)"><span>${escapeHtml(label)}</span><b>${count}</b></div>`).join('')||'<p>本期無紀錄</p>'}</div>
+    <div class="operation-report-grid">
+      ${state.kind==='day'?'':state.kind==='month'?`<div><h4>每日日曆分布 <small>點日期查看明細</small></h4><div class="operation-report-calendar" aria-label="本月每日已記錄筆數">${['一','二','三','四','五','六','日'].map(label=>`<span class="operation-report-calendar-weekday">${label}</span>`).join('')}${'<span aria-hidden="true"></span>'.repeat((new Date(`${from}T12:00:00Z`).getUTCDay()+6)%7)}${model.days.map(day=>operationReportDayButton(day,chosen,maxDate,peak,true)).join('')}</div><div class="operation-report-meta">格內為已記錄筆數；顏色越深筆數越多，— 表示尚未到期。</div></div>`:`<div><h4>每日記錄趨勢 <small>點日期查看明細</small></h4><div class="operation-report-chart" aria-label="每日記錄圖表；每根長條均顯示筆數及日期，從零起算">${model.days.map(day=>operationReportDayButton(day,chosen,maxDate,peak)).join('')}</div><div class="operation-report-meta">日期依紀錄日期；長條從 0 起算。— 表示尚未到期。</div></div>`}
+      <div><h4>全期常見動作 <small>已記錄筆數</small></h4>${operationReportRank(model.actions)}</div>
+      <div><h4>全期角色分布 <small>依紀錄角色，非個人</small></h4>${operationReportRank(model.roles)}</div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 8px"><h4 style="margin:0">${chosen?escapeHtml(chosen)+' ':''}記錄明細（${details.length}）</h4>${chosen&&state.kind!=='day'?`<button class="btn btn-ghost btn-xs" onclick="selectOperationReportDay('')">看全期</button>`:''}</div>
-    <div class="table-wrap"><table><thead><tr><th>日期／時間</th><th>動作</th><th>單號／料號</th><th>角色</th></tr></thead><tbody>${visible.map(row=>`<tr><td>${escapeHtml(row.createdAt?new Date(row.createdAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}):row.date)}</td><td>${escapeHtml(row.originalAction||row.type||'未分類')}</td><td>${escapeHtml([row.ref,row.matCode].filter(Boolean).join(' · ')||'—')}</td><td>${escapeHtml(row.operator||'未記錄')}</td></tr>`).join('')||'<tr><td colspan="4">此期間沒有已記錄的操作</td></tr>'}</tbody></table></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 8px"><h4 style="margin:0">${chosen?escapeHtml(chosen)+' ':''}記錄明細（${details.length} 筆）</h4>${chosen&&state.kind!=='day'?`<button class="btn btn-ghost btn-xs" onclick="selectOperationReportDay('')">看全期</button>`:''}${chosen&&state.kind!=='day'?'<span class="operation-report-meta">僅明細依日期篩選，上方統計維持全期。</span>':''}</div>
+    <div class="table-wrap"><table class="operation-report-detail"><thead><tr><th>紀錄日期</th><th>建立時間</th><th>動作</th><th>單號／料號</th><th>角色</th></tr></thead><tbody>${visible.map(row=>`<tr><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.createdAt?new Date(row.createdAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}):'—')}</td><td>${escapeHtml(row.originalAction||row.type||'未分類')}</td><td>${escapeHtml([row.ref,row.matCode].filter(Boolean).join(' · ')||'—')}</td><td>${escapeHtml(operationReportRoleLabel(row.operator||'未記錄'))}</td></tr>`).join('')||'<tr><td colspan="5">此期間沒有已記錄的操作</td></tr>'}</tbody></table></div>
     ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px"><button class="btn btn-ghost btn-xs" onclick="operationReportPage(-1)" ${state.page===1?'disabled':''}>上一頁</button><span>${state.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" onclick="operationReportPage(1)" ${state.page===pageCount?'disabled':''}>下一頁</button></div>`:''}
   </section>`;
 }
