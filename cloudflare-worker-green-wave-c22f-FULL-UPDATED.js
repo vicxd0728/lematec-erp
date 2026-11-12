@@ -168,6 +168,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/corder/number-reserve') {
       return erpCorderNumberReserve(request, env, cors);
     }
+    if (request.method === 'GET' && url.pathname === '/api/corder/identity-check') {
+      return erpCorderIdentityCheck(request, env, cors);
+    }
     if (request.method === 'POST' && url.pathname === '/api/corder/resume') {
       return erpCorderResume(request, env, cors);
     }
@@ -3608,6 +3611,7 @@ const ERP_ROUTE_ROLES = {
   '/api/reliability/mirror/complete': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
   '/api/reliability/mirror/fail': ['vic', 'manager', 'sales', 'warehouse', 'purchase', 'qc', 'ai'],
   '/api/corder/number-reserve': ['vic', 'manager', 'sales'],
+  '/api/corder/identity-check': ['vic', 'manager', 'sales'],
   '/api/corder/number-set': ['vic', 'manager', 'sales'],
   '/api/corder/resume': ['vic', 'manager', 'sales'],
   '/api/corder/reversal': ['vic', 'manager', 'sales', 'warehouse', 'purchase'],
@@ -4931,6 +4935,34 @@ async function assertCorderShipOriginal(token,page,snap,env,org){
     if(parent&&rows.some(r=>String(r.idempotency_key).includes(':'+snap.platform+':row-')&&[parent.id,parent.notion_page_id].filter(Boolean).some(id=>String(r.idempotency_key).includes(':'+id+':'))))
       throw Error(`查到同一蝦皮單與品項的舊扣料憑證；請核對原單，未再次扣料`);
   }
+}
+async function erpCorderIdentityCheck(request,env,cors){
+  try{
+    if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+    const role=cleanText(request.headers.get('X-ERP-Role'));
+    if(!['vic','manager','sales'].includes(role))throw Error('此角色無法匯入 C端訂單');
+    const url=new URL(request.url);
+    const platform=cleanText(url.searchParams.get('platform')).normalize('NFKC').trim().toUpperCase();
+    const sku=cleanText(url.searchParams.get('sku')).normalize('NFKC').trim().toUpperCase();
+    if(!platform||platform.length>200||!sku.startsWith('S-')||sku.length>200)throw Error('蝦皮原單或商品料號無效');
+    const {organization}=await getSupabaseInventoryContext(env);
+    const org=encodeURIComponent(organization.id);
+    // The formal claim survives an archived Notion page; it must block a new page until reviewed.
+    const claims=await supabaseFetch(env,`/rest/v1/erp_corder_ship_identities?organization_id=eq.${org}&snapshot->>platform=eq.${encodeURIComponent(platform)}&snapshot->>sku=eq.${encodeURIComponent(sku)}&select=page_id,original_number,snapshot&limit=2`);
+    if(claims.length>1)throw Error('同一蝦皮原單與料號有多筆正式身分，已停止建單');
+    const token=erpBearerToken(request);
+    const response=await fetch(`https://api.notion.com/v1/databases/${BOARD_DB.corders}/query`,{
+      method:'POST',headers:{Authorization:`Bearer ${token}`,'Notion-Version':'2022-06-28','Content-Type':'application/json'},
+      body:JSON.stringify({page_size:100,filter:{property:'蝦皮訂單號碼',rich_text:{equals:platform}}})
+    });
+    const data=await response.json();
+    if(!response.ok||!Array.isArray(data.results)||data.has_more)throw Error('蝦皮原單查核不完整，已停止建單');
+    const normalize=value=>String(value||'').normalize('NFKC').trim().toUpperCase();
+    const active=data.results.filter(page=>!page.archived&&!page.in_trash&&normalize((page.properties?.['品名']?.rich_text||[]).map(x=>x.plain_text||x.text?.content||'').join(''))===sku)
+      .map(page=>({page_id:page.id,order_number:(page.properties?.['訂單號碼']?.title||[]).map(x=>x.plain_text||x.text?.content||'').join(''),status:page.properties?.['狀態']?.select?.name||''}));
+    const claim=claims[0]?{page_id:claims[0].page_id,order_number:claims[0].original_number}:null;
+    return respOK(cors,{ok:true,complete:true,platform,sku,claim,active});
+  }catch(e){return new Response(JSON.stringify({ok:false,error:e.message||String(e),recoverable:true}),{status:409,headers:jh(cors)});}
 }
 async function erpCorderResume(request,env,cors) {
   let committed=false;

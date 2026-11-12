@@ -20,6 +20,7 @@ function setup(options={}){
    loadCoreEssentials:async()=>{},buildCorderImportPreflight:()=>({errors:0,stockImpact:[],newOrderKeys:incoming.map(x=>x.shopeeNo+'|||'+x.buyer)}),
    loadCorders:async()=>{},ensureCorderSequenceReady:async()=>{},reserveCorderNumbers:async()=>{reserved++;return {start_number:16679};},
    formatCorderNo:n=>'SHPTW'+n,corderSameOrderKey:(s,b)=>s+'|||'+b,corderExistingNoByShopeeAndBuyer:()=>'',assertCorderInternalNoForIdentity:async()=>{},
+   _corderReversalLocks:new Set(),assertCorderIdentityBeforeCreate:async()=>{if(options.identityConflict)throw Object.assign(Error('原單 SHPTW16702 身分仍保留；未建立新訂單'),{code:'corder_identity_conflict'});},
    closeModal(){},showToast:s=>toasts.push(s),openCorderImportPreflightModal(){},renderTab(){},alert(){},confirm:()=>options.confirmClear!==false,parseMoneyNumber:()=>0,
    findMatBySku:sku=>({id:sku,code:sku}),resolveCorderShipPlan:()=>({items:[{stock:10,needed:1}],refs:[{id:'mat',qty:1}]}),corderStockRefs:()=> 'mat:1',
    refreshAffectedData:async()=>{if(options.refreshFail)throw Error('refresh failed');},
@@ -62,6 +63,12 @@ test('unknown stock outcome stops later lines and preserves the exact original p
  assert.equal(r.rows[0].pageId,'page1');assert.equal(r.rows[0].state,'原單待續接');
  assert.equal(r.rows[1].state,'尚未執行');assert.equal(r.rows[2].state,'尚未執行');
  assert.match(r.error,/停止處理後續品項/);
+});
+test('formal identity claim stops import before a duplicate Notion page or stock deduction',async()=>{
+ const h=setup({identityConflict:true});await h.c.applyCorderImportPreflight();
+ assert.equal(h.counts().created,0);assert.equal(h.counts().deducted,0);
+ assert.equal(h.c.window._corderImportResult.rows[0].state,'未建單');
+ assert.match(h.c.window._corderImportResult.rows[0].message,/SHPTW16702/);
 });
 test('reload restores all three outcomes and a list-refresh failure cannot erase the missing row',async()=>{
  const h=setup({refreshFail:true});await h.c.applyCorderImportPreflight();

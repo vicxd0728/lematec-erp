@@ -1,6 +1,22 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{test}=require('node:test');
 const worker=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8'),html=fs.readFileSync('index.html','utf8');
 const pageId='11111111-1111-4111-8111-111111111111',matId='22222222-2222-4222-8222-222222222222',notionMat='33333333-3333-4333-8333-333333333333',txId='44444444-4444-4444-8444-444444444444';
+test('precreate identity check sees durable claim and current page before any order mutation',async()=>{
+ const paths=[],pages=[{id:pageId,properties:{品名:{rich_text:[{plain_text:'S-X'}]},訂單號碼:{title:[{plain_text:'SHPTW16702'}]},狀態:{select:{name:'出貨中'}}}}];
+ const c=vm.createContext({Response,URL,BOARD_DB:{corders:'db'},cleanText:x=>String(x||''),erpClientAuthorized:async()=>true,erpBearerToken:()=> 'test',getSupabaseInventoryContext:async()=>({organization:{id:'org'}}),supabaseFetch:async(_e,path)=>{paths.push(path);return [{page_id:pageId,original_number:'SHPTW16702'}];},fetch:async()=>Response.json({results:pages,has_more:false}),respOK:(_c,data)=>Response.json(data),jh:()=>({'Content-Type':'application/json'}),unauthorizedErpClient:()=>Response.json({ok:false},{status:401})});
+ vm.runInContext(worker.slice(worker.indexOf('async function erpCorderIdentityCheck('),worker.indexOf('async function erpCorderResume(')),c);
+ const result=await (await c.erpCorderIdentityCheck(new Request('https://local/api/corder/identity-check?platform=SHOP&sku=S-X',{headers:{'X-ERP-Role':'sales'}}),{},{})).json();
+ assert.equal(result.complete,true);assert.equal(result.claim.order_number,'SHPTW16702');assert.equal(result.active.length,1);
+ assert(paths[0].includes('snapshot->>platform=eq.SHOP'));assert(paths[0].includes('snapshot->>sku=eq.S-X'));
+});
+test('precreate UI stops on a retained claim and on an incomplete check',async()=>{
+ const calls=[];const c=vm.createContext({PROXY:'https://local',normalizeSku:x=>String(x||'').toUpperCase(),erpWorkerHeaders:()=>({}),fetch:async url=>{calls.push(url);return Response.json({ok:true,complete:true,claim:{page_id:pageId,order_number:'SHPTW16702'},active:[]});}});
+ vm.runInContext(html.slice(html.indexOf('async function assertCorderIdentityBeforeCreate('),html.indexOf('async function resumeCorder(')),c);
+ await assert.rejects(c.assertCorderIdentityBeforeCreate({shopeeNo:'SHOP',sku:'S-X'}),/SHPTW16702.*未建立新訂單/);
+ assert.equal(calls.length,1);
+ c.fetch=async()=>Response.json({ok:false,error:'database unavailable'},{status:409});
+ await assert.rejects(c.assertCorderIdentityBeforeCreate({shopeeNo:'SHOP',sku:'S-X'}),/查核失敗.*未建立新訂單/);
+});
 test('resume UI prevents double submission, retains network failure and clears it on retry without navigating away',async()=>{
  let reject,resolve,calls=0;const renders=[],messages=[];
  const c=vm.createContext({window:{corders:[{id:pageId,status:'需確認'}]},CURRENT_TAB:'corders',isViewOnly:()=>false,renderTab:t=>renders.push(t),showToast:m=>messages.push(m),requestCorderResume:()=>{calls++;return new Promise((r,j)=>{resolve=r;reject=j;});},refreshAffectedData:async()=>{}});
