@@ -1,0 +1,55 @@
+name: Audit C-end order identity
+
+on:
+  workflow_dispatch:
+    inputs:
+      original_page_id:
+        description: Original C-end Notion page UUID
+        required: true
+        type: string
+      replacement_page_id:
+        description: Replacement C-end Notion page UUID
+        required: true
+        type: string
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Read exact identity and reversal state
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          ORIGINAL_PAGE: ${{ inputs.original_page_id }}
+          REPLACEMENT_PAGE: ${{ inputs.replacement_page_id }}
+        run: |
+          test -n "$SUPABASE_DB_URL"
+          [[ "$ORIGINAL_PAGE" =~ ^[0-9a-fA-F-]{36}$ ]]
+          [[ "$REPLACEMENT_PAGE" =~ ^[0-9a-fA-F-]{36}$ ]]
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -v original_page="$ORIGINAL_PAGE" -v replacement_page="$REPLACEMENT_PAGE" <<'SQL'
+          begin transaction read only;
+          select 'IDENTITY' as kind,page_id,original_number,snapshot->>'platform' as platform_order,snapshot->>'sku' as sku,snapshot->>'quantity' as quantity,created_at
+          from public.erp_corder_ship_identities
+          where page_id in (:'original_page'::uuid,:'replacement_page'::uuid)
+          order by created_at;
+          select 'REVERSAL' as kind,page_id,pending is not null as pending,
+            jsonb_array_length(completed) as completed_count,
+            (select string_agg(x->>'action',',') from jsonb_array_elements(completed) x) as completed_actions,
+            updated_at
+          from public.erp_corder_reversals
+          where page_id in (:'original_page'::uuid,:'replacement_page'::uuid)
+          order by page_id;
+          select 'TRANSACTION' as kind,source_id,source_type,material_id,
+            count(*) as transaction_count,sum(quantity_delta) as net_delta,
+            min(occurred_at) as first_at,max(occurred_at) as last_at
+          from public.inventory_transactions
+          where source_id in (:'original_page'::uuid,:'replacement_page'::uuid)
+          group by source_id,source_type,material_id
+          order by source_id,source_type,material_id;
+          rollback;
+          SQL
