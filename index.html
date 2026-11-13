@@ -8038,6 +8038,7 @@ function mapNotionMaterialPage(p){
     safe:p.properties?.['安全庫存']?.number??0,
     note:getRichText(p.properties,'備註'),
     created:p.created_time||'',
+    updatedAt:p.last_edited_time||'',
     url:p.url||'',
     source:'notion',
   };
@@ -9704,7 +9705,7 @@ let _reliabilityReport={checked:false,running:false,error:'',data:null};
 let _supabaseUsageReport={checked:false,running:false,error:'',data:null};
 let _publicHealthReport={checked:false,running:false,error:'',data:null};
 let _stockLogReconcileReport={checked:false,running:false,error:'',data:null};
-let _inventoryConflictReport={checked:false,running:false,error:'',conflicts:[],pending:[],scannedAt:''};
+let _inventoryConflictReport={checked:false,running:false,error:'',conflicts:[],pending:[],orphanPages:[],scannedAt:''};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -10494,6 +10495,8 @@ async function runSupabaseReadCheck(manual=false){
     }else{
       bomCheckSkipped=true;
     }
+    const cacheSource=mats.length&&mats.every(row=>row.source==='supabase')?'supabase'
+      :mats.length&&mats.every(row=>row.source==='notion')?'notion':'mixed';
     const localInv=buildLocalInventorySnapshot();
     const supInv=new Map();
     inventoryRows.forEach(r=>{
@@ -10509,7 +10512,7 @@ async function runSupabaseReadCheck(manual=false){
     localInv.forEach((local,sku)=>{
       const sup=supInv.get(sku);
       if(!sup){missingInSup.push(sku);return;}
-      if(Number(local.qty)!==Number(sup.qty)) qtyMismatch.push({sku,notion:local.qty,supabase:sup.qty});
+      if(Number(local.qty)!==Number(sup.qty)) qtyMismatch.push({sku,cache:local.qty,supabase:sup.qty});
     });
     supInv.forEach((_,sku)=>{if(!localInv.has(sku))extraInSup.push(sku);});
 
@@ -10534,10 +10537,15 @@ async function runSupabaseReadCheck(manual=false){
       running:false,
       level:hasMismatch?'warn':'ok',
       message:hasMismatch
-        ? 'Supabase 庫存主資料已可讀，但與目前 ERP 快取仍有差異。'
+        ? cacheSource==='supabase'
+          ? '最新 Supabase 資料與目前畫面快取不同；請同步主資料後重查。這不代表正式庫存或 Notion 鏡像有誤。'
+          : cacheSource==='notion'
+            ? '目前畫面使用 Notion 備援資料，與 Supabase 正式資料不同；請同步主資料並到下方獨立核對 Notion 鏡像。'
+            : '目前畫面資料來源混合，與 Supabase 正式資料不同；請同步主資料後重查。'
         : bomCheckSkipped
-          ? 'Supabase 庫存主資料與目前 ERP 快取一致；BOM 深度比對需設定 anon key 才會執行。'
-          : 'Supabase 庫存與 BOM 資料與目前 ERP 快取一致。',
+          ? 'Supabase 庫存主資料與目前畫面快取一致；BOM 深度比對需設定 anon key 才會執行。'
+          : 'Supabase 庫存與 BOM 資料與目前畫面快取一致。',
+      cacheSource,
       inventoryRows:inventoryRows.length,
       inventorySkus:supInv.size,
       localSkus:localInv.size,
@@ -10551,7 +10559,7 @@ async function runSupabaseReadCheck(manual=false){
       extraBom:extraBom.slice(0,12),
       mismatchTotal:missingInSup.length+extraInSup.length+qtyMismatch.length+missingBom.length+extraBom.length,
     };
-    if(manual)showToast('✅ Supabase 庫存一致性檢查完成',hasMismatch?'warn':'ok');
+    if(manual)showToast(hasMismatch?'⚠ 畫面快取與正式資料不同，請同步主資料後重查':'✅ Supabase 快取比對完成',hasMismatch?'warn':'ok');
   }catch(e){
     const msg=String(e.message||e);
     const isRls=/permission|JWT|row-level|rls|not authorized|apikey|invalid/i.test(msg);
@@ -10573,27 +10581,28 @@ function renderSupabaseReadCheck(){
   const sampleList=(title,rows,formatter=x=>escapeHtml(x))=>rows?.length?`<div style="margin-top:10px"><b style="color:var(--amber)">${title}</b><div style="font-size:.78rem;color:var(--text3);line-height:1.7">${rows.map(formatter).join('、')}</div></div>`:'';
   return `<div class="panel" style="margin-bottom:14px">
     <div class="panel-hdr">
-      <span class="panel-title">Supabase 庫存一致性檢查<span class="badge">${keySet?'已設定':'未設定'}</span></span>
+      <span class="panel-title">Supabase 與畫面快取比對<span class="badge">${keySet?'已設定':'未設定'}</span></span>
       ${badge}
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        庫存與正式 BOM 讀取已改走 Worker / Supabase，成功後同步 Notion 鏡像供人工查閱。BOM 主讀取不需要 anon key；此區的 anon key 只用於額外的 REST 深度比對，前端不可使用 PostgreSQL DB URL 或密碼。
+        此區比較目前畫面快取與最新 Supabase 資料，不是 Notion 鏡像比對，也不會修改庫存。若有差異，先同步主資料再重查；真正的 Notion 鏡像請看下方「庫存鏡像差異」。BOM 額外深度比對才需要診斷用 anon key。
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">檢查 Supabase 一致性</button>
+        <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">重查畫面快取</button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshAll(true)">同步主資料</button>
         <button class="btn btn-ghost btn-sm" onclick="setSupabaseAnonKey()">${keySet?'更新':'設定'} BOM 診斷 key</button>
       </div>
       ${r.running?'<div class="loading-row"><div class="spin"></div>Supabase 讀取中...</div>':`<div style="color:var(--text2);line-height:1.7">${escapeHtml(r.message||'尚未執行一致性檢查。')}</div>`}
       ${r.inventorySkus!=null?`<div class="dash-kpi-grid" style="margin-top:10px">
-        <div class="kpi-card kpi-cyan"><div class="kpi-label">Supabase 料號</div><div class="kpi-num">${r.inventorySkus}</div><div class="kpi-sub">Notion 快取 ${r.localSkus}</div></div>
-        <div class="kpi-card kpi-blue"><div class="kpi-label">Supabase BOM</div><div class="kpi-num">${r.bomRows}</div><div class="kpi-sub">Notion 快取 ${r.localBomRows}</div></div>
-        <div class="kpi-card ${r.mismatchTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">差異</div><div class="kpi-num">${r.mismatchTotal||0}</div><div class="kpi-sub">只列前 12 筆樣本</div></div>
+        <div class="kpi-card kpi-cyan"><div class="kpi-label">Supabase 料號</div><div class="kpi-num">${r.inventorySkus}</div><div class="kpi-sub">畫面快取 ${r.localSkus} · ${r.cacheSource==='notion'?'Notion 備援':r.cacheSource==='supabase'?'Supabase 快取':'混合來源'}</div></div>
+        <div class="kpi-card kpi-blue"><div class="kpi-label">正式 BOM</div><div class="kpi-num">${r.bomRows}</div><div class="kpi-sub">畫面快取 ${r.localBomRows}</div></div>
+        <div class="kpi-card ${r.mismatchTotal?'kpi-amber':'kpi-green'}"><div class="kpi-label">快取差異</div><div class="kpi-num">${r.mismatchTotal||0}</div><div class="kpi-sub">只列前 12 筆樣本</div></div>
       </div>`:''}
       ${r.bomCheckSkipped?`<div style="margin-top:10px;font-size:.78rem;color:var(--text3)">BOM 深度比對已略過：未設定診斷用 anon key；不影響庫存主讀取與正式庫存寫入。</div>`:''}
-      ${sampleList('Notion 有、Supabase 缺少',r.missingInSup)}
-      ${sampleList('Supabase 多出',r.extraInSup)}
-      ${sampleList('庫存數量不同',r.qtyMismatch,x=>`${escapeHtml(x.sku)} N:${x.notion} / S:${x.supabase}`)}
+      ${sampleList('畫面快取有、正式資料缺少',r.missingInSup)}
+      ${sampleList('正式資料有、畫面快取缺少',r.extraInSup)}
+      ${sampleList('畫面快取數量不同',r.qtyMismatch,x=>`${escapeHtml(x.sku)} 快取:${x.cache} / 正式:${x.supabase}`)}
       ${sampleList('BOM 缺少',r.missingBom)}
       ${sampleList('BOM 多出',r.extraBom)}
       ${r.error?`<div style="margin-top:10px;font-size:.78rem;color:var(--text3)">錯誤細節：${escapeHtml(r.error)}</div>`:''}
@@ -11097,20 +11106,26 @@ async function scanInventoryNotionConflicts({quiet=false}={}){
     const pendingKeys=inventoryConflictPendingKeys(mirrorJobsData?.jobs||[]);
     const conflicts=[];
     const pending=[];
+    const latestChange=(...dates)=>dates.map(value=>Date.parse(value||'')).filter(Number.isFinite).sort((a,b)=>b-a)[0]||0;
+    const linkedNotionIds=new Set(supabaseRows.filter(row=>row.notionId).map(row=>canonicalPageId(row.notionId)));
     for(const supabase of supabaseRows.filter(row=>row.notionId)){
       const notion=byNotionId.get(canonicalPageId(supabase.notionId));
       if(!notion){
-        conflicts.push({code:supabase.code,supabase,notion:null,diffs:[{key:'notion',label:'Notion 鏡像',supabase:'已連結',notion:'找不到頁面'}],manual:true});
+        conflicts.push({code:supabase.code,supabase,notion:null,diffs:[{key:'notion',label:'Notion 鏡像',supabase:'已連結',notion:'找不到頁面'}],manual:true,lastChangedAt:latestChange(supabase.updatedAt)});
         continue;
       }
       const diffs=inventoryConflictDiff(supabase,notion);
       if(!diffs.length)continue;
-      const item={code:supabase.code,supabase,notion,diffs,manual:String(supabase.code||'')!==String(notion.code||'')};
+      const item={code:supabase.code,supabase,notion,diffs,manual:String(supabase.code||'')!==String(notion.code||''),lastChangedAt:latestChange(supabase.updatedAt,notion.updatedAt)};
       if(pendingKeys.pageIds.has(canonicalPageId(supabase.notionId))||pendingKeys.codes.has(normalizeSku(supabase.code)))pending.push(item);
       else conflicts.push(item);
     }
-    _inventoryConflictReport={checked:true,running:false,error:'',conflicts,pending,scannedAt:new Date().toISOString()};
-    if(!quiet)showToast(conflicts.length?`發現 ${conflicts.length} 筆需確認的庫存鏡像差異`:'✅ Supabase 與 Notion 庫存鏡像一致',conflicts.length?'warn':'ok');
+    conflicts.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
+    pending.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
+    const orphanPages=notionRows.filter(row=>!linkedNotionIds.has(canonicalPageId(row.id)))
+      .sort((a,b)=>latestChange(b.updatedAt)-latestChange(a.updatedAt));
+    _inventoryConflictReport={checked:true,running:false,error:'',conflicts,pending,orphanPages,scannedAt:new Date().toISOString()};
+    if(!quiet)showToast(conflicts.length?`發現 ${conflicts.length} 筆需確認的庫存鏡像差異`:orphanPages.length?`正式庫存鏡像一致；另有 ${orphanPages.length} 筆 Notion 獨有舊頁待核對`:'✅ Supabase 與 Notion 庫存鏡像一致',conflicts.length||orphanPages.length?'warn':'ok');
     return _inventoryConflictReport;
   }catch(e){
     _inventoryConflictReport={..._inventoryConflictReport,checked:true,running:false,error:e.message||String(e)};
@@ -11123,19 +11138,21 @@ async function scanInventoryNotionConflicts({quiet=false}={}){
 function renderInventoryConflictCenter(){
   const report=_inventoryConflictReport;
   const conflicts=report.conflicts||[];
+  const orphanPages=report.orphanPages||[];
   const canResolve=isAdminRole()||ROLE==='warehouse';
   return `<div class="panel" style="margin-bottom:14px" data-contract="INVENTORY_NOTION_CONFLICT_CENTER_V1">
-    <div class="panel-hdr"><span class="panel-title">庫存鏡像差異 <span class="badge">${conflicts.length}</span></span>${healthBadge(report.error?'err':conflicts.length?'warn':report.checked?'ok':'info',report.running?'檢查中':report.error?'ERROR':conflicts.length?'ACTION':report.checked?'OK':'READY')}</div>
+    <div class="panel-hdr"><span class="panel-title">庫存鏡像差異 <span class="badge">${conflicts.length}</span></span>${healthBadge(report.error?'err':conflicts.length||orphanPages.length?'warn':report.checked?'ok':'info',report.running?'檢查中':report.error?'ERROR':conflicts.length||orphanPages.length?'ACTION':report.checked?'OK':'READY')}</div>
     <div style="padding:12px">
-      <div class="info-box info-tip" style="margin-bottom:10px">Supabase 是正式主資料；這裡只比對 Notion 料件鏡像。已排入補同步的 ${report.pending?.length||0} 筆不列為衝突，避免重複處理。</div>
+      <div class="info-box info-tip" style="margin-bottom:10px">Supabase 是正式主資料；這裡只比對 Notion 料件鏡像。依兩邊最後更新時間由近到遠排列，時間只決定查驗優先順序，不決定採用哪一邊。已排入補同步的 ${report.pending?.length||0} 筆不列為衝突，避免重複處理。</div>
       ${report.running?'<div class="loading-row"><div class="spin"></div>正在比對 Notion 料件主檔...</div>':''}
       ${report.error?`<div class="info-box info-warn">${escapeHtml(report.error)}</div>`:''}
-      ${!report.running&&!conflicts.length?`<div style="padding:12px;color:var(--text3)">${report.checked?'目前沒有需要人工確認的鏡像差異。':'尚未執行差異檢查。'}</div>`:''}
+      ${!report.running&&!conflicts.length?`<div style="padding:12px;color:var(--text3)">${report.checked?'正式料件與其 Notion 鏡像目前沒有數量或資料差異。':'尚未執行差異檢查。'}</div>`:''}
       ${conflicts.slice(0,20).map(item=>`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg3)">
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><div><b>${escapeHtml(item.code||'未識別料號')}</b><div style="font-size:.74rem;color:var(--text3);margin-top:4px">${item.diffs.map(diff=>`${escapeHtml(diff.label)}：Supabase「${escapeHtml(String(diff.supabase))}」／Notion「${escapeHtml(String(diff.notion))}」`).join('<br>')}</div></div>${item.manual?healthBadge('warn','需人工判斷'):healthBadge('warn','有差異')}</div>
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><div><b>${escapeHtml(item.code||'未識別料號')}</b><div style="font-size:.74rem;color:var(--text3);margin-top:4px">${item.diffs.map(diff=>`${escapeHtml(diff.label)}：Supabase「${escapeHtml(String(diff.supabase))}」／Notion「${escapeHtml(String(diff.notion))}」`).join('<br>')}</div><div style="font-size:.72rem;color:var(--text3);margin-top:4px">最近更新：${item.lastChangedAt?escapeHtml(new Date(item.lastChangedAt).toLocaleString('zh-TW',{hour12:false})):'時間未提供'} · 正式：${item.supabase.updatedAt?escapeHtml(new Date(item.supabase.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'} · Notion：${item.notion?.updatedAt?escapeHtml(new Date(item.notion.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div></div>${item.manual?healthBadge('warn','需人工判斷'):healthBadge('warn','有差異')}</div>
         ${canResolve&&!item.manual&&item.notion?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><button class="btn btn-blue btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','supabase')">採用 Supabase</button><button class="btn btn-yellow btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','notion')">採用 Notion 修改</button></div>`:`<div style="font-size:.72rem;color:var(--amber);margin-top:8px">料號或鏡像關聯異常不自動修改，請到庫存主檔確認。</div>`}
       </div>`).join('')}
       ${conflicts.length>20?`<div style="font-size:.72rem;color:var(--text3)">另有 ${conflicts.length-20} 筆未顯示，請先處理前 20 筆後重新檢查。</div>`:''}
+      ${orphanPages.length?`<div class="info-box info-warn" style="margin-top:10px">另有 ${orphanPages.length} 筆 Notion 獨有料件頁未連到正式庫存；這不是庫存數量差異，需核對料號與關聯後再決定是否封存，不會自動建料或改庫存。${orphanPages.slice(0,10).map(row=>`<div style="margin-top:5px">${escapeHtml(row.code||row.name||'未填料號')} · Notion 數量 ${escapeHtml(String(row.stock??'未填'))} · 最近更新 ${row.updatedAt?escapeHtml(new Date(row.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div>`).join('')}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="scanInventoryNotionConflicts()">${report.checked?'重新比對':'開始比對'}</button><button class="btn btn-ghost btn-sm" onclick="switchTab('inventory')">前往庫存主檔</button></div>
     </div>
   </div>`;
