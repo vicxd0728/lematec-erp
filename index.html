@@ -8030,7 +8030,8 @@ function mapNotionMaterialPage(p){
     actualNotionPageId:p.id,
     notionId:p.id,
     name:getTitle(p.properties,'料件名稱'),
-    code:getRichText(p.properties,'料件編號'),
+    code:getRichText(p.properties,'料件編號')||getTitle(p.properties,'料件名稱'),
+    rawCode:getRichText(p.properties,'料件編號'),
     type:p.properties?.['類型']?.select?.name||'',
     unit:p.properties?.['單位']?.select?.name||'個',
     qty:p.properties?.['目前庫存']?.number??0,
@@ -9705,7 +9706,7 @@ let _reliabilityReport={checked:false,running:false,error:'',data:null};
 let _supabaseUsageReport={checked:false,running:false,error:'',data:null};
 let _publicHealthReport={checked:false,running:false,error:'',data:null};
 let _stockLogReconcileReport={checked:false,running:false,error:'',data:null};
-let _inventoryConflictReport={checked:false,running:false,error:'',conflicts:[],pending:[],orphanPages:[],scannedAt:''};
+let _inventoryConflictReport={checked:false,running:false,error:'',conflicts:[],pending:[],metadataOnly:[],codeFormatting:[],orphanPages:[],scannedAt:''};
 let supabaseInventoryMats=[];
 let _supabaseInventoryState={loaded:false,running:false,error:'',ts:0,count:0,durationMs:0};
 let _inventorySpeedReport=null;
@@ -10478,7 +10479,8 @@ function buildLocalBomSnapshot(){
     const ps=normalizeSku(p?.code||p?.name||b.parentName||'');
     const cs=normalizeSku(c?.code||c?.name||b.childName||'');
     const qty=Number(b.qty)||0;
-    if(ps&&cs&&qty>0&&ps!==cs) keys.add(`${ps}|${cs}|${qty}`);
+    // A direct-stock S- product legitimately consumes itself; only non-S self-links are invalid.
+    if(ps&&cs&&qty>0&&(ps!==cs||ps.startsWith('S-'))) keys.add(`${ps}|${cs}|${qty}`);
   });
   return keys;
 }
@@ -10586,7 +10588,7 @@ function renderSupabaseReadCheck(){
     </div>
     <div style="padding:12px">
       <div class="info-box info-tip" style="margin-bottom:10px">
-        此區比較目前畫面快取與最新 Supabase 資料，不是 Notion 鏡像比對，也不會修改庫存。若有差異，先同步主資料再重查；真正的 Notion 鏡像請看下方「庫存鏡像差異」。BOM 額外深度比對才需要診斷用 anon key。
+        此區比較目前畫面快取與最新 Supabase 資料，不是 Notion 鏡像比對，也不會修改庫存。若有差異，先同步主資料再重查；真正的 Notion 鏡像請看下方「庫存鏡像查驗」。BOM 額外深度比對才需要診斷用 anon key。
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-blue btn-sm" onclick="runSupabaseReadCheck(true)">重查畫面快取</button>
@@ -11065,6 +11067,7 @@ function inventoryConflictDiff(supabase,notion){
     ['code','料號'],['name','名稱'],['type','類型'],['unit','單位'],['safe','安全庫存'],['stock','目前庫存'],['note','備註']
   ];
   return fields.filter(([key])=>{
+    if(key==='code')return normalizeSku(supabase.code)!==normalizeSku(notion.code);
     if(key==='safe'||key==='stock')return Number(supabase[key]||0)!==Number(notion[key]||0);
     return String(supabase[key]||'').trim()!==String(notion[key]||'').trim();
   }).map(([key,label])=>({key,label,supabase:supabase[key]??'',notion:notion[key]??''}));
@@ -11106,6 +11109,8 @@ async function scanInventoryNotionConflicts({quiet=false}={}){
     const pendingKeys=inventoryConflictPendingKeys(mirrorJobsData?.jobs||[]);
     const conflicts=[];
     const pending=[];
+    const metadataOnly=[];
+    const codeFormatting=[];
     const latestChange=(...dates)=>dates.map(value=>Date.parse(value||'')).filter(Number.isFinite).sort((a,b)=>b-a)[0]||0;
     const linkedNotionIds=new Set(supabaseRows.filter(row=>row.notionId).map(row=>canonicalPageId(row.notionId)));
     for(const supabase of supabaseRows.filter(row=>row.notionId)){
@@ -11115,17 +11120,27 @@ async function scanInventoryNotionConflicts({quiet=false}={}){
         continue;
       }
       const diffs=inventoryConflictDiff(supabase,notion);
+      const lastChangedAt=latestChange(supabase.updatedAt,notion.updatedAt);
+      const rawCode=String(notion.rawCode??notion.code??'').trim();
+      if(String(supabase.code||'').trim()!==rawCode&&normalizeSku(supabase.code)===normalizeSku(notion.code)){
+        codeFormatting.push({code:supabase.code,rawCode,notionId:notion.id,lastChangedAt});
+      }
       if(!diffs.length)continue;
-      const item={code:supabase.code,supabase,notion,diffs,manual:String(supabase.code||'')!==String(notion.code||''),lastChangedAt:latestChange(supabase.updatedAt,notion.updatedAt)};
-      if(pendingKeys.pageIds.has(canonicalPageId(supabase.notionId))||pendingKeys.codes.has(normalizeSku(supabase.code)))pending.push(item);
-      else conflicts.push(item);
+      const item={code:supabase.code,supabase,notion,diffs,
+        manual:diffs.some(diff=>diff.key==='code'||diff.key==='note'),lastChangedAt};
+      const hasPending=pendingKeys.pageIds.has(canonicalPageId(supabase.notionId))||pendingKeys.codes.has(normalizeSku(supabase.code));
+      if(hasPending)pending.push(item);
+      else if(diffs.some(diff=>['code','stock','safe'].includes(diff.key)))conflicts.push(item);
+      else metadataOnly.push(item);
     }
     conflicts.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
     pending.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
+    metadataOnly.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
+    codeFormatting.sort((a,b)=>b.lastChangedAt-a.lastChangedAt||String(a.code||'').localeCompare(String(b.code||'')));
     const orphanPages=notionRows.filter(row=>!linkedNotionIds.has(canonicalPageId(row.id)))
       .sort((a,b)=>latestChange(b.updatedAt)-latestChange(a.updatedAt));
-    _inventoryConflictReport={checked:true,running:false,error:'',conflicts,pending,orphanPages,scannedAt:new Date().toISOString()};
-    if(!quiet)showToast(conflicts.length?`發現 ${conflicts.length} 筆需確認的庫存鏡像差異`:orphanPages.length?`正式庫存鏡像一致；另有 ${orphanPages.length} 筆 Notion 獨有舊頁待核對`:'✅ Supabase 與 Notion 庫存鏡像一致',conflicts.length||orphanPages.length?'warn':'ok');
+    _inventoryConflictReport={checked:true,running:false,error:'',conflicts,pending,metadataOnly,codeFormatting,orphanPages,scannedAt:new Date().toISOString()};
+    if(!quiet)showToast(conflicts.length?`發現 ${conflicts.length} 筆庫存／料號關聯需確認`:metadataOnly.length||codeFormatting.length||orphanPages.length?`庫存鏡像數量一致；另有 ${metadataOnly.length} 筆文字備註、${codeFormatting.length} 筆料號寫法、${orphanPages.length} 筆舊頁待核對`:'✅ Supabase 與 Notion 庫存鏡像一致',conflicts.length?'warn':'ok');
     return _inventoryConflictReport;
   }catch(e){
     _inventoryConflictReport={..._inventoryConflictReport,checked:true,running:false,error:e.message||String(e)};
@@ -11138,20 +11153,25 @@ async function scanInventoryNotionConflicts({quiet=false}={}){
 function renderInventoryConflictCenter(){
   const report=_inventoryConflictReport;
   const conflicts=report.conflicts||[];
+  const metadataOnly=report.metadataOnly||[];
+  const codeFormatting=report.codeFormatting||[];
   const orphanPages=report.orphanPages||[];
   const canResolve=isAdminRole()||ROLE==='warehouse';
   return `<div class="panel" style="margin-bottom:14px" data-contract="INVENTORY_NOTION_CONFLICT_CENTER_V1">
-    <div class="panel-hdr"><span class="panel-title">庫存鏡像差異 <span class="badge">${conflicts.length}</span></span>${healthBadge(report.error?'err':conflicts.length||orphanPages.length?'warn':report.checked?'ok':'info',report.running?'檢查中':report.error?'ERROR':conflicts.length||orphanPages.length?'ACTION':report.checked?'OK':'READY')}</div>
+    <div class="panel-hdr"><span class="panel-title">庫存鏡像查驗 <span class="badge">${conflicts.length} 筆庫存／關聯</span></span>${healthBadge(report.error?'err':conflicts.length?'warn':metadataOnly.length||codeFormatting.length||orphanPages.length?'info':report.checked?'ok':'info',report.running?'檢查中':report.error?'ERROR':conflicts.length?'ACTION':metadataOnly.length||codeFormatting.length||orphanPages.length?'REVIEW':report.checked?'OK':'READY')}</div>
     <div style="padding:12px">
-      <div class="info-box info-tip" style="margin-bottom:10px">Supabase 是正式主資料；這裡只比對 Notion 料件鏡像。依兩邊最後更新時間由近到遠排列，時間只決定查驗優先順序，不決定採用哪一邊。已排入補同步的 ${report.pending?.length||0} 筆不列為衝突，避免重複處理。</div>
+      <div class="info-box info-tip" style="margin-bottom:10px">Supabase 是正式主資料；庫存數量／料號身分與備註文字分開統計。合法的 S- 自身 BOM 不算缺漏。依兩邊最後更新時間由近到遠排列，時間只決定查驗優先順序，不決定採用哪一邊。已排入補同步的 ${report.pending?.length||0} 筆不列為衝突。</div>
+      ${report.checked?`<div class="preflight-action-strip" style="margin-bottom:10px"><div class="preflight-action"><b>庫存／料號關聯 ${conflicts.length}</b><div>需先核對正式數量與原料號</div></div><div class="preflight-action"><b>文字欄位 ${metadataOnly.length}</b><div>備註、名稱等；不代表庫存錯誤</div></div><div class="preflight-action"><b>料號寫法 ${codeFormatting.length}</b><div>空白欄、空格或大小寫；原頁 ID 已連結</div></div></div>`:''}
       ${report.running?'<div class="loading-row"><div class="spin"></div>正在比對 Notion 料件主檔...</div>':''}
       ${report.error?`<div class="info-box info-warn">${escapeHtml(report.error)}</div>`:''}
-      ${!report.running&&!conflicts.length?`<div style="padding:12px;color:var(--text3)">${report.checked?'正式料件與其 Notion 鏡像目前沒有數量或資料差異。':'尚未執行差異檢查。'}</div>`:''}
+      ${!report.running&&!conflicts.length?`<div style="padding:12px;color:var(--text3)">${report.checked?'目前沒有正式庫存數量或料號身分衝突；文字與舊頁待核對項目列在下方。':'尚未執行差異檢查。'}</div>`:''}
       ${conflicts.slice(0,20).map(item=>`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg3)">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><div><b>${escapeHtml(item.code||'未識別料號')}</b><div style="font-size:.74rem;color:var(--text3);margin-top:4px">${item.diffs.map(diff=>`${escapeHtml(diff.label)}：Supabase「${escapeHtml(String(diff.supabase))}」／Notion「${escapeHtml(String(diff.notion))}」`).join('<br>')}</div><div style="font-size:.72rem;color:var(--text3);margin-top:4px">最近更新：${item.lastChangedAt?escapeHtml(new Date(item.lastChangedAt).toLocaleString('zh-TW',{hour12:false})):'時間未提供'} · 正式：${item.supabase.updatedAt?escapeHtml(new Date(item.supabase.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'} · Notion：${item.notion?.updatedAt?escapeHtml(new Date(item.notion.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div></div>${item.manual?healthBadge('warn','需人工判斷'):healthBadge('warn','有差異')}</div>
         ${canResolve&&!item.manual&&item.notion?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><button class="btn btn-blue btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','supabase')">採用 Supabase</button><button class="btn btn-yellow btn-xs" onclick="resolveInventoryConflict('${escapeHtml(item.code)}','notion')">採用 Notion 修改</button></div>`:`<div style="font-size:.72rem;color:var(--amber);margin-top:8px">料號或鏡像關聯異常不自動修改，請到庫存主檔確認。</div>`}
       </div>`).join('')}
       ${conflicts.length>20?`<div style="font-size:.72rem;color:var(--text3)">另有 ${conflicts.length-20} 筆未顯示，請先處理前 20 筆後重新檢查。</div>`:''}
+      ${metadataOnly.length?`<details style="margin-top:10px"><summary>備註／名稱等文字欄位 ${metadataOnly.length} 筆（保留原文字，不自動覆蓋）</summary><div style="padding:8px 0;font-size:.75rem;color:var(--text2)">${metadataOnly.map(item=>`<div style="padding:7px 0;border-bottom:1px solid var(--border)"><b>${escapeHtml(item.code)}</b> · ${item.diffs.map(diff=>`${escapeHtml(diff.label)}：正式「${escapeHtml(String(diff.supabase).slice(0,120))}」／Notion「${escapeHtml(String(diff.notion).slice(0,120))}」`).join('；')} · 最近更新 ${item.lastChangedAt?escapeHtml(new Date(item.lastChangedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div>`).join('')}</div></details>`:''}
+      ${codeFormatting.length?`<details style="margin-top:10px"><summary>料號文字寫法 ${codeFormatting.length} 筆（同一料件頁，未新增料號）</summary><div style="padding:8px 0;font-size:.75rem;color:var(--text2)">${codeFormatting.map(item=>`<div style="padding:6px 0;border-bottom:1px solid var(--border)">${escapeHtml(item.code)} · Notion 欄位「${escapeHtml(item.rawCode||'未填，沿用名稱')}」 · 最近更新 ${item.lastChangedAt?escapeHtml(new Date(item.lastChangedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div>`).join('')}</div></details>`:''}
       ${orphanPages.length?`<div class="info-box info-warn" style="margin-top:10px">另有 ${orphanPages.length} 筆 Notion 獨有料件頁未連到正式庫存；這不是庫存數量差異，需核對料號與關聯後再決定是否封存，不會自動建料或改庫存。${orphanPages.slice(0,10).map(row=>`<div style="margin-top:5px">${escapeHtml(row.code||row.name||'未填料號')} · Notion 數量 ${escapeHtml(String(row.stock??'未填'))} · 最近更新 ${row.updatedAt?escapeHtml(new Date(row.updatedAt).toLocaleString('zh-TW',{hour12:false})):'未提供'}</div>`).join('')}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="scanInventoryNotionConflicts()">${report.checked?'重新比對':'開始比對'}</button><button class="btn btn-ghost btn-sm" onclick="switchTab('inventory')">前往庫存主檔</button></div>
     </div>
