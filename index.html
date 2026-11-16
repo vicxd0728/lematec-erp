@@ -6506,6 +6506,7 @@ function openModal(type,data){
     window._sfgCreateUncertain=false;
     window._shopeeCreateUncertain=false;
     window._normalOrderCreateBlocked=false;
+    window._normalOrderItems=[];
     window._shopeeOrderItems=[];
     // 從全域 customers 陣列篩出國外/國內客戶
     const overseasCustomers = customers.filter(c=>c.type==='overseas'||!c.type);
@@ -6625,7 +6626,8 @@ function openModal(type,data){
       <div id="shopeeCreateStatus" role="status" style="display:none;padding:8px 12px;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:.75rem;white-space:pre-line"></div>
     </div>
 
-    <div id="itemAddRow" style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end"></div>
+    <div id="itemAddRow" style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap"></div>
+    <div id="normalOrderItems" style="display:none;margin-bottom:12px"></div>
     <div id="orderNoRow" style="margin-bottom:10px">
       <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:5px">訂單號</label>
       <input class="inp" id="m_order_no" placeholder="國外 PI 會自動帶入；國內請輸入訂單號">
@@ -26592,6 +26594,9 @@ async function ensureOrderProduct(model){
 
 function showMultiItems(items,piNo){
   const div=document.getElementById('piMultiList');if(!div)return;
+  // PI replaces an unadded single-line selection; explicit manual draft lines remain in the list.
+  const search=document.getElementById('m_product_search');if(search)search.value='';
+  const selected=document.getElementById('m_product');if(selected)selected.value='';
   div.style.display='';
   // 用 data attribute 儲存，不用 inline JSON（避免引號衝突）
   const itemsJson=JSON.stringify(items);
@@ -27920,7 +27925,56 @@ function renderItems(){
   <div style="width:120px">
     <label style="font-size:0.625rem;color:var(--text2);display:block;margin-bottom:4px">產品單價</label>
     <input class="inp" type="number" id="m_unit_price" min="0" step="0.01" placeholder="選填">
-  </div>`;
+  </div>
+  <button type="button" class="btn btn-cyan btn-sm" onclick="addNormalOrderItem()" style="min-height:38px">＋ 加入品項</button>`;
+  renderNormalOrderItems();
+}
+
+function renderNormalOrderItems(){
+  const box=document.getElementById('normalOrderItems');
+  if(!box)return;
+  const items=window._normalOrderItems||[];
+  box.style.display=items.length?'':'none';
+  box.innerHTML=items.length?`<div style="font-size:.75rem;color:var(--cyan2);font-weight:700;margin-bottom:6px">已加入 ${items.length} 個品項 · 同一訂單號，每個品項各存一筆紀錄</div>`+
+    items.map((item,i)=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;margin-bottom:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px">
+      <b style="flex:1;min-width:150px;overflow-wrap:anywhere">${escapeHtml(item.model)}</b>
+      <label style="font-size:.7rem">數量 <input class="inp" type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(item.qty))}" oninput="updateNormalOrderItem(${i},'qty',this.value)" style="width:82px"></label>
+      <label style="font-size:.7rem">單價 <input class="inp" type="number" min="0" step="0.01" value="${escapeHtml(String(item.unitPriceRaw||''))}" oninput="updateNormalOrderItem(${i},'unitPriceRaw',this.value)" placeholder="選填" style="width:98px"></label>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="removeNormalOrderItem(${i})" aria-label="移除 ${escapeHtml(item.model)}">移除</button>
+    </div>`).join(''):' ';
+}
+
+function addNormalOrderItem(){
+  const productId=document.getElementById('m_product')?.value||'';
+  const input=(document.getElementById('m_product_search')?.value||'').trim();
+  const mat=mats.find(m=>m.id===productId);
+  const model=mat?.code||mat?.name||input;
+  const qty=Number(document.getElementById('m_qty')?.value);
+  const unitPriceRaw=(document.getElementById('m_unit_price')?.value||'').trim();
+  if(!model){showToast('請先選擇或輸入料號','warn');return;}
+  if(!Number.isSafeInteger(qty)||qty<=0){showToast('訂購數量請輸入大於 0 的整數','warn');return;}
+  if(unitPriceRaw&&(!Number.isFinite(parseMoneyNumber(unitPriceRaw))||parseMoneyNumber(unitPriceRaw)<0)){showToast('產品單價請輸入有效的非負數字','warn');return;}
+  const items=window._normalOrderItems||(window._normalOrderItems=[]);
+  if(items.some(item=>(mat?.id&&item.matId===mat.id)||normalizeSku(item.model)===normalizeSku(model))){showToast('此料號已在清單中，請直接修改該品項數量','warn');return;}
+  items.push({model,matId:mat?.id||'',qty,unitPriceRaw});
+  const search=document.getElementById('m_product_search');if(search)search.value='';
+  const hidden=document.getElementById('m_product');if(hidden)hidden.value='';
+  const amount=document.getElementById('m_qty');if(amount)amount.value='1';
+  const price=document.getElementById('m_unit_price');if(price)price.value='';
+  const results=document.getElementById('productSearchResults');if(results)results.style.display='none';
+  renderNormalOrderItems();
+}
+
+function updateNormalOrderItem(index,key,value){
+  const item=window._normalOrderItems?.[index];
+  if(!item||!['qty','unitPriceRaw'].includes(key))return;
+  item[key]=key==='qty'?Number(value):String(value||'').trim();
+}
+
+function removeNormalOrderItem(index){
+  if(window._normalOrderCreateRunning||window._normalOrderCreateBlocked)return;
+  window._normalOrderItems?.splice(index,1);
+  renderNormalOrderItems();
 }
 
 function productCandidates(q=''){
@@ -28231,31 +28285,38 @@ async function submitNormalOrder(isDomestic){
   const productInput=(document.getElementById('m_product_search')?.value||'').trim();
   const qty=Number(document.getElementById('m_qty')?.value);
   const unitPriceRaw=(document.getElementById('m_unit_price')?.value||'').trim();
-  const unitPrice=unitPriceRaw?parseMoneyNumber(unitPriceRaw):null;
   const deadline=document.getElementById('m_date')?.value||'';
   const note=document.getElementById('m_note')?.value?.trim()||'';
   const orderType=isDomestic?'國內':'國外';
   const manualOrderNo=(document.getElementById('m_order_no')?.value||'').trim();
   const piItems=!isDomestic?getSelectedPIItems():[];
+  const manualItems=[...(window._normalOrderItems||[])];
   const piNo=document.getElementById('piMultiList')?.dataset?.pino||'';
 
   if(!custName){showToast(isDomestic?'請選擇或手動輸入國內客戶':'請選擇或輸入國外客戶','warn');return;}
   if(!deadline){showToast('請填入交期','warn');return;}
   if(!manualOrderNo){showToast('請輸入訂單號，或先讀取 PI 自動帶入','warn');return;}
-  if(!piItems.length&&!productId&&!productInput){showToast('請選擇成品、輸入新料號，或先讀取 PI 品項','warn');return;}
-  if(!piItems.length&&(!Number.isSafeInteger(qty)||qty<=0)){showToast('訂購數量請輸入大於 0 的整數','warn');return;}
-  if(piItems.some(item=>!Number.isSafeInteger(Number(item.qty))||Number(item.qty)<=0)){showToast('PI 品項數量請輸入大於 0 的整數','warn');return;}
-  if(unitPriceRaw&&(!Number.isFinite(unitPrice)||unitPrice<0)){showToast('產品單價請輸入有效的非負數字','warn');return;}
-
+  if(manualItems.length&&(productId||productInput)){showToast('目前輸入的料號尚未加入清單，請先按「＋ 加入品項」或清空該欄','warn');return;}
+  if(!piItems.length&&!manualItems.length&&!productId&&!productInput){showToast('請選擇料號、加入品項清單，或先讀取 PI 品項','warn');return;}
   const product=mats.find(m=>m.id===productId);
+  const buildItems=[...piItems,...manualItems];
+  if(!buildItems.length)buildItems.push({model:product?.code||product?.name||productInput,qty,matId:productId,unitPriceRaw});
+  if(buildItems.some(item=>!Number.isSafeInteger(Number(item.qty))||Number(item.qty)<=0)){showToast(piItems.length?'PI 品項數量請輸入大於 0 的整數':manualItems.length?'每個品項數量都須為大於 0 的整數':'訂購數量請輸入大於 0 的整數','warn');return;}
+  if(buildItems.some(item=>{const price=String(item.unitPriceRaw===undefined?unitPriceRaw:item.unitPriceRaw||'').trim();return price&&(!Number.isFinite(parseMoneyNumber(price))||parseMoneyNumber(price)<0);})){showToast('產品單價請輸入有效的非負數字','warn');return;}
+  const seenIds=new Set(),seenCodes=new Set();
+  for(const item of buildItems){
+    const id=String(item.matId||''),code=normalizeSku(item.model);
+    if((id&&seenIds.has(id))||(code&&seenCodes.has(code))){showToast(`同一張訂單的料號 ${item.model} 重複，請合併數量後再建立`,'warn');return;}
+    if(id)seenIds.add(id);if(code)seenCodes.add(code);
+  }
+
   const status=document.getElementById('normalOrderCreateStatus');
   const cancel=document.getElementById('orderCancelBtn');
   window._normalOrderCreateRunning=true;
   if(cancel)cancel.disabled=true;
   showToast('建立訂單中...','warn');
   try{
-    if(unitPriceRaw) await ensureDatabaseNumberProperty(DB.orders,'產品單價');
-    const buildItems=piItems.length?piItems:[{model:product?.code||product?.name||productInput,qty,matId:productId}];
+    if(buildItems.some(item=>String(item.unitPriceRaw===undefined?unitPriceRaw:item.unitPriceRaw||'').trim())) await ensureDatabaseNumberProperty(DB.orders,'產品單價');
     let ok=0,fail=0,failList=[],unknown=false,unattempted=0;
     for(let i=0;i<buildItems.length;i++){
       const item=buildItems[i];
@@ -28275,7 +28336,8 @@ async function submitNormalOrder(isDomestic){
           '成品':      {relation:[{id:mat.id}]},
           '交期':      {date:{start:deadline}},
         };
-        if(unitPriceRaw) props['產品單價']={number:unitPrice};
+        const itemPriceRaw=String(item.unitPriceRaw===undefined?unitPriceRaw:item.unitPriceRaw||'').trim();
+        if(itemPriceRaw) props['產品單價']={number:parseMoneyNumber(itemPriceRaw)};
         if(piNo) props['PI單號']={rich_text:[{text:{content:piNo}}]};
         actionReceiptId=window.erpActionReceipts?.start('order_create',orderNo,mat.id,ROLE)||'';
         writeAttempted=true;

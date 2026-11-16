@@ -122,7 +122,7 @@ test('refresh failure after accepted order does not report creation failure',asy
 test('uncertain PI line stops later writes and blocks repeat submission',async()=>{
   const {ctx,fields,messages}=setupOrderFailure({writeResult:{id:'accepted'}});
   fields.normalOrderCreateStatus={style:{display:'none'},textContent:''};
-  ctx.getSelectedPIItems=()=>['A','B','C'].map(model=>({model,matId:'part',qty:1}));
+  ctx.getSelectedPIItems=()=>['A','B','C'].map((model,i)=>({model,matId:['part','part-1','finished'][i],qty:1}));
   let writes=0;
   ctx.notionAPI=async()=>{writes++;if(writes===2)throw Error('timeout');return {id:'accepted'};};
   await ctx.submitNormalOrder(false);
@@ -214,6 +214,54 @@ test('manual SKU creation does not treat order quantity as inbound stock',async(
   await ctx.createProductFromInput();
   assert.equal(args.length,1);
   assert.equal(args[0].length,1);
+});
+
+for(const domestic of [true,false])test(`${domestic?'domestic':'foreign'} manual order can collect two different SKUs with editable quantities and separate prices`,async()=>{
+  const {ctx,fields}=setupOrderFailure({writeResult:{id:'accepted'}});
+  const writes=[];
+  fields.normalOrderItems={style:{},innerHTML:''};
+  ctx.parseMoneyNumber=Number;
+  ctx.notionAPI=async(method,endpoint,payload)=>{writes.push(payload);return {id:'accepted-'+writes.length};};
+  ctx.ensureDatabaseNumberProperty=async()=>{};
+  vm.runInContext(html.slice(html.indexOf('function renderItems(){'),html.indexOf('function productCandidates(q=')),ctx);
+  fields.m_qty.value='2';
+  ctx.addNormalOrderItem();
+  ctx.filterProductList('Z-FLT-E-02');
+  fields.m_qty.value='5';
+  fields.m_unit_price.value='7.50';
+  ctx.addNormalOrderItem();
+  assert.equal(ctx.window._normalOrderItems.length,2);
+  assert.equal(fields.m_product_search.value,'');
+  assert.match(fields.normalOrderItems.innerHTML,/Y-FLT-D-07/);
+  assert.match(fields.normalOrderItems.innerHTML,/Z-FLT-E-02/);
+  ctx.updateNormalOrderItem(1,'qty','4');
+  await ctx.submitNormalOrder(domestic);
+  assert.equal(writes.length,2);
+  assert.deepEqual(writes.map(w=>w.properties['訂單號'].title[0].text.content),['ORDER-PART-QA','ORDER-PART-QA']);
+  assert.deepEqual(writes.map(w=>w.properties['成品'].relation[0].id),[ctx.mats[0].id,ctx.mats[2].id]);
+  assert.deepEqual(writes.map(w=>w.properties['訂購數量'].number),[2,4]);
+  assert.equal(writes[0].properties['產品單價'],undefined);
+  assert.equal(writes[1].properties['產品單價'].number,7.5);
+});
+
+test('manual multi-item order stops on uncertain second write and cannot replay the first',async()=>{
+  const {ctx,fields,messages}=setupOrderFailure({writeResult:{id:'accepted'}});
+  fields.normalOrderItems={style:{},innerHTML:''};
+  fields.normalOrderCreateStatus={style:{display:'none'},textContent:''};
+  ctx.parseMoneyNumber=Number;
+  vm.runInContext(html.slice(html.indexOf('function renderItems(){'),html.indexOf('function productCandidates(q=')),ctx);
+  ctx.addNormalOrderItem();
+  ctx.filterProductList('Z-FLT-E-02');
+  ctx.addNormalOrderItem();
+  let writes=0;
+  ctx.notionAPI=async()=>{writes++;if(writes===2)throw Error('network timeout');return {id:'accepted'};};
+  await ctx.submitNormalOrder(true);
+  assert.equal(writes,2);
+  assert.equal(ctx.window._normalOrderCreateBlocked,true);
+  assert.match(fields.normalOrderCreateStatus.textContent,/已確認建立 1\/2 筆/);
+  await ctx.submitNormalOrder(true);
+  assert.equal(writes,2);
+  assert.match(messages.at(-1),/避免重複建單/);
 });
 
 test('domestic selector collapses spacing-only duplicate labels and keeps distinct customer codes',()=>{
