@@ -1091,6 +1091,10 @@ td{font-size:16px;padding:16px 17px;}
 .order-work-hint.is-blocked summary{color:var(--red2)}
 .order-work-hint .work-caption{color:var(--text3);font-size:.7rem;margin-top:4px}
 .order-work-hint .work-item{border-top:1px solid var(--border);padding:8px 0;font-variant-numeric:tabular-nums}
+.record-detail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
+.record-detail-fields .work-item{min-width:0;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:.84rem}
+.record-detail-fields b{display:block;color:var(--text3);font-size:.74rem;margin-bottom:5px}
+@media(max-width:600px){.record-detail-fields{grid-template-columns:1fr}}
 .order-secondary-actions{min-width:110px}.order-secondary-actions>div{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .order-row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;min-width:160px}
 .order-mobile-sort{display:none}
@@ -19875,6 +19879,32 @@ function renderInboundNote(note){
   if(text.length<=80)return `<div class="inbound-note inbound-note-content">${escapeHtml(text)}</div>`;
   return `<details class="inbound-note"><summary>查看完整備註（${text.length} 字）</summary><div class="inbound-note-content">${escapeHtml(text)}</div></details>`;
 }
+function recordDetailFields(fields){
+  return `<div class="record-detail-fields">${fields.map(([label,value])=>`<div class="work-item"><b>${escapeHtml(label)}</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(value===null||value===undefined||String(value).trim()===''?'未記錄':value)}</div></div>`).join('')}</div>`;
+}
+function inboundRecordContent(i){
+  const next=i.qcStatus==='已取消'?'已取消，保留紀錄供查閱。':/^退回/.test(i.stStatus||'')||i.qcStatus==='品檢不合格'?'倉管／採購：依退回原因處理，再從原入料單重新提交。':i.qcStatus==='待品檢'?'品管：前往品管的入料待處理清單檢驗。':i.stStatus==='已入庫'?'已記載入庫；如需核對庫存變動，請查入庫憑證與異動紀錄。':'品管／倉管：品檢與入庫狀態尚未一致，請核對原單及交易憑證。';
+  return `<div class="info-box">下一步：${escapeHtml(next)}</div>`+recordDetailFields([
+    ['料號',i.matCode||i.matName],['數量',i.qty],['供應商',i.supplier],['入料日期',i.date],['品檢狀態',i.qcStatus],['入庫狀態',i.stStatus],['退回原因',i.rejectReason],['退回對象',i.returnTo],['備註／取消記錄',i.note],['入庫交易憑證',i.inventoryTransactionId||'本次資料未提供；不能據此判定沒有入庫']]);
+}
+function openInboundRecordDetails(id){
+  const i=inbounds.find(row=>row.id===id);
+  if(!i)return showToast('這張入料單尚未載入，請同步後重選','warn');
+  const state=window._operationalReads?.inbounds||{};
+  const source=i.fallback||window._inboundDataSource==='notion-fallback'?'Notion 唯讀備援':'已載入入料資料';
+  document.getElementById('modalInner').innerHTML=`<h3>入料明細 · ${escapeHtml(i.no||'未編號')}</h3><p class="work-caption">${source} · ${state.loading?'更新中':state.error?'更新失敗，以下為上次資料':'目前載入快照'}；查閱不執行入庫。</p>${inboundRecordContent(i)}<div class="form-actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">關閉明細</button></div>`;
+  openSharedModal();
+}
+function qcRecordContent(i){
+  return recordDetailFields([['關聯單號',i.orderRef],['品項',i.matCode||i.matName],['結果',i.result],['應檢數量',i.qtyReq],['實檢數量',i.qtyAct],['不良數量',i.qtyBad],['不良原因',i.badReason],['處理方式',i.handling],['檢驗日期',i.date],['檢驗人員',i.inspector],['備註',i.note]]);
+}
+function openQCRecordDetails(id){
+  const i=(window._qcInspections||[]).find(row=>row.id===id);
+  if(!i)return showToast('這張檢驗單尚未載入，請重新讀取後重選','warn');
+  const sourceLink=/^[0-9a-f-]{32,36}$/i.test(i.id||'')?`<a class="btn btn-ghost" href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" rel="noopener noreferrer">Notion 原始檢驗單 ↗</a>`:'';
+  document.getElementById('modalInner').innerHTML=`<h3>品檢明細 · ${escapeHtml(i.no||'未編號')}</h3><p class="work-caption">已載入檢驗紀錄；檢驗結果不等於已核實庫存交易。${typeof _qcInspectionsError!=='undefined'&&_qcInspectionsError?'目前更新失敗，以下為上次資料。':''}</p>${qcRecordContent(i)}<div class="form-actions">${sourceLink}<button type="button" class="btn btn-ghost" onclick="closeModal()">關閉明細</button></div>`;
+  openSharedModal();
+}
 function setInboundMobileSort(value){
   if(value===''){delete SORT.inbound;inboundListFilters().page=1;renderTab('inbound');return;}
   const [col,dir]=String(value||'').split(':');
@@ -19998,7 +20028,7 @@ function renderInbound(){
   <div class="panel"><div class="panel-hdr"><span class="panel-title">入料單 <span class="badge">${data.length}</span></span><span style="font-size:.7rem;color:var(--text3)">已載入 ${inbounds.length} 筆 · 符合 ${data.length} 筆 · 第 ${filters.page}/${pageCount} 頁；搜尋範圍為已載入資料</span></div>
   ${!data.length?`<div class="loading-row">${inbounds.length?'此篩選條件沒有入料記錄':'尚無入料記錄'}<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resetInboundFilters()">清除篩選並顯示全部</button></div></div>`:`<div class="inbound-mobile-sort"><label for="inboundMobileSort">排序</label><select class="inp" id="inboundMobileSort" onchange="setInboundMobileSort(this.value)"><option value="" ${typeof SORT==='undefined'||!SORT.inbound?'selected':''}>原始順序</option>${[['no','入料單號'],['qty','數量'],['supplier','供應商'],['date','日期'],['qcStatus','品管'],['stStatus','入庫']].map(([key,label])=>['desc','asc'].map(dir=>`<option value="${key}:${dir}" ${typeof SORT!=='undefined'&&SORT.inbound?.col===key&&SORT.inbound?.dir===dir?'selected':''}>${label} ${dir==='desc'?'降冪 ↓':'升冪 ↑'}</option>`).join('')).join('')}</select></div><div class="table-wrap"><table class="inbound-list-table">
   <tr>${canAdd?`<th><input type="checkbox" aria-label="全選本頁可取消入料" ${cancelPage.length&&cancelPage.every(i=>cancelSelected.has(i.id))?'checked':''} ${!cancelPage.length?'disabled':''} onchange="toggleInboundCancelPage(this.checked)"></th>`:''}${TH('inbound','no','入料單號')}<th>料件</th>${TH('inbound','qty','數量','num')}${TH('inbound','supplier','供應商','str','hide-m')}${TH('inbound','date','日期','str','hide-m')}${TH('inbound','qcStatus','品管')}${TH('inbound','stStatus','入庫','str','hide-m')}<th>操作</th></tr>
-  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr>${canAdd?`<td data-label="選取">${canCancelInbound(i)?`<input type="checkbox" aria-label="選取 ${escapeHtml(i.no)}" data-id="${escapeHtml(i.id)}" ${cancelSelected.has(i.id)?'checked':''} onchange="toggleInboundCancelSelection(this.dataset.id,this.checked)">`:'—'}</td>`:''}<td data-label="入料單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td data-label="料件" style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${renderInboundNote(i.note)}${shortageSourceOrderLink(i.note)}</td><td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td><td data-label="供應商" class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td data-label="日期" class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td data-label="品管">${pill(i.qcStatus)}</td><td data-label="入庫" class="hide-m">${pill(i.stStatus)}</td><td data-label="操作">${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'' }${canAdd&&canCancelInbound(i)?`<button class="btn btn-red btn-sm" data-id="${escapeHtml(i.id)}" onclick="openCancelInbound(this.dataset.id)">取消入料</button>`:'' }${!canResubmit&&!(canAdd&&canCancelInbound(i))?'—':''}</td></tr>`;}).join('')}
+  ${pageRows.map(i=>{const mat=mats.find(m=>m.id===i.matId);const canResubmit=canAdd&&i.qcStatus==='品檢不合格'&&/^退回/.test(i.stStatus||'');return`<tr>${canAdd?`<td data-label="選取">${canCancelInbound(i)?`<input type="checkbox" aria-label="選取 ${escapeHtml(i.no)}" data-id="${escapeHtml(i.id)}" ${cancelSelected.has(i.id)?'checked':''} onchange="toggleInboundCancelSelection(this.dataset.id,this.checked)">`:'—'}</td>`:''}<td data-label="入料單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem">${escapeHtml(i.no||'')}</td><td data-label="料件" style="font-size:0.6875rem">${escapeHtml(i.matCode||mat?.code||i.matName||mat?.name||'—')}${(i.matCode||mat?.code)&&(i.matName||mat?.name)&&(i.matName||mat?.name)!==(i.matCode||mat?.code)?`<div style="font-size:.625rem;color:var(--text3)">${escapeHtml(i.matName||mat?.name)}</div>`:''}${renderInboundNote(i.note)}${shortageSourceOrderLink(i.note)}</td><td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td><td data-label="供應商" class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.supplier||'—')}</td><td data-label="日期" class="hide-m" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.date||'—')}</td><td data-label="品管">${pill(i.qcStatus)}</td><td data-label="入庫" class="hide-m">${pill(i.stStatus)}</td><td data-label="操作"><button type="button" class="btn btn-ghost btn-sm" data-inbound-id="${escapeHtml(i.id)}" onclick="openInboundRecordDetails(this.dataset.inboundId)">查看明細</button>${canResubmit?`<button class="btn btn-yellow btn-sm" onclick="openResubmitInbound('${i.id}')">重新提交</button>`:'' }${canAdd&&canCancelInbound(i)?`<button class="btn btn-red btn-sm" data-id="${escapeHtml(i.id)}" onclick="openCancelInbound(this.dataset.id)">取消入料</button>`:'' }${!canResubmit&&!(canAdd&&canCancelInbound(i))?'—':''}</td></tr>`;}).join('')}
   </table></div>`}
   ${pageCount>1?`<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px"><button class="btn btn-ghost btn-xs" ${filters.page===1?'disabled':''} onclick="changeInboundPage(-1)">上一頁</button><span style="font-size:.75rem">${filters.page} / ${pageCount}</span><button class="btn btn-ghost btn-xs" ${filters.page===pageCount?'disabled':''} onclick="changeInboundPage(1)">下一頁</button></div>`:''}
   </div></div>`;
@@ -24186,9 +24216,14 @@ async function updateInspectionStatus(id, status){
   }catch(e){showToast('❌ '+e.message,'err');}
 }
 
+function renderQCExceptions(rows){
+  const attention=rows.filter(i=>i.result==='不通過'||i.result==='條件通過');
+  if(!attention.length)return '本次已載入範圍沒有不通過／條件通過紀錄。';
+  return `<p>${attention.length} 筆不通過／條件通過紀錄；顯示前 10 筆，供核對處理方式，不代表仍未結案。</p>`+attention.slice(0,10).map(i=>`<article class="work-item" style="margin-bottom:12px;overflow-wrap:anywhere"><b>${escapeHtml(i.no||'未編號')} · ${escapeHtml(i.result)}</b><div>${escapeHtml(i.matCode||i.matName||'品項未填')}</div><div>原因：${escapeHtml(i.badReason||'未記錄')} · 處理：${escapeHtml(i.handling||'未記錄')}</div><button type="button" class="btn btn-ghost btn-sm" data-qc-id="${escapeHtml(i.id||'')}" onclick="openQCRecordDetails(this.dataset.qcId)">查看檢驗明細</button></article>`).join('');
+}
 function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],doneInbound=[]){
   const month=todayStr().slice(0,7);
-  const scopeLabel=QC_DATE==='0'?'全部紀錄':'近3個月紀錄';
+  const scopeLabel=QC_DATE==='0'?'全部已載入紀錄':`近 ${qcInspectionRangeDays()} 天已載入紀錄`;
   const monthIns=allInspections.filter(x=>(x.date||'').startsWith(month));
   const pass=allInspections.filter(x=>x.result==='通過'||x.result==='條件通過').length;
   const fail=allInspections.filter(x=>x.result==='不通過').length;
@@ -24196,23 +24231,24 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
   const reasonMap={};
   allInspections.forEach(x=>{const k=x.badReason||x.handling||'';if(k)reasonMap[k]=(reasonMap[k]||0)+1;});
   const reasons=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const rate=allInspections.length?Math.round(pass/allInspections.length*100):100;
+  const decided=allInspections.filter(x=>['通過','條件通過','不通過'].includes(x.result));
+  const rate=decided.length?Math.round(pass/decided.length*100):'—';
   return `<div class="dash-kpi-grid">
-    <div class="kpi-card kpi-green"><div class="kpi-label">通過率</div><div class="kpi-num">${rate}<span style="font-size:1.2rem">%</span></div><div class="kpi-sub">${pass} 通過 / ${allInspections.length} ${scopeLabel}</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">通過率</div><div class="kpi-num">${rate}${decided.length?'<span style="font-size:1.2rem">%</span>':''}</div><div class="kpi-sub">${pass} 通過 / ${decided.length} 已判定（含條件通過） · ${scopeLabel}；未判定 ${allInspections.length-decided.length} 筆不計入</div></div>
     <div class="kpi-card ${fail?'kpi-red':'kpi-green'}"><div class="kpi-label">不通過</div><div class="kpi-num">${fail}</div><div class="kpi-sub">不良數量 ${badQty}</div></div>
     <div class="kpi-card ${pendingInbound.length+pendingOrders.length?'kpi-amber':'kpi-green'}"><div class="kpi-label">待檢項目</div><div class="kpi-num">${pendingInbound.length+pendingOrders.length}</div><div class="kpi-sub">入料 ${pendingInbound.length} / 訂單 ${pendingOrders.length}</div></div>
     <div class="kpi-card kpi-cyan"><div class="kpi-label">本月檢驗</div><div class="kpi-num">${monthIns.length}</div><div class="kpi-sub">${month}</div></div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px">
     <div class="panel"><div class="panel-hdr"><span class="panel-title">不良原因排行</span></div>
-      <div style="padding:12px">${reasons.length?reasons.map(([k,v])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border)"><b>${k}</b><span class="badge">${v}</span></div>`).join(''):'<div style="padding:22px;text-align:center;color:var(--green2)">目前沒有不良原因資料</div>'}</div>
+      <div style="padding:12px">${reasons.length?reasons.map(([k,v])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border)"><b>${escapeHtml(k)}</b><span class="badge">${v}</span></div>`).join(''):'<div style="padding:22px;text-align:center;color:var(--green2)">目前沒有不良原因資料</div>'}</div>
     </div>
     <div class="panel"><div class="panel-hdr"><span class="panel-title">最近檢驗紀錄</span></div>
-      <div style="padding:12px">${allInspections.slice(0,10).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)"><div><b>${x.no||'—'}</b><div style="font-size:.76rem;color:var(--text3)">${x.matName||x.matCode||'—'} · ${x.date||'—'}</div></div>${pill(x.result)}</div>`).join('')||'<div style="padding:22px;text-align:center;color:var(--text3)">尚無檢驗單</div>'}</div>
+      <div style="padding:12px">${allInspections.slice(0,10).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)"><div><b>${escapeHtml(x.no||'—')}</b><div style="font-size:.76rem;color:var(--text3)">${escapeHtml(x.matName||x.matCode||'—')} · ${escapeHtml(x.date||'—')}</div></div>${pill(x.result)}</div>`).join('')||'<div style="padding:22px;text-align:center;color:var(--text3)">尚無檢驗單</div>'}</div>
     </div>
-    <div class="panel"><div class="panel-hdr"><span class="panel-title">Notion 整理建議</span></div>
+    <div class="panel"><div class="panel-hdr"><span class="panel-title">異常檢驗追查</span></div>
       <div style="padding:14px;line-height:1.8;color:var(--text2);font-size:.86rem">
-        品管檢驗單是唯一主紀錄；入料通過會寫檢驗單、更新入料狀態並入庫。建議 Notion 保留「品管檢驗單」、「品管不合格記錄」、「入料單」三個資料源即可，舊版品管記錄頁可封存。
+        ${renderQCExceptions(allInspections)}
       </div>
     </div>
   </div>`;
@@ -24529,7 +24565,7 @@ function renderQCTab(){
       <td><span style="font-size:0.6875rem;font-weight:600;color:${statusColors[ins.result]||'var(--text3)'}">${escapeHtml(ins.result||'—')}</span></td>
       <td style="font-size:0.6875rem;color:var(--text3)">${escapeHtml(ins.date||'—')}</td>
       <td style="font-size:0.6875rem">${escapeHtml(ins.inspector||'—')}</td>
-      <td><a href="https://www.notion.so/${(ins.id||'').replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-xs">🔗</a></td>
+      <td><button type="button" class="btn btn-ghost btn-sm" data-qc-id="${escapeHtml(ins.id||'')}" onclick="openQCRecordDetails(this.dataset.qcId)">查看明細</button></td>
     </tr>`; }
     function inboundHistoryRow(i){
       const mat=mats.find(m=>m.id===i.matId);
