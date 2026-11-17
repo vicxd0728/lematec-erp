@@ -732,6 +732,9 @@ body.modal-open{overflow:hidden;}
 .premium-corder-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .corder-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;}
 .corder-stat{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+button.corder-stat{font:inherit;text-align:left;color:var(--text);cursor:pointer}
+button.corder-stat[aria-pressed="true"]{outline:2px solid var(--cyan2);outline-offset:-2px}
+button.corder-stat:focus-visible{outline:3px solid var(--cyan2);outline-offset:2px}
 .corder-stat strong{display:block;font-size:1.75rem;line-height:1;font-family:var(--f-mono);margin-bottom:4px;}
 .corder-stat span{font-size:0.8125rem;color:var(--text2);font-weight:600;}
 .corder-table th{font-size:0.75rem;padding:12px 14px;}
@@ -12813,6 +12816,7 @@ function analyticsGo(tab,action='',value=''){
       else {f.status='all';f.q='';window._ORD_SUB='list';}
       setOrderSearchDraft(f.q||'');
     }else if(tab==='corders'){
+      window._CO_SHIP='';window._corderPage=1;
       if(action==='status'){window._CO_STATUS=value||'';window._CO_Q='';window._CO_Q_DRAFT='';}
       else if(action==='product'||action==='search'){window._CO_STATUS='';window._CO_Q=value||'';window._CO_Q_DRAFT=window._CO_Q;}
       else {window._CO_STATUS='';window._CO_Q='';window._CO_Q_DRAFT='';}
@@ -12824,6 +12828,7 @@ function analyticsGo(tab,action='',value=''){
       state.type=action==='manual'?'手動調整':'all';
       state.q=(action==='sku'||action==='consume')?(value||''):'';
       if(action==='audit'){state.view='all';state.type='all';state.q='';}
+      state.draft=state.q;state.page=1;
     }else if(tab==='inventory'){
       const inv=window._invState=window._invState||{q:'',type:'all',stockMin:'',stockMax:'',stockStatus:'all',quick:'all',selectedId:'',page:1,pageSize:100};
       inv.q=action==='unknown'||action==='unset'?'':(value||''); inv.page=1;
@@ -17293,7 +17298,7 @@ function dashboardOpenTodo(route){
   if(route==='pick:return')return dashboardGo('picking','return');
   if(route==='qc:inbound')return dashboardGo('qc','inbound');
   if(route==='qc:order')return dashboardGo('qc','order');
-  if(route==='corders')return dashboardGo('corders');
+  if(route==='corders')return dashboardGo('corders','shipping');
   if(route==='inventory')return dashboardGo('inventory');
   return false;
 }
@@ -17333,6 +17338,10 @@ function dashboardGo(tab,sub=''){
   }
   if(tab==='inbound'){
     window._INBOUND_FILTERS={...(window._INBOUND_FILTERS||{}),q:'',status:'all',date:'0',page:1};
+  }
+  if(tab==='corders'){
+    window._CO_Q='';window._CO_Q_DRAFT='';window._CO_SHIP='';window._CO_DAYS='0';window._corderPage=1;
+    window._CO_STATUS=sub==='shipping'?'出貨中':'';
   }
   if(tab==='qc'){
     QC_SUB=sub==='order'?'order_qc':'pending';
@@ -23631,6 +23640,21 @@ async function exportSelectedCorders(){
   }catch(e){showToast('匯出失敗：'+(e.message||'請重試'),'warn');}
   finally{window._corderExportBusy=false;}
 }
+function corderDataIncomplete(row){return row.status!=='需確認'&&(!row.matId||/找不到|未扣|無料號/.test(row.note||''));}
+function corderMatchesStatus(row,status){
+  if(status==='回料待續接')return !!window._corderReversalPending?.[row.id];
+  if(status==='returns')return row.status==='部分退貨'||row.status==='已退貨';
+  if(status==='data-incomplete')return corderDataIncomplete(row);
+  return !status||row.status===status;
+}
+function setCorderQuickView(status){
+  window._CO_STATUS=status;window._CO_Q='';window._CO_Q_DRAFT='';window._CO_SHIP='';window._CO_DAYS='0';window._corderPage=1;
+  renderTab('corders');
+}
+function renderCorderStatusCards(data,visible){
+  const cards=[['出貨中','出貨中','is-ship','🛒'],['已完成','已完成','is-done','✓'],['returns','退貨','is-cancel','↩'],['已取消','已取消','is-cancel','□'],['需確認','需確認','is-warn','!'],['回料待續接','回料待續接','is-warn','↩'],['data-incomplete','資料待補','is-warn','!']];
+  return cards.map(([key,label,skin,icon])=>{const count=data.filter(row=>corderMatchesStatus(row,key)).length;if(!count&&['回料待續接','data-incomplete'].includes(key))return '';return `<button type="button" class="corder-stat ${skin}" data-icon="${icon}" onclick="setCorderQuickView('${key}')" aria-pressed="${window._CO_STATUS===key}" aria-label="${label} ${count} 筆品項，查看明細"><span>${label}</span><strong>${count}</strong><small>筆品項 · 點選查看</small></button>`;}).join('')+`<div class="corder-stat is-filter" data-icon="🔎"><span>目前顯示</span><strong>${visible}</strong><small>共 ${data.length} 筆品項</small></div>`;
+}
 function renderCorders(){
   if(!window._cordersLoaded)return renderCorderImportResult()+'<div class="info-box info-warn" role="status">C端訂單尚未成功載入，不能以空清單判斷沒有訂單。<button class="btn btn-ghost btn-sm" onclick="loadCorders({strict:true,skipAutoComplete:true}).then(()=>renderTab(\'corders\')).catch(e=>showToast(\'讀取失敗：\'+e.message,\'warn\'))">重新讀取 C端訂單</button></div>';
   const canAdd=!isViewOnly()&&(isAdminRole()||ROLE==='sales');
@@ -23655,7 +23679,7 @@ function renderCorders(){
   const cutoff=DAYS==='0'?0:Date.now()-parseInt(DAYS)*86400000;
   const normShip=v=>(String(v||'').trim()||'未設定物流');
   const baseFiltered=data.filter(o=>{
-    if(STATUS==='回料待續接'?!window._corderReversalPending?.[o.id]:STATUS&&o.status!==STATUS) return false;
+    if(!corderMatchesStatus(o,STATUS)) return false;
     if(cutoff&&o.created&&new Date(o.created).getTime()<cutoff) return false;
     if(Q&&!searchIncludesAll([
       o.no,o.shopeeNo,o.buyer,o.customerName,o.matCode,o.matName,
@@ -23680,15 +23704,8 @@ function renderCorders(){
   });
   const sb=(key,label)=>{const a=SORT===key;const arrow=a?(DIR>0?'↑':'↓'):'';return `<button class="btn ${a?'btn-blue':'btn-ghost'} btn-xs" onclick="window._CO_SORT='${key}';window._CO_DIR=${a?-DIR:1};renderTab('corders')">${label}${arrow}</button>`;};
   const view=corderPageView(filtered),selected=corderSelectionIds(),selectedVisible=filtered.filter(o=>selected.has(o.id)).length;
-  const statusOpts=['','需確認','回料待續接','出貨中','已完成','部分退貨','已退貨','已取消'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s||'全部狀態'}</option>`).join('');
+  const statusOpts=['','需確認','回料待續接','出貨中','已完成','returns','部分退貨','已退貨','已取消','data-incomplete'].map(s=>`<option value="${s}" ${STATUS===s?'selected':''}>${s==='returns'?'退貨（全部）':s==='data-incomplete'?'資料待補':s||'全部狀態'}</option>`).join('');
   const dayOpts=[['0','全部'],['7','近7天'],['30','近30天'],['90','近3個月']].map(([v,l])=>`<option value="${v}" ${DAYS===v?'selected':''}>${l}</option>`).join('');
-  const countShip=data.filter(o=>o.status==='出貨中').length;
-  const countDone=data.filter(o=>o.status==='已完成').length;
-  const countCancel=data.filter(o=>o.status==='已取消').length;
-  const countReturn=data.filter(o=>o.status==='部分退貨'||o.status==='已退貨').length;
-  const countWarn=data.filter(o=>o.status==='需確認').length;
-  const countDataWarn=data.filter(o=>o.status!=='需確認'&&(!o.matId||/找不到|未扣|無料號/.test(o.note||''))).length;
-  const countReversalPending=data.filter(o=>window._corderReversalPending?.[o.id]).length;
   const nextNo=nextCorderInternalNo();
   const sequenceReady=corderSequenceReady();
   const sequenceBlocked=canOperate&&!sequenceReady;
@@ -23708,15 +23725,9 @@ function renderCorders(){
   ${renderCorderImportResult()}
   ${window._corderReversalLoadError?`<div class="info-box info-warn" role="alert">回料作業狀態讀取未完成：${escapeHtml(window._corderReversalLoadError)}。請按「重新讀取」核對待續接原單。</div>`:''}
   <div class="corder-stats">
-    <div class="corder-stat is-ship" data-icon="🛒"><span>待出貨</span><strong>${countShip}</strong><small>筆訂單</small></div>
-    <div class="corder-stat is-done" data-icon="✓"><span>已完成</span><strong>${countDone}</strong><small>筆訂單</small></div>
-    <div class="corder-stat is-cancel" data-icon="↩"><span>退貨</span><strong>${countReturn}</strong><small>部分 / 已退貨</small></div>
-    <div class="corder-stat is-cancel" data-icon="□"><span>已取消</span><strong>${countCancel}</strong><small>筆訂單</small></div>
-    <div class="corder-stat is-warn" data-icon="!"><span>需確認</span><strong>${countWarn}</strong><small>筆訂單</small></div>
-    ${countReversalPending?`<div class="corder-stat is-warn" data-icon="↩"><span>回料待續接</span><strong>${countReversalPending}</strong><small>筆訂單</small></div>`:''}
-    ${countDataWarn?`<div class="corder-stat is-warn" data-icon="!"><span>資料待補</span><strong>${countDataWarn}</strong><small>筆訂單</small></div>`:''}
-    <div class="corder-stat is-filter" data-icon="🔎"><span>目前顯示</span><strong>${filtered.length}</strong><small>共 ${data.length} 筆</small></div>
+    ${renderCorderStatusCards(data,filtered.length)}
   </div>
+  <p class="work-caption" style="margin:0 0 12px;font-size:.72rem;color:var(--text3)">依已載入品項統計；同單多品項分別計數。「資料待補」可能與其他狀態重疊，卡片數字不相加。</p>
   <div class="panel premium-corder-panel">
     <div class="panel-hdr">
       <span class="panel-title">🛒 C端訂單 <span class="badge">${filtered.length}/${data.length}</span></span>

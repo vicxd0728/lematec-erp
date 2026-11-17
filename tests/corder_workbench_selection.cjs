@@ -17,6 +17,15 @@ test('selecting filtered results does not select hidden rows and duplicate numbe
  const {ctx:c}=setup();c.window.corders=[{id:'a',no:'same'},{id:'b',no:'same'},{id:'hidden'}];c.corderPageView(c.window.corders.slice(0,2));c.selectCorderFiltered();
  assert.deepEqual([...c.corderSelectionIds()],['a','b']);c.clearCorderSelection();assert.equal(c.corderSelectionIds().size,0);
 });
+
+test('status cards reveal exactly their counted lines and preserve export selections without business writes',()=>{
+ const {ctx:c}=setup();const rows=[{id:'a',no:'SAME',status:'出貨中',matId:'m'},{id:'b',no:'SAME',status:'出貨中',matId:'m'},{id:'c',status:'已退貨',matId:'m'},{id:'d',status:'部分退貨',matId:'m'},{id:'e',status:'已完成'}];
+ c.window.corders=rows;c.window._corderSelected=['c'];c.window._corderReversalPending={b:true};const before=JSON.stringify(rows);
+ Object.assign(c.window,{_CO_Q:'OLD',_CO_Q_DRAFT:'OLD',_CO_SHIP:'OLD',_CO_DAYS:'7',_corderPage:5});
+ c.setCorderQuickView('出貨中');assert.equal(c.window._CO_Q,'');assert.equal(c.window._CO_SHIP,'');assert.equal(c.window._CO_DAYS,'0');assert.equal(c.window._corderPage,1);assert.equal(rows.filter(r=>c.corderMatchesStatus(r,c.window._CO_STATUS)).length,2);assert.deepEqual([...c.corderSelectionIds()],['c']);
+ assert.equal(rows.filter(r=>c.corderMatchesStatus(r,'returns')).length,2);assert.equal(rows.filter(r=>c.corderMatchesStatus(r,'data-incomplete')).length,1);assert.equal(rows.filter(r=>c.corderMatchesStatus(r,'回料待續接')).length,1);
+ const markup=c.renderCorderStatusCards(rows,2);assert.match(markup,/出貨中 2 筆品項/);assert.doesNotMatch(markup,/待出貨|筆訂單/);assert.equal(JSON.stringify(rows),before);
+});
 test('export freezes selected rows before async load and retains text, quantities and scope',async()=>{
  const f=setup(),c=f.ctx;c.window.corders=[{id:'a',no:'=1+1',qty:2.5,matCode:'S-X',status:'出貨中'},{id:'b',no:'B',qty:0}];c.toggleCorderSelection('a',true);
  let resolve;c.ensureXlsxLoaded=()=>new Promise(r=>resolve=r);const task=c.exportSelectedCorders();c.window.corders[0].no='changed';c.toggleCorderSelection('b',true);resolve();await task;

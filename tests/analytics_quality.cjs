@@ -52,6 +52,12 @@ test('pending-production metric and its destination use the same status group',(
  ctx.analyticsGo('orders','status','production-active');assert.equal(f.status,'production-active');assert.equal(f.date,'0');assert.equal(f.q,'');
 });
 
+test('analytics drilldowns reset logistics and keep visible search text aligned with applied query',()=>{
+ const ctx=makeContext({switchTab:()=>{}});Object.assign(ctx.window,{_CO_SHIP:'OLD',_corderPage:8,_STOCKLOG_FILTERS:{q:'OLD',draft:'OLD',page:9}});
+ ctx.analyticsGo('corders','product','S-QA');assert.equal(ctx.window._CO_Q,'S-QA');assert.equal(ctx.window._CO_Q_DRAFT,'S-QA');assert.equal(ctx.window._CO_SHIP,'');assert.equal(ctx.window._corderPage,1);
+ ctx.analyticsGo('stocklog','sku','Y-QA');assert.equal(ctx.window._STOCKLOG_FILTERS.q,'Y-QA');assert.equal(ctx.window._STOCKLOG_FILTERS.draft,'Y-QA');assert.equal(ctx.window._STOCKLOG_FILTERS.page,1);
+});
+
 test('first analytics entry loads its default range even when other tabs preloaded short-range arrays', async () => {
   const start = html.indexOf('function renderTab(tab)');
   const end = html.indexOf('\nfunction taipeiDateKey(', start);

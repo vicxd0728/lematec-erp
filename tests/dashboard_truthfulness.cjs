@@ -73,6 +73,12 @@ test('blocked role and running QC batch leave destination state intact',()=>{
  assert.equal(ctx.dashboardGo('qc','inbound'),false);assert.equal(ctx.QC_SUB,'report');assert.equal(ctx.window._qcPendingSearch.inbound.q,'keep');assert.equal(ctx.dashboardGo('orders'),false);assert.equal(jumps,0);
 });
 
+test('C-end shipping todo clears stale search logistics and date without clearing selections',()=>{
+ const ctx=makeContext('sales',['corders']);ctx.switchTab=()=>{};ctx.showToast=()=>{};
+ Object.assign(ctx.window,{_CO_Q:'OLD',_CO_Q_DRAFT:'OLD',_CO_SHIP:'OTHER',_CO_DAYS:'7',_CO_STATUS:'已取消',_corderPage:8,_corderSelected:['keep']});
+ vm.runInContext(html.slice(start,helperEnd),ctx);ctx.dashboardOpenTodo('corders');assert.equal(ctx.window._CO_STATUS,'出貨中');assert.equal(ctx.window._CO_SHIP,'');assert.equal(ctx.window._CO_Q_DRAFT,'');assert.equal(ctx.window._CO_DAYS,'0');assert.equal(ctx.window._corderPage,1);assert.deepEqual([...ctx.window._corderSelected],['keep']);
+});
+
 test('role todo list limits work to accessible modules and counts each wait-schedule order once', () => {
   const tabs = ['dashboard', 'orders', 'picking', 'inventory', 'qc', 'corders'];
   const ctx = makeContext('warehouse', tabs, ['core', 'picks']);
