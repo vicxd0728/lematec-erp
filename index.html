@@ -1018,6 +1018,8 @@ td{font-size:16px;padding:16px 17px;}
   border-color:rgba(170,194,180,.15);
 }
 .kpi-card:hover{transform:translateY(-4px) scale(1.01);}
+.kpi-card:not([onclick]):not([role="button"]){cursor:default}
+.kpi-card:not([onclick]):not([role="button"]):hover{transform:none}
 .kpi-label{font-size:13px;color:var(--text2);letter-spacing:1.2px;}
 .kpi-num{font-size:52px;letter-spacing:-1px;}
 .kpi-sub{font-size:14px;color:var(--text2);line-height:1.42;}
@@ -13035,7 +13037,7 @@ function renderAnalytics(){
   const orderKpis=[
     analyticsKpiCard('正式訂單建單',analyticsNum(a.orderRows.length),`本期建立；C端另列`,'var(--cyan2)',Math.min(100,a.orderRows.length),'orders'),
     analyticsKpiCard('正式訂單結案率',analyticsPercent(formalDone,formalCountable),`本期結案 ${formalDone} / 未取消 ${formalCountable} 筆`,'var(--green2)',formalCountable?formalDone*100/formalCountable:0,'orders'),
-    analyticsKpiCard('正式訂單進行中',analyticsNum(a.activeOrders.length),`所有未結案正式訂單，不受期間篩選`,'var(--amber)',Math.min(100,a.activeOrders.length),'orders','status','生產中'),
+    analyticsKpiCard('待排程／生產中',analyticsNum(a.activeOrders.filter(o=>o.status==='待排程'||o.status==='生產中').length),`所有類型訂單，不受期間篩選`,'var(--amber)',Math.min(100,a.activeOrders.filter(o=>o.status==='待排程'||o.status==='生產中').length),'orders','status','production-active'),
     analyticsKpiCard('正式訂單逾期',analyticsNum(a.overdue.length),`所有未結案正式訂單，不受期間篩選`,'var(--red2)',Math.min(100,a.overdue.length*10),'orders','overdue'),
     analyticsKpiCard('C端退貨率',`${cReturnRate}%`,`本期建立訂單：退貨 ${analyticsNum(a.cReturnQty)} / 已完成出貨 ${analyticsNum(a.cSoldQty)} 件`,'var(--red2)',Math.min(100,cReturnRate*10),'corders','search','退貨')
   ];
@@ -19084,6 +19086,7 @@ function renderInventory(){
         <td class="hide-m" style="font-family:monospace;color:var(--text3)">${safe}</td>
         <td class="hide-m" style="color:${sc};font-size:0.8125rem;font-weight:700">${unknownStock?'數值不明':stock<=0?'❌':safe>0&&stock<=safe?'⚠':'✓'}</td>
         <td data-label="操作" class="inventory-row-actions" style="white-space:nowrap">
+          <button type="button" class="btn btn-ghost btn-sm" data-material-id="${escapeHtml(m.id)}" onclick="openInventoryRecordDetails(this.dataset.materialId)">料件明細</button>
           ${canEditStock&&m.notionId!==''?`<button class="btn btn-yellow btn-sm" onclick="openEditStock('${m.id}')" style="margin-right:4px">✏庫存</button>`:''}${canEditMat&&m.notionId!==''?`<button class="btn btn-ghost btn-sm" onclick="openEditMat('${m.id}')" style="margin-right:4px">✏料件</button>`:''}
           ${!usingSupabase&&isAdminRole()?`<button class="btn btn-red btn-sm" onclick="openDeleteMat('${m.id}')">刪除</button>`:''}
           ${usingSupabase&&!m.notionId?`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">待同步鏡像</span>`:''}
@@ -19097,47 +19100,38 @@ function renderInventory(){
   return html+'</div>';
 }
 
-function renderInventoryInsightPanel(invMats=[]){
-  const state=window._invState||{};
-  const selectedId=state.selectedId||'';
-  if(!selectedId)return '';
-  const mat=(invMats||[]).find(m=>m.id===selectedId)||mats.find(m=>m.id===selectedId);
-  if(!mat)return '';
-  const parentRows=boms.filter(b=>b.parentId===mat.id);
-  const childRows=boms.filter(b=>b.childId===mat.id);
-  const relatedOrders=orders.filter(o=>o.productId===mat.id).slice(0,5);
-  const relatedLogs=(stockLogs||[]).filter(log=>{
-    const blob=[log.matId,log.materialId,log.code,log.itemCode,log.name,log.itemTitle,log.refNo].map(x=>String(x||'')).join(' ');
-    return blob.includes(mat.id)||blob.includes(mat.code||'')||blob.includes(mat.name||'');
-  }).slice(0,5);
-  const stock=Number(mat.stock||0);
-  const safe=Number(mat.safe||0);
-  const level=stock<=0?'err':safe>0&&stock<=safe?'warn':'ok';
-  const notion=mat.notionId?`<a class="btn btn-ghost btn-xs" href="https://www.notion.so/${String(mat.notionId).replace(/-/g,'')}" target="_blank" rel="noopener">開 Notion</a>`:`<span class="pill" style="background:rgba(245,158,11,.12);color:var(--amber)">缺 Notion 鏡像</span>`;
-  return `<div class="panel" style="margin-bottom:12px" data-contract="INVENTORY_ITEM_INSIGHT_V1">
-    <div class="panel-hdr">
-      <span class="panel-title">料件詳情 <span class="badge">${escapeHtml(mat.code||mat.name||mat.id)}</span></span>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${healthBadge(level,level==='ok'?'正常':level==='warn'?'低庫存':'缺料')}<button class="btn btn-ghost btn-xs" onclick="_invSelect('')">關閉</button></div>
-    </div>
-    <div style="padding:12px">
-      <div class="dash-kpi-grid">
-        <div class="kpi-card kpi-cyan"><div class="kpi-label">目前庫存</div><div class="kpi-num">${stock}</div><div class="kpi-sub">安全庫存 ${safe}</div></div>
-        <div class="kpi-card ${mat.notionId?'kpi-green':'kpi-amber'}"><div class="kpi-label">Notion 鏡像</div><div class="kpi-num" style="font-size:1rem">${mat.notionId?'已連結':'缺關聯'}</div><div class="kpi-sub">${mat.notionId?escapeHtml(mat.notionId):'補同步前需有鏡像頁面'}</div></div>
-        <div class="kpi-card kpi-blue"><div class="kpi-label">BOM 關聯</div><div class="kpi-num">${parentRows.length+childRows.length}</div><div class="kpi-sub">母件 ${parentRows.length} / 子件 ${childRows.length}</div></div>
-        <div class="kpi-card kpi-green"><div class="kpi-label">最近異動</div><div class="kpi-num">${relatedLogs.length}</div><div class="kpi-sub">目前載入範圍內</div></div>
-      </div>
-      <div class="preflight-action-strip" style="margin-top:10px;border:1px solid var(--border);border-radius:8px">
-        <div class="preflight-action"><b>主檔</b><div>${escapeHtml(mat.name||'')} / ${escapeHtml(mat.type||'未分類')} / ${escapeHtml(mat.unit||'個')}</div></div>
-        <div class="preflight-action"><b>BOM 使用</b><div>${parentRows.length?`作為母件：${parentRows.slice(0,3).map(b=>escapeHtml(b.childSku||b.childName||b.childId)).join('、')}`:'未作為母件'}；${childRows.length?`作為子件 ${childRows.length} 次`:'未作為子件'}</div></div>
-        <div class="preflight-action"><b>相關訂單</b><div>${relatedOrders.length?relatedOrders.map(o=>escapeHtml(o.no||o.name||o.id)).join('、'):'目前載入範圍內無直接關聯訂單'}</div></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        ${notion}
-        <button class="btn btn-ghost btn-xs" onclick="switchTab('stocklog')">看異動記錄</button>
-        <button class="btn btn-ghost btn-xs" onclick="retryReliabilityModule('inventory_notion')">補 Notion 鏡像</button>
-      </div>
-    </div>
-  </div>`;
+function inventoryRecordLogs(mat){
+  const code=String(mat.code||'').trim();
+  const name=String(mat.name||'').trim();
+  const uniqueName=name&&mats.filter(m=>String(m.name||'').trim()===name).length===1;
+  return (stockLogs||[]).filter(log=>code
+    ?String(log.matCode||'').trim()===code
+    :uniqueName&&String(log.matName||'').trim()===name)
+    .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+}
+function openInventoryRecordDetails(id){
+  const rows=getInventoryReadSet().rows||[];
+  const mat=rows.find(m=>m.id===id);
+  if(!mat)return showToast('料件尚未載入，請同步後重新選取','warn');
+  document.getElementById('modalInner').innerHTML=renderInventoryRecordContent(mat);
+  openSharedModal();
+}
+function renderInventoryRecordContent(mat){
+  const logs=inventoryRecordLogs(mat),parents=boms.filter(b=>b.parentId===mat.id),children=boms.filter(b=>b.childId===mat.id),related=orders.filter(o=>o.productId===mat.id);
+  const value=x=>x===null||x===undefined||String(x).trim()===''||!Number.isFinite(Number(x))?'未記錄':String(Number(x));
+  const counterpart=(b,parent)=>{const id=parent?b.childId:b.parentId,m=mats.find(x=>x.id===id);return m?.code||m?.name||id||'關聯未載入';};
+  const bomRows=(items,parent)=>items.slice(0,10).map(b=>`<li>${escapeHtml(counterpart(b,parent))} · 用量 ${escapeHtml(value(b.qty))}</li>`).join('');
+  return `<div data-contract="INVENTORY_RECORD_DETAILS_V1" style="overflow-wrap:anywhere"><h3>料件明細 · ${escapeHtml(mat.code||mat.name||'未編號')}</h3>
+    <p class="work-caption">來源：${escapeHtml(getInventoryReadSet().label||'已載入主資料')}。以下為已載入快照；近期異動與相關訂單可能不是完整歷史。</p>
+    ${recordDetailFields([['名稱',mat.name],['類型',mat.type],['目前庫存',value(mat.stock)],['安全庫存',value(mat.safe)],['單位',mat.unit],['備註',mat.note]])}
+    <h4>BOM 關聯 · 作為母件 ${parents.length} 筆／作為子件 ${children.length} 筆</h4>
+    <div class="record-detail-fields"><section><b>使用哪些子件（前 10 筆）</b><ul>${bomRows(parents,true)||'<li>本次未查到關聯</li>'}</ul></section><section><b>哪些母件使用它（前 10 筆）</b><ul>${bomRows(children,false)||'<li>本次未查到關聯</li>'}</ul></section></div>
+    <h4>相關訂單 · 已載入 ${related.length} 筆，列前 5 筆</h4>
+    ${related.slice(0,5).map(o=>`<div class="work-item">${escapeHtml(o.no||'未編號')} · ${escapeHtml(o.status||'狀態未填')} · 數量 ${escapeHtml(value(o.qty))}</div>`).join('')||'<p>本次未查到直接訂購此料號的訂單；不包含 BOM 間接需求。</p>'}
+    <h4>近期異動 · 已載入符合 ${logs.length} 筆，列最近 5 筆</h4>
+    <p class="work-caption">${typeof stockLogLoadError!=='undefined'&&stockLogLoadError?'異動更新失敗，以下為上次載入資料。':'僅依料號精確核對已載入異動；未查到不代表沒有異動。'}</p>
+    ${logs.slice(0,5).map(log=>`<article class="work-item" style="border-top:1px solid var(--border);padding:10px 0"><b>${escapeHtml(log.date||'日期未填')} · ${escapeHtml(log.type||'類型未填')}</b><div>異動 ${escapeHtml(value(log.qty))} · ${escapeHtml(value(log.before))} → ${escapeHtml(value(log.after))}</div><div>單號：${escapeHtml(log.ref||'未記錄')} · ${escapeHtml(log.operator||'人員未記錄')}</div></article>`).join('')||'<p>本次未查到可精確對應的異動紀錄。</p>'}
+    <div class="form-actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">關閉明細</button></div></div>`;
 }
 
 // ═══════════════════════════════════════════════

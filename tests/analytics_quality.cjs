@@ -44,6 +44,14 @@ function makeContext(overrides = {}) {
   return ctx;
 }
 
+test('pending-production metric and its destination use the same status group',()=>{
+ const f={};const ctx=makeContext({orders:[{status:'待排程'},{status:'生產中'},{status:'待檢驗'},{status:'待出貨'},{status:'已完成'}],getOrderFilters:()=>f,setOrderSearchDraft:()=>{},switchTab:()=>{}});
+ const markup=ctx.renderAnalytics();
+ const card=markup.match(/<div class="kpi-card"[^>]+production-active[\s\S]*?<\/div>\s*<\/div>/);
+ assert.ok(card);assert.match(card[0],/待排程／生產中/);assert.match(card[0],/>2<\/b>/);
+ ctx.analyticsGo('orders','status','production-active');assert.equal(f.status,'production-active');assert.equal(f.date,'0');assert.equal(f.q,'');
+});
+
 test('first analytics entry loads its default range even when other tabs preloaded short-range arrays', async () => {
   const start = html.indexOf('function renderTab(tab)');
   const end = html.indexOf('\nfunction taipeiDateKey(', start);

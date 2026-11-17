@@ -8,7 +8,7 @@ function page(url){
  const styles=[...html.slice(0,html.indexOf('</head>')).matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(x=>x[0]).join('\n');
  const functions=[cut('function getOrderFilters(', 'function getCorderSearchDraft('),cut('function updateOrderFilter(', 'function searchIncludesAll('),
  cut(html.includes('function getInventoryFilterState(')?'function getInventoryFilterState(':'function _invQuick(', 'function openSelectedSafetyStockBatch('),cut('function inventoryVisualStatus(', 'function renderInventoryStockVisual('),
- cut('function renderInventory(){','function renderInventoryInsightPanel('),cut('function _invFilter(', 'let _mpItems='),
+ cut('function renderInventory(){','function inventoryRecordLogs('),cut('function _invFilter(', 'let _mpItems='),
  cut('function orderCustomerLabel(', 'function shortageSourceOrderFromNote('),cut('function setOrderMobileSort(', 'function orderTimelineEvents(')
  ].join('\n');
  const money=html.slice(html.indexOf('function formatOptionalMoney('),html.indexOf('\n}',html.indexOf('function formatOptionalMoney('))+2);

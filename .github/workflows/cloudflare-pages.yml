@@ -25,6 +25,7 @@ jobs:
           node --test tests/order_part_selection.cjs
           node --test tests/order_timeline.cjs tests/order_progress_summary.cjs
           node --test tests/operational_record_information.cjs
+          node --test tests/inventory_record_information.cjs
           node --test tests/corder_identity_guard.cjs
           node --test tests/lookup_workbench.cjs
           node --test tests/qc_batch_recovery.cjs

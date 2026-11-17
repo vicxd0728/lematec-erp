@@ -73,18 +73,20 @@ def test_reliability_center_v2_classifies_and_retries_by_module():
 
 def test_inventory_page_has_scan_filters_and_item_insight():
     inventory = section("function renderInventory(){", "// ═══════════════════════════════════════════════")
-    insight = section("function renderInventoryInsightPanel", "// ═══════════════════════════════════════════════")
+    insight = section("function inventoryRecordLogs", "// ═══════════════════════════════════════════════")
     helpers = section("function _invQuick", "async function loadSupabaseInventoryForPage")
     assert 'data-contract="INVENTORY_SCAN_FILTERS_V1"' in inventory
-    assert 'data-contract="INVENTORY_ITEM_INSIGHT_V1"' in insight
+    assert 'data-contract="INVENTORY_RECORD_DETAILS_V1"' in insight
+    assert 'openInventoryRecordDetails(this.dataset.materialId)' in inventory
     assert "S- 蝦皮層" in inventory
     assert "Y- 零件" in inventory
     assert "缺 Notion 鏡像" in inventory
     assert "作為母件" in inventory
     assert "作為子件" in inventory
-    assert "料件詳情" in insight
+    assert "料件明細" in insight
     assert "BOM 關聯" in insight
-    assert "補 Notion 鏡像" in insight
+    assert "近期異動" in insight
+    assert "retryReliabilityModule" not in insight
     assert "function _invQuick" in helpers
     assert "function _invSelect" in helpers
     assert "quick:'all'" in INDEX

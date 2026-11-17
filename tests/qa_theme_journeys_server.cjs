@@ -12,7 +12,7 @@ cut('function renderOpsBoard(){','let _healthReport='),
 cut('function corderSelectionIds(','function renderCorders(){'),cut('function renderCorders(){','function pickShortageMaterialMatch('),
 cut('function inventoryReportState(){','function renderInventory(){'),
 cut('function getInventoryFilterState(','function openSelectedSafetyStockBatch('),cut('function inventoryVisualStatus(','function renderInventoryStockVisual('),
-cut('function renderInventory(){','function renderInventoryInsightPanel('),cut('function _invFilter(','let _mpItems='),
+cut('function renderInventory(){','function inventoryRecordLogs('),cut('function _invFilter(','let _mpItems='),
 cut('function orderCustomerLabel(','function shortageSourceOrderFromNote('),cut('function setOrderMobileSort(','function orderTimelineEvents(')].join('\n');
 const money=cut('function formatOptionalMoney(','\n}');
 const samples=`<section class="module-brief"><div><h2>品管</h2><p>待檢驗與異常需分別核對，不把未載入當成零。</p></div><div class="module-brief-actions"><span class="module-pill">待處理 <b>12</b></span><span class="module-pill">待檢驗 <b>5</b></span></div></section>

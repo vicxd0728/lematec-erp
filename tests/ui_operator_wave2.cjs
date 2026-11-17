@@ -8,7 +8,7 @@ function inventory(rows,state={}){
  getInventoryReadSet:()=>({rows,label:'Supabase'}),getInventoryReadSource:()=> 'supabase',_supabaseInventoryState:{loaded:true},isViewOnly:()=>true,isAdminRole:()=>false,
  applySort:(_k,x)=>x,normalizeSku:x=>String(x),invSelectionSet:()=>new Set(),invSelectedMaterials:()=>[],renderInventorySourceSwitch:()=>'',canAuditBomRole:()=>false,canImportBomRole:()=>false,TH:()=>'<th>欄</th>',pill:x=>escapeHtml(x)});
  vm.runInContext(section('function getInventoryFilterState(','function _invQuick('),ctx);
- vm.runInContext(section('function renderErpVisualRows(rows){','function renderInventoryInsightPanel('),ctx);return ctx;
+ vm.runInContext(section('function renderErpVisualRows(rows){','function inventoryRecordLogs('),ctx);return ctx;
 }
 function inbound(rows,canAdd=false){
  const ctx=vm.createContext({window:{},ROLE:canAdd?'warehouse':'ai',SORT:{},inbounds:rows,mats:[],escapeHtml,document:{getElementById:()=>null},dashboardCanCreateInbound:()=>canAdd,
