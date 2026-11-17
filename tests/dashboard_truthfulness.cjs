@@ -53,6 +53,26 @@ test('dashboard navigation refuses links outside the active role', () => {
   assert.equal(navigated, 'qc');
 });
 
+test('explicit dashboard jumps clear conflicting filters without touching business rows',()=>{
+ const ctx=makeContext('viewer',['orders','picking','inbound','qc'],['core','picks','inbounds']);
+ ctx.getOrderFilters=()=>ctx.window.filters||(ctx.window.filters={q:'OLD',status:'已完成',date:'7d',type:'sfg',hide:true});
+ ctx.setOrderSearchDraft=v=>{ctx.window.draft=v;};ctx.switchTab=t=>{ctx.currentTab=t;};ctx.showToast=()=>{};
+ ctx.orders=[{id:'original',status:'待排程'}];const before=JSON.stringify(ctx.orders);
+ Object.assign(ctx.window,{_PICK_SUB:'manual',_PICK_STATUS:'picked',_PICK_Q:'OLD',_PICK_DATE:'7d',_PICK_PAGE:9,_PICK_FOCUS_ORDER:'other',_INBOUND_FILTERS:{q:'OLD',status:'cancelled',date:'7d',page:9},_qcPendingSearch:{inbound:{q:'OLD',draft:'OLD'},orders:{q:'OTHER',draft:'OTHER'}}});
+ vm.runInContext(html.slice(start,helperEnd),ctx);
+ ctx.dashboardGo('orders');assert.equal(ctx.window.filters.q,'');assert.equal(ctx.window.filters.date,'0');assert.equal(ctx.window.filters.status,'all');assert.equal(ctx.window._ORD_SUB,'list');
+ ctx.dashboardOpenTodo('pick:return');assert.equal(ctx.window._PICK_SUB,'auto');assert.equal(ctx.window._PICK_STATUS,'return');assert.equal(ctx.window._PICK_Q,'');assert.equal(ctx.window._PICK_DATE,'0');assert.equal(ctx.window._PICK_PAGE,1);assert.equal(ctx.window._PICK_FOCUS_ORDER,'');
+ ctx.dashboardGo('inbound');assert.equal(ctx.window._INBOUND_FILTERS.q,'');assert.equal(ctx.window._INBOUND_FILTERS.status,'all');assert.equal(ctx.window._INBOUND_FILTERS.date,'0');assert.equal(ctx.window._INBOUND_FILTERS.page,1);
+ ctx.dashboardOpenTodo('qc:inbound');assert.equal(ctx.QC_SUB,'pending');assert.equal(ctx.window._qcPendingSearch.inbound.q,'');assert.equal(ctx.window._qcPendingSearch.orders.q,'OTHER');
+ ctx.dashboardOpenTodo('qc:order');assert.equal(ctx.QC_SUB,'order_qc');assert.equal(ctx.window._qcPendingSearch.orders.q,'');assert.equal(JSON.stringify(ctx.orders),before);
+});
+
+test('blocked role and running QC batch leave destination state intact',()=>{
+ const ctx=makeContext('viewer',['qc']);ctx.window._qcBatchRun={running:true};ctx.window._qcPendingSearch={inbound:{q:'keep',draft:'keep'}};ctx.QC_SUB='report';let jumps=0;ctx.switchTab=()=>jumps++;ctx.showToast=()=>{};
+ vm.runInContext(html.slice(start,helperEnd),ctx);
+ assert.equal(ctx.dashboardGo('qc','inbound'),false);assert.equal(ctx.QC_SUB,'report');assert.equal(ctx.window._qcPendingSearch.inbound.q,'keep');assert.equal(ctx.dashboardGo('orders'),false);assert.equal(jumps,0);
+});
+
 test('role todo list limits work to accessible modules and counts each wait-schedule order once', () => {
   const tabs = ['dashboard', 'orders', 'picking', 'inventory', 'qc', 'corders'];
   const ctx = makeContext('warehouse', tabs, ['core', 'picks']);

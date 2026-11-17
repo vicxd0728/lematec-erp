@@ -17321,6 +17321,25 @@ function dashboardOpenNewInbound(){
 }
 function dashboardGo(tab,sub=''){
   if(!dashboardTabAvailable(tab)){showToast('此職務沒有開放這個頁面','warn');return false;}
+  if(tab==='qc'&&window._qcBatchRun?.running){showToast('批量品檢仍在處理，請先等待完成再從總覽切換待辦','warn');return false;}
+  // Explicit dashboard navigation reveals the counted population; ordinary tab switches keep filters.
+  if(tab==='orders'){
+    Object.assign(getOrderFilters(),{q:'',type:'all',status:'all',date:'0',hide:false,deadline:''});
+    setOrderSearchDraft('');window._ORD_SUB='list';
+  }
+  if(tab==='picking'){
+    window._PICK_SUB='auto';window._PICK_STATUS='all';window._PICK_FOCUS_ORDER='';
+    window._PICK_Q='';window._PICK_DATE='0';window._PICK_PAGE=1;
+  }
+  if(tab==='inbound'){
+    window._INBOUND_FILTERS={...(window._INBOUND_FILTERS||{}),q:'',status:'all',date:'0',page:1};
+  }
+  if(tab==='qc'){
+    QC_SUB=sub==='order'?'order_qc':'pending';
+    const kind=sub==='order'?'orders':'inbound';
+    const states=window._qcPendingSearch||(window._qcPendingSearch={});
+    states[kind]={q:'',draft:''};
+  }
   if(sub==='deadline')window._ORD_SUB='deadline';
   if(sub==='overdue'){
     const filters=getOrderFilters();
