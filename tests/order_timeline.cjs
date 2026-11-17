@@ -125,7 +125,7 @@ test('partial failure still renders available order evidence',async()=>{
   PROXY:'https://offline.invalid',DB:{orders:'orders',qcInspection:'qc'},erpWorkerHeaders:()=>({}),
   fetch:async()=>{throw Error('offline');},canonicalPageId:c.canonicalPageId,getTitle:c.getTitle,
   orderTimelineEvents:c.orderTimelineEvents,renderOrderTimeline:c.renderOrderTimeline});
- vm.runInContext(html.slice(html.indexOf('async function openOrderTimeline'),html.indexOf('function _renderDeadlineTab')),context);
+ vm.runInContext(html.slice(html.indexOf('async function loadOrderProgress'),html.indexOf('function _renderDeadlineTab')),context);
  context.orderTimelineNotion=async()=>({object:'page',created_time:order.created,properties:{'訂單號':order.no}});
  context.orderTimelineQuery=async db=>db==='orders'?[{id:order.id}]:[];
  await context.openOrderTimeline(order.id);

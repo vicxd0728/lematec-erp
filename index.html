@@ -17731,8 +17731,40 @@ function renderOrderWorkHint(o){
   const hint=orderWorkDecision(o);
   if(!hint.label)return '';
   const details=hint.items.length?hint.items.map(item=>`<div class="work-item"><b>${escapeHtml(item.code)}</b><br>需求 ${item.needed??'待確認'} · 現有 ${item.stock??'待確認'} · 缺少 ${item.missing??'待確認'}</div>`).join(''):'';
-  return `<details class="order-work-hint${hint.blocked?' is-blocked':''}" aria-label="${escapeHtml(o.no||'訂單')} 作業摘要"><summary>${escapeHtml(hint.label)}</summary>
-    ${hint.detail?`<div>${escapeHtml(hint.detail)}</div>`:''}${details}<div class="work-caption">依目前已載入資料；未預留庫存，實際領料仍需重新檢查。</div></details>`;
+  const progress=o.status!=='待排程';
+  return `<details class="order-work-hint${hint.blocked?' is-blocked':''}" ${progress?`data-order-id="${escapeHtml(o.id||'')}" ontoggle="loadOrderWorkProgress(this)"`:''} aria-label="${escapeHtml(o.no||'訂單')} 作業摘要"><summary>${escapeHtml(hint.label)}</summary>
+    ${hint.detail?`<div>${escapeHtml(hint.detail)}</div>`:''}${details}${progress?'<div data-work-progress role="status" aria-live="polite">展開後讀取原訂單作業紀錄…</div>':'<div class="work-caption">依目前已載入資料；未預留庫存，實際領料仍需重新檢查。</div>'}</details>`;
+}
+function orderProgressNext(status){
+  return ({'待排程':'倉管／生管：確認物料並安排領料','生產中':'生管：確認生產進度與送檢安排','待檢驗':'品管：確認檢驗結果','品檢異常':'品管／生管：處理異常並確認是否重新送檢','待出貨':'業務／倉管：確認出貨安排','已完成':'訂單已完成，可查看履歷','取消':'確認相關退料紀錄'})[status]||'請核對訂單目前狀態';
+}
+function renderOrderProgressSummary(data){
+  const events=data.events.filter(e=>e.id!=='created');
+  const dated=events.filter(e=>e.date&&Number.isFinite(Date.parse(e.date))).sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
+  const latest=dated[0];
+  return `<div style="overflow-wrap:anywhere"><b>目前：${escapeHtml(data.order.status||'未填狀態')}</b>
+    <div>下一步：${escapeHtml(orderProgressNext(data.order.status))}</div>
+    ${data.sourceSummary.map(s=>`<div>${escapeHtml(s.label)}：${escapeHtml(s.result)}</div>`).join('')}
+    ${latest?`<div class="work-item"><b>最近紀錄：${escapeHtml(latest.title)}</b><br>${escapeHtml(orderTimelineDate(latest.date))}<br>${escapeHtml(latest.detail)}</div>`:`<div class="work-item">${events.length?'有作業紀錄，但日期未填，無法判定先後。':'本次未查到作業紀錄；不代表尚未執行。'}</div>`}
+    ${events.filter(e=>e.id.startsWith('pick:')||e.id.startsWith('qc:')).map(e=>`<div class="work-item">${escapeHtml(e.title)}：${escapeHtml(e.detail)}</div>`).join('')}
+    ${data.issues.map(s=>`<div class="work-caption">${escapeHtml(s)}</div>`).join('')}
+    <div class="work-caption">讀取時間：${escapeHtml(orderTimelineDate(data.readAt))}；下一步依訂單狀態提示。</div></div>`;
+}
+async function loadOrderWorkProgress(panel,force=false){
+  if(!panel.open||panel.dataset.loading==='1'||(!force&&panel.dataset.loaded==='1'))return;
+  const host=panel.querySelector('[data-work-progress]');if(!host)return;
+  const id=panel.dataset.orderId;
+  panel.dataset.loading='1';host.textContent='正在讀取原訂單的領料、品檢與庫存紀錄…';
+  try{
+    const data=await loadOrderProgress(id);
+    if(panel.isConnected===false)return;
+    host.innerHTML=renderOrderProgressSummary(data);panel.dataset.loaded='1';
+  }catch(e){host.textContent='作業紀錄讀取失敗，無法確認進度；請重試。';}
+  finally{panel.dataset.loading='0';}
+  const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px';
+  for(const [label,run] of [['重新讀取',()=>loadOrderWorkProgress(panel,true)],['查看完整進度',()=>openOrderTimeline(id)]]){
+    const button=document.createElement('button');button.type='button';button.className='btn btn-ghost btn-sm';button.textContent=label;button.onclick=run;actions.appendChild(button);
+  }host.appendChild(actions);
 }
 function setOrderMobileSort(value){
   const [col,dir]=String(value).split(':');
@@ -17922,14 +17954,8 @@ async function orderTimelineQuery(db,filter){
   }while(cursor);
   return rows;
 }
-async function openOrderTimeline(id){
-  if(!TOKEN||!orders.some(o=>o.id===id))return;
-  const host=document.getElementById('modalInner');
-  const ticket=crypto.randomUUID();
-  host.innerHTML='<h3>訂單進度</h3><div class="loading-row">正在讀取相關紀錄…</div><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';
-  const marker=document.createElement('span');marker.dataset.timelineTicket=ticket;host.appendChild(marker);openSharedModal();
-  const active=()=>host.contains(marker)&&document.getElementById('modalBg').classList.contains('open');
-  try{
+async function loadOrderProgress(id){
+  if(!TOKEN||!orders.some(o=>o.id===id))throw new Error('Order unavailable');
     const page=await orderTimelineNotion('GET',`pages/${id}`);
     if(page.object!=='page'||page.archived||page.in_trash)throw new Error('訂單已不存在或已封存');
     const props=page.properties||{};
@@ -17955,7 +17981,6 @@ async function openOrderTimeline(id){
     if(picking.status==='fulfilled'&&!picks.length)issues.push('未找到直接關聯的領料紀錄。');
     if(qc.status==='fulfilled'&&!qc.value.length)issues.push('未找到直接關聯的品檢紀錄。');
     const events=orderTimelineEvents(order,picks,qc.status==='fulfilled'?qc.value:[],stock.status==='fulfilled'?stock.value:[],allowNumber);
-    if(!active())return;
     const sourceSummary=sources.map((result,index)=>{
       if(index===2&&!allowNumber)return {label:labels[index],result:'未查（單號未確認）'};
       if(result.status==='rejected')return {label:labels[index],result:'讀取失敗'};
@@ -17963,6 +17988,18 @@ async function openOrderTimeline(id){
       if(!Array.isArray(rows))return {label:labels[index],result:'格式異常'};
       return {label:labels[index],result:index===0&&rows.length>=5000?`至少 ${rows.length} 筆，可能未完整`:`${rows.length} 筆紀錄${rows.length?'':'（未查到）'}`};
     });
+    return {order,events,issues,sourceSummary,readAt:new Date().toISOString()};
+}
+async function openOrderTimeline(id){
+  if(!TOKEN||!orders.some(o=>o.id===id))return;
+  const host=document.getElementById('modalInner');
+  const ticket=crypto.randomUUID();
+  host.innerHTML='<h3>訂單進度</h3><div class="loading-row">正在讀取相關紀錄…</div><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';
+  const marker=document.createElement('span');marker.dataset.timelineTicket=ticket;host.appendChild(marker);openSharedModal();
+  const active=()=>host.contains(marker)&&document.getElementById('modalBg').classList.contains('open');
+  try{
+    const {order,events,issues,sourceSummary}=await loadOrderProgress(id);
+    if(!active())return;
     host.innerHTML=renderOrderTimeline(order,events,issues,sourceSummary);
     host.querySelector('[data-timeline-refresh]').onclick=()=>openOrderTimeline(id);
   }catch(e){if(active()){host.innerHTML='<h3>訂單進度暫時無法載入</h3><p>請稍後重新開啟進度，原有訂單作業不受影響。</p><button class="btn btn-ghost" onclick="closeModal()">關閉</button>';}}
