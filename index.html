@@ -17838,16 +17838,17 @@ function _renderOrdersList(tabs, soonOrders=[]){
     if(_ordType==='sfg') return (o.orderType==='sfg'||o.orderType==='半成品');
     return true;
   });
-  if(_ordStatus==='production-active') data=data.filter(o=>o.status==='待排程'||o.status==='生產中');
-  else if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
   if(filters.deadline==='overdue'){
     const today=todayStr();
     data=data.filter(o=>o.deadline&&o.deadline<today&&o.status!=='已完成'&&o.status!=='取消');
   }
+  const statusScope=data;
+  if(_ordStatus==='production-active') data=data.filter(o=>o.status==='待排程'||o.status==='生產中');
+  else if(_ordStatus!=='all') data=data.filter(o=>(o.status||'')===_ordStatus);
   const ORDER_STATUS_OPTIONS=['待排程','生產中','待檢驗','待出貨','已完成','取消'];
   const orderStatusOptions=[...new Set([...ORDER_STATUS_OPTIONS,...orders.map(o=>o.status).filter(Boolean)])];
-  const orderActiveCount=orders.filter(o=>o.status==='待排程'||o.status==='生產中').length;
-  const countStatus=s=>s==='all'?orders.length:s==='production-active'?orderActiveCount:orders.filter(o=>(o.status||'')===s).length;
+  const orderActiveCount=statusScope.filter(o=>o.status==='待排程'||o.status==='生產中').length;
+  const countStatus=s=>s==='all'?statusScope.length:s==='production-active'?orderActiveCount:statusScope.filter(o=>(o.status||'')===s).length;
   const statusChips=['all','production-active','待排程','生產中','待檢驗','待出貨','已完成','取消'].map(s=>{
     const label=s==='all'?'全部':s==='production-active'?'待排程／生產中':s;
     const active=_ordStatus===s||(!_ordStatus&&s==='all');
@@ -17893,6 +17894,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
         <input type="checkbox" id="hideCompleted" ${hideComp?'checked':''} onchange="updateOrderFilter('hide',this.checked)" style="accent-color:var(--blue)">隱藏完成/取消
       </label>
     </div>
+    <div style="color:var(--text3);font-size:.76rem;margin-bottom:6px">狀態數字依目前搜尋、類型、日期與隱藏條件計算；切換狀態保留這些條件。</div>
     <div class="order-status-chips">${statusChips}</div>
     ${_ordQ||_ordType!=='all'||_ordStatus!=='all'||dateVal!=='0'||hideComp||filters.deadline?`<div class="source-strip"><span>已套用：${escapeHtml([_ordQ?'搜尋「'+_ordQ+'」':'',_ordType!=='all'?'類型 '+({overseas:'國外',domestic:'國內',sfg:'半成品',shopee:'蝦皮'}[_ordType]||_ordType):'',_ordStatus!=='all'?'狀態 '+(_ordStatus==='production-active'?'待排程／生產中':_ordStatus):'',dateVal!=='0'?'日期限制':'',hideComp?'隱藏完成／取消':'',filters.deadline?'逾期未完成':''].filter(Boolean).join(' · '))}</span><button class="btn btn-ghost btn-sm" onclick="resetOrderListFilters()">重設全部篩選</button></div>`:''}
     <div class="order-action-note">資料來源仍是 Notion 訂單；領料扣庫與庫存交易維持既有 Supabase 正式流程。</div>
@@ -24014,23 +24016,23 @@ function qcInspectionRangeDays(){
   const n=parseInt(QC_DATE,10);
   return Number.isFinite(n)&&n>0?n:30;
 }
-function qcInspectionQueryForScope(scope='recent'){
+function qcInspectionQueryForScope(scope='recent',days=qcInspectionRangeDays()){
   if(scope==='all')return {};
-  return {filter:qcInspectionDateFilter(qcInspectionRangeDays()),sorts:[{property:'檢驗日期',direction:'descending'}]};
+  return {filter:qcInspectionDateFilter(days),sorts:[{property:'檢驗日期',direction:'descending'}]};
 }
 async function loadQCInspections(options={}){
   const scope=options.scope||qcInspectionLoadScope();
-  if(!options.force&&_qcInspectionsLoaded&&(_qcInspectionsScope==='all'||_qcInspectionsScope===scope))return window._qcInspections||[];
+  const days=options.days||qcInspectionRangeDays();
+  if(!options.force&&_qcInspectionsLoaded&&(_qcInspectionsScope==='all'||(_qcInspectionsScope===scope&&Number(window._qcInspectionsRangeDays||0)>=days)))return window._qcInspections||[];
   if(_qcInspectionsLoading&&_qcInspectionsPromise){
-    if(_qcInspectionsLoadingScope===scope)return _qcInspectionsPromise;
-    return _qcInspectionsPromise.then(()=>loadQCInspections({scope}));
+    return _qcInspectionsPromise.then(()=>loadQCInspections({scope,days}));
   }
   _qcInspectionsLoading=true;
   _qcInspectionsLoadingScope=scope;
   window._qcInspectionsLoadStartedAt=performance.now();
   _qcInspectionsPromise=(async()=>{
   try{
-    const r = await dbQueryAll(DB.qcInspection,qcInspectionQueryForScope(scope));
+    const r = await dbQueryAll(DB.qcInspection,qcInspectionQueryForScope(scope,days));
     window._qcInspections = r.map(p=>({
       id:       p.id,
       no:       p.properties?.['檢驗單號']?.title?.[0]?.plain_text||'',
@@ -24055,7 +24057,7 @@ async function loadQCInspections(options={}){
     })).sort((a,b)=>b.date.localeCompare(a.date));
     _qcInspectionsLoaded=true;
     _qcInspectionsScope=scope;
-    window._qcInspectionsRangeDays=scope==='all'?Infinity:qcInspectionRangeDays();
+    window._qcInspectionsRangeDays=scope==='all'?Infinity:days;
     _qcInspectionsError='';
     window._qcInspectionsLoadMs=Math.round(performance.now()-(window._qcInspectionsLoadStartedAt||performance.now()));
     window._qcInspectionsLoadedAt=new Date();
@@ -24246,7 +24248,17 @@ function renderQCExceptions(rows){
   if(!attention.length)return '本次已載入範圍沒有不通過／條件通過紀錄。';
   return `<p>${attention.length} 筆不通過／條件通過紀錄；顯示前 10 筆，供核對處理方式，不代表仍未結案。</p>`+attention.slice(0,10).map(i=>`<article class="work-item" style="margin-bottom:12px;overflow-wrap:anywhere"><b>${escapeHtml(i.no||'未編號')} · ${escapeHtml(i.result)}</b><div>${escapeHtml(i.matCode||i.matName||'品項未填')}</div><div>原因：${escapeHtml(i.badReason||'未記錄')} · 處理：${escapeHtml(i.handling||'未記錄')}</div><button type="button" class="btn btn-ghost btn-sm" data-qc-id="${escapeHtml(i.id||'')}" onclick="openQCRecordDetails(this.dataset.qcId)">查看檢驗明細</button></article>`).join('');
 }
+function qcRecordInDateRange(record){
+  if(QC_DATE==='0')return true;
+  // 與伺服器「檢驗日期 on_or_after」相同的曆日邊界，不以建檔時間取代檢驗日。
+  const key=String(record.date||record.created||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(key))return false;
+  const cutoff=new Date(todayStr()+'T00:00:00Z');
+  cutoff.setUTCDate(cutoff.getUTCDate()-qcInspectionRangeDays());
+  return key>=cutoff.toISOString().slice(0,10);
+}
 function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],doneInbound=[]){
+  allInspections=allInspections.filter(qcRecordInDateRange);
   const month=todayStr().slice(0,7);
   const scopeLabel=QC_DATE==='0'?'全部已載入紀錄':`近 ${qcInspectionRangeDays()} 天已載入紀錄`;
   const monthIns=allInspections.filter(x=>(x.date||'').startsWith(month));
@@ -24254,7 +24266,7 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
   const fail=allInspections.filter(x=>x.result==='不通過').length;
   const badQty=allInspections.reduce((s,x)=>s+(Number(x.qtyBad)||0),0);
   const reasonMap={};
-  allInspections.forEach(x=>{const k=x.badReason||x.handling||'';if(k)reasonMap[k]=(reasonMap[k]||0)+1;});
+  allInspections.filter(x=>x.result==='不通過'||Number(x.qtyBad)>0).forEach(x=>{const k=String(x.badReason||'').trim()||'原因未填';reasonMap[k]=(reasonMap[k]||0)+1;});
   const reasons=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const decided=allInspections.filter(x=>['通過','條件通過','不通過'].includes(x.result));
   const rate=decided.length?Math.round(pass/decided.length*100):'—';
@@ -24262,10 +24274,10 @@ function renderQCReport(allInspections=[],pendingInbound=[],pendingOrders=[],don
     <div class="kpi-card kpi-green"><div class="kpi-label">通過率</div><div class="kpi-num">${rate}${decided.length?'<span style="font-size:1.2rem">%</span>':''}</div><div class="kpi-sub">${pass} 通過 / ${decided.length} 已判定（含條件通過） · ${scopeLabel}；未判定 ${allInspections.length-decided.length} 筆不計入</div></div>
     <div class="kpi-card ${fail?'kpi-red':'kpi-green'}"><div class="kpi-label">不通過</div><div class="kpi-num">${fail}</div><div class="kpi-sub">不良數量 ${badQty}</div></div>
     <div class="kpi-card ${pendingInbound.length+pendingOrders.length?'kpi-amber':'kpi-green'}"><div class="kpi-label">待檢項目</div><div class="kpi-num">${pendingInbound.length+pendingOrders.length}</div><div class="kpi-sub">入料 ${pendingInbound.length} / 訂單 ${pendingOrders.length}</div></div>
-    <div class="kpi-card kpi-cyan"><div class="kpi-label">本月檢驗</div><div class="kpi-num">${monthIns.length}</div><div class="kpi-sub">${month}</div></div>
+    <div class="kpi-card kpi-cyan"><div class="kpi-label">範圍內本月檢驗</div><div class="kpi-num">${monthIns.length}</div><div class="kpi-sub">${month} · ${scopeLabel}</div></div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px">
-    <div class="panel"><div class="panel-hdr"><span class="panel-title">不良原因排行</span></div>
+    <div class="panel"><div class="panel-hdr"><span class="panel-title">不良原因排行（檢驗筆數）</span></div>
       <div style="padding:12px">${reasons.length?reasons.map(([k,v])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border)"><b>${escapeHtml(k)}</b><span class="badge">${v}</span></div>`).join(''):'<div style="padding:22px;text-align:center;color:var(--green2)">目前沒有不良原因資料</div>'}</div>
     </div>
     <div class="panel"><div class="panel-hdr"><span class="panel-title">最近檢驗紀錄</span></div>
@@ -24546,7 +24558,6 @@ function renderQCTab(){
       ${_qcDateOpts.map(([v,l])=>{const a=QC_DATE===v;return`<button onclick="setQCDateRange('${v}')" style="padding:3px 10px;border-radius:6px;font-size:0.6875rem;cursor:pointer;border:1px solid ${a?'var(--blue)':'var(--border)'};background:${a?'rgba(77,142,245,.12)':'var(--bg3)'};color:${a?'var(--blue)':'var(--text2)'}">${l}</button>`;}).join('')}
     </div>`;
 
-    const cutoff = QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
     function qcInspectionKind(ins){
       const ref=ins.orderRef||ins.no||'';
       if(ref.startsWith('IB-'))return 'inbound';
@@ -24558,7 +24569,7 @@ function renderQCTab(){
       if(QC_FILTER==='pass' && ins.result!=='通過' && ins.result!=='條件通過') return false;
       if(QC_FILTER==='fail' && ins.result!=='不通過') return false;
       if(QC_KIND!=='all'&&qcInspectionKind(ins)!==QC_KIND)return false;
-      if(cutoff){ const t=new Date(ins.created||ins.date||'').getTime(); if(!t||t<cutoff) return false; }
+      if(!qcRecordInDateRange(ins))return false;
       return true;
     }
 
@@ -24602,16 +24613,13 @@ function renderQCTab(){
     const thead = `<tr><th>檢驗單號</th><th>類型</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
     const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th><th>查閱</th></tr>`;
     const linkedInboundNos=new Set(inspections.filter(i=>qcInspectionKind(i)==='inbound').map(i=>i.orderRef||'').filter(Boolean));
-    const inboundHistoryCutoff=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
     const extraDoneInbound=doneInbound.filter(i=>{
       if(QC_KIND!=='all'&&QC_KIND!=='inbound')return false;
       if(linkedInboundNos.has(i.no))return false;
       if(QC_FILTER==='pass'&&i.qcStatus!=='品檢通過')return false;
       if(QC_FILTER==='fail'&&i.qcStatus!=='品檢不合格')return false;
       if(!qcHistoryMatches(i,historySearch.q,mats.find(m=>m.id===i.matId)))return false;
-      if(!inboundHistoryCutoff)return true;
-      const t=new Date(i.date||'').getTime();
-      return t&&t>=inboundHistoryCutoff;
+      return qcRecordInDateRange(i);
     });
 
     let content = '';

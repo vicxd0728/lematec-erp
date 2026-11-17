@@ -1,6 +1,20 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{test}=require('node:test');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+test('order status counts share search type date hide and deadline population with rows',()=>{
+ const rows=[{no:'A',orderType:'domestic',created:'2026-11-17',deadline:'2026-11-15',status:'待排程'},
+ {no:'A2',orderType:'domestic',created:'2026-11-17',deadline:'2026-11-15',status:'生產中'},
+ {no:'A3',orderType:'overseas',created:'2026-11-17',status:'待排程'},
+ {no:'B',orderType:'domestic',created:'2025-01-01',status:'待排程'},
+ {no:'A4',orderType:'domestic',created:'2026-11-17',status:'已完成'}];
+ const filters={q:'A',type:'domestic',date:'7',hide:true,deadline:'overdue',status:'待排程'};
+ const c=vm.createContext({orders:rows,SORT:{},dashboardCanCreateOrder:()=>false,isViewOnly:()=>true,getOrderFilters:()=>filters,getOrderSearchDraft:()=>'',
+ applyDateFilterValue:(_v,x)=>x.filter(o=>o.created>='2026-11-10'),searchIncludesAll:(s,q)=>s.includes(q),orderSearchBlob:o=>o.no,todayStr:()=> '2026-11-17',escapeHtml:esc});
+ const prefix=source('function _renderOrdersList(','  const orderBrief=');
+ vm.runInContext(prefix+'return {rows:data.map(o=>o.no),counts:[countStatus("all"),countStatus("待排程"),countStatus("生產中"),countStatus("已完成")]};}',c);
+ const out=c._renderOrdersList('');assert.deepEqual(Array.from(out.rows),['A']);assert.deepEqual(Array.from(out.counts),[2,1,1,0]);
+ filters.status='生產中';assert.deepEqual(Array.from(c._renderOrdersList('').rows),['A2']);
+});
 function source(a,b){return html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)+a.length));}
 function setup(extra={}){const c=vm.createContext({isFresh:()=>true,resolveOrderPickPlan:()=>({items:[{code:'Y-1',stock:2,needed:5}]}),escapeHtml:esc,preflightBadge:(_level,label)=>label,...extra});vm.runInContext(source('function orderWorkDecision(','function _renderOrdersList('),c);vm.runInContext(source('function renderPreflightCenter(','async function saveAnnounce('),c);return c;}
 test('row summary shows shortages and preserves full comparable quantities',()=>{

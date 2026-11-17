@@ -5,4 +5,5 @@ module.exports=function installLoadedReadFixture(ctx,html){
   const start=html.indexOf('function operationalReadState('),end=html.indexOf('async function readPicks(',start);
   if(start<0||end<start)throw Error('operational read helpers missing');
   vm.runInContext(html.slice(start,end),ctx);
+  vm.runInContext(html.slice(html.indexOf('function qcRecordInDateRange('),html.indexOf('function renderQCReport(')),ctx);
 };

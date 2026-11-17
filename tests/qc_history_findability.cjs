@@ -45,3 +45,10 @@ test('no-match search provides recovery without implying an empty source',()=>{
  const {ctx}=context([{id:'i',no:'QC-1',result:'通過'}]);ctx.window._qcHistorySearch={q:'NOT-FOUND',draft:'NOT-FOUND'};
  const out=ctx.renderQCTab();assert.match(out,/目前沒有符合條件/);assert.match(out,/清除搜尋與結果／類型篩選/);assert.match(out,/已載入正式檢驗 1 筆/);
 });
+
+test('history uses inspection day over creation day and includes the entire cutoff day',()=>{
+ const rows=[{id:'a',no:'QC-RECENT',date:'2026-11-10',created:'2025-01-01',result:'通過'},
+ {id:'b',no:'QC-OLD',date:'2026-11-09',created:'2026-11-17',result:'通過'}];
+ const {ctx}=context(rows,[],{QC_DATE:'7',todayStr:()=> '2026-11-17',qcInspectionRangeDays:()=>7});
+ const out=ctx.renderQCTab();assert.match(out,/QC-RECENT/);assert.doesNotMatch(out,/>QC-OLD</);assert.match(out,/正式檢驗 1 筆/);
+});

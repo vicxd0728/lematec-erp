@@ -10,6 +10,29 @@ test('inbound details show source reason, target, next step and unknown receipt 
 test('QC detail uses exact ID, preserves zero and escapes operator text',()=>{const {c,host,notices}=setup();c.window._qcInspections.push({...qc,id:'qc-2',badReason:'<img src=x>',qtyBad:0});c.openQCRecordDetails('qc-2');assert.match(host.innerHTML,/&lt;img/);assert.doesNotMatch(host.innerHTML,/<img/);assert.match(host.innerHTML,/>0<\/div>/);c.openQCRecordDetails('missing');assert.equal(notices.length,1);});
 test('report denominator excludes undecided records and empty report is unknown',()=>{const {c}=setup();assert.doesNotMatch(c.renderQCReport([]),/>100</);const out=c.renderQCReport([{...qc,result:'通過'},{...qc,result:'待檢驗'}]);assert.match(out,/>100</);assert.match(out,/1 已判定/);assert.match(out,/未判定 1/);assert.match(out,/近 7 天/);assert.doesNotMatch(out,/Notion 整理建議/);});
 test('exception panel is data-backed and empty reasons remain unknown',()=>{const {c}=setup();const out=c.renderQCExceptions([{...qc,badReason:'',handling:'<script>'}]);assert.match(out,/未記錄/);assert.match(out,/&lt;script/);assert.match(out,/qc-1/);assert.doesNotMatch(out,/<script>/);assert.match(c.renderQCExceptions([]),/沒有不通過/);});
+test('report narrows a broader cached population and keeps handling out of cause ranking',()=>{
+ const {c}=setup();const rows=[{...qc,id:'recent',no:'QC-RECENT',date:'2026-11-10',badReason:'',handling:'退貨'},
+ {...qc,id:'old',no:'QC-OLD',date:'2026-11-09',badReason:'舊原因'},
+ {...qc,id:'pass',no:'QC-PASS',result:'通過',qtyBad:0,badReason:'舊備註'}];
+ const before=JSON.stringify(rows),out=c.renderQCReport(rows);
+ assert.match(out,/1 通過 \/ 2 已判定/);assert.doesNotMatch(out,/QC-OLD|舊原因/);
+ const ranking=out.split('不良原因排行（檢驗筆數）')[1].split('最近檢驗紀錄')[0];
+ assert.match(ranking,/原因未填/);assert.doesNotMatch(ranking,/退貨|舊備註/);assert.equal(JSON.stringify(rows),before);
+ c.QC_DATE='0';assert.match(c.renderQCReport(rows),/QC-OLD/);
+});
+test('QC widening reloads and an in-flight request cannot mislabel its date coverage',async()=>{
+ const queries=[],releases=[];
+ const c=vm.createContext({window:{_qcInspections:[]},QC_DATE:'7',performance,console,DB:{qcInspection:'test'},markLoaded:()=>{},
+ qcInspectionDateFilter:days=>({days}),dbQueryAll:async(_db,q)=>{queries.push(q);return new Promise(resolve=>releases.push(resolve));}});
+ vm.runInContext("let _qcInspectionsLoaded=false,_qcInspectionsScope='',_qcInspectionsLoading=false,_qcInspectionsPromise=null,_qcInspectionsLoadingScope='',_qcInspectionsError='';"+cut('function qcInspectionLoadScope(','function qcInspectionLinkedToOrder('),c);
+ const first=c.loadQCInspections();c.QC_DATE='90';const second=c.loadQCInspections();
+ releases.shift()([]);await first;assert.equal(c.window._qcInspectionsRangeDays,7);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(queries.length,2);assert.equal(queries[1].filter.days,90);
+ releases.shift()([]);await second;assert.equal(c.window._qcInspectionsRangeDays,90);
+ c.QC_DATE='7';await c.loadQCInspections();assert.equal(queries.length,2);
+ c.QC_DATE='0';const all=c.loadQCInspections();assert.equal(queries.length,3);releases.shift()([]);await all;
+ assert.equal(c.window._qcInspectionsRangeDays,Infinity);
+});
 if(process.argv.includes('--serve')){
  const styles=html.slice(0,html.indexOf('</head>')).match(/<style[^>]*>[\s\S]*?<\/style>/g).join('\n').replace(/@import[^;]+;/g,'');
  const page=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${styles}<style>body{padding:16px}main{max-width:1000px;margin:auto}#modalBg{position:fixed;inset:0;display:none;overflow:auto;background:#0009;padding:16px;z-index:999}#modalBg.open{display:block}#modalInner{width:100%;max-width:700px;margin:auto;padding:18px;background:var(--bg2);box-sizing:border-box;border:1px solid var(--border);border-radius:12px}.btn{min-height:44px}#report>div{min-width:0}#report>div[style]{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))!important}</style><main><h2>入料／品管資料查閱｜隔離驗收</h2><p>合成資料 · 無正式連線</p><button class="btn" onclick="openInboundRecordDetails('inbound-1')">查看入料明細</button><button class="btn" onclick="openQCRecordDetails('qc-1')">查看品檢明細</button><div id="report"></div></main><div id="modalBg"><div id="modalInner"></div></div><script>const inbounds=[${JSON.stringify(ib)}];window._qcInspections=[${JSON.stringify(qc)}];const QC_DATE='7',qcInspectionRangeDays=()=>7,todayStr=()=> '2026-11-17',escapeHtml=${esc.toString()},pill=escapeHtml;function openSharedModal(){document.querySelector('#modalBg').classList.add('open')}function closeModal(){document.querySelector('#modalBg').classList.remove('open')}function showToast(s){alert(s)}${funcs}document.querySelector('#report').innerHTML=renderQCReport(window._qcInspections);</script>`;
