@@ -17716,7 +17716,7 @@ function shortageSourceOrderLink(note){
 // 原有訂單列表
 // ══════════════════════════════════════
 function orderWorkDecision(o){
-  if(o.status!=='待排程')return {label:({'生產中':'追蹤作業進度','待檢驗':'等待品管確認','品檢異常':'處理品檢異常','待出貨':'確認出貨安排'})[o.status]||'',items:[]};
+  if(o.status!=='待排程')return {label:({'生產中':'生產中','待檢驗':'等待品管確認','品檢異常':'處理品檢異常','待出貨':'確認出貨安排'})[o.status]||'',items:[]};
   if(!isFresh('core'))return {label:'庫存快照待更新',detail:'目前不判定缺料；請同步後再檢查。',items:[]};
   try{
     const plan=resolveOrderPickPlan(o);
@@ -17736,7 +17736,8 @@ function renderOrderWorkHint(o){
   if(!hint.label)return '';
   const details=hint.items.length?hint.items.map(item=>`<div class="work-item"><b>${escapeHtml(item.code)}</b><br>需求 ${item.needed??'待確認'} · 現有 ${item.stock??'待確認'} · 缺少 ${item.missing??'待確認'}</div>`).join(''):'';
   const progress=o.status!=='待排程';
-  return `<details class="order-work-hint${hint.blocked?' is-blocked':''}" ${progress?`data-order-id="${escapeHtml(o.id||'')}" ontoggle="loadOrderWorkProgress(this)"`:''} aria-label="${escapeHtml(o.no||'訂單')} 作業摘要"><summary>${escapeHtml(hint.label)}</summary>
+  return `<details class="order-work-hint${hint.blocked?' is-blocked':''}" ${progress?`data-order-id="${escapeHtml(o.id||'')}" ontoggle="loadOrderWorkProgress(this)"`:''} aria-label="${escapeHtml(o.no||'訂單')} 作業摘要"><summary>作業摘要 · ${escapeHtml(hint.label)}</summary>
+    <div class="work-caption">快速查看${progress?'最近作業紀錄與下一步；完整履歷請按「完整進度」。':'領料需求與缺料原因。'}</div>
     ${hint.detail?`<div>${escapeHtml(hint.detail)}</div>`:''}${details}${progress?'<div data-work-progress role="status" aria-live="polite">展開後讀取原訂單作業紀錄…</div>':'<div class="work-caption">依目前已載入資料；未預留庫存，實際領料仍需重新檢查。</div>'}</details>`;
 }
 function orderProgressNext(status){
@@ -17766,7 +17767,7 @@ async function loadOrderWorkProgress(panel,force=false){
   }catch(e){host.textContent='作業紀錄讀取失敗，無法確認進度；請重試。';}
   finally{panel.dataset.loading='0';}
   const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px';
-  for(const [label,run] of [['重新讀取',()=>loadOrderWorkProgress(panel,true)],['查看完整進度',()=>openOrderTimeline(id)]]){
+  for(const [label,run] of [['重新讀取',()=>loadOrderWorkProgress(panel,true)],['完整進度',()=>openOrderTimeline(id)]]){
     const button=document.createElement('button');button.type='button';button.className='btn btn-ghost btn-sm';button.textContent=label;button.onclick=run;actions.appendChild(button);
   }host.appendChild(actions);
 }
@@ -17872,7 +17873,7 @@ function _renderOrdersList(tabs, soonOrders=[]){
   ${!data.length?`<tr class="order-empty-row"><td colspan="${canOperate?10:9}" role="status" style="padding:24px;white-space:normal">${!window._coreLoaded?'訂單尚未成功載入，請使用上方同步後再查詢。':orders.length?'目前條件沒有符合訂單；可重設搜尋、狀態與日期條件。':'已載入的訂單清單目前沒有資料。'}${orders.length?'<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="resetOrderListFilters()">清除全部條件並顯示訂單</button></div>':''}</td></tr>`:''}
   ${data.map(o=>{const isAct=o.status==='待排程'||o.status==='生產中';return`<tr>
     <td data-label="建立日" style="font-family:monospace;font-size:0.625rem;color:var(--text3)">${o.created||'—'}</td>
-    <td data-label="訂單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單進度">進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
+    <td data-label="訂單號" style="font-family:monospace;color:var(--text);font-size:0.6875rem;font-weight:600">${escapeHtml(o.no||'—')}<div><button class="btn btn-ghost btn-xs" onclick="openOrderTimeline('${o.id}')" aria-label="查看訂單完整進度" title="查看完整時間軸與原始紀錄">完整進度</button>${isSfgProductionOrder(o)?shortageSourceOrderLink(o.note):''}</div></td>
     <td data-label="客戶" style="font-size:0.6875rem;font-family:${(o.orderType==='國外'||o.orderType==='overseas'||!o.orderType)?'var(--f-mono)':'var(--f-ui)'}">${escapeHtml(orderCustomerLabel(o))}</td>
     <td data-label="品項" style="font-size:0.75rem;font-weight:600">${renderOrderProduct(o)}<div class="m-only order-mobile-detail">數量：${o.qty||0}${o.unitPrice!==null&&o.unitPrice!==undefined?'｜單價：'+formatOptionalMoney(o.unitPrice):''}｜交期：${o.deadline||'—'}${o.shipDate?'｜出貨：'+o.shipDate:''}</div></td>
     <td class="hide-m" style="font-family:monospace">${o.qty}</td>
@@ -17932,7 +17933,7 @@ function orderTimelineDate(value){
 function renderOrderTimeline(order,events,issues=[],sourceSummary=[]){
   const next={'待排程':'倉管／生管：確認物料並安排領料','生產中':'生管：確認生產進度與送檢安排','待檢驗':'品管：確認檢驗結果','待出貨':'業務／倉管：確認出貨安排','已完成':'目前訂單已完成，可查看履歷','取消':'目前訂單已取消，請確認相關退料紀錄'};
   return `<div data-contract="ORDER_TIMELINE_V1" style="overflow-wrap:anywhere">
-    <h3>訂單進度 · ${escapeHtml(order.no||'未編號')}</h3>
+    <h3>完整進度 · ${escapeHtml(order.no||'未編號')}</h3>
     <div class="info-box info-tip">目前：<b>${escapeHtml(order.status||'未填狀態')}</b><br>${escapeHtml(next[order.status]||'請依目前狀態確認下一步')}<br>交期：${escapeHtml(order.deadline||'未填')} · 數量：${escapeHtml(String(order.qty??'—'))}</div>
     ${sourceSummary.length?`<div class="panel" style="padding:11px;margin:10px 0"><strong>本次讀取摘要</strong><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">${sourceSummary.map(item=>`<span style="border:1px solid var(--border);border-radius:7px;padding:5px 7px;font-size:.76rem">${escapeHtml(item.label)}：${escapeHtml(item.result)}</span>`).join('')}</div><div style="font-size:.7rem;color:var(--text3);margin-top:6px">讀取時間：${escapeHtml(new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}；「未查到」不代表尚未執行。</div></div>`:''}
     <p style="color:var(--text3);font-size:.8rem">依可查證日期排列；品檢結果及領料狀態顯示目前紀錄，不代表完整的歷次狀態變更。沒有紀錄不等於尚未執行。</p>
