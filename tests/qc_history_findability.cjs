@@ -14,6 +14,11 @@ test('failure filter excludes passed legacy inbound supplements',()=>{
  const {ctx}=context([],[{no:'IB-PASS',qty:1,qcStatus:'品檢通過'},{no:'IB-FAIL',qty:1,qcStatus:'品檢不合格'}],{QC_FILTER:'fail'});
  const out=ctx.renderQCTab();assert.match(out,/IB-FAIL/);assert.doesNotMatch(out,/IB-PASS/);assert.match(out,/舊入料補充 1 筆/);
 });
+
+test('legacy inbound supplement retains its exact receipt detail link',()=>{
+ const {ctx}=context([],[{id:'receipt-exact',no:'IB-OLD',qcStatus:'品檢不合格',rejectReason:'表面刮傷'}]);
+ const out=ctx.renderQCTab();assert.match(out,/data-inbound-id="receipt-exact"/);assert.match(out,/openInboundRecordDetails/);
+});
 test('filtered-out formal inspection never reappears as legacy supplement',()=>{
  const {ctx}=context([{id:'i',no:'QC-1',orderRef:'IB-PASS',result:'通過'}],[{no:'IB-PASS',qcStatus:'品檢不合格'}],{QC_FILTER:'fail'});
  const out=ctx.renderQCTab();assert.doesNotMatch(out,/入料已檢測補充/);assert.match(out,/正式檢驗 0 筆／舊入料補充 0 筆/);

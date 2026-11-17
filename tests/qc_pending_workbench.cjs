@@ -19,6 +19,16 @@ test('unloaded QC sources never claim there are no pending inspections',()=>{
  let out=ctx.renderQCTab();assert.match(out,/待載入/);assert.match(out,/尚未載入/);assert.doesNotMatch(out,/✅ 目前.*沒有/);
  ctx.QC_SUB='order_qc';out=ctx.renderQCTab();assert.match(out,/訂單資料尚未載入/);assert.doesNotMatch(out,/✅ 目前.*沒有/);
 });
+
+test('inbound read detail uses original ERP ID for QC and read-only roles, never a Supabase-as-Notion URL',()=>{
+ for(const readonly of [false,true]){
+  const {ctx}=setup({isViewOnly:()=>readonly});ctx.inbounds[0].id='db-receipt-original';ctx.inbounds[0].notionId='different-notion-page';
+  const before=JSON.stringify(ctx.inbounds),out=ctx.renderQCTab();
+  assert.match(out,/data-inbound-id="db-receipt-original"/);assert.match(out,/openInboundRecordDetails/);assert.doesNotMatch(out,/notion.so\/db-receipt-original/);
+  if(readonly)assert.doesNotMatch(out,/onclick="approveQC|onclick="openInboundReject/);
+  assert.equal(JSON.stringify(ctx.inbounds),before);
+ }
+});
 test('loaded empty QC can report zero while a failed read cannot imply an all-clear',()=>{
  const {ctx}=setup({inbounds:[]});assert.match(ctx.renderQCTab(),/✅ 目前已載入資料沒有入料待品檢/);
  ctx.window._operationalReads={inbounds:{error:'<offline>',loading:false}};const out=ctx.renderQCTab();assert.match(out,/&lt;offline&gt;/);assert.match(out,/最新正式狀態仍須確認/);assert.doesNotMatch(out,/✅ 目前已載入資料沒有/);

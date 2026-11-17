@@ -19768,7 +19768,7 @@ function renderPicking(){
     <span><b>流程說明</b>：業務提出回料申請；倉管確認實物回來；系統才補庫存並解除訂單限制。</span>
     <span>缺料待補：${shortageRows.length} / 目前篩選：${pickingStatusFilterLabel(statusFilter)}</span>
   </div>`:'';
-  const overview=sub==='auto'?`<div class="picking-summary-strip" aria-label="目前搜尋範圍領料摘要"><strong>領料作業</strong><span>待回料 ${returnRequests.length}</span><span>缺料待補 ${shortageRows.length}</span><span>已領料 ${pickedRows.length}</span>${returnRequests.length?'<button type="button" class="btn btn-yellow btn-sm" onclick="setPickingView(\'auto\',\'return\',true)">查看待回料確認</button>':''}</div><details class="picking-overview-details" ${window._pickingOverviewOpen?'open':''} ontoggle="window._pickingOverviewOpen=this.open"><summary>回料流程說明與領料狀態圖（展開查閱）</summary>${workflowBoard}${renderPickingStatusVisual(scopedAutoData)}</details>`:'';
+  const overview=sub==='auto'?`<details class="picking-overview-details" ${window._pickingOverviewOpen?'open':''} ontoggle="window._pickingOverviewOpen=this.open"><summary>回料流程與狀態圖（說明／查閱）</summary>${workflowBoard}${renderPickingStatusVisual(scopedAutoData)}</details>`:'';
   return _notionBar + '<div id="pickingReadNotice">' + renderOperationalReadNotice('picks','領料',readState) + (fallback?'<div class="info-warn" role="status">目前顯示 Notion 唯讀備援；領料、扣庫與回料操作暫停。請使用右上角同步，恢復 Supabase 主資料後再操作。</div>':'') + '</div>' + tabs + '<div id="pickingOverview">'+overview + `</div><div class="filter-bar operational-toolbar">
     <input class="inp" id="pickingSearch" aria-label="搜尋領料紀錄" style="width:min(310px,85vw)" placeholder="單號、料號、客戶；空白分隔多條件" value="${escapeHtml(window._PICK_Q||'')}" oninput="updatePickingSearch(this)" oncompositionstart="this._composing=true" oncompositionend="this._composing=false;updatePickingSearch(this)">
     <button class="btn btn-ghost btn-xs" onclick="resetPickingFilters()">清除篩選</button>
@@ -24381,15 +24381,10 @@ function renderQCTab(){
     </div>
     <div class="module-brief-actions">
       <span class="module-pill">待處理 <b>${pendingTotalCount}</b></span>
-      <span class="module-pill">入料 <b>${pendingInboundCount}</b></span>
-      <span class="module-pill">訂單 <b>${pendingOrderCount}</b></span>
       <span class="module-pill">載入 <b>${qcLoadLabel}</b></span>
       <span class="module-pill">歷史範圍 <b>${qcRangeLabel}</b></span>
+      ${canQC?`<button class="btn btn-blue btn-xs" onclick="openNewInspection('','','',1)">新增品檢</button>`:''}
     </div>
-  </div>
-  <div class="source-strip">
-    <span><b>操作分流</b>：待處理只放需要動作的項目；檢驗紀錄與報表才讀歷史資料。${qcLoadLabel}</span>
-    ${canQC?`<button class="btn btn-blue btn-xs" onclick="openNewInspection('','','',1)">新增品檢</button>`:''}
   </div>`;
 
   // ── 四個 tab ──
@@ -24440,8 +24435,7 @@ function renderQCTab(){
               <button class="btn btn-green btn-sm" onclick="approveQC('${i.id}','${i.matId}',${i.qty})">✓ 通過</button>
               <button class="btn btn-red btn-sm" onclick="openInboundRejectModal('${i.id}')">✗ 退回</button>
               <button class="btn btn-cyan btn-sm" onclick="openInboundPhotoQC('${i.id}','${i.matId}',${i.qty})">📷 拍照品檢</button>
-              <a href="https://www.notion.so/${i.id.replace(/-/g,'')}" target="_blank" class="btn btn-ghost btn-sm">🔗</a>
-            </div>`:'—'}</td>
+            </div>`:''}<button type="button" class="btn btn-ghost btn-sm" data-inbound-id="${escapeHtml(i.id)}" onclick="openInboundRecordDetails(this.dataset.inboundId)">入料明細</button></td>
           </tr>`;
         }).join('')}
       </table></div>
@@ -24566,16 +24560,17 @@ function renderQCTab(){
       const mat=mats.find(m=>m.id===i.matId);
       const isFail=i.qcStatus==='品檢不合格';
       return `<tr>
-        <td style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.no||'—')}</td>
-        <td style="font-size:0.6875rem">${escapeHtml(mat?.name||i.matName||'—')}</td>
-        <td style="font-family:monospace">${Number(i.qty)||0}</td>
-        <td class="hide-m" style="font-size:0.6875rem">${escapeHtml(i.date||'—')}</td>
-        <td><span style="padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.1)':'rgba(46,196,138,.1)'};color:${isFail?'var(--red)':'var(--green)'}">${escapeHtml(i.qcStatus||'—')}</span></td>
+        <td data-label="入料單號" style="font-family:monospace;font-size:0.6875rem">${escapeHtml(i.no||'—')}</td>
+        <td data-label="料件" style="font-size:0.6875rem">${escapeHtml(mat?.name||i.matName||'—')}</td>
+        <td data-label="數量" style="font-family:monospace">${Number(i.qty)||0}</td>
+        <td data-label="日期" style="font-size:0.6875rem">${escapeHtml(i.date||'—')}</td>
+        <td data-label="狀態"><span style="padding:2px 8px;border-radius:20px;font-size:0.6875rem;font-weight:600;background:${isFail?'rgba(239,68,68,.1)':'rgba(46,196,138,.1)'};color:${isFail?'var(--red)':'var(--green)'}">${escapeHtml(i.qcStatus||'—')}</span></td>
+        <td data-label="查閱"><button type="button" class="btn btn-ghost btn-sm" data-inbound-id="${escapeHtml(i.id||'')}" onclick="openInboundRecordDetails(this.dataset.inboundId)">入料明細</button></td>
       </tr>`;
     }
 
     const thead = `<tr><th>檢驗單號</th><th>類型</th><th>關聯單號</th><th>品項</th><th>實/應檢</th><th>不良</th><th>結果</th><th>日期</th><th>人員</th><th></th></tr>`;
-    const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th></tr>`;
+    const inboundHistoryHead = `<tr><th>入料單號</th><th>料件</th><th>數量</th><th class="hide-m">日期</th><th>狀態</th><th>查閱</th></tr>`;
     const linkedInboundNos=new Set(inspections.filter(i=>qcInspectionKind(i)==='inbound').map(i=>i.orderRef||'').filter(Boolean));
     const inboundHistoryCutoff=QC_DATE==='0'?0:(Date.now()-parseInt(QC_DATE)*86400000);
     const extraDoneInbound=doneInbound.filter(i=>{
@@ -24613,7 +24608,7 @@ function renderQCTab(){
       content += `<div class="panel" style="margin-top:12px">
         <div class="panel-hdr"><span class="panel-title">✅ 入料已檢測補充</span><span class="badge">${extraDoneInbound.length}</span></div>
         <div style="padding:0 14px 10px;color:var(--text3);font-size:.76rem">此區保留舊入料狀態紀錄；若已建立正式品管檢驗單，會優先顯示在上方入料品管檢驗。</div>
-        <div class="table-wrap"><table>${inboundHistoryHead}${applySort('qch',extraDoneInbound).map(inboundHistoryRow).join('')}</table></div>
+        <div class="table-wrap"><table class="qc-work-table">${inboundHistoryHead}${applySort('qch',extraDoneInbound).map(inboundHistoryRow).join('')}</table></div>
       </div>`;
     }
     if(!content) content = `<div class="panel"><div style="padding:28px;text-align:center;color:var(--text3)">目前沒有符合條件的檢驗紀錄<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="resetQCHistoryFilters()">清除搜尋與結果／類型篩選</button></div></div></div>`;

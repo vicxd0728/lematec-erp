@@ -66,6 +66,6 @@ test('failed or refreshing snapshots retain rows but suppress picking and inboun
 });
 test('compact overview keeps urgent return access visible and preserves the disclosure choice',()=>{
   const ctx=context({picks:[{id:'p',no:'P',orderId:'order',status:'待回料確認',qty:1}]});
-  let out=ctx.renderPicking();assert.match(out,/待回料 1/);assert.match(out,/查看待回料確認/);assert.doesNotMatch(out,/<details class="picking-overview-details" open/);
+  let out=ctx.renderPicking();const visible=out.replace(/<details class="picking-overview-details"[\s\S]*?<\/details>/,'');assert.match(visible,/setPickingView\('auto','return'\)[^>]*>待回料確認 <b>1<\/b>/);assert.doesNotMatch(out,/picking-summary-strip/);assert.doesNotMatch(out,/<details class="picking-overview-details" open/);
   ctx.window._pickingOverviewOpen=true;out=ctx.renderPicking();assert.match(out,/<details class="picking-overview-details" open/);assert.match(out,/pickingResults/);
 });
