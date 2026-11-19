@@ -10,6 +10,7 @@ export default {
     const url = new URL(request.url);
     const roleDenied = await enforceErpRouteRole(request, env, cors, url.pathname, request.method);
     if (roleDenied) return roleDenied;
+    if(url.pathname.startsWith('/api/purchase-ledger/'))return erpPurchaseLedger(request,env,cors,url);
     if(url.pathname==='/api/orders/stock-audit'&&request.method==='GET')return erpOrderStockAction(request,env,cors);
     if(url.pathname==='/api/orders/stock-action'&&request.method==='POST')return erpOrderStockAction(request,env,cors);
     if (request.method === 'GET' && (url.pathname === '/api/board.json' || url.pathname === '/erp-board-summary')) {
@@ -1474,6 +1475,71 @@ function inventoryPeriodAggregate(transactions){
     if(!row.checked){row.opening=null;row.closing=null;}
     return row;
   }).sort((a,b)=>a.warehouse.localeCompare(b.warehouse)||a.sku.localeCompare(b.sku));
+}
+function purchaseLedgerValidateBatch(body){
+  if(body.source_key!=='115進貨明細表.xlsx'||!/^[a-f0-9]{64}$/.test(body.source_hash||'')||!/^2026-(09|10)$/.test(body.period||''))throw Error('第一版僅接受 115 進貨明細表的 2026 年 9、10 月');
+  const rows=body.payload?.rows;
+  if(!Array.isArray(rows)||rows.length<1||rows.length>2000)throw Error('進貨明細筆數不合法');
+  const lines=new Set();
+  for(const row of rows){
+    if(!Number.isInteger(row.line)||row.line<2||lines.has(row.line))throw Error('來源列號重複或不合法');
+    lines.add(row.line);
+    if(typeof row.supplier!=='string'||!row.supplier.trim()||row.supplier.length>200||typeof row.label!=='string'||!row.label.trim()||row.label.length>500)throw Error('缺少原始廠商／品名');
+    if(!Number.isFinite(row.quantity)||!(row.unit_price===null||Number.isFinite(row.unit_price))||!(row.amount===null||Number.isFinite(row.amount)))throw Error('數量／金額格式不合法');
+    if(Object.keys(row).some(k=>!['line','supplier','label','quantity','unit_price','amount'].includes(k)))throw Error('只接受料號核對所需欄位');
+  }
+  if(typeof body.payload.sheet!=='string'||body.payload.sheet.length>100)throw Error('缺少來源工作表');
+  return {rows,sheet:body.payload.sheet};
+}
+async function erpPurchaseLedger(request,env,cors,url){
+  if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
+  const role=cleanText(request.headers.get('X-ERP-Role')).toLowerCase();
+  const readRoles=['vic','manager','purchase','warehouse','ai'];
+  const writeRoles=['vic','manager','purchase','warehouse'];
+  if(!readRoles.includes(role)||(request.method!=='GET'&&!writeRoles.includes(role)))return new Response(JSON.stringify({error:'目前角色沒有進銷存資料權限'}),{status:403,headers:jh(cors)});
+  try{
+    const {organization}=await getSupabaseInventoryContext(env),org=encodeURIComponent(organization.id);
+    const response=data=>new Response(JSON.stringify(data),{headers:{...jh(cors),'Cache-Control':'no-store'}});
+    if(request.method==='GET'&&url.pathname==='/api/purchase-ledger/list'){
+      const period=url.searchParams.get('period')||'2026-10';
+      if(!/^2026-(09|10)$/.test(period))return resp400(cors,'請選擇 2026 年 9 月或 10 月');
+      const batch=await supabaseSingle(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&source_key=eq.${encodeURIComponent('115進貨明細表.xlsx')}&period=eq.${period}&order=created_at.desc,id.desc&limit=1`,true);
+      const mappings=[];
+      for(let offset=0;;offset+=500){
+        const part=await supabaseFetch(env,`/rest/v1/erp_purchase_mappings?organization_id=eq.${org}&order=supplier.asc,source_label.asc&limit=500&offset=${offset}`);
+        mappings.push(...part);if(part.length<500)break;
+        if(mappings.length>=10000)throw Error('對照資料超過第一版上限，未顯示部分結果');
+      }
+      return response({ok:true,batch,mappings,source:'accounting_snapshot',inventory_writes:false});
+    }
+    if(request.method==='POST'&&url.pathname==='/api/purchase-ledger/import'){
+      if(!['vic','manager','purchase'].includes(role))return new Response(JSON.stringify({error:'只有管理者與採購可匯入來源'}),{status:403,headers:jh(cors)});
+      const text=await request.text();if(text.length>1000000)return resp400(cors,'來源資料過大');
+      const body=JSON.parse(text),payload=purchaseLedgerValidateBatch(body);
+      const item={organization_id:organization.id,source_key:body.source_key,source_hash:body.source_hash,period:body.period,payload};
+      await supabaseFetch(env,'/rest/v1/erp_purchase_batches?on_conflict=organization_id,source_key,source_hash,period',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates'},body:JSON.stringify(item)});
+      const saved=await supabaseSingle(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&source_key=eq.${encodeURIComponent(body.source_key)}&source_hash=eq.${body.source_hash}&period=eq.${body.period}&limit=1`);
+      if(JSON.stringify(saved.payload)!==JSON.stringify(payload)){
+        const canonical=x=>JSON.stringify(x,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort()):v);
+        if(canonical(saved.payload)!==canonical(payload))throw Error('同一來源版本已有不同資料，請核對，不覆寫');
+      }
+      return response({ok:true,id:saved.id,rows:saved.payload.rows.length,inventory_writes:false});
+    }
+    if(request.method==='POST'&&url.pathname==='/api/purchase-ledger/mapping'){
+      const text=await request.text();if(text.length>5000)return resp400(cors,'對照內容過長');
+      const b=JSON.parse(text);
+      if(!isUuid(b.batch_id)||!isUuid(b.request_id)||!Number.isInteger(b.version)||b.version<0||!['material','expense','pending'].includes(b.kind))return resp400(cors,'對照識別或版本不合法');
+      if(typeof b.supplier!=='string'||typeof b.label!=='string'||typeof b.note!=='string'||b.note.length>1000)return resp400(cors,'對照欄位不合法');
+      if(b.kind==='material'&&!isUuid(b.material_id))return resp400(cors,'請選擇既有倉庫料號');
+      if(b.kind!=='material'&&(b.material_id!==null||b.factor!==null))return resp400(cors,'非物料不得指定料號或換算');
+      if(b.factor!==null&&(!Number.isFinite(b.factor)||b.factor<=0||b.factor>1000000))return resp400(cors,'換算係數不合法');
+      const batch=await supabaseSingle(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&id=eq.${encodeURIComponent(b.batch_id)}&limit=1`);
+      if(!batch.payload.rows.some(x=>x.supplier===b.supplier&&x.label===b.label))return resp400(cors,'找不到該來源品名，請重新讀取');
+      const result=await supabaseFetch(env,'/rest/v1/rpc/erp_purchase_mapping_save',{method:'POST',body:JSON.stringify({p_org:organization.id,p_supplier:b.supplier,p_label:b.label,p_kind:b.kind,p_material:b.kind==='material'?b.material_id:null,p_factor:b.factor,p_version:b.version,p_request:b.request_id,p_actor:role,p_note:b.note})});
+      return response({ok:true,mapping:result,inventory_writes:false});
+    }
+    return new Response(JSON.stringify({error:'進銷存路徑不存在'}),{status:404,headers:jh(cors)});
+  }catch(e){return resp400(cors,e.message||'進銷存讀寫失敗；請重新讀取核對');}
 }
 async function erpInventoryPeriodReport(request,env,cors){
   if(!(await erpClientAuthorized(request)))return unauthorizedErpClient(cors);
