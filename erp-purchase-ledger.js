@@ -88,14 +88,31 @@
    const total=field=>!report?null:hits.some(r=>number(r[field])===null)?null:hits.reduce((s,r)=>s+Number(r[field]),0);
    const inbound=total('inbound');
    return {...b,amount:b.knownAmounts?b.amount:null,inbound,outbound:total('outbound'),opening:hits.length?total('opening'):null,closing:hits.length?total('closing'):null,
-    difference:inbound===null?null:b.quantity-inbound,hasPeriodMovements:hits.length>0};
+    difference:inbound===null?null:b.quantity-inbound,hasPeriodMovements:hits.length>0,reportLoaded:!!report};
   });
  }
- const api={key,number,candidates,groups,compare,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel};
+ function trialDiagnostics(model){
+  const flags=[];
+  if(model.provisional)flags.push({code:'mapping',label:'料號尚未人工確認',action:'先核對原始品名與候選料號'});
+  if(model.unitAssumed)flags.push({code:'unit',label:'單位暫按 1:1',action:'確認原表單位與倉庫單位，再填換算係數'});
+  if(!model.reportLoaded)flags.push({code:'report',label:'期間庫存尚未取得',action:'先重新讀取總表，不把未知當成 0'});
+  else if(!model.hasPeriodMovements)flags.push({code:'noMovement',label:'本月無該料號交易',action:'核對料號及收貨日期，可能與帳務月份不同'});
+  else if(model.inbound===0)flags.push({code:'noInbound',label:'本月有異動，但無進貨入庫',action:'查入料／品管與收貨單據，不直接補庫存'});
+  if(model.reportLoaded&&model.inbound===null)flags.push({code:'report',label:'期間數量資料不完整',action:'先核對正式總表來源'});
+  if(model.difference!==null&&Math.abs(model.difference)>=.00005)flags.push({code:'difference',label:'暫算數量不同',action:'先查料號、單位，再查帳務月份與收貨單據'});
+  if(model.provisional&&new Set(model.assignments.map(a=>a.group.label)).size>1)flags.push({code:'shared',label:'多個原品名暫配同一料號',action:'展開原始品名，檢查是否被相似字元誤配在一起'});
+  if(!flags.length)flags.push({code:'matched',label:'本月數量一致',action:'依目前已確認對照與換算核對，並非實物盤點結果'});
+  return flags;
+ }
+ function trialTransactions(report,sku){
+  if(!report?.complete||!Array.isArray(report.transactions))return null;
+  return report.transactions.filter(t=>t.materials?.sku===sku).sort((a,b)=>String(b.occurred_at||'').localeCompare(String(a.occurred_at||''))||String(b.id).localeCompare(String(a.id)));
+ }
+ const api={key,number,candidates,groups,compare,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel,trialDiagnostics,trialTransactions};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.PurchaseLedger=api;
  if(typeof document==='undefined')return;
- const state={period:'2026-10',sub:'trial',q:'',status:'all',page:1,trialLimit:20,batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
+ const state={period:'2026-10',sub:'trial',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
  const esc=v=>escapeHtml(v??'');
  const fmt=v=>number(v)===null?'—':Number(v).toLocaleString('zh-TW',{maximumFractionDigits:4});
  const writeAllowed=()=>['vic','manager','purchase','warehouse'].includes(ROLE);
@@ -130,17 +147,29 @@
   if(state.busy||state.draft?.saving)return;
   if(state.draft){showToast('請先儲存或取消目前這筆對照，再切換條件','warn');return;}
   state[field]=value;state.page=1;
+  if(field==='trialFilter')state.trialLimit=20;
   if(field==='period'){state.loaded=false;state.batch=null;state.report=null;state.draft=null;loadPurchaseLedger();}else{redraw();if(field==='sub'&&value==='trial'&&state.loaded&&!state.report)loadPurchaseComparison();}
  };
  root.purchaseLedgerSearch=function(){if(state.draft){showToast('請先儲存或取消目前這筆對照','warn');return;}state.q=document.getElementById('pl-search')?.value.trim()||'';state.page=1;redraw();};
  function allGroups(){return groups(state.batch?.payload?.rows||[],state.mappings,state.materials);}
  root.morePurchaseTrial=function(){state.trialLimit+=20;redraw();};
- root.correctPurchaseTrial=function(index){
+ root.correctPurchaseTrial=function(index,focus=''){
   if(state.busy||state.draft)return;
   const all=allGroups(),g=all[index];if(!g)return;
   state.sub='mapping';state.status='all';state.q=g.label;state.page=Math.floor(filterGroups(all,'all',g.label).indexOf(g)/30)+1;
   openPurchaseMapping(index);
+  if(focus==='unit'){const details=document.querySelector('.pl-inline-form details');if(details)details.open=true;document.getElementById('pl-factor')?.focus();}
  };
+ function renderTrialReasons(model,grouped){
+  const flags=trialDiagnostics(model),unit=model.assignments.find(a=>a.unitAssumed);
+  return `<div class="pl-trial-reasons"><b>核對提示（可同時出現）</b><div class="pl-trial-tags">${flags.map(f=>`<span class="badge">${esc(f.label)}</span>`).join('')}</div><p>下一步：${esc(flags[0].action)}</p>${unit&&writeAllowed()?`<button class="btn btn-ghost btn-sm" data-group="${grouped.indexOf(unit.group)}" onclick="correctPurchaseTrial(Number(this.dataset.group),'unit')" ${state.busy?'disabled':''}>核對來源單位／換算</button>`:''}<details><summary>查看各項提示的核對方式</summary>${flags.map(f=>`<p><b>${esc(f.label)}</b>：${esc(f.action)}</p>`).join('')}</details></div>`;
+ }
+ function renderTrialTransactions(model){
+  const rows=trialTransactions(state.report,model.sku);
+  if(rows===null)return '<p class="pl-muted">尚未取得正式交易明細，不能據此認定沒有交易。</p>';
+  const when=v=>{if(!v)return '日期未填';const d=new Date(v);return Number.isNaN(d.getTime())?'日期待核對':d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});};
+  return `<details><summary>本月正式庫存交易（${rows.length} 筆）</summary><p class="pl-muted">依交易時間由新到舊，先顯示 ${Math.min(10,rows.length)} 筆；只供追查，不會執行回料或補庫。</p>${rows.slice(0,10).map(t=>`<div class="pl-trial-source"><b>${esc(t.source_number||'未填單號')} · ${esc(t.transaction_type||'異動')}</b><div>${esc(when(t.occurred_at))}（台灣時間）</div><div>異動 ${number(t.quantity_delta)>0?'+':''}${fmt(t.quantity_delta)} · ${fmt(t.quantity_before)} → ${fmt(t.quantity_after)}</div></div>`).join('')||'<p>該期間沒有這個料號的正式交易紀錄；請再核對料號及收貨日期。</p>'}</details>`;
+ }
  function renderPurchaseTrial(grouped){
   const assignments=trialAssignments(grouped),model=trialModel(assignments,state.report);
   const manual=assignments.filter(a=>!a.provisional&&a.kind!=='unresolved').length;
@@ -153,12 +182,15 @@
   const kpis=`<div class="dash-kpi-grid pl-trial-summary"><div class="kpi-card kpi-cyan"><div class="kpi-label">可試算的物料組別</div><div class="kpi-num">${assignments.filter(a=>a.kind==='material').length}</div><div class="kpi-sub">暫配 ${provisional} 組 · 彙整成 ${model.length} 個倉庫料號</div></div><div class="kpi-card kpi-amber"><div class="kpi-label">未配到料號</div><div class="kpi-num">${unresolved.length}</div><div class="kpi-sub">保留原品名，不虛構編號</div></div><div class="kpi-card"><div class="kpi-label">費用／非物料組別</div><div class="kpi-num">${expenses.length}</div><div class="kpi-sub">${feeGuesses} 組為文字判斷，尚未人工確認</div></div><div class="kpi-card"><div class="kpi-label">來源品項小計</div><div class="kpi-num" style="font-size:1.7rem">${fmt(amount)}</div><div class="kpi-sub">原表小計，非含稅帳款；缺值 ${missingAmounts} 列</div></div></div>`;
   const coverage=`<div class="panel pl-coverage" aria-label="試跑分配狀態">${[['人工已確認',manual],['系統暫配料號',provisional],['疑似費用',feeGuesses],['未配／失效',unresolved.length]].map(([label,count])=>`<div><span>${label} ${count} 組</span><meter min="0" max="${grouped.length||1}" value="${count}">${count}</meter></div>`).join('')}</div>`;
   const reportState=state.report?`<p class="pl-muted">正式期間總表：${esc(state.period)} · 產生 ${esc(state.report.generated_at)}。出庫含領料，不等於銷貨；期初／末為交易推算帳面數。</p>`:`<div class="panel pl-message" role="status">${state.reportError?esc(state.reportError)+'；進貨暫配仍可查看，但不把庫存讀取失敗當作 0 入庫。':'正在讀取期間庫存；資料未完整載入前，入庫與差異顯示 —。'}</div>`;
-  const sorted=[...model].sort((a,b)=>Math.abs(b.difference??0)-Math.abs(a.difference??0)).slice(0,state.trialLimit);
-  const models=`<div class="panel pl-message"><h3>料號進出試算 · ${model.length} 個</h3><p>依暫算差異大小排列。每筆保留原始品名；暫配或單位假設可能造成大差異，先校正對照，不直接補庫存。</p></div><div class="pl-list">${sorted.map(m=>`<article class="panel pl-record"><div class="pl-record-head"><b>${esc(m.sku)}</b><span class="badge">${m.provisional?'含系統暫配':'人工料號'}${m.unitAssumed?' · 單位假設':''}</span></div><div class="pl-record-body"><div class="pl-trial-numbers"><div>帳務進貨${m.unitAssumed?'（暫按1:1）':''}<b>${fmt(m.quantity)}</b></div><div>ERP 進貨入庫<b>${fmt(m.inbound)}</b></div><div>暫算差異<b>${fmt(m.difference)}</b></div><div>ERP 領料／出庫<b>${fmt(m.outbound)}</b></div></div><div>帳面期初 ${fmt(m.opening)} → 期末 ${fmt(m.closing)} ${esc(m.unit)}</div><div>原品項小計 ${fmt(m.amount)}${m.unknownAmounts?'（含缺值）':''}</div>${state.report&&!m.hasPeriodMovements?'<p class="pl-muted">此期間無該料號交易；總表未提供期初／期末，不能推論目前庫存為 0。</p>':''}<details><summary>原始品名與校正（${m.assignments.length} 組）</summary>${m.assignments.map(a=>`<div class="pl-trial-source"><b>${esc(a.group.label)}</b><div>${esc(a.group.supplier)} · ${esc(sourceLine(a.group.rows[0]))}</div><div class="pl-muted">${esc(a.reason)}${a.unitAssumed?'；單位暫按 1:1':''}</div>${fix(a)}</div>`).join('')}</details></div></article>`).join('')||'<div class="panel pl-message">目前沒有可試算的物料料號；仍可查看下方未配品名與費用。</div>'}</div>`;
+  const filterOptions=[['all','全部料號'],['mapping','配號待確認'],['unit','單位待確認'],['noMovement','本月無交易'],['noInbound','有異動但無進貨入庫'],['difference','暫算數量不同'],['shared','多品名暫配同料號'],['report','總表待取得／待核對'],['matched','本月數量一致']];
+  const filteredModels=model.filter(m=>state.trialFilter==='all'||trialDiagnostics(m).some(f=>f.code===state.trialFilter));
+  const filter=`<div class="panel pl-toolbar"><label>試跑差異篩選<select class="inp" aria-label="試跑差異篩選" onchange="purchaseLedgerChange('trialFilter',this.value)">${filterOptions.map(([value,label])=>`<option value="${value}" ${state.trialFilter===value?'selected':''}>${label} ${value==='all'?model.length:model.filter(m=>trialDiagnostics(m).some(f=>f.code===value)).length} 個</option>`).join('')}</select></label><span class="pl-muted">同一料號可有多項提示，各類數量不可直接相加。</span></div>`;
+  const sorted=[...filteredModels].sort((a,b)=>Math.abs(b.difference??0)-Math.abs(a.difference??0)).slice(0,state.trialLimit);
+  const models=`<div class="panel pl-message"><h3>料號進出試算 · 符合 ${filteredModels.length} / 全月 ${model.length} 個</h3><p>依暫算差異大小排列。提示是核對線索，不代表已查明原因；可展開原始品名及正式交易逐步查驗。</p></div><div class="pl-list pl-trial-models">${sorted.map(m=>`<article class="panel pl-record"><div class="pl-record-head"><b>${esc(m.sku)}</b><span class="badge">${m.provisional?'含系統暫配':'人工料號'}${m.unitAssumed?' · 單位假設':''}</span></div><div class="pl-record-body">${renderTrialReasons(m,grouped)}<div class="pl-trial-numbers"><div>帳務進貨${m.unitAssumed?'（暫按1:1）':''}<b>${fmt(m.quantity)}</b></div><div>ERP 進貨入庫<b>${fmt(m.inbound)}</b></div><div>暫算差異<b>${fmt(m.difference)}</b></div><div>ERP 領料／出庫<b>${fmt(m.outbound)}</b></div></div><div>帳面期初 ${fmt(m.opening)} → 期末 ${fmt(m.closing)} ${esc(m.unit)}</div><div>原品項小計 ${fmt(m.amount)}${m.unknownAmounts?'（含缺值）':''}</div>${state.report&&!m.hasPeriodMovements?'<p class="pl-muted">此期間無該料號交易；總表未提供期初／期末，不能推論目前庫存為 0。</p>':''}<details class="pl-trial-originals"><summary>原始品名與校正（${m.assignments.length} 組）</summary>${m.assignments.map(a=>`<div class="pl-trial-source"><b>${esc(a.group.label)}</b><div>${esc(a.group.supplier)} · ${esc(sourceLine(a.group.rows[0]))}</div><div class="pl-muted">${esc(a.reason)}${a.unitAssumed?'；單位暫按 1:1':''}</div>${fix(a)}</div>`).join('')}</details>${renderTrialTransactions(m)}</div></article>`).join('')||`<div class="panel pl-message">${state.busy?'資料仍在讀取，暫不判定此類為 0。':'目前沒有符合此提示的料號；可切回「全部料號」。'}</div>`}</div>`;
   const unassigned=`<details class="panel pl-message" ${!model.length&&unresolved.length?'open':''}><summary>未配到料號／失效對照：${unresolved.length} 組</summary><p>保留在模型外，不假造入庫數量或新料號。</p><div class="pl-list">${unresolved.map(a=>`<div class="pl-trial-source"><b>${esc(a.group.label)}</b><div>${esc(a.group.supplier)} · ${esc(sourceLine(a.group.rows[0]))}</div><div class="pl-muted">${esc(a.reason)}</div>${fix(a)}</div>`).join('')}</div></details>`;
   const fees=`<details class="panel pl-message"><summary>費用／非物料：${expenses.length} 組（${feeGuesses} 組未確認）</summary><p>未納入物料數量比較；文字分類可能錯誤，可改回對應物料。</p><div class="pl-list">${expenses.map(a=>`<div class="pl-trial-source"><b>${esc(a.group.label)}</b><div>${esc(a.group.supplier)} · 原品項小計 ${fmt(a.group.amount)}</div><div class="pl-muted">${esc(a.reason)}</div>${fix(a)}</div>`).join('')}</div></details>`;
-  const more=`<div class="pl-tabs"><span>目前顯示 ${sorted.length} / ${model.length} 個料號</span>${sorted.length<model.length?'<button class="btn btn-ghost" onclick="morePurchaseTrial()">再顯示 20 個料號</button>':''}</div>`;
-  return note+kpis+coverage+reportState+unassigned+models+more+fees;
+  const more=`<div class="pl-tabs"><span>目前顯示 ${sorted.length} / 篩選內 ${filteredModels.length} 個料號</span>${sorted.length<filteredModels.length?'<button class="btn btn-ghost" onclick="morePurchaseTrial()">再顯示 20 個料號</button>':''}</div>`;
+  return note+kpis+coverage+reportState+unassigned+filter+models+more+fees;
  }
  const statusText={confirmed:'已確認料號',expense:'已確認非物料',pending:'待確認',invalid:'對照料號已失效'};
  function sourceLine(row){return `${state.batch?.payload?.sheet||''} 第 ${row.line} 列`;}

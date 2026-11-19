@@ -50,6 +50,37 @@ test('trial honors manual decisions and isolates hypothetical quantities from co
  assert.throws(()=>ledger.trialModel(trial,{complete:false,rows:[]}));
  const invalid=ledger.trialAssignments(ledger.groups(rows,[{...maps[0],material_id:'gone'}],materials));assert.equal(invalid[0].kind,'unresolved');
 });
+test('trial hints distinguish unknown reports, no movement, no receipts and overlapping assumptions',()=>{
+ const grouped=ledger.groups(rows,[],materials),a=ledger.trialAssignments(grouped);
+ const loading=ledger.trialModel(a)[0];assert.ok(ledger.trialDiagnostics(loading).some(f=>f.code==='report'));assert.ok(!ledger.trialDiagnostics(loading).some(f=>f.code==='noMovement'));
+ const absent=ledger.trialModel(a,{complete:true,rows:[]})[0],flags=ledger.trialDiagnostics(absent).map(f=>f.code);
+ for(const code of ['mapping','unit','noMovement','difference'])assert.ok(flags.includes(code));assert.ok(!flags.includes('noInbound'));
+ const moved=ledger.trialModel(a,{complete:true,rows:[{sku:'Y-SP-20-1',inbound:0,outbound:1,opening:2,closing:1}]})[0];
+ assert.ok(ledger.trialDiagnostics(moved).some(f=>f.code==='noInbound'));assert.ok(!ledger.trialDiagnostics(moved).some(f=>f.code==='noMovement'));
+ const exact={...moved,provisional:false,unitAssumed:false,inbound:23,difference:0};assert.equal(ledger.trialDiagnostics(exact)[0].code,'matched');
+ assert.ok(ledger.trialDiagnostics({...exact,difference:.0001}).some(f=>f.code==='difference'));
+});
+test('many distinct provisional source labels are flagged without declaring a proven wrong mapping',()=>{
+ const grouped=ledger.groups([{...rows[0],label:'SP20-1'},{...rows[1],label:'SP-20-1'}],[],materials);
+ const model=ledger.trialModel(ledger.trialAssignments(grouped),{complete:true,rows:[]})[0];assert.ok(ledger.trialDiagnostics(model).some(f=>f.code==='shared'));
+ const before=JSON.stringify(model);ledger.trialDiagnostics(model);assert.equal(JSON.stringify(model),before);
+});
+test('transaction readback is exact-SKU, sorted, read-only, and unavailable is distinct from empty',()=>{
+ const tx=[{id:'a',occurred_at:'2026-10-01',materials:{sku:'Y-1'}},{id:'b',occurred_at:'2026-10-02',materials:{sku:'Y-11'}},{id:'c',occurred_at:'2026-10-03',materials:{sku:'Y-1'}}];
+ const before=JSON.stringify(tx);assert.deepEqual(ledger.trialTransactions({complete:true,transactions:tx},'Y-1').map(t=>t.id),['c','a']);assert.equal(JSON.stringify(tx),before);
+ assert.equal(ledger.trialTransactions({complete:true,rows:[]},'Y-1'),null);assert.deepEqual(ledger.trialTransactions({complete:true,transactions:[]},'Y-1'),[]);
+});
+test('purchase helper prefers current network logic and retains cached helper only for offline fallback',async()=>{
+ for(const offline of [false,true,'server-error']){
+  const handlers={},puts=[];let result;
+  const ctx=vm.createContext({URL,self:{location:{origin:'https://erp.invalid'},addEventListener:(name,handler)=>handlers[name]=handler},
+   caches:{match:async()=>new Response('cached-helper'),open:async()=>({put:(...args)=>puts.push(args)})},
+   fetch:async()=>{if(offline===true)throw Error('offline');if(offline==='server-error')return new Response('failed-helper',{status:503});return new Response('fresh-helper');}});
+  vm.runInContext(fs.readFileSync('sw.js','utf8'),ctx);
+  handlers.fetch({request:new Request('https://erp.invalid/erp-purchase-ledger.js?build=V.TEST'),respondWith:p=>result=p});
+  assert.equal(await (await result).text(),offline?'cached-helper':'fresh-helper');
+ }
+});
 const source=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
 const block=source.slice(source.indexOf('function purchaseLedgerValidateBatch('),source.indexOf('async function erpInventoryPeriodReport('));
 const id='11111111-1111-4111-8111-111111111111';

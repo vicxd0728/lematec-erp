@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lematec-erp-v119';
+const CACHE_NAME = 'lematec-erp-v120';
 const CORE_ASSETS = [
   './manifest.webmanifest',
   './erp-action-receipts.js',
@@ -51,10 +51,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Prefer fresh app logic, including extracted helpers, while retaining offline fallback.
-  if (url.origin === self.location.origin && (url.pathname === '/' || url.pathname.endsWith('.html') || url.pathname.endsWith('/erp-action-receipts.js'))) {
+  if (url.origin === self.location.origin && (url.pathname === '/' || url.pathname.endsWith('.html') || url.pathname.endsWith('/erp-action-receipts.js') || url.pathname.endsWith('/erp-purchase-ledger.js'))) {
     event.respondWith(
       fetch(request, { cache: 'no-store' })
         .then((response) => {
+          if (!response.ok) throw new Error('Application logic unavailable');
           const responseCopy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, responseCopy));
           return response;

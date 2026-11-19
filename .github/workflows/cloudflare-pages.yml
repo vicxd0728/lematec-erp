@@ -65,6 +65,7 @@ jobs:
           if source.count(marker) != 1:
               raise SystemExit('ERP version marker missing or duplicated')
           version = f"V.{os.environ['ERP_PAGES_RUN_NUMBER']}"
+            source = source.replace('src="./erp-purchase-ledger.js"', f'src="./erp-purchase-ledger.js?build={version}"')
           path.write_text(source.replace(marker, f'<span class="topbar-version" data-erp-version>{version}</span>'), encoding='utf-8', newline='\n')
           print(f'ERP Pages version: {version}')
           PY
