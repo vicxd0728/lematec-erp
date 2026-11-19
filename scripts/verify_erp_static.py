@@ -100,6 +100,11 @@ def verify(root: Path, node: str | None = None) -> dict[str, object]:
     action_receipts = strict_text(root / "erp-action-receipts.js")
     manifest = json.loads(strict_text(root / "manifest.webmanifest"))
     workflow = strict_text(root / ".github/workflows/cloudflare-pages.yml")
+    # Compile deploy-time Python before publishing; YAML itself permits invalid Python indentation.
+    for number, match in enumerate(re.finditer(r"(?m)^( +)python - <<'PY'\n(.*?)^\1PY\s*$", workflow, re.DOTALL), 1):
+        indent, body = match.groups()
+        script = "\n".join(line[len(indent):] if line.startswith(indent) else line for line in body.splitlines())
+        compile(script, f"cloudflare-pages.yml:python-{number}", "exec")
 
     if 'rel="manifest" href="./manifest.webmanifest"' not in html:
         raise ValueError("index.html does not reference manifest.webmanifest")
