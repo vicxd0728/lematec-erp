@@ -4,6 +4,7 @@ async page=>{
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:1000});await page.goto('http://127.0.0.1:8781');
   const first=page.locator('[data-pl-row="0"]');await first.locator('.pl-candidate').first().waitFor();
+  await page.locator('#mainContent').evaluate(e=>Promise.allSettled(e.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)));
   const left=await first.locator('.pl-source').boundingBox(),right=await first.locator('.pl-target').boundingBox();
   if(width>700&&(await first.boundingBox()).width<1000)throw Error('desktop review row is squeezed into a multi-card column');
   if(width>700&&!(right.x>left.x&&Math.abs(right.y-left.y)<2))throw Error('desktop pair is not side-by-side');
@@ -12,6 +13,12 @@ async page=>{
   if(await page.evaluate(()=>fakeState().saveCount)!==0)throw Error('candidate selection wrote a mapping');
   if(!await page.getByRole('combobox',{name:'帳務月份'}).isDisabled())throw Error('editing permits ambiguous period switch');
   await page.locator('#pl-note').fill('人工備註保留測試');
+  await page.locator('.pl-inline-form summary').click();await page.locator('#pl-unit-confirmed').check();await page.locator('#pl-factor').fill('2.5');
+  const selectedBeforeRefresh=await page.locator('#pl-material').inputValue();
+  await page.evaluate(()=>{document.getElementById('mainContent').innerHTML=renderPurchaseLedger();loadPurchaseLedger();});
+  if(await page.locator('#pl-material').inputValue()!==selectedBeforeRefresh)throw Error('background render lost the selected material');
+  if(await page.locator('#pl-note').inputValue()!=='人工備註保留測試')throw Error('background render lost the note');
+  if(!await page.locator('#pl-unit-confirmed').isChecked()||await page.locator('#pl-factor').inputValue()!=='2.5')throw Error('background render lost the unit conversion');
   await page.locator('#pl-material-q').fill('NO-MATCH');
   if(!(await page.locator('#pl-candidates').innerText()).includes('找不到料號'))throw Error('search claims old selection is a new match');
   await first.locator('.pl-candidate').last().click();
@@ -21,7 +28,12 @@ async page=>{
   await first.locator('.pl-candidate').first().click();
   await page.locator('#mainContent').evaluate(e=>Promise.allSettled(e.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)));
   await page.screenshot({path:'output/inline-select-'+width+'.png',fullPage:true});
+  await page.evaluate(()=>holdNextSave());
   await page.getByRole('button',{name:'確認並儲存這筆對照',exact:true}).click();
+  await page.evaluate(()=>{document.getElementById('mainContent').innerHTML=renderPurchaseLedger();loadPurchaseLedger();});
+  if(!await page.locator('#pl-save').isDisabled()||!await page.locator('#pl-close').isDisabled())throw Error('in-flight redraw unlocked the form');
+  if(!(await page.locator('#pl-save-state').innerText()).includes('儲存並核對中'))throw Error('in-flight redraw lost progress');
+  await page.evaluate(()=>releaseHeldSave());
   await page.waitForFunction(()=>window.fakeState().saved.length===1&&!document.querySelector('#pl-save'));
   if(await page.evaluate(()=>fakeState().saveCount)!==1)throw Error('confirmation submitted more than once');
   if(!(await page.locator('#mainContent').innerText()).includes('Y-DEMO01 → Y-DEMO-01'))throw Error('saved identity is unclear');
@@ -30,12 +42,17 @@ async page=>{
   if(await page.evaluate(()=>fakeState().saveCount)!==1)throw Error('unmatched row saved without a selected material');
   if(!(await page.locator('#pl-save-state').innerText()).includes('請選擇既有料號'))throw Error('missing selection lacks guidance');
   await page.locator('#pl-kind').selectOption('expense');
+  await page.evaluate(()=>{document.getElementById('mainContent').innerHTML=renderPurchaseLedger();loadPurchaseLedger();});
+  if(await page.locator('#pl-kind').inputValue()!=='expense')throw Error('background render lost the classification');
   if(await page.evaluate(()=>fakeState().saveCount)!==1)throw Error('classification auto-saved');
   await page.getByRole('button',{name:'確認並儲存這筆對照',exact:true}).click();
   await page.waitForFunction(()=>window.fakeState().saved.length===2&&!document.querySelector('#pl-save'));
   await first.getByRole('button',{name:'修改這筆對照',exact:true}).click();
-  await page.evaluate(()=>failNextSave());await page.getByRole('button',{name:'確認並儲存這筆對照',exact:true}).click();
+  await page.evaluate(()=>{failNextSave();holdNextSave()});await page.getByRole('button',{name:'確認並儲存這筆對照',exact:true}).click();
+  await page.evaluate(()=>{document.getElementById('mainContent').innerHTML=renderPurchaseLedger();loadPurchaseLedger();releaseHeldSave();});
   await page.waitForFunction(()=>document.querySelector('#pl-save-state').textContent.includes('勿重送'));
+  await page.evaluate(()=>{document.getElementById('mainContent').innerHTML=renderPurchaseLedger();loadPurchaseLedger();});
+  if(!(await page.locator('#pl-save-state').innerText()).includes('勿重送'))throw Error('uncertain redraw hid the saved failure state');
   if(!await page.locator('#pl-save').isDisabled())throw Error('uncertain result permits replay');
   await page.screenshot({path:'output/inline-failure-'+width+'.png',fullPage:true});
   await page.getByRole('button',{name:'結束編輯並重新讀取',exact:true}).click();

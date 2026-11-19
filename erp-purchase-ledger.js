@@ -104,10 +104,18 @@
   const data=await res.json();if(!res.ok||!data.ok)throw Error(data.error||'進銷存請求失敗');return data;
  }
  function lockPurchaseNavigation(){if(state.draft){document.querySelectorAll('.pl-toolbar input,.pl-toolbar select,.pl-toolbar button').forEach(e=>e.disabled=true);document.querySelectorAll('.pl-tabs button').forEach(e=>{if(!e.closest('.pl-inline-form'))e.disabled=true;});}}
- function redraw(){if(CURRENT_TAB==='purchaseLedger'){document.getElementById('mainContent').innerHTML=renderPurchaseLedger();lockPurchaseNavigation();}}
+ function restorePurchaseDraft(){
+  const d=state.draft;if(!d||!document.getElementById('pl-material'))return;
+  purchaseMappingCandidates('',d.values.material);purchaseMappingKind();lockPurchaseNavigation();
+  if(d.saving||d.uncertain)document.querySelectorAll('.pl-inline-form input,.pl-inline-form select,.pl-inline-form .pl-choice-list button').forEach(e=>e.disabled=true);
+  document.getElementById('pl-save').disabled=!!(d.saving||d.uncertain);
+  const close=document.getElementById('pl-close');close.disabled=!!d.saving;close.textContent=d.uncertain?'結束編輯並重新讀取':'取消這筆編輯';
+  document.getElementById('pl-save-state').textContent=d.saving?'儲存並核對中…':d.errorText||'';
+ }
+ function redraw(){if(CURRENT_TAB==='purchaseLedger'){document.getElementById('mainContent').innerHTML=renderPurchaseLedger();lockPurchaseNavigation();restorePurchaseDraft();}}
  root.loadPurchaseLedger=async function(){
-  if(state.busy||state.draft?.saving)return;
-  if(state.draft){lockPurchaseNavigation();showToast('請先儲存或取消目前這筆對照，再重新讀取','warn');return;}
+  if(state.busy||state.draft?.saving){restorePurchaseDraft();return;}
+  if(state.draft){lockPurchaseNavigation();restorePurchaseDraft();showToast('請先儲存或取消目前這筆對照，再重新讀取','warn');return;}
   state.busy=true;state.error='';state.trialLimit=20;redraw();
   try{
    const [data,res]=await Promise.all([request('list?period='+state.period),fetch(PROXY+'/api/inventory/list?limit=20000',{headers:erpWorkerHeaders(),cache:'no-store'})]);
@@ -202,7 +210,7 @@
   if(state.draft&&state.draft.g.key!==g.key){showToast('請先儲存或取消目前這筆對照，再處理下一筆','warn');return;}
   if(!state.draft){state.lastSaved='';state.draft={g,requestId:crypto.randomUUID(),saving:false,values:{kind:g.mapping?.kind==='expense'?'expense':'material',material:g.material?.supabase_id||g.material?.id||'',unit:number(g.mapping?.factor)!==null,factor:g.mapping?.factor??1,note:g.mapping?.note||''}};}
   if(selected){state.draft.values.material=selected;state.draft.values.kind='material';}
-  redraw();purchaseMappingCandidates('',state.draft.values.material);purchaseMappingKind();
+  redraw();
   document.querySelector(`[data-pl-row="${index}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'});
  };
  root.cancelPurchaseMapping=function(){if(state.draft?.saving)return;const uncertain=state.draft?.uncertain;state.draft=null;redraw();if(uncertain)loadPurchaseLedger();};
@@ -244,8 +252,8 @@
    const fresh=await request('list?period='+state.period),saved=fresh.mappings.find(m=>key(m.supplier,m.source_label)===key(body.supplier,body.label));
    if(!saved||saved.last_request!==result.mapping.last_request)throw Error('對照已送出，但讀回不一致；請重新讀取');
    state.mappings=fresh.mappings;state.batch=fresh.batch;state.report=null;state.lastSaved=body.label+' → '+(body.kind==='expense'?'非物料／費用':body.kind==='pending'?'待確認':state.materials.find(m=>(m.supabase_id||m.id)===body.material_id)?.code||body.material_id);state.draft=null;redraw();showToast('對照已保存並核對，庫存未變動','success');
-  }catch(e){d.uncertain=true;status.textContent=e.message+'。結果可能已保存；請結束編輯並重新讀取核對，勿重送。';const close=document.getElementById('pl-close');if(close)close.textContent='結束編輯並重新讀取';showToast(status.textContent,'warn',10000);}
-  finally{d.saving=false;const close=document.getElementById('pl-close');if(close)close.disabled=false;}
+  }catch(e){d.uncertain=true;d.errorText=e.message+'。結果可能已保存；請結束編輯並重新讀取核對，勿重送。';status.textContent=d.errorText;showToast(d.errorText,'warn',10000);}
+  finally{d.saving=false;if(state.draft===d)restorePurchaseDraft();}
  };
  root.loadPurchaseComparison=async function(){
   if(state.busy)return;state.busy=true;state.reportError='';redraw();
