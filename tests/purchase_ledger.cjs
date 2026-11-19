@@ -32,6 +32,24 @@ test('complete suffix with missing warehouse prefix ranks ahead of a shorter nea
  const found=ledger.candidates('FLT-D-01-1-1',rows);assert.equal(found[0].id,'b');assert.match(found[0].reason,/前綴/);
  assert.equal(ledger.groups([{supplier:'A',label:'FLT-D-01-1-1',quantity:1}],[],rows)[0].status,'pending');
 });
+test('trial assigns candidates and probable fees without changing formal mappings or source groups',()=>{
+ const input=[...rows,{...rows[0],line:5,label:'運費'},{...rows[0],line:6,label:'無候選測試'}];
+ const grouped=ledger.groups(input,[],materials),before=JSON.stringify(grouped),trial=ledger.trialAssignments(grouped);
+ assert.equal(trial.filter(a=>a.kind==='material').length,2);assert.ok(trial.filter(a=>a.kind==='material').every(a=>a.provisional&&a.unitAssumed&&a.factor===1));
+ assert.equal(trial.find(a=>a.group.label==='運費').kind,'expense');assert.equal(trial.find(a=>a.group.label==='無候選測試').kind,'unresolved');
+ assert.equal(JSON.stringify(grouped),before);assert.ok(grouped.every(g=>g.status==='pending'&&!g.mapping));
+});
+test('trial honors manual decisions and isolates hypothetical quantities from confirmed-only comparisons',()=>{
+ const maps=[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'m2',factor:null}];
+ const grouped=ledger.groups(rows,maps,materials),trial=ledger.trialAssignments(grouped);
+ assert.equal(trial[0].material.id,'m2');assert.equal(trial[0].provisional,false);assert.equal(trial[0].unitAssumed,true);
+ assert.equal(ledger.compare(grouped,{rows:[]})[0].difference,null);
+ const model=ledger.trialModel(trial,{complete:true,rows:[{sku:'Y-SP-20A-1',inbound:8,outbound:2,opening:12,closing:18}]});
+ const found=model.find(m=>m.sku==='Y-SP-20A-1');assert.equal(found.quantity,15);assert.equal(found.difference,7);assert.equal(found.closing,18);
+ assert.equal(ledger.trialModel(trial)[0].difference,null);
+ assert.throws(()=>ledger.trialModel(trial,{complete:false,rows:[]}));
+ const invalid=ledger.trialAssignments(ledger.groups(rows,[{...maps[0],material_id:'gone'}],materials));assert.equal(invalid[0].kind,'unresolved');
+});
 const source=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
 const block=source.slice(source.indexOf('function purchaseLedgerValidateBatch('),source.indexOf('async function erpInventoryPeriodReport('));
 const id='11111111-1111-4111-8111-111111111111';
