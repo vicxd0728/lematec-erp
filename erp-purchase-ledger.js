@@ -14,9 +14,10 @@
   const grams=s=>new Set(Array.from({length:Math.max(0,s.length-1)},(_,i)=>s.slice(i,i+2)));
   const ga=grams(a);
   const found=materials.filter(m=>!(m.code||m.sku||'').startsWith('S-')).map(m=>{
-   const b=normalize(m.code||m.sku),gb=grams(b);let common=0;for(const g of ga)if(gb.has(g))common++;
-   const score=a===b?1:(ga.size+gb.size?2*common/(ga.size+gb.size):0);
-   return {...m,score,reason:a===b?'符號／大小寫相近，待人工確認':'部分字元相似，待人工確認'};
+   const code=m.code||m.sku,b=normalize(code),gb=grams(b);let common=0;for(const g of ga)if(gb.has(g))common++;
+   const prefixMatch=!/^[YFZ]-/i.test(label)&&/^[YFZ]-/i.test(code)&&normalize(code.replace(/^[YFZ]-/i,''))===a;
+   const score=a===b?3:prefixMatch?2:(ga.size+gb.size?2*common/(ga.size+gb.size):0);
+   return {...m,score,reason:a===b?'符號／大小寫相近，待人工確認':prefixMatch?'補上料號前綴後相同，待人工確認':'僅部分字元相似，請核對數字與尾碼'};
   }).filter(m=>m.score>=.5).sort((a,b)=>b.score-a.score||(a.code||a.sku).localeCompare(b.code||b.sku)).slice(0,4);
   cache.set(label,found);return found;
  }
@@ -50,7 +51,20 @@
    return {...item,inbound,inventoryRows:hits.length,difference:item.unknownUnits||inbound===null?null:item.quantity-inbound};
   });
  }
- const api={key,number,candidates,groups,compare};
+ function reviewCategory(g){
+  if(g.status!=='pending')return '';
+  return g.candidates.some(m=>(m.code||m.sku)===g.label)?'exact':g.candidates.length?'similar':'unmatched';
+ }
+ function filterGroups(grouped,status='all',query=''){
+  const q=query.toLowerCase();
+  return grouped.filter(g=>(status==='all'||g.status===status||reviewCategory(g)===status)&&(!q||(g.supplier+' '+g.label+' '+(g.material?.code||'')).toLowerCase().includes(q)));
+ }
+ function reviewCsv(grouped){
+  const safe=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
+  const matrix=[['廠商','原始品名','狀態','建議倉庫料號1','建議倉庫料號2','建議倉庫料號3','來源列號','人工處理方式','確認倉庫料號','備註'],...grouped.map(g=>[g.supplier,g.label,g.status==='pending'?(reviewCategory(g)==='unmatched'?'找不到候選':reviewCategory(g)==='exact'?'精確相符待確認':'相近待確認'):g.status,...[0,1,2].map(i=>g.candidates[i]?.code||g.candidates[i]?.sku||''),g.rows.map(r=>r.line).join('、'),'','',''])];
+  return '\ufeff'+matrix.map(row=>row.map(safe).join(',')).join('\r\n');
+ }
+ const api={key,number,candidates,groups,compare,reviewCategory,filterGroups,reviewCsv};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.PurchaseLedger=api;
  if(typeof document==='undefined')return;
@@ -86,6 +100,7 @@
   if(!['vic','manager','purchase','warehouse','ai'].includes(ROLE))return '<div class="panel">目前角色沒有進銷存權限</div>';
   const grouped=allGroups(),rows=state.batch?.payload?.rows||[];
   const counts={all:grouped.length,confirmed:0,pending:0,expense:0,invalid:0};grouped.forEach(g=>counts[g.status]++);
+  for(const category of ['exact','similar','unmatched'])counts[category]=grouped.filter(g=>reviewCategory(g)===category).length;
   const known=rows.filter(r=>number(r.amount)!==null),sum=known.reduce((s,r)=>s+Number(r.amount),0);
   const header=`<section class="module-brief"><div><h2>進銷存</h2><p>第一階段：9、10 月進貨資料與料號對照。確認對照不會建立料號或增加庫存。</p></div></section>
    <div class="panel pl-toolbar"><label>帳務月份 <select class="inp" onchange="purchaseLedgerChange('period',this.value)" ${state.busy?'disabled':''}><option value="2026-09" ${state.period==='2026-09'?'selected':''}>115 年 9 月</option><option value="2026-10" ${state.period==='2026-10'?'selected':''}>115 年 10 月</option></select></label><button class="btn btn-ghost" onclick="loadPurchaseLedger()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'重新讀取'}</button></div>`;
@@ -97,11 +112,10 @@
   const source=`<details class="panel pl-message"><summary>來源與核對規則</summary><p>${esc(state.batch.source_key)} · ${esc(state.batch.payload.sheet)} · 匯入 ${esc(state.batch.created_at)}<br>來源指紋 ${esc(state.batch.source_hash.slice(0,12))}；保留原始品名與 Excel 列號。排除月份標題、合計及空白公式列。數量不跨不同品項加總；單位換算未確認前不比較庫存數量。銀行、支票與付款資料未帶入本階段。</p><p>本頁尚未串接銷貨與自動區網同步。料號對照不會改寫 BOM、舊訂單或倉庫料號。</p></details>`;
   const tabs=`<div class="pl-tabs">${[['mapping','料號對照'],['details','進貨明細'],['compare','期間進出核對']].map(([s,l])=>`<button class="btn ${state.sub===s?'btn-blue':'btn-ghost'}" aria-pressed="${state.sub===s}" onclick="purchaseLedgerChange('sub','${s}')">${l}</button>`).join('')}</div>`;
   if(state.sub==='compare')return header+cards+tabs+renderComparison(grouped)+source;
-  const query=state.q.toLowerCase();
-  const filtered=grouped.filter(g=>(state.status==='all'||g.status===state.status)&&(!query||(g.supplier+' '+g.label+' '+(g.material?.code||'')).toLowerCase().includes(query)));
+  const filtered=filterGroups(grouped,state.status,state.q);
   const listed=state.sub==='details'?rows.filter(row=>filtered.some(g=>g.key===key(row.supplier,row.label))):filtered;
   const page=Math.max(1,Math.min(state.page,Math.ceil(listed.length/30)||1));state.page=page;
-  const toolbar=`<div class="panel pl-toolbar"><input class="inp" id="pl-search" value="${esc(state.q)}" placeholder="搜尋廠商、原始品名或已確認料號" onkeydown="if(event.key==='Enter'&&!event.isComposing)purchaseLedgerSearch()"><button class="btn btn-blue" onclick="purchaseLedgerSearch()">搜尋</button><select class="inp" onchange="purchaseLedgerChange('status',this.value)">${[['all','全部'],...Object.entries(statusText)].map(([s,l])=>`<option value="${s}" ${state.status===s?'selected':''}>${l} ${counts[s]}</option>`).join('')}</select><span>符合 ${listed.length} ${state.sub==='details'?'列':'組'} · 第 ${page} 頁</span></div>`;
+  const toolbar=`<div class="panel pl-toolbar"><input class="inp" id="pl-search" value="${esc(state.q)}" placeholder="搜尋廠商、原始品名或已確認料號" onkeydown="if(event.key==='Enter'&&!event.isComposing)purchaseLedgerSearch()"><button class="btn btn-blue" onclick="purchaseLedgerSearch()">搜尋</button><select class="inp" aria-label="對照篩選" onchange="purchaseLedgerChange('status',this.value)">${[['all','全部'],['similar','相近待確認'],['unmatched','找不到候選'],['exact','精確相符待確認'],...Object.entries(statusText)].map(([s,l])=>`<option value="${s}" ${state.status===s?'selected':''}>${l} ${counts[s]} 組品名</option>`).join('')}</select><button class="btn btn-ghost" onclick="exportPurchaseReview()" ${filtered.length?'':'disabled'}>下載目前篩選核對清單</button><span>符合 ${listed.length} ${state.sub==='details'?'列':'組'} · 第 ${page} 頁</span></div>`;
   let content;
   if(state.sub==='mapping')content=`<div class="pl-list">${filtered.slice((page-1)*30,page*30).map(g=>{
    const i=grouped.indexOf(g);const factor=number(g.mapping?.factor);
@@ -111,6 +125,11 @@
   return header+cards+coverage+tabs+toolbar+content+`<div class="pl-tabs"><button class="btn btn-ghost" onclick="purchaseLedgerPage(-1)" ${page<=1?'disabled':''}>上一頁</button><button class="btn btn-ghost" onclick="purchaseLedgerPage(1)" ${page*30>=listed.length?'disabled':''}>下一頁</button></div>`+source;
  };
  root.purchaseLedgerPage=function(delta){state.page=Math.max(1,state.page+delta);redraw();};
+ root.exportPurchaseReview=function(){
+  const selected=filterGroups(allGroups(),state.status,state.q);if(!selected.length)return;
+  const blob=new Blob([reviewCsv(selected)],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=`進貨料號核對_${state.period}_${state.status}.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ };
  root.openPurchaseMapping=function(index){
   if(!writeAllowed())return;const g=allGroups()[index];if(!g)return;
   state.draft={g,requestId:crypto.randomUUID(),saving:false};

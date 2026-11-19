@@ -17,6 +17,21 @@ test('expense, reverted and orphaned mappings cannot become material quantity co
  for(const kind of ['expense','pending']){const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind}],materials);assert.equal(ledger.compare(groups,{rows:[]}).length,0);}
  const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'missing'}],materials);assert.equal(groups[0].status,'invalid');assert.equal(ledger.compare(groups,{rows:[]}).length,0);
 });
+test('review filters partition only pending groups, preserve source rows and export safely without confirming',()=>{
+ const input=[...rows,{...rows[0],line:5,label:'Y-SP-20-1'},{...rows[0],line:6,label:'費用 <test>'},{...rows[0],line:7,label:'=BAD()'}];
+ const before=JSON.stringify(input),grouped=ledger.groups(input,[],materials);
+ const exact=ledger.filterGroups(grouped,'exact'),similar=ledger.filterGroups(grouped,'similar'),unmatched=ledger.filterGroups(grouped,'unmatched');
+ assert.equal(exact.length,1);assert.equal(similar.length,2);assert.equal(unmatched.length,2);
+ assert.equal(exact.length+similar.length+unmatched.length,grouped.length);
+ assert.equal(ledger.filterGroups(grouped,'similar','B').length,1);
+ const csv=ledger.reviewCsv(unmatched);assert.ok(csv.startsWith('\ufeff'));assert.match(csv,/'=BAD\(\)/);assert.match(csv,/人工處理方式/);
+ assert.equal(JSON.stringify(input),before);assert.ok(grouped.every(g=>g.status==='pending'));
+});
+test('complete suffix with missing warehouse prefix ranks ahead of a shorter near match',()=>{
+ const rows=[{id:'a',code:'Y-FLT-D-01-1'},{id:'b',code:'Y-FLT-D-01-1-1'}];
+ const found=ledger.candidates('FLT-D-01-1-1',rows);assert.equal(found[0].id,'b');assert.match(found[0].reason,/前綴/);
+ assert.equal(ledger.groups([{supplier:'A',label:'FLT-D-01-1-1',quantity:1}],[],rows)[0].status,'pending');
+});
 const source=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
 const block=source.slice(source.indexOf('function purchaseLedgerValidateBatch('),source.indexOf('async function erpInventoryPeriodReport('));
 const id='11111111-1111-4111-8111-111111111111';
