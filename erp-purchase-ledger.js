@@ -113,11 +113,48 @@
   if(!report?.complete||!Array.isArray(report.transactions))return null;
   return report.transactions.filter(t=>t.materials?.sku===sku).sort((a,b)=>String(b.occurred_at||'').localeCompare(String(a.occurred_at||''))||String(b.id).localeCompare(String(a.id)));
  }
- const api={key,number,candidates,groups,compare,comparisonCategory,selectMappingMaterial,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel,trialDiagnostics,trialTransactions};
+ function pendingItems(grouped,report){
+  const items=[];
+  grouped.forEach((g,index)=>{
+   const type=g.status==='invalid'?'invalid':g.status==='pending'?'mapping':g.status==='confirmed'&&number(g.mapping.factor)===null?'unit':'';
+   if(type)items.push({key:type+':'+g.key,type,sku:g.material?.code||g.material?.sku||'',groups:[index],difference:null});
+  });
+  if(report?.complete&&Array.isArray(report.rows))for(const item of compare(grouped,report)){
+   if(item.unknownUnits||comparisonCategory(item)==='matched')continue;
+   items.push({key:'quantity:'+item.sku,type:item.difference===null?'data':'quantity',sku:item.sku,groups:grouped.map((g,i)=>g.status==='confirmed'&&(g.material.code||g.material.sku)===item.sku?i:-1).filter(i=>i>=0),difference:item.difference,quantity:item.quantity,inbound:item.inbound,unit:item.unit});
+  }
+  return items;
+ }
+ function usageRanking(report){
+  if(!report?.complete||!Array.isArray(report.rows))return null;
+  if(report.rows.some(r=>number(r.outbound)===null))return null;
+  const bySku=new Map();
+  for(const row of report.rows){
+   if(number(row.outbound)===null)continue;
+   const k=key(row.sku,row.unit||'未填單位');
+   if(!bySku.has(k))bySku.set(k,{sku:row.sku,name:row.name||'',unit:row.unit||'未填單位',quantity:0});
+   bySku.get(k).quantity+=Number(row.outbound);
+  }
+  return [...bySku.values()].filter(x=>x.quantity>0).sort((a,b)=>b.quantity-a.quantity||a.sku.localeCompare(b.sku));
+ }
+ function purchaseOverview(grouped){
+  const suppliers=new Map();let amount=0,known=0,missing=0;
+  for(const g of grouped){
+   if(!suppliers.has(g.supplier))suppliers.set(g.supplier,{supplier:g.supplier,amount:0,known:0,missing:0,rows:0});
+   const s=suppliers.get(g.supplier);s.rows+=g.rows.length;s.amount+=g.amount;s.known+=g.rows.length-g.unknownAmount;s.missing+=g.unknownAmount;
+   amount+=g.amount;known+=g.rows.length-g.unknownAmount;missing+=g.unknownAmount;
+  }
+  return {amount:known?amount:null,known,missing,suppliers:[...suppliers.values()].map(s=>({...s,amount:s.known?s.amount:null})).sort((a,b)=>(b.amount??-Infinity)-(a.amount??-Infinity)||a.supplier.localeCompare(b.supplier))};
+ }
+ function ledgerCsv(matrix){
+  const cell=v=>'"'+String(v??'').replace(/^[\s]*[=+@-]/,"'$&").replaceAll('"','""')+'"';
+  return '\ufeff'+matrix.map(row=>row.map(cell).join(',')).join('\r\n');
+ }
+ const api={key,number,candidates,groups,compare,comparisonCategory,selectMappingMaterial,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel,trialDiagnostics,trialTransactions,pendingItems,usageRanking,purchaseOverview,ledgerCsv};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.PurchaseLedger=api;
  if(typeof document==='undefined')return;
- const state={period:'2026-10',sub:'trial',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',compareFilter:'all',txLimits:{},batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
+ const state={period:'2026-10',sub:'overview',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',compareFilter:'all',txLimits:{},monthlyQ:'',monthlyLimit:50,pendingFilter:'all',pendingLimit:20,usageUnit:'',previous:null,previousError:'',batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
  const esc=v=>escapeHtml(v??'');
  const fmt=v=>number(v)===null?'—':Number(v).toLocaleString('zh-TW',{maximumFractionDigits:4});
  const writeAllowed=()=>['vic','manager','purchase','warehouse'].includes(ROLE);
@@ -142,18 +179,20 @@
   try{
    const [data,res]=await Promise.all([request('list?period='+state.period),fetch(PROXY+'/api/inventory/list?limit=20000',{headers:erpWorkerHeaders(),cache:'no-store'})]);
    const inventory=await res.json();if(!res.ok||!inventory.ok||!Array.isArray(inventory.materials))throw Error('正式庫存料號未完整讀取，請重試');
-   state.batch=data.batch;state.mappings=data.mappings;state.materials=inventory.materials.filter(m=>!m.status||m.status==='啟用');state.loaded=true;state.report=null;state.reportError='';state.txLimits={};state.draft=null;state.lastSaved='';
+   state.batch=data.batch;state.mappings=data.mappings;state.materials=inventory.materials.filter(m=>!m.status||m.status==='啟用');state.loaded=true;state.report=null;state.reportError='';state.txLimits={};state.previous=null;state.previousError='';state.draft=null;state.lastSaved='';
   }
   catch(e){state.error=e.message;state.loaded=false;state.batch=null;}
   finally{state.busy=false;redraw();}
-  if(state.loaded&&state.sub==='trial')await loadPurchaseComparison();
+  if(state.loaded&&['trial','monthly','pending','overview'].includes(state.sub))await loadPurchaseComparison();
  };
  root.purchaseLedgerChange=function(field,value){
   if(state.busy||state.draft?.saving)return;
   if(state.draft){showToast('請先儲存或取消目前這筆對照，再切換條件','warn');return;}
   state[field]=value;state.page=1;
+  if(field==='sub')state.sourceSupplier='';
   if(field==='trialFilter')state.trialLimit=20;
-  if(field==='period'){state.loaded=false;state.batch=null;state.report=null;state.draft=null;loadPurchaseLedger();}else{redraw();if(field==='sub'&&value==='trial'&&state.loaded&&!state.report)loadPurchaseComparison();}
+  if(field==='pendingFilter')state.pendingLimit=20;
+  if(field==='period'){state.loaded=false;state.batch=null;state.report=null;state.draft=null;loadPurchaseLedger();}else{redraw();if(field==='sub'&&['trial','monthly','pending','overview'].includes(value)&&state.loaded&&!state.report)loadPurchaseComparison();else if(field==='sub'&&value==='overview'&&!state.previous)loadPurchasePrevious();}
  };
  root.purchaseLedgerSearch=function(){if(state.draft){showToast('請先儲存或取消目前這筆對照','warn');return;}state.q=document.getElementById('pl-search')?.value.trim()||'';state.page=1;redraw();};
  function allGroups(){return groups(state.batch?.payload?.rows||[],state.mappings,state.materials);}
@@ -200,6 +239,34 @@
   return note+kpis+coverage+reportState+unassigned+filter+models+more+fees;
  }
  const statusText={confirmed:'已確認料號',expense:'已確認非物料',pending:'待確認',invalid:'對照料號已失效'};
+ const pendingText={mapping:'料號待確認',invalid:'對照已失效',unit:'單位待確認',quantity:'入庫數量不同',data:'入庫資料待核'};
+ function reportNotice(){
+  return state.report?`<p class="pl-muted">${esc(state.period)} · 正式交易產生 ${esc(state.report.generated_at)}（依台灣日期查詢）。資料為查詢快照，未鎖定月結。</p>`:`<div class="panel pl-message" role="status">${state.reportError?esc(state.reportError)+'；未取得總表，不把未知當成 0。':'正在讀取完整期間庫存總表…'}${state.busy?'':'<button class="btn btn-blue" onclick="loadPurchaseComparison()">重新讀取期間資料</button>'}</div>`;
+ }
+ function renderMonthly(){
+  const intro='<div class="panel pl-message"><b>倉管｜每月物料進出總表</b><p>按倉庫與料號分列；期初＋各類增加－各類減少＝期末。只列本月有異動料號；帳面不等於盤點，未知不填零。</p></div>';
+  if(!state.report)return intro+reportNotice();
+  const d=state.report,q=state.monthlyQ.toLowerCase(),all=d.rows,rows=all.filter(r=>[r.sku,r.name,r.warehouse].some(v=>String(v||'').toLowerCase().includes(q)));
+  const cols=inventoryReportColumns();
+  return intro+reportNotice()+`<div class="panel pl-toolbar"><input class="inp" id="pl-monthly-search" aria-label="搜尋月總表" placeholder="搜尋料號、名稱或倉庫" value="${esc(state.monthlyQ)}" onkeydown="if(event.key==='Enter'&&!event.isComposing)searchPurchaseMonthly()"><button class="btn btn-blue" onclick="searchPurchaseMonthly()">搜尋總表</button><button class="btn btn-ghost" onclick="clearPurchaseMonthly()">清除搜尋</button><button class="btn btn-ghost" onclick="exportPurchaseMonthly()">下載月總表 Excel</button><button class="btn btn-ghost" onclick="previewPurchaseMonthly()">列印月總表／PDF</button></div><p class="pl-muted">符合 ${rows.length} / 全月 ${all.length} 個倉庫／料號 · ${d.transactions?.length??'未知'} 筆交易 · 交易鏈待核 ${all.filter(r=>r.checked!==true).length} 項。匯出與列印包含全月，不受搜尋或顯示筆數限制；不同料號不混加數量。</p><div class="table-wrap inventory-scroll-table" tabindex="0" role="region" aria-label="每月物料進出總表"><table class="inv-period-table"><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}<th>交易明細</th></tr></thead><tbody>${rows.slice(0,state.monthlyLimit).map(r=>`<tr>${cols.map(([k,label])=>`<td data-label="${label}">${esc(r[k]===null||r[k]===undefined?'待核對':r[k])}</td>`).join('')}<td data-label="交易明細"><button class="btn btn-ghost" data-key="${esc(r.key)}" onclick="openPurchaseMonthlyDetails(this.dataset.key)">查看交易</button></td></tr>`).join('')||`<tr><td colspan="${cols.length+1}">${all.length?'搜尋沒有符合項目，可清除搜尋。':'這個月沒有正式交易；不能推論所有庫存為零。'}</td></tr>`}</tbody></table></div><div class="pl-tabs"><span>顯示 ${Math.min(rows.length,state.monthlyLimit)} / ${rows.length} 項</span>${rows.length>state.monthlyLimit?'<button class="btn btn-ghost" onclick="morePurchaseRows(\'monthly\')">再顯示 50 項</button>':''}</div>`;
+ }
+ function renderPending(grouped){
+  const all=pendingItems(grouped,state.report),rows=all.filter(x=>state.pendingFilter==='all'||x.type===state.pendingFilter);
+  return `<div class="panel pl-message"><b>採購／行政｜進貨待核清單</b><p>先核對料號與單位，再追查入庫差額。差額按料號彙整，不指稱某家供應商漏交；本頁不自動補庫、結案或改對照。</p></div>`+reportNotice()+`<div class="pl-tabs" aria-label="待核原因篩選">${[['all','全部待核'],...Object.entries(pendingText)].map(([type,label])=>`<button class="btn ${state.pendingFilter===type?'btn-blue':'btn-ghost'}" aria-pressed="${state.pendingFilter===type}" data-filter="${type}" onclick="purchaseLedgerChange('pendingFilter',this.dataset.filter)">${label} ${type==='all'?all.length:all.filter(x=>x.type===type).length}</button>`).join('')}</div><div class="panel pl-toolbar"><span>符合 ${rows.length} / 目前可判定 ${all.length} 項 · 一項可能包含多筆來源列</span><button class="btn btn-ghost" onclick="exportPurchasePending()" ${rows.length?'':'disabled'}>下載目前待核清單</button></div>${!state.report?'<p class="pl-message">目前只列配號、失效與單位問題；入庫數量差異尚未檢查，不能視為已全部核對。</p>':''}<div class="pl-list pl-pending-list">${rows.slice(0,state.pendingLimit).map(item=>`<article class="panel pl-record"><div class="pl-record-head"><b>${esc(item.sku||grouped[item.groups[0]].label)}</b><span class="badge">${esc(pendingText[item.type])}</span></div><div class="pl-record-body">${item.type==='quantity'?`<div>帳務換算 ${fmt(item.quantity)} · 正式進貨入庫 ${fmt(item.inbound)} · 差額 ${fmt(item.difference)} ${esc(item.unit)}</div><p>核對收貨單、入料／品管紀錄及是否跨月，差額不是補庫依據。</p>`:item.type==='data'?'<p>入庫數量資料不足，先核對正式期間交易。</p>':`<p>${item.type==='unit'?'尚未確認數量換算，暫不計算此料號差額。':item.type==='invalid'?'原對照料號無法使用，保留原紀錄，請人工查驗。':'確認原品名對應哪個既有料號；相似候選不會自動保存。'}</p>`}${item.groups.map(i=>{const g=grouped[i];return `<div class="pl-trial-source"><b>${esc(g.label)}</b><div>${esc(g.supplier)} · Excel 第 ${g.rows.map(r=>r.line).join('、')} 列</div><div>原始數量 ${fmt(g.quantity)} · ${g.material?esc(g.material.code||g.material.sku):'尚未確認倉庫料號'}</div>${writeAllowed()?`<button class="btn btn-blue" data-group="${i}" onclick="correctPurchaseTrial(Number(this.dataset.group),'unit')">${item.type==='quantity'||item.type==='data'?'查看來源對照':'核對這筆來源'}</button>`:'<span class="pl-muted">唯讀角色</span>'}</div>`;}).join('')}${item.sku&&state.report?renderTrialTransactions(item):''}</div></article>`).join('')||`<div class="panel pl-message">${all.length?'目前篩選沒有符合項目。':state.report?'依已載入來源與總表，沒有待核項目；不代表實物盤點完成。':'目前沒有配號或單位待核項目，入庫差異仍待取得總表。'}</div>`}</div>${rows.length>state.pendingLimit?'<div class="pl-tabs"><button class="btn btn-ghost" onclick="morePurchaseRows(\'pending\')">再顯示 20 項</button></div>':''}`;
+ }
+ function renderBars(title,items,value,label){
+  const max=Math.max(1,...items.map(x=>Math.abs(number(value(x))??0)));
+  return `<section class="panel pl-message pl-chart"><h3>${esc(title)}</h3><ol>${items.map(x=>`<li><div><span>${esc(label(x))}</span><b>${fmt(value(x))}</b></div><div class="pl-bar-track" aria-hidden="true"><span style="width:${Math.min(100,100*Math.abs(number(value(x))??0)/max)}%"></span></div></li>`).join('')||'<li>目前沒有可呈現的數據。</li>'}</ol></section>`;
+ }
+ function renderOverview(grouped){
+  const overview=purchaseOverview(grouped),usage=usageRanking(state.report),units=[...new Set((usage||[]).map(x=>x.unit))];
+  if(!units.includes(state.usageUnit))state.usageUnit=units[0]||'';
+  const ranked=(usage||[]).filter(x=>x.unit===state.usageUnit).slice(0,10),previous=state.previous?.batch?purchaseOverview(groups(state.previous.batch.payload.rows,state.previous.mappings,state.materials)):null;
+  const pending=pendingItems(grouped,state.report);
+  const kpi=(label,value,note)=>`<div class="kpi-card pl-overview-kpi"><div class="kpi-label">${label}</div><div class="kpi-num" style="font-size:1.6rem">${value}</div><div class="kpi-sub">${note}</div></div>`;
+  const trend=state.period==='2026-10'?[{period:'2026-09',amount:previous?.amount??null},{period:state.period,amount:overview.amount}]:[{period:state.period,amount:overview.amount}];
+  return `<div class="panel pl-message"><b>主管｜採購與用料概覽</b><p>先看來源金額、供應商與用料線索，再進總表或待核清單。金額為原表品項小計，含待配號及費用，不是含稅帳款、已確認物料採購成本或毛利；幣別以原表為準。</p></div><div class="dash-kpi-grid">${kpi('來源品項小計',fmt(overview.amount),`已知 ${overview.known} 列 · 缺金額 ${overview.missing} 列`)}${kpi('原始供應商',overview.suppliers.length,'依來源廠商文字區分，未自動合併')}${kpi('目前可判定待核',pending.length+' 項',state.report?'含配號、單位與入庫差異':'入庫差異尚未檢查')}${kpi('有領料／出庫料號',usage===null?'—':usage.length,'按料號＋單位計數，非銷售排行')}</div><div class="pl-tabs"><button class="btn btn-blue" onclick="purchaseLedgerChange('sub','pending')">處理進貨待核清單</button><button class="btn btn-ghost" onclick="purchaseLedgerChange('sub','monthly')">查看每月物料進出總表</button></div>`+reportNotice()+`<div class="pl-chart-grid">${renderBars('月別來源品項小計',trend,x=>x.amount,x=>x.period+(x.amount===null?'（未取得）':''))}${renderBars('供應商來源小計排行（前 8 名）',overview.suppliers.filter(x=>x.amount!==null).slice(0,8),x=>x.amount,x=>x.supplier)}</div><p class="pl-muted">月別圖只呈現已帶入的 9、10 月；缺值不當零。${overview.missing?'已知金額合計不是完整月金額。':''}${state.previousError?esc(state.previousError):''}</p><div class="panel pl-toolbar"><label>領料／出庫排行單位<select class="inp" aria-label="用料排行單位" onchange="purchaseLedgerChange('usageUnit',this.value)">${units.map(unit=>`<option ${unit===state.usageUnit?'selected':''}>${esc(unit)}</option>`).join('')||'<option>尚無可用資料</option>'}</select></label><span>不同單位分開看；不計入轉庫、手動調整，領料不等於實際消耗或銷貨。</span></div>${usage===null?'<div class="panel pl-message">完整期間總表尚未取得，不顯示用料排行為零。</div>':renderBars('領料／出庫數量排行（'+(state.usageUnit||'未填單位')+'，前 10 名）',ranked,x=>x.quantity,x=>x.sku)}<details class="panel pl-message"><summary>供應商明細與來源入口（${overview.suppliers.length} 家）</summary>${overview.suppliers.map(s=>`<div class="pl-trial-source"><b>${esc(s.supplier)}</b><div>已知小計 ${fmt(s.amount)} · ${s.rows} 列 · 缺金額 ${s.missing} 列</div><button class="btn btn-ghost" data-supplier="${esc(s.supplier)}" onclick="openPurchaseSupplier(this.dataset.supplier)">查看該供應商來源</button></div>`).join('')}</details>`;
+ }
  function sourceLine(row){return `${state.batch?.payload?.sheet||''} 第 ${row.line} 列`;}
  root.renderPurchaseLedger=function(){
   if(!['vic','manager','purchase','warehouse','ai'].includes(ROLE))return '<div class="panel">目前角色沒有進銷存權限</div>';
@@ -207,7 +274,7 @@
   const counts={all:grouped.length,confirmed:0,pending:0,expense:0,invalid:0};grouped.forEach(g=>counts[g.status]++);
   for(const category of ['exact','similar','unmatched'])counts[category]=grouped.filter(g=>reviewCategory(g)===category).length;
   const known=rows.filter(r=>number(r.amount)!==null),sum=known.reduce((s,r)=>s+Number(r.amount),0);
-  const header=`<section class="module-brief"><div><h2>進銷存</h2><p>先用 9、10 月資料跑出模型，再逐步校正。系統暫配與人工確認分開標示，試跑不會增減庫存。</p></div></section>
+  const header=`<section class="module-brief"><div><h2>進銷存</h2><p>倉管看每月進出、採購追待核項目、主管看採購與用料。先用已帶入的 9、10 月資料；查詢與試跑不增減庫存。</p></div></section>
    <div class="panel pl-toolbar"><label>帳務月份 <select class="inp" onchange="purchaseLedgerChange('period',this.value)" ${state.busy?'disabled':''}><option value="2026-09" ${state.period==='2026-09'?'selected':''}>115 年 9 月</option><option value="2026-10" ${state.period==='2026-10'?'selected':''}>115 年 10 月</option></select></label><button class="btn btn-ghost" onclick="loadPurchaseLedger()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'重新讀取'}</button></div>`;
   if(state.error)return header+`<div class="panel pl-message" role="alert">${esc(state.error)}<p>資料未載入，不能當成沒有進貨；請按重新讀取。</p></div>`;
   if(!state.loaded)return header+'<div class="loading-row">正在讀取進貨來源與人工對照…</div>';
@@ -215,10 +282,15 @@
   const cards=`<div class="dash-kpi-grid"><div class="kpi-card kpi-cyan"><div class="kpi-label">來源品項列</div><div class="kpi-num">${rows.length}</div><div class="kpi-sub">同一發票可有多列，非發票張數</div></div><div class="kpi-card kpi-amber"><div class="kpi-label">待確認對照</div><div class="kpi-num">${counts.pending+counts.invalid}</div><div class="kpi-sub">依廠商＋原始品名，共 ${grouped.length} 組</div></div><div class="kpi-card kpi-green"><div class="kpi-label">已確認物料／非物料</div><div class="kpi-num">${counts.confirmed} / ${counts.expense}</div><div class="kpi-sub">跨月份共用已保存的對照</div></div><div class="kpi-card"><div class="kpi-label">品項小計合計</div><div class="kpi-num" style="font-size:1.65rem">${fmt(sum)}</div><div class="kpi-sub">僅原表小計；非含稅帳款，缺值 ${rows.length-known.length} 列</div></div></div>`;
   const coverage=`<div class="panel pl-coverage" aria-label="對照進度">${[['confirmed','已確認料號'],['expense','非物料'],['pending','待確認'],['invalid','失效對照']].map(([s,l])=>`<div><span>${l} ${counts[s]} 組</span><meter min="0" max="${grouped.length||1}" value="${counts[s]}">${counts[s]}</meter></div>`).join('')}</div>`;
   const source=`<details class="panel pl-message"><summary>來源與核對規則</summary><p>${esc(state.batch.source_key)} · ${esc(state.batch.payload.sheet)} · 匯入 ${esc(state.batch.created_at)}<br>來源指紋 ${esc(state.batch.source_hash.slice(0,12))}；保留原始品名與 Excel 列號。排除月份標題、合計及空白公式列。數量不跨不同品項加總；單位換算未確認前不比較庫存數量。銀行、支票與付款資料未帶入本階段。</p><p>本頁尚未串接銷貨與自動區網同步。料號對照不會改寫 BOM、舊訂單或倉庫料號。</p></details>`;
-  const tabs=`<div class="pl-tabs">${[['trial','系統試跑'],['mapping','料號對照'],['details','進貨明細'],['compare','期間進出核對']].map(([s,l])=>`<button class="btn ${state.sub===s?'btn-blue':'btn-ghost'}" aria-pressed="${state.sub===s}" onclick="purchaseLedgerChange('sub','${s}')">${l}</button>`).join('')}</div>`;
+  const nav=items=>items.map(([s,l])=>`<button class="btn ${state.sub===s?'btn-blue':'btn-ghost'}" aria-pressed="${state.sub===s}" onclick="purchaseLedgerChange('sub','${s}')">${l}</button>`).join('');
+  const tabs=`<div class="pl-tabs" aria-label="進銷存工作入口">${nav([['overview','採購與用料概覽'],['monthly','每月物料進出總表'],['pending','進貨待核清單']])}</div><details class="pl-source-tools" ${['trial','mapping','details','compare'].includes(state.sub)?'open':''}><summary>料號與來源核對工具</summary><div class="pl-tabs">${nav([['trial','系統試跑'],['mapping','料號對照'],['details','進貨明細'],['compare','期間進出核對']])}</div></details>`;
+  if(state.sub==='monthly')return header+tabs+renderMonthly()+source;
+  if(state.sub==='pending')return header+tabs+renderPending(grouped)+source;
+  if(state.sub==='overview')return header+tabs+renderOverview(grouped)+source;
   if(state.sub==='trial')return header+tabs+renderPurchaseTrial(grouped)+source;
   if(state.sub==='compare')return header+tabs+renderComparison(grouped)+source;
-  const filtered=filterGroups(grouped,state.status,state.q);
+  const filtered=filterGroups(grouped,state.status,state.q).filter(g=>state.sub!=='details'||!state.sourceSupplier||g.supplier===state.sourceSupplier);
+  const supplierScope=state.sub==='details'&&state.sourceSupplier?`<div class="panel pl-toolbar"><b>供應商範圍：${esc(state.sourceSupplier)}（精確名稱）</b><button class="btn btn-ghost" onclick="clearPurchaseSupplier()">清除供應商範圍</button></div>`:'';
   const listed=state.sub==='details'?rows.filter(row=>filtered.some(g=>g.key===key(row.supplier,row.label))):filtered;
   const page=Math.max(1,Math.min(state.page,Math.ceil(listed.length/30)||1));state.page=page;
   const toolbar=`<div class="panel pl-toolbar"><input class="inp" id="pl-search" value="${esc(state.q)}" placeholder="搜尋廠商、原始品名或已確認料號" onkeydown="if(event.key==='Enter'&&!event.isComposing)purchaseLedgerSearch()"><button class="btn btn-blue" onclick="purchaseLedgerSearch()">搜尋</button><select class="inp" aria-label="對照篩選" onchange="purchaseLedgerChange('status',this.value)">${[['all','全部'],['similar','相近待確認'],['unmatched','找不到候選'],['exact','精確相符待確認'],...Object.entries(statusText)].map(([s,l])=>`<option value="${s}" ${state.status===s?'selected':''}>${l} ${counts[s]} 組品名</option>`).join('')}</select><button class="btn btn-ghost" onclick="exportPurchaseReview()" ${filtered.length?'':'disabled'}>下載目前篩選核對清單</button><span>符合 ${listed.length} ${state.sub==='details'?'列':'組'} · 第 ${page} 頁</span></div>`;
@@ -230,11 +302,11 @@
    return `<article class="panel pl-record" data-pl-row="${i}"><div class="pl-record-head"><b>${esc(g.supplier)}</b><span class="badge">${g.status==='pending'&&!g.candidates.length?'找不到候選／待確認':statusText[g.status]}</span></div><div class="pl-review-pair"><section class="pl-source"><div class="pl-muted">原始品名（來源保留）</div><strong class="pl-model">${esc(g.label)}</strong><div class="pl-muted">${g.rows.length} 列 · ${esc(sourceLine(g.rows[0]))}</div><div>原始數量 ${fmt(g.quantity)} · 小計 ${fmt(g.amount)}${g.unknownAmount?'，含缺值':''}</div><p class="pl-muted">同廠商、同原始品名的各月份共用這筆對照。確認不會修改原始品名或倉庫料號。</p></section><section class="pl-target"><div class="pl-muted">${g.mapping&&g.status!=='pending'?'目前已確認的對照':'建議倉庫料號（待你確認）'}</div>${g.status==='confirmed'?`<strong class="pl-model">${esc(g.material.code||g.material.sku)}</strong><div class="pl-muted">${factor===null?'單位換算尚未確認，不計算數量差異':`來源數量 × ${fmt(factor)} → ${esc(g.material.unit||'ERP 單位')}`}</div>`:g.status==='expense'?'<strong>已確認為非物料／費用</strong>':suggested||'<p>沒有找到相近料號，可手動搜尋，或確認為非物料。</p>'}${g.mapping?`<div class="pl-muted">最近確認角色：${esc(g.mapping.actor_role||'—')} · ${esc(g.mapping.updated_at||'—')}</div>`:''}${editing?inlinePurchaseForm(g):writeAllowed()?`<button class="btn btn-blue" data-pl-group="${i}" onclick="openPurchaseMapping(Number(this.dataset.plGroup))">${g.mapping?'修改這筆對照':'手動選料號／非物料'}</button>`:'<p class="pl-muted">唯讀角色；對照由採購／倉管確認。</p>'}</section></div></article>`;
   }).join('')||'<div class="panel pl-message">目前沒有符合條件的對照；可清除搜尋或切換狀態。</div>'}</div>`;
   else content=`<div class="pl-list">${listed.slice((page-1)*30,page*30).map(row=>`<article class="panel pl-record"><div class="pl-record-head"><strong>${esc(row.label)}</strong><span>${esc(sourceLine(row))}</span></div><div class="pl-record-body"><div>廠商：${esc(row.supplier)}</div><div>數量 ${fmt(row.quantity)} · 單價 ${fmt(row.unit_price)} · 小計 ${fmt(row.amount)}</div></div></article>`).join('')||'<div class="panel pl-message">沒有符合條件的進貨列。</div>'}</div>`;
-  return header+cards+coverage+tabs+toolbar+content+`<div class="pl-tabs"><button class="btn btn-ghost" onclick="purchaseLedgerPage(-1)" ${page<=1?'disabled':''}>上一頁</button><button class="btn btn-ghost" onclick="purchaseLedgerPage(1)" ${page*30>=listed.length?'disabled':''}>下一頁</button></div>`+source;
+  return header+cards+coverage+tabs+supplierScope+toolbar+content+`<div class="pl-tabs"><button class="btn btn-ghost" onclick="purchaseLedgerPage(-1)" ${page<=1?'disabled':''}>上一頁</button><button class="btn btn-ghost" onclick="purchaseLedgerPage(1)" ${page*30>=listed.length?'disabled':''}>下一頁</button></div>`+source;
  };
  root.purchaseLedgerPage=function(delta){if(state.draft){showToast('請先儲存或取消目前這筆對照','warn');return;}state.page=Math.max(1,state.page+delta);redraw();};
  root.exportPurchaseReview=function(){
-  const selected=filterGroups(allGroups(),state.status,state.q);if(!selected.length)return;
+  const selected=filterGroups(allGroups(),state.status,state.q).filter(g=>state.sub!=='details'||!state.sourceSupplier||g.supplier===state.sourceSupplier);if(!selected.length)return;
   const blob=new Blob([reviewCsv(selected)],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=`進貨料號核對_${state.period}_${state.status}.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  };
@@ -298,12 +370,52 @@
   finally{d.saving=false;if(state.draft===d)restorePurchaseDraft();}
  };
  root.loadPurchaseComparison=async function(){
-  if(state.busy)return;state.busy=true;state.reportError='';redraw();
+  if(state.busy||state.draft)return;state.busy=true;state.reportError='';redraw();
   const [year,month]=state.period.split('-').map(Number),end=new Date(Date.UTC(year,month,0)).getUTCDate();
   try{
    const res=await fetch(PROXY+'/api/inventory/period-report?'+new URLSearchParams({start:state.period+'-01',end:state.period+'-'+end}),{headers:erpWorkerHeaders(),cache:'no-store'});
-   const data=await res.json();if(!res.ok||!data.ok||!data.complete||!Array.isArray(data.rows))throw Error(data.error||'期間總表未完整載入');state.report=data;
+   const data=await res.json();if(!res.ok||!data.ok||!data.complete||!Array.isArray(data.rows)||!Array.isArray(data.transactions))throw Error(data.error||'期間總表未完整載入');state.report=data;
   }catch(e){state.report=null;state.reportError=e.message;}finally{state.busy=false;redraw();}
+  if(state.sub==='overview')await loadPurchasePrevious();
+ };
+ root.loadPurchasePrevious=async function(){
+  if(state.busy||state.draft||state.period!=='2026-10'||state.previous)return;
+  state.busy=true;redraw();
+  try{state.previous=await request('list?period=2026-09');state.previousError=state.previous.batch?'':'9 月尚無來源快照，不能做完整月別比較。';}
+  catch(e){state.previousError='9 月來源未取得：'+e.message;}
+  finally{state.busy=false;redraw();}
+ };
+ root.searchPurchaseMonthly=function(){state.monthlyQ=document.getElementById('pl-monthly-search')?.value.trim()||'';state.monthlyLimit=50;redraw();};
+ root.clearPurchaseMonthly=function(){state.monthlyQ='';state.monthlyLimit=50;redraw();};
+ root.morePurchaseRows=function(type){if(type==='monthly')state.monthlyLimit+=50;else if(type==='pending')state.pendingLimit+=20;redraw();};
+ root.openPurchaseSupplier=function(supplier){if(state.busy||state.draft)return;state.sub='details';state.status='all';state.q='';state.sourceSupplier=supplier;state.page=1;redraw();};
+ root.clearPurchaseSupplier=function(){state.sourceSupplier='';state.page=1;redraw();};
+ root.openPurchaseMonthlyDetails=function(key,page=1){
+  const d=state.report,row=d?.rows.find(r=>r.key===key);if(!row)return;
+  const tx=d.transactions.filter(t=>t.warehouse_id+':'+t.material_id===key),pages=Math.max(1,Math.ceil(tx.length/100));page=Math.max(1,Math.min(page,pages));
+  document.getElementById('modalInner').innerHTML=`<h3>${esc(row.sku)} · ${esc(row.warehouse)}</h3><p>${esc(state.period)} · ${tx.length} 筆正式交易，第 ${page} / ${pages} 頁；唯讀查詢。</p>${tx.slice((page-1)*100,page*100).map(t=>`<div class="pl-trial-source"><b>${esc(t.source_number||'未填單號')} · ${esc(t.transaction_type)}</b><div>${esc(new Date(t.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))}</div><div>${fmt(t.quantity_before)} → ${fmt(t.quantity_after)}（異動 ${fmt(t.quantity_delta)}）</div></div>`).join('')||'<p>未取得該筆逐筆明細，不推論為沒有交易。</p>'}<div class="pl-tabs"><button class="btn btn-ghost" data-key="${esc(key)}" onclick="openPurchaseMonthlyDetails(this.dataset.key,${page-1})" ${page<=1?'disabled':''}>上一頁明細</button><button class="btn btn-ghost" data-key="${esc(key)}" onclick="openPurchaseMonthlyDetails(this.dataset.key,${page+1})" ${page>=pages?'disabled':''}>下一頁明細</button><button class="btn btn-ghost" onclick="closeModal()">關閉明細</button></div>`;openSharedModal();
+ };
+ root.exportPurchaseMonthly=async function(){
+  const d=state.report;if(!d||state.exportBusy)return;state.exportBusy=true;
+  try{
+   await ensureXlsxLoaded();const data=inventoryReportWorkbookData(d),book=XLSX.utils.book_new();
+   const summary=XLSX.utils.aoa_to_sheet(data.summary),details=XLSX.utils.aoa_to_sheet(data.details);
+   summary['!cols']=[{wch:16},{wch:30},{wch:36},{wch:8},...Array.from({length:12},()=>({wch:16})),{wch:32}];details['!cols']=[{wch:38},{wch:24},{wch:16},{wch:30},{wch:36},{wch:8},{wch:18},{wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:44}];
+   summary['!autofilter']={ref:'A5:Q'+data.summary.length};details['!autofilter']={ref:'A5:M'+data.details.length};
+   XLSX.utils.book_append_sheet(book,summary,'料號彙總');XLSX.utils.book_append_sheet(book,details,'逐筆明細');
+   XLSX.writeFile(book,'物料進出總表_'+d.start+'_'+d.end+'.xlsx',{bookType:'xlsx',compression:true});showToast('已送出完整月總表 Excel 下載','success');
+  }catch(e){showToast('月總表匯出失敗：'+e.message,'warn');}finally{state.exportBusy=false;}
+ };
+ root.previewPurchaseMonthly=function(){
+  if(!state.report)return;
+  document.getElementById('modalInner').innerHTML='<h3>每月物料進出總表列印預覽</h3><p>A4 橫式；包含全月，不受搜尋限制。帳面非盤點，未鎖定月結。</p><iframe id="pl-monthly-print" title="月總表列印預覽" sandbox="allow-same-origin allow-modals" style="width:100%;height:55vh" onload="document.getElementById(\'pl-print-button\').disabled=false"></iframe><div class="pl-tabs"><button id="pl-print-button" class="btn btn-blue" disabled onclick="printPurchaseMonthly()">列印／另存 PDF</button><button class="btn btn-ghost" onclick="closeModal()">關閉預覽</button></div>';
+  document.getElementById('pl-monthly-print').srcdoc=buildInventoryPeriodPrint(state.report);openSharedModal();
+ };
+ root.printPurchaseMonthly=function(){try{const win=document.getElementById('pl-monthly-print').contentWindow;win.focus();win.print();}catch(e){showToast('無法開啟列印，請用電腦瀏覽器重試','warn');}};
+ root.exportPurchasePending=function(){
+  const grouped=allGroups(),items=pendingItems(grouped,state.report).filter(x=>state.pendingFilter==='all'||x.type===state.pendingFilter);
+  const csv=ledgerCsv([['月份','待核原因','倉庫料號','原始廠商','原始品名','Excel列號','帳務換算數量','正式入庫','差額','單位','來源指紋'],...items.map(x=>[state.period,pendingText[x.type],x.sku,x.groups.map(i=>grouped[i].supplier).join('、'),x.groups.map(i=>grouped[i].label).join('、'),x.groups.flatMap(i=>grouped[i].rows.map(r=>r.line)).join('、'),x.quantity,x.inbound,x.difference,x.unit,state.batch.source_hash])]);
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='進貨待核_'+state.period+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  };
  function renderComparison(grouped){
   const intro=`<div class="panel pl-message"><b>已確認料號的帳務進貨 × 正式進貨入庫</b><p>差異只供追查，不代表庫存錯誤；單位未確認時不計算差異。</p><button class="btn btn-blue" onclick="loadPurchaseComparison()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'讀取本月期間進出總表'}</button><details><summary>比較口徑與限制</summary><p>帳務月份與實際入庫月份可能不同。ERP 欄位取自正式期間進出總表的「進貨入庫」，不含組立產出、退貨或轉庫。沒有交易的料號顯示 0 進貨入庫，不能推論庫存為 0；數量一致也不代表已完成實物盤點。</p></details></div>`;

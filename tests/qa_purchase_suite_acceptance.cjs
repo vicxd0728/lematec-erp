@@ -1,0 +1,60 @@
+// Three operator journeys in the actual renderer. All network responses are isolated fixtures.
+async page=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:1000});await page.goto('http://127.0.0.1:8781/?seed=confirmed&view=overview&scale=1');
+  await page.waitForFunction(()=>document.querySelector('.pl-chart')&&!document.querySelector('.pl-toolbar button').disabled);
+  const saved=await page.evaluate(()=>JSON.stringify(fakeState().saved));
+  const usage=page.locator('.pl-chart').filter({has:page.getByRole('heading',{name:/領料／出庫數量排行/})});
+  await page.getByRole('combobox',{name:'用料排行單位'}).selectOption('個');
+  if(!(await usage.innerText()).includes('Y-DEMO-01')||(await usage.innerText()).includes('Y-DEMO-02'))throw Error('ranking mixed units');
+  await page.locator('#mainContent').evaluate(e=>Promise.allSettled(e.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)));
+  await page.screenshot({path:'output/playwright/purchase-suite-overview-'+width+'.png',fullPage:true});
+  const supplierDetails=page.locator('details').filter({has:page.locator('summary').filter({hasText:'供應商明細與來源入口'})});
+  await supplierDetails.locator('summary').click();await supplierDetails.locator('button[data-supplier="合成供應商"]').click();
+  if(!(await page.locator('#mainContent').innerText()).includes('Y-DEMO01'))throw Error('supplier source drill-through failed');
+  await page.getByRole('button',{name:'每月物料進出總表',exact:true}).click();
+  const table=page.getByRole('region',{name:'每月物料進出總表',exact:true});
+  if(await table.locator('tbody tr').count()!==50)throw Error('monthly first page wrong');
+  await page.getByRole('button',{name:'再顯示 50 項',exact:true}).click();if(await table.locator('tbody tr').count()!==56)throw Error('monthly more rows lost records');
+  await page.getByLabel('搜尋月總表').fill('Y-DEMO-01');await page.getByRole('button',{name:'搜尋總表',exact:true}).click();
+  if(await table.locator('tbody tr').count()!==1)throw Error('monthly search mismatch');
+  await table.getByRole('button',{name:'查看交易',exact:true}).click();
+  const detail=await page.locator('#modalInner').innerText();if(!detail.includes('IB-TEST-ONE')||detail.includes('OTHER-SKU-RECEIPT'))throw Error('monthly detail crossed warehouse/material identity');
+  await page.getByRole('button',{name:'關閉明細',exact:true}).click();
+  await page.getByRole('button',{name:'下載月總表 Excel',exact:true}).click();
+  const exported=await page.evaluate(()=>window.exportedBook);if(!exported||exported.book.sheets.length!==2||!JSON.stringify(exported).includes('Y-SCALE-53'))throw Error('monthly export lost full-period rows after filtering');
+  await page.getByRole('button',{name:'列印月總表／PDF',exact:true}).click();
+  await page.locator('#pl-monthly-print').waitFor();
+  const printed=await page.locator('#pl-monthly-print').getAttribute('srcdoc');if(!printed.includes('Y-SCALE-53')||!printed.includes('A4 landscape'))throw Error('print preview lost full-period rows/format');
+  await page.getByRole('button',{name:'關閉預覽',exact:true}).click();
+  await page.getByRole('button',{name:'清除搜尋',exact:true}).click();
+  await page.locator('#mainContent').evaluate(e=>Promise.allSettled(e.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)));
+  await page.screenshot({path:'output/playwright/purchase-suite-monthly-'+width+'.png',fullPage:true});
+  await page.getByRole('button',{name:'進貨待核清單',exact:true}).click();
+  if(await page.locator('.pl-pending-list article').count()!==2)throw Error('pending population differs from mapping/quantity issues');
+  await page.getByRole('button',{name:/^入庫數量不同 1$/}).click();
+  if(await page.locator('.pl-pending-list article').count()!==1)throw Error('pending reason filter wrong');
+  await page.locator('.pl-pending-list').getByRole('button',{name:'查看來源對照',exact:true}).click();
+  if(await page.locator('#pl-factor').inputValue()!=='2.5'||!await page.locator('#pl-unit-confirmed').isChecked())throw Error('pending lookup changed confirmed factor');
+  await page.getByRole('button',{name:'取消這筆編輯',exact:true}).click();await page.getByRole('button',{name:'進貨待核清單',exact:true}).click();
+  await page.locator('#mainContent').evaluate(e=>Promise.allSettled(e.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)));
+  await page.screenshot({path:'output/playwright/purchase-suite-pending-'+width+'.png',fullPage:true});
+  await page.evaluate(()=>failNextPeriod());await page.getByRole('button',{name:'重新讀取',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#mainContent').innerText.includes('入庫數量差異尚未檢查'));
+  if((await page.locator('#mainContent').innerText()).includes('依已載入來源與總表，沒有待核項目'))throw Error('failed report falsely declared all reconciled');
+  await page.getByRole('button',{name:'重新讀取期間資料',exact:true}).click();await page.locator('.pl-pending-list article').waitFor();
+  await page.getByRole('button',{name:'每月物料進出總表',exact:true}).click();
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('page overflow outside report scroll container');
+  const end=await page.evaluate(()=>fakeState());if(end.saveCount!==0||JSON.stringify(end.saved)!==saved||end.calls.some(c=>c.method!=='GET'))throw Error('report navigation mutated data');
+  await page.goto('http://127.0.0.1:8781/?seed=confirmed&view=overview&collision=1');
+  const collisionSuppliers=page.locator('details').filter({has:page.locator('summary').filter({hasText:'供應商明細與來源入口'})});
+  await collisionSuppliers.locator('summary').click();await collisionSuppliers.locator('button[data-supplier="合成供應商"]').click();
+  if(await page.locator('.pl-list article').count()!==1||(await page.locator('.pl-list').innerText()).includes('合成供應商二'))throw Error('supplier shortcut used substring identity');
+  await page.getByRole('button',{name:'清除供應商範圍',exact:true}).click();if(await page.locator('.pl-list article').count()!==3)throw Error('clearing supplier scope failed');
+  await page.goto('http://127.0.0.1:8781/?seed=confirmed&view=pending&role=ai');
+  await page.locator('.pl-pending-list article').first().waitFor();
+  if(await page.locator('.pl-pending-list button').count())throw Error('AI has mapping correction actions in pending list');
+ }
+ if(errors.length)throw Error(errors.join('\n'));
+}

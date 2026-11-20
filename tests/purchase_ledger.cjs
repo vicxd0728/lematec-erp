@@ -3,6 +3,30 @@ const ledger=require('../erp-purchase-ledger.js');
 const materials=[{id:'m1',code:'Y-SP-20-1',unit:'個'},{id:'m2',code:'Y-SP-20A-1',unit:'個'}];
 const rows=[{line:2,supplier:'A',label:'Y-SP20-1',quantity:10,unit_price:2,amount:20},{line:3,supplier:'A',label:'Y-SP20-1',quantity:5,unit_price:2,amount:10},{line:4,supplier:'B',label:'Y-SP20-1',quantity:8,unit_price:2,amount:null}];
 
+test('pending work preserves confirmed mappings and separates group tasks from one SKU discrepancy',()=>{
+ const maps=[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'m1',factor:2}];
+ const grouped=ledger.groups(rows,maps,materials),before=JSON.stringify(grouped);
+ const list=ledger.pendingItems(grouped,{complete:true,rows:[{sku:'Y-SP-20-1',inbound:8}]});
+ assert.deepEqual(list.map(x=>x.type),['mapping','quantity']);assert.equal(list[1].difference,22);assert.deepEqual(list[1].groups,[0]);
+ assert.equal(JSON.stringify(grouped),before);
+ assert.deepEqual(ledger.pendingItems(grouped,null).map(x=>x.type),['mapping']);
+ maps[0].factor=null;const unknown=ledger.pendingItems(ledger.groups(rows,maps,materials),{complete:true,rows:[]});
+ assert.deepEqual(unknown.map(x=>x.type),['unit','mapping']);
+});
+
+test('usage rankings retain SKU and unit boundaries and do not count transfer or adjustment fields',()=>{
+ const report={complete:true,rows:[{sku:'A',unit:'個',outbound:2,transfer_out:99,adjustment:-100},{sku:'A',unit:'個',outbound:3},{sku:'B',unit:'公斤',outbound:7},{sku:'C',unit:'個',outbound:0}]};
+ const result=ledger.usageRanking(report);assert.equal(result.length,2);assert.equal(result.find(x=>x.sku==='A').quantity,5);assert.equal(result.find(x=>x.sku==='B').unit,'公斤');
+ assert.equal(ledger.usageRanking(null),null);assert.equal(ledger.usageRanking({complete:true,rows:[{sku:'A'}]}),null);
+});
+
+test('purchase overview never turns missing amounts into zero and keeps expenses and negative credits visible',()=>{
+ const grouped=ledger.groups([...rows,{...rows[0],line:9,supplier:'C',label:'運費',amount:-4}],[],materials),model=ledger.purchaseOverview(grouped);
+ assert.equal(model.amount,26);assert.equal(model.missing,1);assert.equal(model.suppliers.find(x=>x.supplier==='B').amount,null);assert.equal(model.suppliers.find(x=>x.supplier==='C').amount,-4);
+ assert.equal(ledger.purchaseOverview(ledger.groups([rows[2]],[],materials)).amount,null);
+ assert.match(ledger.ledgerCsv([[' =unsafe()','正常',null]]),/' =unsafe/);
+});
+
 test('changing a selected material clears only draft conversion and never mutates saved mapping',()=>{
  const original={material:'m1',unit:true,factor:2.5,note:'keep note',kind:'material'};
  assert.equal(ledger.selectMappingMaterial(original,'m1'),original);
