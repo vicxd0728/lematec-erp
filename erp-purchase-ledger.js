@@ -38,6 +38,7 @@
   return [...result.values()];
  }
  function compare(grouped,report){
+  if(!report?.complete||!Array.isArray(report.rows))throw Error('期間資料不完整，不能計算正式核對差異');
   const items=new Map();
   for(const g of grouped.filter(x=>x.status==='confirmed')){
    const sku=g.material.code||g.material.sku;
@@ -50,6 +51,10 @@
    const inbound=hits.some(r=>number(r.inbound)===null)?null:hits.reduce((s,r)=>s+Number(r.inbound),0);
    return {...item,inbound,inventoryRows:hits.length,difference:item.unknownUnits||inbound===null?null:item.quantity-inbound};
   });
+ }
+ function comparisonCategory(item){return item.unknownUnits||item.difference===null?'unknown':Math.abs(item.difference)>=.00005?'difference':'matched';}
+ function selectMappingMaterial(values,material){
+  return values.material===material?values:{...values,material,unit:false,factor:'',unitReset:!!values.material||!!values.unitReset};
  }
  function reviewCategory(g){
   if(g.status!=='pending')return '';
@@ -108,11 +113,11 @@
   if(!report?.complete||!Array.isArray(report.transactions))return null;
   return report.transactions.filter(t=>t.materials?.sku===sku).sort((a,b)=>String(b.occurred_at||'').localeCompare(String(a.occurred_at||''))||String(b.id).localeCompare(String(a.id)));
  }
- const api={key,number,candidates,groups,compare,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel,trialDiagnostics,trialTransactions};
+ const api={key,number,candidates,groups,compare,comparisonCategory,selectMappingMaterial,reviewCategory,filterGroups,reviewCsv,trialAssignments,trialModel,trialDiagnostics,trialTransactions};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.PurchaseLedger=api;
  if(typeof document==='undefined')return;
- const state={period:'2026-10',sub:'trial',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
+ const state={period:'2026-10',sub:'trial',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',compareFilter:'all',txLimits:{},batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
  const esc=v=>escapeHtml(v??'');
  const fmt=v=>number(v)===null?'—':Number(v).toLocaleString('zh-TW',{maximumFractionDigits:4});
  const writeAllowed=()=>['vic','manager','purchase','warehouse'].includes(ROLE);
@@ -137,7 +142,7 @@
   try{
    const [data,res]=await Promise.all([request('list?period='+state.period),fetch(PROXY+'/api/inventory/list?limit=20000',{headers:erpWorkerHeaders(),cache:'no-store'})]);
    const inventory=await res.json();if(!res.ok||!inventory.ok||!Array.isArray(inventory.materials))throw Error('正式庫存料號未完整讀取，請重試');
-   state.batch=data.batch;state.mappings=data.mappings;state.materials=inventory.materials.filter(m=>!m.status||m.status==='啟用');state.loaded=true;state.report=null;state.reportError='';state.draft=null;
+   state.batch=data.batch;state.mappings=data.mappings;state.materials=inventory.materials.filter(m=>!m.status||m.status==='啟用');state.loaded=true;state.report=null;state.reportError='';state.txLimits={};state.draft=null;state.lastSaved='';
   }
   catch(e){state.error=e.message;state.loaded=false;state.batch=null;}
   finally{state.busy=false;redraw();}
@@ -167,9 +172,11 @@
  function renderTrialTransactions(model){
   const rows=trialTransactions(state.report,model.sku);
   if(rows===null)return '<p class="pl-muted">尚未取得正式交易明細，不能據此認定沒有交易。</p>';
+  const limit=state.txLimits[model.sku]||10;
   const when=v=>{if(!v)return '日期未填';const d=new Date(v);return Number.isNaN(d.getTime())?'日期待核對':d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});};
-  return `<details><summary>本月正式庫存交易（${rows.length} 筆）</summary><p class="pl-muted">依交易時間由新到舊，先顯示 ${Math.min(10,rows.length)} 筆；只供追查，不會執行回料或補庫。</p>${rows.slice(0,10).map(t=>`<div class="pl-trial-source"><b>${esc(t.source_number||'未填單號')} · ${esc(t.transaction_type||'異動')}</b><div>${esc(when(t.occurred_at))}（台灣時間）</div><div>異動 ${number(t.quantity_delta)>0?'+':''}${fmt(t.quantity_delta)} · ${fmt(t.quantity_before)} → ${fmt(t.quantity_after)}</div></div>`).join('')||'<p>該期間沒有這個料號的正式交易紀錄；請再核對料號及收貨日期。</p>'}</details>`;
+  return `<details data-pl-tx="${esc(model.sku)}" ${limit>10?'open':''}><summary>本月正式庫存交易（${rows.length} 筆）</summary><p class="pl-muted">依交易時間由新到舊，目前顯示 ${Math.min(limit,rows.length)} / ${rows.length} 筆；只供追查，不會執行回料或補庫。</p>${rows.slice(0,limit).map(t=>`<div class="pl-trial-source"><b>${esc(t.source_number||'未填單號')} · ${esc(t.transaction_type||'異動')}</b><div>${esc(when(t.occurred_at))}（台灣時間） · 倉庫 ${esc(t.warehouses?.name||t.warehouses?.code||'未提供')}</div><div>異動 ${number(t.quantity_delta)>0?'+':''}${fmt(t.quantity_delta)} · ${fmt(t.quantity_before)} → ${fmt(t.quantity_after)}</div></div>`).join('')||'<p>該期間沒有這個料號的正式交易紀錄；請再核對料號及收貨日期。</p>'}${rows.length>limit?`<button class="btn btn-ghost" data-sku="${esc(model.sku)}" onclick="morePurchaseTransactions(this.dataset.sku)">再顯示 10 筆交易</button>`:''}</details>`;
  }
+ root.morePurchaseTransactions=function(sku){state.txLimits[sku]=(state.txLimits[sku]||10)+10;redraw();};
  function renderPurchaseTrial(grouped){
   const assignments=trialAssignments(grouped),model=trialModel(assignments,state.report);
   const manual=assignments.filter(a=>!a.provisional&&a.kind!=='unresolved').length;
@@ -210,7 +217,7 @@
   const source=`<details class="panel pl-message"><summary>來源與核對規則</summary><p>${esc(state.batch.source_key)} · ${esc(state.batch.payload.sheet)} · 匯入 ${esc(state.batch.created_at)}<br>來源指紋 ${esc(state.batch.source_hash.slice(0,12))}；保留原始品名與 Excel 列號。排除月份標題、合計及空白公式列。數量不跨不同品項加總；單位換算未確認前不比較庫存數量。銀行、支票與付款資料未帶入本階段。</p><p>本頁尚未串接銷貨與自動區網同步。料號對照不會改寫 BOM、舊訂單或倉庫料號。</p></details>`;
   const tabs=`<div class="pl-tabs">${[['trial','系統試跑'],['mapping','料號對照'],['details','進貨明細'],['compare','期間進出核對']].map(([s,l])=>`<button class="btn ${state.sub===s?'btn-blue':'btn-ghost'}" aria-pressed="${state.sub===s}" onclick="purchaseLedgerChange('sub','${s}')">${l}</button>`).join('')}</div>`;
   if(state.sub==='trial')return header+tabs+renderPurchaseTrial(grouped)+source;
-  if(state.sub==='compare')return header+cards+tabs+renderComparison(grouped)+source;
+  if(state.sub==='compare')return header+tabs+renderComparison(grouped)+source;
   const filtered=filterGroups(grouped,state.status,state.q);
   const listed=state.sub==='details'?rows.filter(row=>filtered.some(g=>g.key===key(row.supplier,row.label))):filtered;
   const page=Math.max(1,Math.min(state.page,Math.ceil(listed.length/30)||1));state.page=page;
@@ -241,7 +248,7 @@
   if(state.draft&&(state.draft.saving||state.draft.uncertain)){showToast('目前這筆仍需完成讀回，請勿切換或重送','warn');return;}
   if(state.draft&&state.draft.g.key!==g.key){showToast('請先儲存或取消目前這筆對照，再處理下一筆','warn');return;}
   if(!state.draft){state.lastSaved='';state.draft={g,requestId:crypto.randomUUID(),saving:false,values:{kind:g.mapping?.kind==='expense'?'expense':'material',material:g.material?.supabase_id||g.material?.id||'',unit:number(g.mapping?.factor)!==null,factor:g.mapping?.factor??1,note:g.mapping?.note||''}};}
-  if(selected){state.draft.values.material=selected;state.draft.values.kind='material';}
+  if(selected){state.draft.values=selectMappingMaterial(state.draft.values,selected);state.draft.values.kind='material';}
   redraw();
   document.querySelector(`[data-pl-row="${index}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'});
  };
@@ -253,7 +260,10 @@
   state.page=Math.floor(visible.indexOf(g)/30)+1;openPurchaseMapping(all.indexOf(g));
  };
  root.purchaseMappingSelection=function(value){
-  purchaseMappingDraft('material',value);
+  if(state.draft&&!state.draft.saving&&!state.draft.uncertain)state.draft.values=selectMappingMaterial(state.draft.values,value);
+  const v=state.draft.values;document.getElementById('pl-unit-confirmed').checked=v.unit;document.getElementById('pl-factor').value=v.factor;
+  let warning=document.getElementById('pl-unit-warning');if(!warning){warning=document.createElement('p');warning.id='pl-unit-warning';warning.setAttribute('role','status');document.getElementById('pl-material-fields').prepend(warning);}
+  warning.textContent=v.unitReset?'料號已變更；舊換算不會沿用，請為目前料號重新確認。':'';
   const m=state.materials.find(m=>(m.supabase_id||m.id)===value),kind=document.getElementById('pl-kind').value;
   document.getElementById('pl-selection-summary').textContent=state.draft.g.label+' → '+(kind==='expense'?'非物料／費用':kind==='pending'?'撤回至待確認':m?(m.code||m.sku):'尚未選擇料號')+'（尚未儲存）';
  };
@@ -296,10 +306,16 @@
   }catch(e){state.report=null;state.reportError=e.message;}finally{state.busy=false;redraw();}
  };
  function renderComparison(grouped){
-  const intro=`<div class="panel pl-message"><b>帳務月份與實際入庫月份可能不同，差異只供追查，不代表庫存錯誤。</b><p>僅比較已人工確認的料號；數量需另確認單位換算。ERP 欄位取自正式期間進出總表的「進貨入庫」，不含組立產出、退貨或轉庫。沒有交易的料號顯示 0 進貨入庫，不能推論庫存為 0。</p><button class="btn btn-blue" onclick="loadPurchaseComparison()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'讀取本月期間進出總表'}</button></div>`;
+  const intro=`<div class="panel pl-message"><b>已確認料號的帳務進貨 × 正式進貨入庫</b><p>差異只供追查，不代表庫存錯誤；單位未確認時不計算差異。</p><button class="btn btn-blue" onclick="loadPurchaseComparison()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'讀取本月期間進出總表'}</button><details><summary>比較口徑與限制</summary><p>帳務月份與實際入庫月份可能不同。ERP 欄位取自正式期間進出總表的「進貨入庫」，不含組立產出、退貨或轉庫。沒有交易的料號顯示 0 進貨入庫，不能推論庫存為 0；數量一致也不代表已完成實物盤點。</p></details></div>`;
   if(state.reportError)return intro+`<div class="panel pl-message" role="alert">${esc(state.reportError)}；尚未取得完整總表，不計算差異。</div>`;
   if(!state.report)return intro+'<div class="panel pl-message">請先讀取本月總表。未確認的品名與非物料不納入數量比較。</div>';
   const items=compare(grouped,state.report);
-  return intro+`<p class="pl-muted">總表產生 ${esc(state.report.generated_at)} · 已確認 ${items.length} 個料號；待處理／非物料組別未納入。</p><div class="pl-list">${items.map(x=>`<article class="panel pl-record"><div class="pl-record-head"><b>${esc(x.sku)}</b><span>${esc(x.unit)}</span></div><div class="pl-record-body"><div>帳務進貨換算數量：${x.unknownUnits?'單位尚未確認':fmt(x.quantity)}</div><div>ERP 期間進貨入庫：${fmt(x.inbound)}</div><div>差異（帳務－入庫）：<b>${fmt(x.difference)}</b></div><div class="pl-muted">${x.sourceRows} 筆帳務列 · ${x.inventoryRows} 個倉庫彙總；請核對日期與收貨紀錄。</div></div></article>`).join('')||'<div class="panel pl-message">尚無人工確認的料號，請先完成料號對照。</div>'}</div>`;
+  const options=[['all','全部已確認料號'],['difference','數量不同'],['matched','數量一致'],['unknown','單位／資料待確認']];
+  const visible=items.filter(x=>state.compareFilter==='all'||comparisonCategory(x)===state.compareFilter);
+  const summary=`<div class="panel pl-coverage" aria-label="正式核對統計">${options.map(([k,label])=>`<div><b>${label}</b><div>${k==='all'?items.length:items.filter(x=>comparisonCategory(x)===k).length} 個料號</div></div>`).join('')}</div><div class="panel pl-toolbar"><label>核對結果<select class="inp" aria-label="正式核對結果篩選" onchange="purchaseLedgerChange('compareFilter',this.value)">${options.map(([value,label])=>`<option value="${value}" ${value===state.compareFilter?'selected':''}>${label}</option>`).join('')}</select></label><span>符合 ${visible.length} / ${items.length} 個已確認料號</span></div>`;
+  return intro+`<p class="pl-muted">${esc(state.period)} · 總表產生 ${esc(state.report.generated_at)}；待處理 ${grouped.filter(g=>g.status==='pending'||g.status==='invalid').length} 組、非物料 ${grouped.filter(g=>g.status==='expense').length} 組未納入。只有料號與單位皆確認，才計算差異；一致也不代表實物盤點完成。</p>`+summary+`<div class="pl-list pl-comparison-list">${visible.map(x=>{
+   const sources=grouped.filter(g=>g.status==='confirmed'&&(g.material.code||g.material.sku)===x.sku);
+   return `<article class="panel pl-record"><div class="pl-record-head"><b>${esc(x.sku)}</b><span class="badge">${esc(options.find(([k])=>k===comparisonCategory(x))[1])}</span></div><div class="pl-record-body"><div>帳務進貨換算數量：${x.unknownUnits?'單位尚未確認':fmt(x.quantity)} ${esc(x.unit)}</div><div>ERP 期間進貨入庫：${fmt(x.inbound)}</div><div>差異（帳務－入庫）：<b>${fmt(x.difference)}</b></div><div class="pl-muted">${x.sourceRows} 筆帳務列 · ${x.inventoryRows} 個倉庫彙總；請核對日期與收貨紀錄。</div><details class="pl-compare-sources"><summary>帳務來源與換算（${sources.length} 組）</summary>${sources.map(g=>`<div class="pl-trial-source"><b>${esc(g.label)}</b><div>${esc(g.supplier)} · Excel 第 ${g.rows.map(r=>r.line).join('、')} 列</div><div>原數量 ${fmt(g.quantity)} × ${fmt(g.mapping.factor)} → ${number(g.mapping.factor)===null?'單位待確認':fmt(g.quantity*Number(g.mapping.factor))+' '+esc(x.unit)}</div>${writeAllowed()?`<button class="btn btn-ghost" data-group="${grouped.indexOf(g)}" onclick="correctPurchaseTrial(Number(this.dataset.group),'unit')">核對這筆來源／換算</button>`:''}</div>`).join('')}</details>${renderTrialTransactions(x)}</div></article>`;
+  }).join('')||`<div class="panel pl-message">${items.length?'目前篩選沒有符合的料號，可切回全部已確認料號。':'尚無人工確認的料號，請先完成料號對照。'}</div>`}</div>`;
  }
 })(typeof globalThis==='undefined'?this:globalThis);

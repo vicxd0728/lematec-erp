@@ -2,20 +2,40 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const ledger=require('../erp-purchase-ledger.js');
 const materials=[{id:'m1',code:'Y-SP-20-1',unit:'個'},{id:'m2',code:'Y-SP-20A-1',unit:'個'}];
 const rows=[{line:2,supplier:'A',label:'Y-SP20-1',quantity:10,unit_price:2,amount:20},{line:3,supplier:'A',label:'Y-SP20-1',quantity:5,unit_price:2,amount:10},{line:4,supplier:'B',label:'Y-SP20-1',quantity:8,unit_price:2,amount:null}];
+
+test('changing a selected material clears only draft conversion and never mutates saved mapping',()=>{
+ const original={material:'m1',unit:true,factor:2.5,note:'keep note',kind:'material'};
+ assert.equal(ledger.selectMappingMaterial(original,'m1'),original);
+ const changed=ledger.selectMappingMaterial(original,'m2');
+ assert.equal(changed.unit,false);assert.equal(changed.factor,'');assert.equal(changed.unitReset,true);assert.equal(changed.note,'keep note');
+ assert.equal(original.unit,true);assert.equal(original.factor,2.5);assert.equal(original.material,'m1');
+ assert.equal(ledger.selectMappingMaterial(changed,'m1').unit,false);
+});
+
+test('comparison categories partition all confirmed SKUs and refuse partial reports',()=>{
+ const maps=[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'m1',factor:null},{supplier:'B',source_label:'Y-SP20-1',kind:'material',material_id:'m2',factor:1}];
+ const grouped=ledger.groups(rows,maps,materials),before=JSON.stringify(maps);
+ assert.throws(()=>ledger.compare(grouped,{complete:false,rows:[]}));assert.throws(()=>ledger.compare(grouped,null));
+ const items=ledger.compare(grouped,{complete:true,rows:[{sku:'Y-SP-20A-1',inbound:8}]});
+ assert.deepEqual(items.map(ledger.comparisonCategory),['unknown','matched']);
+ assert.equal(ledger.comparisonCategory({...items[1],difference:.00004}),'matched');
+ assert.equal(ledger.comparisonCategory({...items[1],difference:1}),'difference');
+ assert.equal(JSON.stringify(maps),before);
+});
 test('similar candidates and exact SKUs never confirm themselves; supplier identities remain separate',()=>{
  const result=ledger.groups(rows,[],materials);assert.equal(result.length,2);assert.equal(result[0].status,'pending');assert.equal(result[0].quantity,15);assert.equal(result[0].rows.length,2);assert.equal(result[0].candidates[0].id,'m1');
  assert.equal(ledger.groups([{...rows[0],label:'Y-SP-20-1'}],[],materials)[0].status,'pending');assert.equal(result[1].unknownAmount,1);
 });
 test('unit-unknown, zero movements and missing quantities remain distinct; discounts are retained',()=>{
  const mappings=[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'m1',factor:null}];
- let grouped=ledger.groups(rows,mappings,materials),out=ledger.compare(grouped,{rows:[]});assert.equal(out[0].difference,null);assert.equal(out[0].inbound,0);
- mappings[0].factor=2;grouped=ledger.groups(rows,mappings,materials);out=ledger.compare(grouped,{rows:[{sku:'Y-SP-20-1',inbound:12},{sku:'Y-SP-20-1',inbound:3}]});assert.equal(out[0].quantity,30);assert.equal(out[0].difference,15);
- assert.equal(ledger.compare(grouped,{rows:[{sku:'Y-SP-20-1',inbound:null}]})[0].difference,null);
+ let grouped=ledger.groups(rows,mappings,materials),out=ledger.compare(grouped,{complete:true,rows:[]});assert.equal(out[0].difference,null);assert.equal(out[0].inbound,0);
+ mappings[0].factor=2;grouped=ledger.groups(rows,mappings,materials);out=ledger.compare(grouped,{complete:true,rows:[{sku:'Y-SP-20-1',inbound:12},{sku:'Y-SP-20-1',inbound:3}]});assert.equal(out[0].quantity,30);assert.equal(out[0].difference,15);
+ assert.equal(ledger.compare(grouped,{complete:true,rows:[{sku:'Y-SP-20-1',inbound:null}]})[0].difference,null);
  assert.equal(ledger.groups([{...rows[0],amount:-4}],[],materials)[0].amount,-4);
 });
 test('expense, reverted and orphaned mappings cannot become material quantity comparisons',()=>{
- for(const kind of ['expense','pending']){const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind}],materials);assert.equal(ledger.compare(groups,{rows:[]}).length,0);}
- const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'missing'}],materials);assert.equal(groups[0].status,'invalid');assert.equal(ledger.compare(groups,{rows:[]}).length,0);
+ for(const kind of ['expense','pending']){const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind}],materials);assert.equal(ledger.compare(groups,{complete:true,rows:[]}).length,0);}
+ const groups=ledger.groups(rows,[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'missing'}],materials);assert.equal(groups[0].status,'invalid');assert.equal(ledger.compare(groups,{complete:true,rows:[]}).length,0);
 });
 test('review filters partition only pending groups, preserve source rows and export safely without confirming',()=>{
  const input=[...rows,{...rows[0],line:5,label:'Y-SP-20-1'},{...rows[0],line:6,label:'費用 <test>'},{...rows[0],line:7,label:'=BAD()'}];
@@ -43,7 +63,7 @@ test('trial honors manual decisions and isolates hypothetical quantities from co
  const maps=[{supplier:'A',source_label:'Y-SP20-1',kind:'material',material_id:'m2',factor:null}];
  const grouped=ledger.groups(rows,maps,materials),trial=ledger.trialAssignments(grouped);
  assert.equal(trial[0].material.id,'m2');assert.equal(trial[0].provisional,false);assert.equal(trial[0].unitAssumed,true);
- assert.equal(ledger.compare(grouped,{rows:[]})[0].difference,null);
+ assert.equal(ledger.compare(grouped,{complete:true,rows:[]})[0].difference,null);
  const model=ledger.trialModel(trial,{complete:true,rows:[{sku:'Y-SP-20A-1',inbound:8,outbound:2,opening:12,closing:18}]});
  const found=model.find(m=>m.sku==='Y-SP-20A-1');assert.equal(found.quantity,15);assert.equal(found.difference,7);assert.equal(found.closing,18);
  assert.equal(ledger.trialModel(trial)[0].difference,null);
