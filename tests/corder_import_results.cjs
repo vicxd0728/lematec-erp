@@ -38,6 +38,7 @@ function setup(options={}){
    },
    requestCorderResume:async()=>{deducted++;if(options.failResumeAt===deducted)throw Error('stock response unknown');if(options.pauseAfter===deducted)c.requestCorderImportStop();return {ok:true};},
  });
+ c.prepareCorderImportPreflight=async rows=>c.buildCorderImportPreflight(rows);
  vm.runInContext(code,c);c.window._corderImportPreflight={incoming:JSON.parse(JSON.stringify(incoming)),stockImpact:[],errors:0};
  return {c,store,local,events,pages,calls,toasts,counts:()=>({created,deducted,reserved})};
 }

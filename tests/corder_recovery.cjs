@@ -126,6 +126,7 @@ test('reimport of a pending row resumes instead of skipping, creating a page or 
  const report={incoming:[{sourceRow:2,shopeeNo:'SHOP',buyer:'buyer',sku:'S-X'}],stockImpact:[]},row={id:pageId,no:'SHPTW20000',shopeeNo:'SHOP',buyer:'buyer',matCode:'S-X',status:'需確認'};
  const c=vm.createContext({window:{_corderImportPreflight:report,corders:[row]},loadCoreEssentials:async()=>{},buildCorderImportPreflight:()=>({stockImpact:[],newOrderKeys:[]}),loadCorders:async o=>{assert.equal(o.skipAutoComplete,true);assert.equal(o.mode,'all');loads++;},requestCorderResume:async id=>{assert.equal(id,pageId);resumes++;},reserveCorderNumbers:async()=>{reserves++;},notionAPI:async()=>{creates++;},corderSameOrderKey:()=> 'SHOP|buyer',corderExistingNoByShopeeAndBuyer:()=> 'SHPTW20000',assertCorderInternalNoForIdentity:async()=>{},normalizeSku:s=>s,showToast:()=>{},closeModal:()=>{},refreshAffectedData:async()=>{},renderTab:()=>{},CURRENT_TAB:'corders',alert:()=>{},console});
  c.localStorage={getItem:k=>journal.get(k)||null,setItem:(k,v)=>journal.set(k,v)};
+ c.prepareCorderImportPreflight=async rows=>c.buildCorderImportPreflight(rows);
  vm.runInContext(html.slice(html.indexOf('const CORDER_IMPORT_RESULT_KEY='),html.indexOf('async function importShopeeExcel(')),c);
  await c.applyCorderImportPreflightOnce();assert.equal(resumes,1);assert.equal(loads,1);assert.equal(creates,0);assert.equal(reserves,0);assert.equal(row.status,'出貨中');
 });

@@ -7906,6 +7906,12 @@ let _refreshTimer=null,_refreshing=false;
 function scheduleRefresh(ms=800){clearTimeout(_refreshTimer);_refreshTimer=setTimeout(()=>refreshAll(),ms);}
 const CACHE_KEY='lematec_erp_cache_v5';
 let _coreDataVersions={inventory:'',bom:'',checkedAt:0};
+let _inventoryCoreReadTail=Promise.resolve();
+function queueInventoryCoreRead(read){
+  const task=_inventoryCoreReadTail.catch(()=>{}).then(read);
+  _inventoryCoreReadTail=task;
+  return task;
+}
 function setSyncState(text,type='ok',persist=false){
   const syncEl=document.getElementById('syncStatus');
   if(syncEl) syncEl.textContent=text;
@@ -8108,10 +8114,10 @@ async function fetchWorkerInventoryVersions(){
   }
   return {inventory,bom,counts:data?.counts||{},checkedAt:Date.now()};
 }
-async function fetchWorkerInventoryMaterials(revision=''){
+async function fetchWorkerInventoryMaterials(revision='',{signal}={}){
   const started=performance.now();
   const revisionQuery=revision?`&revision=${encodeURIComponent(revision)}`:'';
-  const res=await fetch(`${PROXY}/api/inventory/list?limit=20000${revisionQuery}`,{headers:{Accept:'application/json'}});
+  const res=await fetch(`${PROXY}/api/inventory/list?limit=20000${revisionQuery}`,{headers:{Accept:'application/json'},cache:'no-store',signal});
   const text=await res.text();
   let data;
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
@@ -8131,9 +8137,9 @@ async function fetchWorkerInventoryMaterials(revision=''){
   };
   return supabaseInventoryMats;
 }
-async function fetchWorkerInventoryBomRows(revision=''){
+async function fetchWorkerInventoryBomRows(revision='',{signal}={}){
   const revisionQuery=revision?`?revision=${encodeURIComponent(revision)}`:'';
-  const res=await fetch(`${PROXY}/api/inventory/bom/list${revisionQuery}`,{headers:{Accept:'application/json'}});
+  const res=await fetch(`${PROXY}/api/inventory/bom/list${revisionQuery}`,{headers:{Accept:'application/json'},cache:'no-store',signal});
   const text=await res.text();
   let data;
   try{data=text?JSON.parse(text):null;}catch{data={error:text};}
@@ -8403,6 +8409,7 @@ function rolePriorityTabs(role=ROLE){
   return uniqueTabs([CURRENT_TAB,...(map[role]||['dashboard','ops','notes'])]);
 }
 async function loadCoreEssentials({force=false}={}){
+  return queueInventoryCoreRead(async()=>{
   _bomDataReady=false;
   _bomDataError='';
   _bomDataSource='loading';
@@ -8506,6 +8513,7 @@ async function loadCoreEssentials({force=false}={}){
       }).catch(e=>console.warn('BOM Notion 鏡像背景補同步失敗：',e));
     },0);
   }
+  });
 }
 async function loadCustomersOnly(){
   const masterR=await dbQueryAll(DB.custMaster);
@@ -21667,7 +21675,7 @@ function corderStockRefs(items){
   return (items||[]).map(x=>corderStockRef(x.id,x.qty??x.needed)).filter(Boolean).join(';');
 }
 function resolveCorderShipPlan(mat,qty){
-  if(!_bomDataReady)throw new Error('BOM 尚未成功載入，請同步後重試');
+  if(!_bomDataReady)throw new Error('BOM 尚未成功載入'+(typeof _bomDataError!=='undefined'&&_bomDataError?'：'+_bomDataError:'；正式資料尚在讀取或尚未取得')+'。請重新讀取正式 BOM 後再檢查；本次未扣料');
   const need=Number(qty),result=new Map();
   if(!mat||!normalizeSku(mat.code||mat.name).startsWith('S-'))throw new Error('C端出貨只能選 S- 料號');
   if(!Number.isSafeInteger(need)||need<=0)throw new Error('數量必須是正整數');
@@ -27306,6 +27314,39 @@ async function submitCorder(){
   }finally{CORDER_SUBMIT_BUSY=false;if(submitButton)submitButton.disabled=false;}
 }
 
+async function prepareCorderImportPreflight(incoming){
+  return queueInventoryCoreRead(async()=>{
+    _bomDataReady=false;_bomDataError='';_bomDataSource='loading';
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
+    try{
+      // This read-only path deliberately has no B2B-order query, mirror replay or stock action.
+      const [materials,rows]=await Promise.all([fetchWorkerInventoryMaterials('',{signal:controller.signal}),fetchWorkerInventoryBomRows('',{signal:controller.signal})]);
+      if(!materials.length)throw new Error('正式庫存料號回傳空資料');
+      const mapped=mapSupabaseInventoryBomRows(rows,materials);
+      mats=materials;boms=mapped;_bomDataReady=true;_bomDataSource='supabase';_bomDataFallbackReason='';
+      const report=buildCorderImportPreflight(incoming);
+      report.coreRead={source:'supabase',materials:materials.length,bomRows:mapped.length,at:new Date().toISOString()};
+      return report;
+    }catch(e){
+      controller.abort();
+      _bomDataReady=false;_bomDataSource='failed';_bomDataError=e.name==='AbortError'?'正式資料讀取逾時，請在原預覽重新檢查':e.message||String(e);
+      const report=buildCorderImportPreflight(incoming);report.coreReadError=_bomDataError;
+      report.rows.forEach(row=>{if(row.error==='庫存主檔找不到料號'||row.error?.startsWith('BOM 尚未成功載入'))row.error='正式 BOM／料號尚未成功讀取，不能判斷是否缺料；請重新檢查';});
+      return report;
+    }finally{clearTimeout(timeout);}
+  });
+}
+async function retryCorderImportPreflight(){
+  if(window._corderImportPreviewBusy||window._corderImportBusy)return;
+  const incoming=window._corderImportPreflight?.incoming;if(!incoming?.length)return;
+  window._corderImportPreviewBusy=true;
+  const status=document.getElementById('corder-preflight-read-status');
+  if(status)status.textContent='正在重新讀取正式料號與 BOM，完成後重算原檔預覽；不建單、不保留號碼、不扣料。';
+  document.querySelectorAll('#modalInner .form-actions button').forEach(b=>b.disabled=true);
+  try{const report=await prepareCorderImportPreflight(incoming);openCorderImportPreflightModal(report);}
+  catch(e){if(status)status.textContent='重新檢查失敗：'+e.message+'；原預覽仍保留，未扣料。';}
+  finally{window._corderImportPreviewBusy=false;document.getElementById('corder-preflight-retry')?.removeAttribute('disabled');document.querySelector('#modalInner .form-actions button[onclick="closeModal()"]')?.removeAttribute('disabled');}
+}
 function buildCorderImportPreflight(incoming){
   const pendingKeys=new Set((window.corders||[]).filter(c=>c.status==='需確認').map(c=>[corderSameOrderKey(c.shopeeNo,c.buyer)||String(c.no||''),normalizeSku(c.matCode||c.matName||'')].join('|')));
   const existingKeys=new Set((window.corders||[]).map(c=>[
@@ -27405,6 +27446,7 @@ function openCorderImportPreflightModal(report){
   const duplicateLines=(report.duplicateDetails||[]).map(x=>`${x.shopeeNo||'無蝦皮單號'} / ${x.buyer||'無買家'} / ${x.sku||'無料號'}：${x.count} 列（Excel 行 ${x.lines.join('、')}）`);
   const firstErrorAction=report.firstErrorRow?`<button class="btn btn-yellow btn-sm" onclick="location.hash='corder-import-row-${report.firstErrorRow}'">跳到第一個錯誤</button>`:'';
   document.getElementById('modalInner').innerHTML=`<h3>C-order 匯入預覽</h3>
+    <div id="corder-preflight-read-status" class="info-box ${report.coreReadError?'info-warn':'info-tip'}" role="status">${report.coreReadError?'正式 BOM／料號讀取失敗：'+escapeHtml(report.coreReadError)+'。本次解析資料仍保留，請按下方重新檢查，不需重傳或重建訂單。':report.coreRead?'已讀取 Supabase 正式料號 '+report.coreRead.materials+' 筆、BOM '+report.coreRead.bomRows+' 筆；預覽時間 '+escapeHtml(new Date(report.coreRead.at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))+'。尚未建單或扣料。':'此為目前資料的預覽；可重新讀取正式 BOM 與庫存後再檢查。'}</div>
     ${renderPreflightCenter({
       title:report.title,
       subtitle:report.subtitle,
@@ -27459,7 +27501,8 @@ function openCorderImportPreflightModal(report){
     </table></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" ${report.errors?'disabled':''} onclick="applyCorderImportPreflight()">確認匯入並扣庫</button>
+      <button id="corder-preflight-retry" class="btn btn-ghost" onclick="retryCorderImportPreflight()">重新讀取 BOM 並檢查</button>
+      <button class="btn btn-blue" ${report.errors||report.coreReadError?'disabled':''} onclick="applyCorderImportPreflight()">確認匯入並扣庫</button>
     </div>`;
   openSharedModal();
 }
@@ -27651,7 +27694,7 @@ async function verifyCorderImportResult(){
   }finally{window._corderImportChecking=false;if(CURRENT_TAB==='corders')renderTab('corders');}
 }
 async function applyCorderImportPreflight(){
-  if(window._corderImportBusy)return;
+  if(window._corderImportBusy||window._corderImportPreviewBusy)return;
   if(_corderReversalLocks.size){showToast('C端刪單／回料尚在處理，請等原單完成並重新讀取後再匯入','warn',9000);return;}
   window._corderImportBusy=true;
   window._corderImportStopRequested=false;
@@ -27665,9 +27708,8 @@ async function applyCorderImportPreflightOnce(){
   const report=window._corderImportPreflight;
   if(!report?.incoming?.length){showToast('沒有可匯入的 C-order 預覽資料','warn');return;}
   if(report.errors){showToast('仍有錯誤列，請先修正 Excel 後重新匯入','err');return;}
-  try{await loadCoreEssentials({force:true});}catch(e){showToast('同步失敗，已停止匯入：'+e.message,'err');return;}
-  const freshReport=buildCorderImportPreflight(report.incoming);
-  if(freshReport.errors||JSON.stringify(freshReport.stockImpact)!==JSON.stringify(report.stockImpact)){
+  const freshReport=await prepareCorderImportPreflight(report.incoming);
+  if(freshReport.coreReadError||freshReport.errors||JSON.stringify(freshReport.stockImpact)!==JSON.stringify(report.stockImpact)){
     openCorderImportPreflightModal(freshReport);showToast('庫存或 BOM 已更新，請確認新的扣料預覽','warn');return;
   }
   try{await loadCorders({mode:'all',strict:true,skipAutoComplete:true});}catch(e){showToast('原訂單查核失敗，已停止匯入；未保留新號碼','err');return;}
@@ -27905,7 +27947,8 @@ async function importShopeeExcel(input){
       (a.sku||'').localeCompare(b.sku||'')
     );
 
-    const preflight=buildCorderImportPreflight(incoming);
+    showToast('正在讀取正式料號與 BOM，完成後產生原檔預覽；尚未建單或扣料','warn');
+    const preflight=await prepareCorderImportPreflight(incoming);
     openCorderImportPreflightModal(preflight);
     showToast(`已解析 ${incoming.length} 筆，請先確認匯入預覽`,'ok');
 
