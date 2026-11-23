@@ -27446,7 +27446,7 @@ function openCorderImportPreflightModal(report){
   const duplicateLines=(report.duplicateDetails||[]).map(x=>`${x.shopeeNo||'無蝦皮單號'} / ${x.buyer||'無買家'} / ${x.sku||'無料號'}：${x.count} 列（Excel 行 ${x.lines.join('、')}）`);
   const firstErrorAction=report.firstErrorRow?`<button class="btn btn-yellow btn-sm" onclick="location.hash='corder-import-row-${report.firstErrorRow}'">跳到第一個錯誤</button>`:'';
   document.getElementById('modalInner').innerHTML=`<h3>C-order 匯入預覽</h3>
-    <div id="corder-preflight-read-status" class="info-box ${report.coreReadError?'info-warn':'info-tip'}" role="status">${report.coreReadError?'正式 BOM／料號讀取失敗：'+escapeHtml(report.coreReadError)+'。本次解析資料仍保留，請按下方重新檢查，不需重傳或重建訂單。':report.coreRead?'已讀取 Supabase 正式料號 '+report.coreRead.materials+' 筆、BOM '+report.coreRead.bomRows+' 筆；預覽時間 '+escapeHtml(new Date(report.coreRead.at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}))+'。尚未建單或扣料。':'此為目前資料的預覽；可重新讀取正式 BOM 與庫存後再檢查。'}</div>
+    <div id="corder-preflight-read-status" class="info-box ${report.coreReadError?'info-warn':'info-tip'}" role="status">${report.coreReadError?'資料讀取失敗：'+escapeHtml(report.coreReadError)+'。本次解析資料仍保留，請按下方重新檢查，不需重傳或重建訂單。':'料號與 BOM 已載入，請核對下方品項與庫存影響；尚未建單或扣料。'}</div>
     ${renderPreflightCenter({
       title:report.title,
       subtitle:report.subtitle,
@@ -27501,7 +27501,7 @@ function openCorderImportPreflightModal(report){
     </table></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button id="corder-preflight-retry" class="btn btn-ghost" onclick="retryCorderImportPreflight()">重新讀取 BOM 並檢查</button>
+      ${report.coreReadError?'<button id="corder-preflight-retry" class="btn btn-ghost" onclick="retryCorderImportPreflight()">重新讀取 BOM 並檢查</button>':''}
       <button class="btn btn-blue" ${report.errors||report.coreReadError?'disabled':''} onclick="applyCorderImportPreflight()">確認匯入並扣庫</button>
     </div>`;
   openSharedModal();

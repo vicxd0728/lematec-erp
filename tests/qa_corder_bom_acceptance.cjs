@@ -16,7 +16,8 @@ async page=>{
   await page.evaluate(()=>releaseBom());await page.waitForFunction(()=>!window._corderImportPreviewBusy&&window._corderImportPreflight?.errors===0);
   if(await confirm.isDisabled()||await page.evaluate(()=>window._corderImportPreflight.rows.length)!==4)throw Error('retry failed to restore all original rows');
   if(!(await page.getByRole('status').innerText()).includes('尚未建單或扣料'))throw Error('successful read implies business execution');
-  await retry.scrollIntoViewIfNeeded();await page.screenshot({path:'output/playwright/corder-bom-recovered-'+width+'.png',fullPage:false});
+  if(await retry.count())throw Error('normal upload added an unnecessary retry step');
+  await confirm.scrollIntoViewIfNeeded();await page.screenshot({path:'output/playwright/corder-bom-recovered-'+width+'.png',fullPage:false});
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('page horizontal overflow');
   if(await page.evaluate(()=>qaState().requests.some(r=>r.method!=='GET'))||await page.evaluate(()=>window._corderImportPreflight.incoming.length)!==4)throw Error('preview recovery changed input or wrote business data');
  }
