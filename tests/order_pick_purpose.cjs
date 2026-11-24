@@ -6,7 +6,7 @@ function setup(type='國外',stock=1446,options={}){
  const order={id:'order',no:'111111',productId:parent.id,product:parent.code,orderType:type,qty:1};
  const calls=[],toast=[],field={innerHTML:''};let preview;
  const ctx=vm.createContext({mats:[parent,...children],boms:children.map(c=>({parentId:parent.id,childId:c.id,qty:1})),orders:[order],
- _bomDataReady:true,_bomDataSource:'supabase',ROLE:'warehouse',todayStr:()=> '2026-09-26',console:{error:()=>{}},
+ _bomDataReady:true,_bomDataSource:'supabase',normalizeSku:s=>String(s||'').trim().toUpperCase(),ROLE:'warehouse',todayStr:()=> '2026-09-26',console:{error:()=>{}},
  explodeBOM:()=>[],document:{getElementById:()=>field},renderPreflightCenter:x=>{preview=x;return '';},escapeHtml:x=>String(x),
  openModal:()=>{},closeModal:()=>{},loadPickShortageFollowups:async()=>{},showToast:(...x)=>toast.push(x),canonicalPageId:x=>x,
  pickingWorkerRequest:async(path,req)=>{calls.push({path,body:req.body});return {existing:!!options.existing,row:{id:'pick',items:req.body.items.map(i=>({matId:i.material_notion_page_id,pickedQty:0,notionId:'n-'+i.material_notion_page_id}))}};},
@@ -16,6 +16,7 @@ function setup(type='國外',stock=1446,options={}){
  applyInventoryBatchAndMirror:async(items,opts)=>{calls.push({batch:items,opts});if(options.rejectNew)throw Error('insufficient stock');return {items:items.map(i=>({pageId:i.pageId,before:options.existing?120:100,after:options.existing?0:100+i.delta,duplicate:!!options.existing}))};},
  logStockChange:async()=>{},logUserAction:()=>{},refreshAffectedData:async()=>{}});
  vm.runInContext(html.slice(html.indexOf('function isShopeeProductionOrder'),html.indexOf('function canMoveOrderStatus')),ctx);
+ vm.runInContext(html.slice(html.indexOf('function resolveCorderShipPlan('),html.indexOf('function corderReturnRefsForQty(')),ctx);
  vm.runInContext(html.slice(html.indexOf('function openPickModal('),html.indexOf('// ══ 品管檢驗單')),ctx);
  vm.runInContext(html.slice(html.indexOf('function openPickPreview('),html.indexOf('// ══ 品管直接在 Notion')),ctx);
  return {ctx,parent,children,order,calls,toast,field,get preview(){return preview;}};
@@ -37,12 +38,64 @@ for(const type of ['半成品','sfg']){
   assert.equal(b.batch.length,4);assert(b.batch.every(x=>x.pageId!=='parent'&&x.delta===-1));
  });
 }
-test('customer parts, finished goods and S- stock never become production from SKU or order number',async()=>{
- for(const code of ['Y-PART','Z-FINISHED','S-F-GAB-03D-B']){
+test('customer parts and finished goods never become production from SKU or order number',async()=>{
+ for(const code of ['Y-PART','Z-FINISHED']){
   const t=setup('國外');t.parent.code=code;t.order.product=code;t.order.no='SFG-123';
   assert.equal(t.ctx.isShopeeProductionOrder(t.order),false);assert.equal(t.ctx.isSfgProductionOrder(t.order),false);
   await t.ctx.doPick('order');assert.equal(t.calls.find(x=>x.batch).batch[0].pageId,'parent');
  }
+});
+
+function sSales(type='國外',options={}){
+ const t=setup(type,0,options);t.parent.code=t.parent.name='S-KIT';t.order.product='S-KIT';t.order.qty=3;
+ for(const child of t.children)child.code=child.name='S-'+child.code;
+ t.ctx.boms=[{parentId:'parent',childId:'c0',qty:2},{parentId:'parent',childId:'c1',qty:1},{parentId:'c0',childId:'c2',qty:9}];
+ return t;
+}
+for(const type of ['國內','國外','domestic','overseas'])test(type+' S- sales share C-end direct BOM and never add parent stock',async()=>{
+ const t=sSales(type),plan=t.ctx.resolveOrderPickPlan(t.order);
+ assert.equal(plan.production,false);assert.equal(plan.sSales,true);assert(!plan.transfer);
+ assert.equal(JSON.stringify(plan.items.map(i=>[i.id,i.needed])),JSON.stringify(t.ctx.resolveCorderShipPlan(t.parent,3).items.map(i=>[i.id,i.needed])));
+ t.ctx.openPickModal('order');assert.equal(t.preview.rows.length,2);assert.match(t.preview.subtitle,/與 C端相同/);
+ await t.ctx.doPick('order');assert.deepEqual(JSON.parse(JSON.stringify(t.calls.find(x=>x.batch).batch)),[{pageId:'c0',delta:-6},{pageId:'c1',delta:-3}]);
+ assert.equal(t.calls.find(x=>x.batch).opts.sourceId,'order');
+});
+test('S- standalone and explicit self plus accessory use the same C-end rule',()=>{
+ const t=sSales();t.ctx.boms=[];
+ assert.equal(t.ctx.resolveOrderPickPlan(t.order).items[0].id,'parent');
+ t.ctx.boms=[{parentId:'parent',childId:'parent',qty:1},{parentId:'parent',childId:'c0',qty:2}];
+ assert.equal(t.ctx.resolveOrderPickPlan(t.order).items.length,2);
+});
+test('S- invalid BOM or missing formal BOM stops before creating a pick',async()=>{
+ for(const mode of ['non-S','missing','zero','fraction','unloaded']){
+  const t=sSales();
+  if(mode==='non-S')t.children[0].code='Y-WAREHOUSE';
+  if(mode==='missing')t.ctx.boms[0].childId='absent';
+  if(mode==='zero')t.ctx.boms[0].qty=0;
+  if(mode==='fraction')t.ctx.boms[0].qty=.5;
+  if(mode==='unloaded')t.ctx._bomDataReady=false;
+  await t.ctx.doPick('order');assert.equal(t.calls.length,0,mode);assert(t.toast.length);
+ }
+});
+test('S- child shortage is named and never falls back to stocked parent',async()=>{
+ const t=sSales();t.parent.stock=100;t.children[0].stock=2;
+ t.ctx.openPickModal('order');assert.equal(t.preview.rows[0].lineLabel,t.children[0].code);assert.match(t.field.innerHTML,/部分 BOM 子件庫存不足/);assert.match(t.field.innerHTML,/需要 6，現有 2，缺少 4/);
+ await t.ctx.doPick('order');assert(!t.calls.some(x=>x.batch));
+});
+test('S- completed receipt retry and changed pending manifest never start a new batch',async()=>{
+ for(const completed of [true,false]){
+  const t=sSales();t.ctx.pickingWorkerRequest=async()=>{if(!completed)throw Error('fingerprint mismatch');return {completed:true,row:{id:'pick',items:[]}};};
+  await t.ctx.doPick('order');assert(!t.calls.some(x=>x.batch));
+ }
+});
+test('S- shortage analytics uses the same child quantities as picking and unknown BOM is not zero demand',()=>{
+ const t=sSales();t.children[0].stock=2;
+ vm.runInContext(html.slice(html.indexOf('function analyticsIsCompleted('),html.indexOf('function analyticsIsConsumptionLog(')),t.ctx);
+ t.ctx.analyticsInventoryState=m=>({stock:m.stock});t.order.status='待排程';
+ let data=t.ctx.analyticsOrderActionInsight([t.order],t.ctx.mats,'2026-11-24');
+ assert.equal(data.blocked[0].sku,t.children[0].code);assert.equal(data.blocked[0].needed,6);assert.equal(data.blocked[0].short,4);
+ assert.equal(data.materialDemand.length,2);assert(!data.materialDemand.some(m=>m.id==='parent'));
+ t.ctx._bomDataReady=false;data=t.ctx.analyticsOrderActionInsight([t.order],t.ctx.mats,'2026-11-24');assert.equal(data.unknown.length,1);assert.equal(data.materialDemand.length,0);
 });
 test('legacy production markers still identify untyped assembly orders',()=>{
  const t=setup('');t.order.no='SFG-123';assert(t.ctx.isSfgProductionOrder(t.order));

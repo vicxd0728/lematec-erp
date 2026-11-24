@@ -2170,6 +2170,9 @@ function resolveOrderPickPlan(o){
     return {prod,production:false,transfer:true,items};
   }
   const production=isSfgProductionOrder(o);
+  if(!production&&normalizeSku(prod.code||prod.name).startsWith('S-')){
+    return {prod,production:false,sSales:true,items:resolveCorderShipPlan(prod,qty).items};
+  }
   if(!production)return {prod,production:false,items:[{...prod,needed:qty}]};
   if(!_bomDataReady)throw new Error('BOM 資料尚未成功載入，已停止生產領料');
   const direct=boms.filter(b=>b.parentId===o.productId);
@@ -6433,7 +6436,7 @@ function openModal(type,data){
     mi.innerHTML=`<h3>❓ LEMATEC ERP 快速說明</h3>
       <div class="help-box">
         <b>核心原則</b><br>
-        新增訂單不動庫存；客戶訂單確認領料時扣所訂料號本身，半成品與零件也相同。只有半成品組立單、蝦皮補庫生產單扣 BOM 直接子件。庫存不足請另開生產或補庫單。入料品管通過才入庫；C端出貨扣 S-成品庫存。
+        新增訂單不動庫存；國內／外銷選 S- 商品時，與 C端相同扣 BOM 直接 S- 子件，無 BOM 單品扣自身。非 S- 客戶訂單扣訂購料號本身；組立單扣 BOM 直接子件，蝦皮補庫則一對一轉庫。入料品管通過才入庫。
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
@@ -6446,7 +6449,7 @@ function openModal(type,data){
         <div class="info-box info-tip" style="margin:0">
           <b>📋 一般訂單流程</b><br>
           1. 訂單待排程<br>
-          2. 倉管/採購/Vic/廠長領料，直接扣訂購料號本身；半成品、零件與成品皆不展開 BOM<br>
+          2. 倉管/採購/Vic/廠長領料；S- 商品依 C端 BOM 扣直接 S- 子件，無 BOM 單品扣自身；非 S- 扣訂購料號本身<br>
           3. 生產中完成後由倉管/採購/Vic/廠長送待檢驗<br>
           4. 品管通過後轉待出貨<br>
           5. 業務/倉管/Vic/廠長填出貨日完成
@@ -6455,11 +6458,11 @@ function openModal(type,data){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div class="info-box info-tip" style="margin:0">
           <b>🛒 蝦皮 S-訂單</b><br>
-          訂單分頁建立蝦皮 S-料號時，待排程先領料扣 BOM 直接子件，狀態變生產中。完成組裝後由倉管/採購/Vic/廠長按「完成」，系統才會增加 S-成品庫存；不要用狀態選單直接改已完成。
+          訂單分頁建立蝦皮補庫單後，按「轉入蝦皮庫存」，一次扣一般倉庫來源並增加對應 S- 庫存，不拆套組、不展開 BOM。
         </div>
         <div class="info-box info-tip" style="margin:0">
           <b>🧾 C端訂單</b><br>
-          C端訂單上傳或手動建立後，依 Excel / 手動選擇的 S-料號扣除 S-成品本身庫存，不展開 BOM。出貨中滿 7 天會自動轉已完成。
+          C端訂單上傳或手動建立後，依選擇的 S- 商品 BOM 扣直接 S- 子件，無 BOM 單品扣自身，不展開子件下層、不改扣一般倉庫。出貨中滿 7 天會自動轉已完成。
         </div>
       </div>
       <div class="info-box info-tip">
@@ -12593,13 +12596,17 @@ function analyticsOrderActionInsight(orderRows,materials,today){
   for(const order of pending){
     const qty=Number(order.qty),material=materialById.get(String(order.productId||''));
     if(!material||!Number.isSafeInteger(qty)||qty<=0){unknown.push(order);continue;}
-    const balance=analyticsInventoryState(material);
-    if(balance.stock===null){unknown.push(order);continue;}
-    const key=String(material.id);
-    if(!demandByMaterial.has(key))demandByMaterial.set(key,{id:key,sku:String(material.code||order.matCode||'未填料號'),needed:0,stock:balance.stock,orders:[]});
-    const demand=demandByMaterial.get(key);
-    demand.needed+=qty;demand.orders.push(order);
-    if(balance.stock<qty)blocked.push({order,sku:String(material.code||order.matCode||'未填料號'),needed:qty,stock:balance.stock,short:qty-balance.stock,overdue:!!order.deadline&&/^\d{4}-\d{2}-\d{2}$/.test(String(order.deadline).slice(0,10))&&String(order.deadline).slice(0,10)<today});
+    let items;
+    try{items=String(material.code||material.name||'').trim().toUpperCase().startsWith('S-')?resolveCorderShipPlan(material,qty).items:[{...material,needed:qty}];}
+    catch(e){unknown.push(order);continue;}
+    if(items.some(item=>analyticsInventoryState(item).stock===null)){unknown.push(order);continue;}
+    for(const item of items){
+      const balance=analyticsInventoryState(item),needed=item.needed,key=String(item.id);
+      if(!demandByMaterial.has(key))demandByMaterial.set(key,{id:key,sku:String(item.code||'未填料號'),needed:0,stock:balance.stock,orders:[]});
+      const demand=demandByMaterial.get(key);
+      demand.needed+=needed;demand.orders.push({...order,qty:needed});
+      if(balance.stock<needed)blocked.push({order,sku:String(item.code||'未填料號'),needed,stock:balance.stock,short:needed-balance.stock,overdue:!!order.deadline&&/^\d{4}-\d{2}-\d{2}$/.test(String(order.deadline).slice(0,10))&&String(order.deadline).slice(0,10)<today});
+    }
   }
   const materialDemand=[...demandByMaterial.values()].map(row=>({...row,short:Number.isSafeInteger(row.needed)?Math.max(0,row.needed-row.stock):null}));
   return {active,stages,pending:pending.length,checked:pending.length-unknown.length,unknown,blocked,materialDemand,overdueBlocked:blocked.filter(item=>item.overdue)};
@@ -13022,7 +13029,7 @@ function analyticsOrderActionPanel(data){
   const stageRows=data.stages.map(stage=>`<button type="button" class="analytics-row-link analytics-stage-row" style="width:100%;border:0;background:transparent;color:var(--text);text-align:left" onclick="analyticsGo('orders','status',this.dataset.status)" data-status="${escapeHtml(stage.status)}"><b>${escapeHtml(stage.status)}</b><span>${stage.total} 筆</span><span>${stage.median===null?'—':`${stage.median} 天`}</span><span>${stage.oldest===null?'—':`${stage.oldest} 天`}</span></button>`).join('');
   const shortageList=shortageRows.length?shortageRows.map(item=>`<div class="analytics-row-link" style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><div><b>${escapeHtml(item.order.no||'未編號')}</b> · ${escapeHtml(item.sku)} · 缺 ${analyticsNum(item.short)}<div style="font-size:.72rem;color:var(--text3)">需要 ${analyticsNum(item.needed)}，目前 ${analyticsNum(item.stock)}；${item.overdue?`交期 ${escapeHtml(item.order.deadline)} 已逾期`:`交期 ${escapeHtml(item.order.deadline||'未填')}`}</div></div><button type="button" class="btn btn-ghost btn-xs" data-order="${escapeHtml(item.order.no||'')}" onclick="analyticsGo('orders','customer',this.dataset.order)">查訂單</button></div>`).join(''):'<div style="color:var(--text3);font-size:.78rem;padding:10px 0">已核對的待領料訂單，沒有單筆需求高於目前庫存的項目。</div>';
   return `<div class="analytics-panel-grid">
-    <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>待領料缺料與逾期</h3><p>僅國內／國外、目前「待排程」的訂單；依所訂料號本身與目前庫存逐單比對，不展開 BOM，也不代表已預留庫存。</p></div></div>
+    <section class="analytics-panel"><div class="analytics-panel-head"><div><h3>待領料缺料與逾期</h3><p>僅國內／國外、目前「待排程」的訂單；S- 商品依 C端 BOM 直接子件比對，非 S- 比對訂購料號本身。不代表已預留庫存。</p></div></div>
       ${!isFresh('core')?'<div class="info-warn" role="status">訂單或庫存快照可能不是最新；請先按營運分析的「重新整理」，再核對缺料判斷。</div>':''}
       <div class="analytics-source-strip" style="margin-bottom:10px">可計算 ${data.checked}/${data.pending} 筆待領料訂單；其中缺料 ${data.blocked.length} 筆，交期已逾期且缺料 ${data.overdueBlocked.length} 筆。${data.unknown.length?'其餘料號關聯、數量或庫存待確認。':''}</div>
       ${shortageList}${shortageRows.length<data.blocked.length?'<button type="button" class="btn btn-ghost btn-sm" onclick="analyticsShowMoreShortages()">顯示更多缺料訂單</button>':''}<div style="font-size:.7rem;color:var(--text3);margin-top:8px">顯示前 ${shortageRows.length}/${data.blocked.length} 筆；多張訂單共用料號時，尚未扣除彼此需求，實際領料仍以執行前檢查為準。</div>
@@ -23974,7 +23981,7 @@ function openPickModal(orderId){
     p.supabaseId&&canonicalPageId(p.orderId)===canonicalPageId(orderId)&&
     ['待領料','待確認','缺料待補'].includes(p.status));
   const canCheckExistingReceipt=resumablePick&&errors>0&&shortageCount===errors;
-  const blockedTitle=hasBOM
+  const blockedTitle=(hasBOM||plan.sSales)
     ?`無法領料：${shortageCount?'部分 BOM 子件庫存不足':''}${shortageCount&&missingCount?'，且有子件未建檔':!shortageCount?'BOM 子件尚未建檔':''}`
     :plan.transfer?'無法轉入蝦皮庫存：一般倉庫來源庫存不足':'無法領料：訂購品項庫存不足';
   const mi = document.getElementById('modalInner');
@@ -23993,7 +24000,7 @@ function openPickModal(orderId){
     ${!plan.transfer&&items.some(item=>item.id&&!item.missing&&(Number(item.stock)||0)<Number(item.needed||0))?'<div id="pickShortageFollowups" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;font-size:.8rem">正在查詢缺料後續紀錄…</div>':''}
     ${renderPreflightCenter({
       title:plan.transfer?'執行前檢查 - 一對一轉庫':'執行前檢查 - 領料扣庫',
-      subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
+      subtitle:plan.transfer?'蝦皮補庫：扣一般倉庫同料號，同時增加 S- 庫存；不展開 BOM。':hasBOM?'組立／生產單：扣 BOM 直接子件。':plan.sSales?'國內／外銷 S- 商品：與 C端相同，扣 BOM 直接 S- 子件；無 BOM 的單品扣自身，不增加母件庫存。':'客戶訂單：扣所訂料號本身；庫存不足請另開生產或補庫單。',
       errors,
       groupReadyRows:true,
       blockedSummaryShown:true,
@@ -24001,13 +24008,13 @@ function openPickModal(orderId){
       warnings:0,
       kpis:[
         {label:'扣庫項目',value:items.length},
-        {label:'扣庫模式',value:plan.transfer?'一般倉庫 → S-':hasBOM?'生產子件':'訂購料號本身'},
+        {label:'扣庫模式',value:plan.transfer?'一般倉庫 → S-':hasBOM?'生產子件':plan.sSales?'S- 商品直接子件':'訂購料號本身'},
         {label:'阻擋',value:errors},
         {label:'來源',value:plan.transfer?'同料號庫存':_bomDataSource||'not-loaded'},
       ],
       sections:[
         {title:'防呆',lines:[
-          plan.transfer?'若有舊待領料單，確認後會核對扣庫交易；僅未扣庫的舊單會取消並續接轉庫，保留原訂單。':hasBOM?'BOM 資料已載入':'客戶出貨不展開 BOM',
+          plan.transfer?'若有舊待領料單，確認後會核對扣庫交易；僅未扣庫的舊單會取消並續接轉庫，保留原訂單。':hasBOM?'BOM 資料已載入':plan.sSales?'只扣直接 S- 子件，不展開下層，不改扣一般倉庫':'非 S- 客戶出貨不展開 BOM',
           '庫存不足會停止，不改扣其他料件',
         ]},
       ],
@@ -25598,7 +25605,7 @@ async function doPick(orderId){
     if(!o) throw new Error('找不到訂單，請同步後重試');
     if(isSfgProductionOrder(o)&&o.status&&o.status!=='待排程')throw new Error('組立單目前狀態不可重新領料，請同步後確認');
     if(isShopeeProductionOrder(o)){await executeShopeeTransfer(o);return;}
-    const {items,production:hasBOM}=resolveOrderPickPlan(o);
+    const {items,production:hasBOM,sSales}=resolveOrderPickPlan(o);
     if(!items.length) throw new Error('訂單未關聯成品料件，無法扣庫存');
     const missing=items.filter(item=>item.missing||!item.id);
     if(missing.length) throw new Error('BOM 子料號尚未建檔：'+missing.map(x=>x.code||x.name).join('、'));
@@ -25612,7 +25619,7 @@ async function doPick(orderId){
         product_display:prod?.name||prod?.code||'',
         production_quantity:Number(o.qty),
         picker_display:ROLE||'',
-        notes:hasBOM?'BOM 直接子件領料':'客戶訂單料號直接領料',
+        notes:hasBOM?'BOM 直接子件領料':sSales?'S- 客戶訂單依 C端 BOM 領料':'客戶訂單料號直接領料',
         items:items.map(item=>({
           material_notion_page_id:item.id,
           sku:item.code||'',
@@ -25632,7 +25639,7 @@ async function doPick(orderId){
       product_display:prod?.name||prod?.code||'',
       production_quantity:Number(o.qty),
       picker_display:ROLE||'',
-      notes:hasBOM?'BOM 直接子件領料':'客戶訂單料號直接領料',
+      notes:hasBOM?'BOM 直接子件領料':sSales?'S- 客戶訂單依 C端 BOM 領料':'客戶訂單料號直接領料',
       pick_date:ds,
       created_at:new Date().toISOString(),
     });
@@ -25668,7 +25675,7 @@ async function doPick(orderId){
     const batchMoves=await applyInventoryBatchAndMirror(
       items.map(item=>({pageId:item.id,delta:-Number(item.needed)})),
       {
-        reason:hasBOM?'訂單領料扣庫':'客戶訂單料號直接扣庫',
+        reason:hasBOM?'訂單領料扣庫':sSales?'S- 客戶訂單依 C端 BOM 扣庫':'客戶訂單料號直接扣庫',
         refNo:no,
         sourceType:'order_pick_batch',
         sourceId:orderId
@@ -25713,9 +25720,9 @@ async function doPick(orderId){
     );
     criticalCommitted=true;
     notionPending=notionPending||pickStatusSync.pending||statusSync.pending;
-    logUserAction('確認領料',no,`${o.no||orderId} ${hasBOM?'BOM直接子件':'直接扣料'}`,ROLE);
+    logUserAction('確認領料',no,`${o.no||orderId} ${hasBOM||sSales?'BOM直接子件':'直接扣料'}`,ROLE);
     await refreshAffectedData({core:true,tabs:['picking'],label:'領料與庫存已更新'});
-    const modeNote=hasBOM?`（BOM直接子件 ${items.length} 項）`:'（直接扣訂購料號庫存）';
+    const modeNote=hasBOM||sSales?`（${sSales?'S- 商品 ':''}BOM直接子件 ${items.length} 項）`:'（直接扣訂購料號庫存）';
     showToast(notionPending
       ? `✅ Supabase 領料與扣庫完成；Notion 鏡像狀態待自動補同步 ${modeNote}`
       : `✅ 領料單 ${no} 建立完成 ${modeNote}`,notionPending?'warn':'ok');
