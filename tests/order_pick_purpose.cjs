@@ -141,6 +141,25 @@ test('production missing BOM, missing child, zero quantity or unloaded BOM block
   await t.ctx.doPick('order');assert.equal(t.calls.length,0);
  }
 });
+
+test('fractional production BOM keeps four-decimal quantities exact in preview and submitted stock batch',async()=>{
+ for(const [quantity,needed] of [[1,.0085],[3,.0255],[10,.085],[100,.85],[1000,8.5]]){
+  const t=setup('半成品',0);t.order.qty=quantity;
+  for(const child of t.children)child.stock=2000;
+  t.ctx.boms[0].qty=.0085;t.children[0].stock=needed;
+  t.ctx.openPickModal('order');assert.equal(t.preview.errors,0,'exactly sufficient stock for '+quantity);
+  await t.ctx.doPick('order');
+  assert.equal(t.calls.find(c=>c.path).body.items.find(i=>i.material_notion_page_id==='c0').required_quantity,needed);
+  const batch=t.calls.find(c=>c.batch);assert(batch,JSON.stringify(t.toast));assert.equal(batch.batch.find(i=>i.pageId==='c0').delta,-needed);
+  assert(!batch.batch.some(i=>i.pageId==='parent'));
+ }
+});
+test('production BOM quantities beyond storage precision or safe arithmetic stop before writes',async()=>{
+ for(const qty of [.00005,1e20]){
+  const t=setup('半成品');t.ctx.boms[0].qty=qty;
+  await t.ctx.doPick('order');assert.equal(t.calls.length,0);
+ }
+});
 test('completed picking retries do not deduct again',async()=>{
  const t=setup();t.ctx.pickingWorkerRequest=async()=>({completed:true,row:{id:'pick',items:[]}});
  await t.ctx.doPick('order');assert(!t.calls.some(x=>x.batch));

@@ -2175,19 +2175,26 @@ function resolveOrderPickPlan(o){
   }
   if(!production)return {prod,production:false,items:[{...prod,needed:qty}]};
   if(!_bomDataReady)throw new Error('BOM 資料尚未成功載入，已停止生產領料');
+  // Match numeric(16,4) storage before comparison, fingerprinting and submission.
+  const componentNeed=value=>{
+    const per=Number(value),unit=Math.round(per*10000),total=unit*qty;
+    if(!Number.isSafeInteger(unit)||unit<=0||Math.abs(per-unit/10000)>1e-10||!Number.isSafeInteger(total)||total<=0)throw new Error('BOM 用量超出小數四位或安全計算範圍，已停止領料');
+    return total/10000;
+  };
   const direct=boms.filter(b=>b.parentId===o.productId);
   const items=direct.length?direct.map(b=>{
     const child=mats.find(m=>m.id===b.childId);
     if(!child)throw new Error('BOM 子料件不存在，請先修正 BOM');
     if(child.id===prod.id||!Number.isFinite(Number(b.qty))||Number(b.qty)<=0)throw new Error('BOM 子件或用量無效');
-    return {...child,needed:Number(b.qty)*qty};
+    return {...child,needed:componentNeed(b.qty)};
   }):explodeBOM(o.productId,qty);
   if(!items.length)throw new Error('BOM 尚未設定，生產單不能改扣母件庫存');
   const grouped=new Map();
   for(const item of items){
     if(item.missing||!item.id||item.id===prod.id||!Number.isFinite(item.needed)||item.needed<=0)throw new Error('BOM 子料件或用量無效，已停止領料');
-    if(grouped.has(item.id))grouped.get(item.id).needed+=item.needed;
-    else grouped.set(item.id,{...item});
+    const units=Math.round((grouped.get(item.id)?.needed||0)*10000)+Math.round(item.needed*10000);
+    if(!Number.isSafeInteger(units)||units<=0)throw new Error('BOM 總用量超出安全計算範圍，已停止領料');
+    grouped.set(item.id,{...item,needed:units/10000});
   }
   return {prod,production:true,items:[...grouped.values()]};
 }
