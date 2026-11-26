@@ -280,7 +280,7 @@
   const counts={all:grouped.length,confirmed:0,pending:0,expense:0,invalid:0};grouped.forEach(g=>counts[g.status]++);
   for(const category of ['exact','similar','unmatched'])counts[category]=grouped.filter(g=>reviewCategory(g)===category).length;
   const known=rows.filter(r=>number(r.amount)!==null),sum=known.reduce((s,r)=>s+Number(r.amount),0);
-  const header=`<section class="module-brief"><div><h2>進銷存</h2><p>倉管看每月進出、採購追待核項目、主管看採購與用料。先用已帶入的 9、10 月資料；查詢與試跑不增減庫存。</p></div></section>
+  const header=`<section class="module-brief"><div><h2>進銷存</h2><p>倉管看每月進出、採購追待核項目、主管看採購與用料。從月份選單查看已同步的進貨明細。</p></div></section>
    <div class="panel pl-toolbar"><label>帳務月份 <select class="inp" onchange="purchaseLedgerChange('period',this.value)" ${state.busy?'disabled':''}>${state.periods.map(period=>`<option value="${esc(period)}" ${state.period===period?'selected':''}>${Number(period.slice(0,4))-1911} 年 ${Number(period.slice(5))} 月</option>`).join('')||'<option>尚無已匯入月份</option>'}</select></label><button class="btn btn-ghost" onclick="loadPurchaseLedger()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'重新讀取'}</button></div>`;
   if(state.error)return header+`<div class="panel pl-message" role="alert">${esc(state.error)}<p>資料未載入，不能當成沒有進貨；請按重新讀取。</p></div>`;
   if(!state.loaded)return header+'<div class="loading-row">正在讀取進貨來源與人工對照…</div>';
