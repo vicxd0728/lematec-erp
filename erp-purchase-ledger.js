@@ -154,7 +154,7 @@
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  root.PurchaseLedger=api;
  if(typeof document==='undefined')return;
- const state={period:'2026-10',sub:'overview',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',compareFilter:'all',txLimits:{},monthlyQ:'',monthlyLimit:50,pendingFilter:'all',pendingLimit:20,usageUnit:'',previous:null,previousError:'',batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
+ const state={period:null,periods:[],sub:'overview',q:'',status:'all',page:1,trialLimit:20,trialFilter:'all',compareFilter:'all',txLimits:{},monthlyQ:'',monthlyLimit:50,pendingFilter:'all',pendingLimit:20,usageUnit:'',previous:null,previousError:'',batch:null,mappings:[],materials:[],loaded:false,busy:false,error:'',report:null,reportError:'',draft:null,lastSaved:''};
  const esc=v=>escapeHtml(v??'');
  const fmt=v=>number(v)===null?'—':Number(v).toLocaleString('zh-TW',{maximumFractionDigits:4});
  const writeAllowed=()=>['vic','manager','purchase','warehouse'].includes(ROLE);
@@ -177,6 +177,11 @@
   if(state.draft){lockPurchaseNavigation();restorePurchaseDraft();showToast('請先儲存或取消目前這筆對照，再重新讀取','warn');return;}
   state.busy=true;state.error='';state.trialLimit=20;redraw();
   try{
+   const catalog=await request('periods');
+   if(!Array.isArray(catalog.periods))throw Error('月份清單未完整讀取，請重試');
+   state.periods=[...new Set(catalog.periods.filter(p=>/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(p)))].sort().reverse();
+   if(!state.periods.includes(state.period))state.period=state.periods[0]||null;
+   if(!state.period){state.batch=null;state.loaded=true;return;}
    const [data,res]=await Promise.all([request('list?period='+state.period),fetch(PROXY+'/api/inventory/list?limit=20000',{headers:erpWorkerHeaders(),cache:'no-store'})]);
    const inventory=await res.json();if(!res.ok||!inventory.ok||!Array.isArray(inventory.materials))throw Error('正式庫存料號未完整讀取，請重試');
    state.batch=data.batch;state.mappings=data.mappings;state.materials=inventory.materials.filter(m=>!m.status||m.status==='啟用');state.loaded=true;state.report=null;state.reportError='';state.txLimits={};state.previous=null;state.previousError='';state.draft=null;state.lastSaved='';
@@ -264,8 +269,9 @@
   const ranked=(usage||[]).filter(x=>x.unit===state.usageUnit).slice(0,10),previous=state.previous?.batch?purchaseOverview(groups(state.previous.batch.payload.rows,state.previous.mappings,state.materials)):null;
   const pending=pendingItems(grouped,state.report);
   const kpi=(label,value,note)=>`<div class="kpi-card pl-overview-kpi"><div class="kpi-label">${label}</div><div class="kpi-num" style="font-size:1.6rem">${value}</div><div class="kpi-sub">${note}</div></div>`;
-  const trend=state.period==='2026-10'?[{period:'2026-09',amount:previous?.amount??null},{period:state.period,amount:overview.amount}]:[{period:state.period,amount:overview.amount}];
-  return `<div class="panel pl-message"><b>主管｜採購與用料概覽</b><p>先看來源金額、供應商與用料線索，再進總表或待核清單。金額為原表品項小計，含待配號及費用，不是含稅帳款、已確認物料採購成本或毛利；幣別以原表為準。</p></div><div class="dash-kpi-grid">${kpi('來源品項小計',fmt(overview.amount),`已知 ${overview.known} 列 · 缺金額 ${overview.missing} 列`)}${kpi('原始供應商',overview.suppliers.length,'依來源廠商文字區分，未自動合併')}${kpi('目前可判定待核',pending.length+' 項',state.report?'含配號、單位與入庫差異':'入庫差異尚未檢查')}${kpi('有領料／出庫料號',usage===null?'—':usage.length,'按料號＋單位計數，非銷售排行')}</div><div class="pl-tabs"><button class="btn btn-blue" onclick="purchaseLedgerChange('sub','pending')">處理進貨待核清單</button><button class="btn btn-ghost" onclick="purchaseLedgerChange('sub','monthly')">查看每月物料進出總表</button></div>`+reportNotice()+`<div class="pl-chart-grid">${renderBars('月別來源品項小計',trend,x=>x.amount,x=>x.period+(x.amount===null?'（未取得）':''))}${renderBars('供應商來源小計排行（前 8 名）',overview.suppliers.filter(x=>x.amount!==null).slice(0,8),x=>x.amount,x=>x.supplier)}</div><p class="pl-muted">月別圖只呈現已帶入的 9、10 月；缺值不當零。${overview.missing?'已知金額合計不是完整月金額。':''}${state.previousError?esc(state.previousError):''}</p><div class="panel pl-toolbar"><label>領料／出庫排行單位<select class="inp" aria-label="用料排行單位" onchange="purchaseLedgerChange('usageUnit',this.value)">${units.map(unit=>`<option ${unit===state.usageUnit?'selected':''}>${esc(unit)}</option>`).join('')||'<option>尚無可用資料</option>'}</select></label><span>不同單位分開看；不計入轉庫、手動調整，領料不等於實際消耗或銷貨。</span></div>${usage===null?'<div class="panel pl-message">完整期間總表尚未取得，不顯示用料排行為零。</div>':renderBars('領料／出庫數量排行（'+(state.usageUnit||'未填單位')+'，前 10 名）',ranked,x=>x.quantity,x=>x.sku)}<details class="panel pl-message"><summary>供應商明細與來源入口（${overview.suppliers.length} 家）</summary>${overview.suppliers.map(s=>`<div class="pl-trial-source"><b>${esc(s.supplier)}</b><div>已知小計 ${fmt(s.amount)} · ${s.rows} 列 · 缺金額 ${s.missing} 列</div><button class="btn btn-ghost" data-supplier="${esc(s.supplier)}" onclick="openPurchaseSupplier(this.dataset.supplier)">查看該供應商來源</button></div>`).join('')}</details>`;
+  const earlier=state.periods[state.periods.indexOf(state.period)+1];
+  const trend=[...(earlier?[{period:earlier,amount:previous?.amount??null}]:[]),{period:state.period,amount:overview.amount}];
+  return `<div class="panel pl-message"><b>主管｜採購與用料概覽</b><p>先看來源金額、供應商與用料線索，再進總表或待核清單。金額為原表品項小計，含待配號及費用，不是含稅帳款、已確認物料採購成本或毛利；幣別以原表為準。</p></div><div class="dash-kpi-grid">${kpi('來源品項小計',fmt(overview.amount),`已知 ${overview.known} 列 · 缺金額 ${overview.missing} 列`)}${kpi('原始供應商',overview.suppliers.length,'依來源廠商文字區分，未自動合併')}${kpi('目前可判定待核',pending.length+' 項',state.report?'含配號、單位與入庫差異':'入庫差異尚未檢查')}${kpi('有領料／出庫料號',usage===null?'—':usage.length,'按料號＋單位計數，非銷售排行')}</div><div class="pl-tabs"><button class="btn btn-blue" onclick="purchaseLedgerChange('sub','pending')">處理進貨待核清單</button><button class="btn btn-ghost" onclick="purchaseLedgerChange('sub','monthly')">查看每月物料進出總表</button></div>`+reportNotice()+`<div class="pl-chart-grid">${renderBars('月別來源品項小計',trend,x=>x.amount,x=>x.period+(x.amount===null?'（未取得）':''))}${renderBars('供應商來源小計排行（前 8 名）',overview.suppliers.filter(x=>x.amount!==null).slice(0,8),x=>x.amount,x=>x.supplier)}</div><p class="pl-muted">月別圖比較本月與上一個已匯入月份，缺值顯示未取得。${overview.missing?'已知金額合計不是完整月金額。':''}${state.previousError?esc(state.previousError):''}</p><div class="panel pl-toolbar"><label>領料／出庫排行單位<select class="inp" aria-label="用料排行單位" onchange="purchaseLedgerChange('usageUnit',this.value)">${units.map(unit=>`<option ${unit===state.usageUnit?'selected':''}>${esc(unit)}</option>`).join('')||'<option>尚無可用資料</option>'}</select></label><span>不同單位分開看；不計入轉庫、手動調整，領料不等於實際消耗或銷貨。</span></div>${usage===null?'<div class="panel pl-message">完整期間總表尚未取得，不顯示用料排行為零。</div>':renderBars('領料／出庫數量排行（'+(state.usageUnit||'未填單位')+'，前 10 名）',ranked,x=>x.quantity,x=>x.sku)}<details class="panel pl-message"><summary>供應商明細與來源入口（${overview.suppliers.length} 家）</summary>${overview.suppliers.map(s=>`<div class="pl-trial-source"><b>${esc(s.supplier)}</b><div>已知小計 ${fmt(s.amount)} · ${s.rows} 列 · 缺金額 ${s.missing} 列</div><button class="btn btn-ghost" data-supplier="${esc(s.supplier)}" onclick="openPurchaseSupplier(this.dataset.supplier)">查看該供應商來源</button></div>`).join('')}</details>`;
  }
  function sourceLine(row){return `${state.batch?.payload?.sheet||''} 第 ${row.line} 列`;}
  root.renderPurchaseLedger=function(){
@@ -275,13 +281,13 @@
   for(const category of ['exact','similar','unmatched'])counts[category]=grouped.filter(g=>reviewCategory(g)===category).length;
   const known=rows.filter(r=>number(r.amount)!==null),sum=known.reduce((s,r)=>s+Number(r.amount),0);
   const header=`<section class="module-brief"><div><h2>進銷存</h2><p>倉管看每月進出、採購追待核項目、主管看採購與用料。先用已帶入的 9、10 月資料；查詢與試跑不增減庫存。</p></div></section>
-   <div class="panel pl-toolbar"><label>帳務月份 <select class="inp" onchange="purchaseLedgerChange('period',this.value)" ${state.busy?'disabled':''}><option value="2026-09" ${state.period==='2026-09'?'selected':''}>115 年 9 月</option><option value="2026-10" ${state.period==='2026-10'?'selected':''}>115 年 10 月</option></select></label><button class="btn btn-ghost" onclick="loadPurchaseLedger()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'重新讀取'}</button></div>`;
+   <div class="panel pl-toolbar"><label>帳務月份 <select class="inp" onchange="purchaseLedgerChange('period',this.value)" ${state.busy?'disabled':''}>${state.periods.map(period=>`<option value="${esc(period)}" ${state.period===period?'selected':''}>${Number(period.slice(0,4))-1911} 年 ${Number(period.slice(5))} 月</option>`).join('')||'<option>尚無已匯入月份</option>'}</select></label><button class="btn btn-ghost" onclick="loadPurchaseLedger()" ${state.busy?'disabled':''}>${state.busy?'讀取中…':'重新讀取'}</button></div>`;
   if(state.error)return header+`<div class="panel pl-message" role="alert">${esc(state.error)}<p>資料未載入，不能當成沒有進貨；請按重新讀取。</p></div>`;
   if(!state.loaded)return header+'<div class="loading-row">正在讀取進貨來源與人工對照…</div>';
-  if(!state.batch)return header+'<div class="panel pl-message">尚未帶入這個月的來源快照。雲端 ERP 不會直接讀取區網檔案；來源需由公司電腦的匯入工具送入。</div>';
+  if(!state.batch)return header+'<div class="panel pl-message">尚無來源快照。公司電腦同步完成後，按「重新讀取」即可更新月份。</div>';
   const cards=`<div class="dash-kpi-grid"><div class="kpi-card kpi-cyan"><div class="kpi-label">來源品項列</div><div class="kpi-num">${rows.length}</div><div class="kpi-sub">同一發票可有多列，非發票張數</div></div><div class="kpi-card kpi-amber"><div class="kpi-label">待確認對照</div><div class="kpi-num">${counts.pending+counts.invalid}</div><div class="kpi-sub">依廠商＋原始品名，共 ${grouped.length} 組</div></div><div class="kpi-card kpi-green"><div class="kpi-label">已確認物料／非物料</div><div class="kpi-num">${counts.confirmed} / ${counts.expense}</div><div class="kpi-sub">跨月份共用已保存的對照</div></div><div class="kpi-card"><div class="kpi-label">品項小計合計</div><div class="kpi-num" style="font-size:1.65rem">${fmt(sum)}</div><div class="kpi-sub">僅原表小計；非含稅帳款，缺值 ${rows.length-known.length} 列</div></div></div>`;
   const coverage=`<div class="panel pl-coverage" aria-label="對照進度">${[['confirmed','已確認料號'],['expense','非物料'],['pending','待確認'],['invalid','失效對照']].map(([s,l])=>`<div><span>${l} ${counts[s]} 組</span><meter min="0" max="${grouped.length||1}" value="${counts[s]}">${counts[s]}</meter></div>`).join('')}</div>`;
-  const source=`<details class="panel pl-message"><summary>來源與核對規則</summary><p>${esc(state.batch.source_key)} · ${esc(state.batch.payload.sheet)} · 匯入 ${esc(state.batch.created_at)}<br>來源指紋 ${esc(state.batch.source_hash.slice(0,12))}；保留原始品名與 Excel 列號。排除月份標題、合計及空白公式列。數量不跨不同品項加總；單位換算未確認前不比較庫存數量。銀行、支票與付款資料未帶入本階段。</p><p>本頁尚未串接銷貨與自動區網同步。料號對照不會改寫 BOM、舊訂單或倉庫料號。</p></details>`;
+  const source=`<details class="panel pl-message"><summary>來源與核對規則</summary><p>${esc(state.batch.source_key)} · ${esc(state.batch.payload.sheet)} · 匯入 ${esc(state.batch.created_at)}<br>來源指紋 ${esc(state.batch.source_hash.slice(0,12))}；保留原始品名與 Excel 列號。排除月份標題、合計及空白公式列。數量不跨不同品項加總；單位換算未確認前不比較庫存數量。銀行、支票與付款資料未帶入本階段。</p><p>進貨來源由公司電腦同步；銷貨資料尚未串接。料號對照不會改寫 BOM、舊訂單或倉庫料號。</p></details>`;
   const nav=items=>items.map(([s,l])=>`<button class="btn ${state.sub===s?'btn-blue':'btn-ghost'}" aria-pressed="${state.sub===s}" onclick="purchaseLedgerChange('sub','${s}')">${l}</button>`).join('');
   const tabs=`<div class="pl-tabs" aria-label="進銷存工作入口">${nav([['overview','採購與用料概覽'],['monthly','每月物料進出總表'],['pending','進貨待核清單']])}</div><details class="pl-source-tools" ${['trial','mapping','details','compare'].includes(state.sub)?'open':''}><summary>料號與來源核對工具</summary><div class="pl-tabs">${nav([['trial','系統試跑'],['mapping','料號對照'],['details','進貨明細'],['compare','期間進出核對']])}</div></details>`;
   if(state.sub==='monthly')return header+tabs+renderMonthly()+source;
@@ -379,10 +385,11 @@
   if(state.sub==='overview')await loadPurchasePrevious();
  };
  root.loadPurchasePrevious=async function(){
-  if(state.busy||state.draft||state.period!=='2026-10'||state.previous)return;
+  const earlier=state.periods[state.periods.indexOf(state.period)+1];
+  if(state.busy||state.draft||!earlier||state.previous)return;
   state.busy=true;redraw();
-  try{state.previous=await request('list?period=2026-09');state.previousError=state.previous.batch?'':'9 月尚無來源快照，不能做完整月別比較。';}
-  catch(e){state.previousError='9 月來源未取得：'+e.message;}
+  try{state.previous=await request('list?period='+earlier);state.previousError=state.previous.batch?'':'上個已匯入月份的快照未取得。';}
+  catch(e){state.previousError=earlier+' 來源未取得 · '+e.message;}
   finally{state.busy=false;redraw();}
  };
  root.searchPurchaseMonthly=function(){state.monthlyQ=document.getElementById('pl-monthly-search')?.value.trim()||'';state.monthlyLimit=50;redraw();};

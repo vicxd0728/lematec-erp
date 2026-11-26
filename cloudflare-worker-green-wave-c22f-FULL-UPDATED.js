@@ -1476,8 +1476,11 @@ function inventoryPeriodAggregate(transactions){
     return row;
   }).sort((a,b)=>a.warehouse.localeCompare(b.warehouse)||a.sku.localeCompare(b.sku));
 }
+function purchaseLedgerSource(period){
+  return typeof period==='string'&&/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(period)?(Number(period.slice(0,4))-1911)+'進貨明細表.xlsx':'';
+}
 function purchaseLedgerValidateBatch(body){
-  if(body.source_key!=='115進貨明細表.xlsx'||!/^[a-f0-9]{64}$/.test(body.source_hash||'')||!/^2026-(09|10)$/.test(body.period||''))throw Error('第一版僅接受 115 進貨明細表的 2026 年 9、10 月');
+  if(!purchaseLedgerSource(body.period)||body.source_key!==purchaseLedgerSource(body.period)||!/^[a-f0-9]{64}$/.test(body.source_hash||''))throw Error('年度進貨明細表與帳務月份不符，或來源指紋無效');
   const rows=body.payload?.rows;
   if(!Array.isArray(rows)||rows.length<1||rows.length>2000)throw Error('進貨明細筆數不合法');
   const lines=new Set();
@@ -1500,10 +1503,20 @@ async function erpPurchaseLedger(request,env,cors,url){
   try{
     const {organization}=await getSupabaseInventoryContext(env),org=encodeURIComponent(organization.id);
     const response=data=>new Response(JSON.stringify(data),{headers:{...jh(cors),'Cache-Control':'no-store'}});
+    if(request.method==='GET'&&url.pathname==='/api/purchase-ledger/periods'){
+      const periods=new Set();
+      for(let offset=0;;offset+=500){
+        const rows=await supabaseFetch(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&select=period,source_key&order=period.desc,id.desc&limit=500&offset=${offset}`);
+        for(const row of rows)if(purchaseLedgerSource(row.period)===row.source_key)periods.add(row.period);
+        if(rows.length<500)break;
+      }
+      return response({ok:true,periods:[...periods]});
+    }
     if(request.method==='GET'&&url.pathname==='/api/purchase-ledger/list'){
-      const period=url.searchParams.get('period')||'2026-10';
-      if(!/^2026-(09|10)$/.test(period))return resp400(cors,'請選擇 2026 年 9 月或 10 月');
-      const batch=await supabaseSingle(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&source_key=eq.${encodeURIComponent('115進貨明細表.xlsx')}&period=eq.${period}&order=created_at.desc,id.desc&limit=1`,true);
+      const period=url.searchParams.get('period');
+      const sourceKey=purchaseLedgerSource(period);
+      if(!sourceKey)return resp400(cors,'請選擇有效的帳務月份');
+      const batch=await supabaseSingle(env,`/rest/v1/erp_purchase_batches?organization_id=eq.${org}&source_key=eq.${encodeURIComponent(sourceKey)}&period=eq.${period}&order=created_at.desc,id.desc&limit=1`,true);
       const mappings=[];
       for(let offset=0;;offset+=500){
         const part=await supabaseFetch(env,`/rest/v1/erp_purchase_mappings?organization_id=eq.${org}&order=supplier.asc,source_label.asc&limit=500&offset=${offset}`);

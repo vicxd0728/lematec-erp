@@ -1,50 +1,142 @@
-"""Read shared Excel; import only accounting review snapshots, never inventory.
-Dry-run default. --apply requires NOTION_TOKEN and deployed ledger schema/API.
-"""
-import argparse,hashlib,io,json,math,os,sys
+"""Sync company annual purchase workbooks into accounting snapshots."""
+import argparse
+import hashlib
+import io
+import json
+import math
+import os
+import re
+import sys
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections import Counter
-import openpyxl,requests
+from zipfile import BadZipFile
 
-WORKER='https://green-wave-c22f.vic-e93.workers.dev'
-def parse_book(data):
- if not data.startswith(b'PK'):raise ValueError('非一般 XLSX；檔案可能加密。停止解析，請提供解密副本。')
- book=openpyxl.load_workbook(io.BytesIO(data),read_only=True,data_only=True,keep_links=False)
- try:
-  sheet=book['仂邁1'];months={9:[],10:[]};excluded=[]
-  for line,row in enumerate(sheet.iter_rows(values_only=True),1):
-   if line==1 or row[0] not in months:continue
-   _,supplier,label,qty,price,amount,*_=row
-   if not isinstance(label,str) or not label.strip():continue
-   if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty):
-    excluded.append({'line':line,'month':row[0],'reason':'沒有數值數量，非本階段品項列','label':label});continue
-   if not supplier or not str(supplier).strip():raise ValueError(f'第 {line} 列缺少廠商，停止匯入而非猜測群組')
-   def numeric(value):
-    if value is None:return None
-    if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):raise ValueError(f'第 {line} 列金額格式需確認')
-    return value
-   months[row[0]].append({'line':line,'supplier':str(supplier).strip(),'label':label.strip(),'quantity':qty,'unit_price':numeric(price),'amount':numeric(amount)})
-  return sheet.title,months,excluded
- finally:book.close()
+import openpyxl
+import requests
+
+WORKER = 'https://green-wave-c22f.vic-e93.workers.dev'
+SHARE = Path(r'\\Lematec-pc\共用')
+FILE = re.compile(r'([0-9]{3})進貨明細表\.xlsx')
+TAIPEI = timezone(timedelta(hours=8))
+
+
+def read_snapshot(path):
+    before = path.stat()
+    if time.time() - before.st_mtime < 30:
+        raise ValueError('檔案剛儲存，等下次同步')
+    raw = path.read_bytes()
+    after = path.stat()
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise ValueError('讀取時檔案仍在修改，等下次同步')
+    return raw
+
+
+def parse_book(raw):
+    if not raw.startswith(b'PK'):
+        raise ValueError('來源可能已加密或不完整')
+    workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True, keep_links=False)
+    try:
+        sheet = workbook['仂邁1']
+        rows = iter(sheet.values)
+        headers = tuple(re.sub(r'\s+', '', str(value or '')) for value in next(rows, ())[:6])
+        if headers != ('月份', '廠商', '品名', '數量', '單價', '小計'):
+            raise ValueError('年度進貨明細欄位不完整')
+        months, excluded = defaultdict(list), defaultdict(int)
+        for line, row in enumerate(rows, 2):
+            month = row[0]
+            if type(month) is not int or not 1 <= month <= 12:
+                continue
+            _, supplier, label, qty, price, amount, *_ = row
+            if not isinstance(label, str) or not label.strip():
+                continue
+            if type(qty) not in (int, float) or not math.isfinite(qty):
+                excluded[month] += 1
+                continue
+            if not supplier or not str(supplier).strip():
+                raise ValueError(f'第 {line} 列缺廠商')
+            for value in (price, amount):
+                if value is not None and (type(value) not in (int, float) or not math.isfinite(value)):
+                    raise ValueError(f'第 {line} 列金額欄位無效')
+            months[month].append({'line': line, 'supplier': str(supplier).strip(), 'label': label.strip(),
+                                  'quantity': qty, 'unit_price': price, 'amount': amount})
+        return sheet.title, months, excluded
+    finally:
+        workbook.close()
+
+
+def request(session, path, **kwargs):
+    response = session.request('POST' if 'json' in kwargs else 'GET',
+                               WORKER + '/api/purchase-ledger/' + path, timeout=45, **kwargs)
+    response.raise_for_status()
+    result = response.json()
+    if not result.get('ok'):
+        raise ValueError(f'{path} 未確認成功')
+    return result
+
+
+def sync(path, since, through, session):
+    match = FILE.fullmatch(path.name)
+    if not match:
+        raise ValueError('來源須以民國年度命名')
+    year = int(match[1]) + 1911
+    sheet, months, excluded = parse_book(read_snapshot(path))
+    for month, rows in sorted(months.items()):
+        period = f'{year}-{month:02}'
+        if not since <= period <= through:
+            continue
+        payload = {'sheet': sheet, 'rows': rows}
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        digest = hashlib.sha256(encoded).hexdigest()
+        if not session:
+            print(f'{period} 預檢 {len(rows)} 筆，排除非明細 {excluded[month]} 列', flush=True)
+            continue
+        current = request(session, 'list', params={'period': period})['batch']
+        if current and current['payload'] == payload:
+            print(f'{period} {len(rows)} 筆，資料相同', flush=True)
+            continue
+        if current and len(rows) < len(current['payload']['rows']):
+            print(f'{period} 新版筆數少於上一版，本次保留上一版，請人工核對', flush=True)
+            continue
+        receipt = request(session, 'import', json={'source_key': path.name, 'period': period,
+                                                   'source_hash': digest, 'payload': payload})
+        fresh = request(session, 'list', params={'period': period})['batch']
+        if not fresh or fresh['id'] != receipt['id'] or fresh['payload'] != payload:
+            raise ValueError(f'{period} 寫入後快照未成為目前版本，請核對')
+        print(f'{period} 已同步並讀回 {len(rows)} 筆，排除非明細 {excluded[month]} 列', flush=True)
+
 
 def main():
- sys.stdout.reconfigure(encoding='utf-8')
- p=argparse.ArgumentParser();p.add_argument('--file',default=r'\\Lematec-pc\共用\115進貨明細表.xlsx');p.add_argument('--out',default='output/purchase-ledger-20261119');p.add_argument('--apply',action='store_true');args=p.parse_args()
- out=Path(args.out);out.mkdir(parents=True,exist_ok=True)
- raw=Path(args.file).read_bytes();digest=hashlib.sha256(raw).hexdigest();sheet,months,excluded=parse_book(raw)
- batches=[{'source_key':'115進貨明細表.xlsx','source_hash':digest,'period':f'2026-{m:02}','payload':{'sheet':sheet,'rows':rows}} for m,rows in months.items()]
- for b in batches:(out/(b['period']+'.json')).write_text(json.dumps(b,ensure_ascii=False,indent=2),encoding='utf8')
- summary={'source_sha256':digest,'months':{b['period']:{'rows':len(b['payload']['rows']),'distinct_supplier_labels':len({(x['supplier'],x['label']) for x in b['payload']['rows']})} for b in batches},'excluded':excluded,'inventory_write_requests':0}
- (out/'source-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf8')
- if args.apply:
-  headers={'Authorization':'Bearer '+os.environ['NOTION_TOKEN'],'X-ERP-Role':'vic'};receipts=[]
-  for b in batches:
-   response=requests.post(WORKER+'/api/purchase-ledger/import',json=b,headers=headers,timeout=60)
-   response.raise_for_status();receipt=response.json();assert receipt.get('ok');receipts.append(receipt)
-   fresh=requests.get(WORKER+'/api/purchase-ledger/list',params={'period':b['period']},headers=headers,timeout=60)
-   fresh.raise_for_status();batch=fresh.json()['batch'];assert batch['source_hash']==digest and batch['payload']==b['payload']
-   (out/(b['period']+'-receipt.json')).write_text(json.dumps(receipt,indent=2),encoding='utf8')
-  summary['apply_readback']=receipts
-  (out/'import-complete.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf8')
- print(json.dumps(summary,ensure_ascii=False))
-if __name__=='__main__':main()
+    sys.stdout.reconfigure(encoding='utf-8')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--file', type=Path)
+    parser.add_argument('--share', type=Path, default=SHARE)
+    parser.add_argument('--from-month', default='2026-09')
+    parser.add_argument('--apply', action='store_true')
+    args = parser.parse_args()
+    if not re.fullmatch(r'20[0-9]{2}-(0[1-9]|1[0-2])', args.from_month):
+        parser.error('--from-month 須為 YYYY-MM')
+    now = datetime.now(TAIPEI)
+    year_start = int(args.from_month[:4])
+    sources = [args.file] if args.file else sorted(
+        path for path in args.share.iterdir() if (match := FILE.fullmatch(path.name))
+        and year_start <= int(match[1]) + 1911 <= now.year
+    )
+    if not sources:
+        raise SystemExit('共用資料夾沒有可讀取的年度進貨明細表')
+    failed = False
+    with requests.Session() as client:
+        if args.apply:
+            client.headers.update(Authorization='Bearer ' + os.environ['NOTION_TOKEN'], **{'X-ERP-Role': 'vic'})
+        for source in sources:
+            try:
+                sync(source, args.from_month, now.strftime('%Y-%m'), client if args.apply else None)
+            except (ValueError, KeyError, OSError, requests.RequestException, BadZipFile, openpyxl.utils.exceptions.InvalidFileException) as error:
+                print(f'{source.name} 同步未完成 · {error}', flush=True)
+                failed = True
+    return int(failed)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -126,7 +126,7 @@ test('purchase helper prefers current network logic and retains cached helper on
  }
 });
 const source=fs.readFileSync('cloudflare-worker-green-wave-c22f-FULL-UPDATED.js','utf8');
-const block=source.slice(source.indexOf('function purchaseLedgerValidateBatch('),source.indexOf('async function erpInventoryPeriodReport('));
+const block=source.slice(source.indexOf('function purchaseLedgerSource('),source.indexOf('async function erpInventoryPeriodReport('));
 const id='11111111-1111-4111-8111-111111111111';
 function context(extra={}){
  const calls=[];const c=vm.createContext({Request,Response,URL,JSON,encodeURIComponent,cleanText:v=>String(v||'').trim(),isUuid:v=>/^[a-f0-9-]{36}$/i.test(v||''),
@@ -138,12 +138,23 @@ function req(path,role='purchase',body){const url=new URL('https://isolated.inva
 const batch={source_key:'115進貨明細表.xlsx',source_hash:'a'.repeat(64),period:'2026-10',payload:{sheet:'仂邁1',rows:[rows[0]]}};
 test('batch validation rejects duplicate Excel lines, encrypted/raw attachments and extra financial fields',()=>{
  const {c}=context();assert.equal(c.purchaseLedgerValidateBatch(batch).rows.length,1);
- for(const change of [{...batch,period:'2026-08'},{...batch,payload:{...batch.payload,rows:[rows[0],rows[0]]}},{...batch,payload:{...batch.payload,rows:[{...rows[0],bank:'secret'}]}}])assert.throws(()=>c.purchaseLedgerValidateBatch(change));
+ for(const change of [{...batch,period:'2026-13'},{...batch,period:'2027-01'},{...batch,payload:{...batch.payload,rows:[rows[0],rows[0]]}},{...batch,payload:{...batch.payload,rows:[{...rows[0],bank:'secret'}]}}])assert.throws(()=>c.purchaseLedgerValidateBatch(change));
 });
 test('financial read permissions and AI read-only writes are enforced at the Worker',async()=>{
  const {c,calls}=context();for(const role of ['sales','qc','viewer']){const [r,u]=req('list',role);assert.equal((await c.erpPurchaseLedger(r,{}, {},u)).status,403);}
  const [r,u]=req('import','ai',batch);assert.equal((await c.erpPurchaseLedger(r,{}, {},u)).status,403);assert.equal(calls.length,0);
  const unauth=context({erpClientAuthorized:async()=>false});const [a,b]=req('list');assert.equal((await unauth.c.erpPurchaseLedger(a,{}, {},b)).status,401);
+});
+test('month catalog is scoped and deduplicates versions; new years use the matching annual file',async()=>{
+ const {c}=context({supabaseFetch:async()=>[
+  {period:'2027-01',source_key:'116進貨明細表.xlsx'},
+  {period:'2026-11',source_key:'115進貨明細表.xlsx'},
+  {period:'2026-11',source_key:'115進貨明細表.xlsx'},
+  {period:'2026-08',source_key:'114進貨明細表.xlsx'}
+ ]});
+ const [r,u]=req('periods','warehouse');
+ assert.deepEqual((await (await c.erpPurchaseLedger(r,{}, {},u)).json()).periods,['2027-01','2026-11']);
+ assert.equal(c.purchaseLedgerValidateBatch({...batch,period:'2027-01',source_key:'116進貨明細表.xlsx'}).rows.length,1);
 });
 test('import uses immutable metadata upsert and exact receipt readback only',async()=>{
  const {c,calls}=context({supabaseSingle:async()=>({id,payload:batch.payload})});const [r,u]=req('import','purchase',batch);
