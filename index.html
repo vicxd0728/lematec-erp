@@ -25239,7 +25239,7 @@ function openEditMat(mid){
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-blue" onclick="doEditMat('${mid}')">💾 儲存更新</button>
+      <button class="btn btn-blue" id="em_submit" onclick="doEditMat('${mid}')">💾 儲存更新</button>
     </div>`;
   openModal();
 }
@@ -25296,10 +25296,22 @@ async function doEditMat(mid){
   const oldMat = mats.find(x=>x.id===mid);
   const oldName = oldMat?.name||'';
   const oldSafe = oldMat?.safe||0;
-  closeModal();showToast('更新中...','warn');
+  const skuField=document.getElementById('em_code');
+  const submit=document.getElementById('em_submit');
+  const nextSku=normalizeSku(code||name);
+  const showSkuConflict=()=>{
+    alert(`料件編號「${nextSku}」已被另一筆物料使用，無法儲存。\n\n請換一個未使用的編號。如果只是要修改顯示名稱，請保留原編號，只改料件名稱。`);
+    skuField.focus();
+  };
+  if(!nextSku){alert('請填寫有效的料件編號。');skuField.focus();return;}
+  if(submit?.disabled)return;
+  if(mats.some(m=>m.id!==mid&&normalizeSku(m.code||m.name)===nextSku)){
+    showSkuConflict();return;
+  }
+  if(submit)submit.disabled=true;
+  let saved=false;
+  showToast('更新中...','warn');
   try{
-    const nextSku=normalizeSku(code||name);
-    if(!nextSku)throw new Error('料件編號不可空白');
     const props={
       '料件名稱':{title:[{text:{content:name}}]},
       '類型':{select:{name:type}},
@@ -25315,6 +25327,8 @@ async function doEditMat(mid){
       type,
       safe,
     }));
+    saved=true;
+    if(skuField.isConnected)closeModal();
     let mirrorPending=false;
     try{
       assertNotionPage(await updatePage(mid,props,{skipInventorySync:true}),'更新 Notion 料件鏡像');
@@ -25345,7 +25359,16 @@ async function doEditMat(mid){
         : `✅ 料件「${name}」已更新（原因已記錄）`,
       mirrorPending?'warn':'ok'
     );
-  }catch(e){showToast('❌ 更新失敗：'+e.message,'err');}
+  }catch(e){
+    const message=String(e?.message||'');
+    console.warn('料件更新流程異常',e);
+    if(saved)alert('料件已儲存，但後續更新未完成。請按同步重新核對料件資料。');
+    else if(/materials_organization_id_sku_key|duplicate key.*\bsku\b/i.test(message))showSkuConflict();
+    else if(/\b(?:401|403)\b|unauthori[sz]ed|forbidden|not allowed/i.test(message))alert('目前無法使用此帳號儲存料件。請重新登入或請管理員確認權限。');
+    else alert('料件儲存結果尚未確認。請先同步清單，核對目前料件資料後再重試。');
+  }finally{
+    if(submit)submit.disabled=false;
+  }
 }
 
 function materialUsageSummary(mid){
